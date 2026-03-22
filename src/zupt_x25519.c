@@ -243,10 +243,10 @@ void zupt_x25519(uint8_t out[32], const uint8_t scalar[32], const uint8_t point[
         fe_sq(bb, b);
         fe_mul(x2, aa, bb);
         fe_sub(e2, aa, bb);
-        /* a24 = 121666 */
+        /* a24 = (A + 2) / 4 for Curve25519 (A = 486662) per RFC 7748 */
         fe_copy(dc, e2);
         for (int i = 0; i < 5; i++) tmp0[i] = 0;
-        tmp0[0] = 121666;
+        tmp0[0] = 121666; /* a24 */
         fe_mul(tmp0, dc, tmp0);
         fe_add(tmp0, aa, tmp0);
         fe_mul(z2, e2, tmp0);
