@@ -39,6 +39,24 @@ zupt compress --pq pub.key backup.zupt ~/Documents/   # Encrypt with public key
 zupt extract --pq mykey.key -o ~/restored/ backup.zupt # Decrypt with private key
 ```
 
+## Installation on openuse
+
+Add repository and install manually
+
+For 16.0, run the following as root:
+
+```bash
+zypper addrepo https://download.opensuse.org/repositories/home:cabelo:multicortex/16.0/home:cabelo:multicortex.repo
+zypper refresh
+zypper install zupt
+```
+For 15.6, run the following as root:
+
+```bash
+zypper addrepo https://download.opensuse.org/repositories/home:cabelo:multicortex/15.6/home:cabelo:multicortex.repo
+zypper refresh
+zypper install zupt
+```
 ---
 
 ## Post-Quantum Encryption
