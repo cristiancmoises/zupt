@@ -1,4 +1,3 @@
-# ZUPT v0.7.0 - Makefile (Linux / macOS)
 
 CC       = gcc
 CFLAGS   = -Wall -Wextra -O2 -std=c11 -Iinclude -Isrc
@@ -7,6 +6,8 @@ SOURCES  = src/zupt_main.c src/zupt_format.c src/zupt_lz.c src/zupt_lzh.c src/zu
            src/zupt_parallel.c src/zupt_keccak.c src/zupt_x25519.c src/zupt_mlkem.c
 LDFLAGS  = -lm -lpthread
 TARGET   = zupt
+PREFIX   = /usr/local
+BINDIR   = $(PREFIX)/bin
 
 .PHONY: all clean test test-all test-asan install
 
@@ -79,4 +80,5 @@ test-asan: $(SOURCES) include/zupt.h src/zupt_thread.h src/zupt_parallel.h
 	@echo "ASAN build complete: ./zupt_asan"
 
 install: $(TARGET)
-	install -m 755 $(TARGET) /usr/local/bin/
+	install -d $(DESTDIR)$(BINDIR)
+	install -m 755 $(TARGET) $(DESTDIR)$(BINDIR)/
