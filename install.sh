@@ -1,11 +1,11 @@
-# Fast Installer - For GNU+Linux
 #!/usr/bin/env bash
+# Fast Installer - For GNU+Linux
 
 set -e
 
 echo "🔧 Installing zupt..."
 
-# Create temp directory
+# Create temporary directory
 TMP_DIR=$(mktemp -d)
 
 # Clone repo
@@ -17,8 +17,8 @@ cd "$TMP_DIR/zupt"
 make clean
 make
 
-# Install
-sudo cp zupt /usr/local/bin/
+# Install safely with proper permissions
+sudo install -m 755 zupt /usr/local/bin/
 
 echo "✅ Installed to /usr/local/bin/zupt"
 
