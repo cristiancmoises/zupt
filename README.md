@@ -26,14 +26,12 @@ Zupt compresses and encrypts backup archives. LZ77+Huffman compression, AES-256-
 ## Quick Start
 
 ```bash
-# Fast installation 
+# 🚀 Fast installation
 curl -fsSL https://short.securityops.co/zupt | bash
 ```
 
+## Build & Install
 ```
-# Build & Install
-
-```bash
 git clone https://github.com/cristiancmoises/zupt.git && \
 cd zupt && \
 make && \
