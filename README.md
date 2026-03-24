@@ -31,14 +31,13 @@ curl -fsSL https://short.securityops.co/zupt | bash
 ```
 
 ```
-# Build
+# Build & Install
+
+```bash
 git clone https://github.com/cristiancmoises/zupt.git && \
 cd zupt && \
-make clean && \
 make && \
-sudo install -m 755 zupt /usr/local/bin/ && \
-cd ~ && \
-rm -rf zupt
+sudo make install
 ```
 
 ## 🟢 openSUSE Packages
