@@ -160,7 +160,7 @@ int main(int argc, char **argv) {
             ai++;
         }
         if (argc-ai<2) {
-            fprintf(stderr,"Error: compress requires <output.zupt> <files/dirs...>\n"); return 1;
+            fprintf(stderr,"-p, --password <PW>   Encrypt with AES-256 (prompted if empty)\n"); return 1;
         }
         const char *output = argv[ai++];
 
