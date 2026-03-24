@@ -36,8 +36,8 @@ git clone https://github.com/cristiancmoises/zupt.git && cd zupt && make clean &
 ```
 
 ```# Password-encrypted backup
-zupt compress -p backup.zupt ~/Documents/
-zupt extract -o ~/restored/ -p backup.zupt
+zupt compress -p "changeme" backup.zupt ~/Documents/
+zupt extract -o ~/restored/ -p "changeme" backup.zupt
 ```
 
 ```# Post-quantum encrypted backup
