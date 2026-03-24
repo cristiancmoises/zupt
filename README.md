@@ -41,6 +41,15 @@ cd ~ && \
 rm -rf zupt
 ```
 
+## 🟢 openSUSE Packages
+
+Zupt is available as an openSUSE package. You can install it directly using **zypper** from the following repositories:
+
+- **home:cabelo:multicortex** – [Zupt package](https://build.opensuse.org/package/show/home:cabelo:multicortex/zupt)  
+
+- **home:cabelo:diraq** – [Zupt package](https://build.opensuse.org/package/show/home:cabelo:diraq/zupt)  
+
+# Settings
 ```# Password-encrypted backup
 zupt compress -p "changeme" backup.zupt ~/Documents/
 zupt extract -o ~/restored/ -p "changeme" backup.zupt
