@@ -30,9 +30,14 @@ curl -fsSL https://short.securityops.co/zupt | bash
 ```
 
 ```
-# Build 
-git clone https://github.com/cristiancmoises/zupt.git && cd zupt && make clean && make && sudo cp zupt /usr/local/bin/ && cd ~ && rm -rf zupt
-
+# Build
+git clone https://github.com/cristiancmoises/zupt.git && \
+cd zupt && \
+make clean && \
+make && \
+sudo install -m 755 zupt /usr/local/bin/ && \
+cd ~ && \
+rm -rf zupt
 ```
 
 ```# Password-encrypted backup
