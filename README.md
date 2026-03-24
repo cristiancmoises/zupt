@@ -6,6 +6,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Version](https://img.shields.io/badge/version-1.0.0-orange)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
+[![Hypercommit](https://img.shields.io/badge/Hypercommit-DB2475)](https://hypercommit.com/zupt)
 
 Zupt compresses and encrypts backup archives. LZ77+Huffman compression, AES-256-CTR + HMAC-SHA256 per-block authentication, multi-threaded, and optional ML-KEM-768 + X25519 post-quantum hybrid encryption. Pure C11, zero dependencies, ~5,000 lines.
 
