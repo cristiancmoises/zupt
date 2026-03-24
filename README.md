@@ -163,11 +163,11 @@ build.bat                   # Windows
 ---
 
 ## License
-
 MIT - see [LICENSE](LICENSE).
-
 Security vulnerabilities: see [SECURITY.md](SECURITY.md).
 
----
+## Support the Project
+[![Donate with Monero](https://img.shields.io/badge/Donate-Monero-FF6600?style=flat&logo=monero)](DONATIONS.md)
 
+---
 © 2026 Cristian Cezar Moisés - [github.com/cristiancmoises](https://github.com/cristiancmoises)
