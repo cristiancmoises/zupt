@@ -46,6 +46,22 @@ Zupt is available as an openSUSE package. You can install it directly using **zy
 
 - **home:cabelo:diraq** – [Zupt package](https://build.opensuse.org/package/show/home:cabelo:diraq/zupt)  
 
+To install manually, follow the instructions below.
+
+For 16.0, run the following as root:
+
+```bash
+zypper addrepo https://download.opensuse.org/repositories/home:cabelo:multicortex/16.0/home:cabelo:multicortex.repo
+zypper refresh
+zypper install zupt 
+```
+For 15.6, run the following as root:
+
+```bash
+zypper addrepo https://download.opensuse.org/repositories/home:cabelo:multicortex/15.6/home:cabelo:multicortex.repo
+zypper refresh
+zypper install zupt
+```
 # Settings
 ```# Password-encrypted backup
 zupt compress -p "changeme" backup.zupt ~/Documents/
