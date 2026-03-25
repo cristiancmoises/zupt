@@ -1,4 +1,4 @@
-# Zupt
+<img width="493" height="173" alt="logo" src="https://github.com/user-attachments/assets/164f5217-2362-4ebe-adf4-6c475b665f48"/>
 
 **Backup compression with AES-256 authenticated encryption and post-quantum key encapsulation.**
 
