@@ -40,12 +40,24 @@ sudo make install
 
 ## 🟢 openSUSE Packages
 
-Zupt is available as an openSUSE package. You can install it directly using **zypper** from the following repositories:
+The [openSUSE for Innovators](https://en.opensuse.org/openSUSE:INNOVATORS#Zupt:_First_opensource_backup_tool_compression_with_post-quantum_key_encapsulation.) initiative now natively offers the Zupt tool within the Diraq solution, expanding its reach to all openSUSE flavors, as well as to SUSE Linux Enterprise.
 
-- **home:cabelo:multicortex** – [Zupt package](https://build.opensuse.org/package/show/home:cabelo:multicortex/zupt)  
+The tool is already available as a package in the openSUSE ecosystem and can be installed directly via zypper from the repository:
 
-- **home:cabelo:diraq** – [Zupt package](https://build.opensuse.org/package/show/home:cabelo:diraq/zupt)  
+For 16.0, run the following as root:
 
+```bash
+zypper addrepo https://download.opensuse.org/repositories/home:cabelo:innovators/16.0/home:cabelo:innovators.repo 
+zypper refresh
+zypper install zupt 
+```
+For 15.6, run the following as root:
+
+```bash
+zypper addrepo https://download.opensuse.org/repositories/home:cabelo:innovators/15.6/home:cabelo:innovators.repo 
+zypper refresh
+zypper install zupt
+```
 # Settings
 ```# Password-encrypted backup
 zupt compress -p "changeme" backup.zupt ~/Documents/
