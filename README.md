@@ -40,7 +40,7 @@ sudo make install
 
 ## 🟢 openSUSE Packages
 
-The [openSUSE for Innovators](https://en.opensuse.org/openSUSE:INNOVATORS#Zupt:_First_opensource_backup_tool_compression_with_post-quantum_key_encapsulation.) initiative now natively offers the Zupt tool within the Diraq solution, expanding its reach to all openSUSE flavors, as well as to SUSE Linux Enterprise.
+The [openSUSE for Innovators](https://en.opensuse.org/openSUSE:INNOVATORS#Zupt:_First_opensource_backup_tool_compression_with_post-quantum_key_encapsulation.) initiative now natively offers the Zupt tool within the [Diraq](https://en.opensuse.org/User:Cabelo/DiraQ) solution, expanding its reach to all openSUSE flavors, as well as to SUSE Linux Enterprise.
 
 The tool is already available as a package in the openSUSE ecosystem and can be installed directly via zypper from the repository:
 
