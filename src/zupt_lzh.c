@@ -504,13 +504,10 @@ typedef struct {
     uint32_t match_dist; /* actual match distance (for extra bits) */
 } lzsym_t;
 
-/* Estimate bits for a match (for near-optimal parsing) */
-static inline int match_cost(int len, uint32_t dist) {
-    int lc = len_to_code(len) - 257;
-    int dc = dist_to_code(dist);
-    /* ~10 bits for length code + extra + ~10 bits for dist code + extra */
-    return 10 + LEN_EXTRA[lc] + 10 + DIST_EXTRA[dc];
-}
+/* match_cost() was removed in v1.1.0 — it was dead code (defined but never called).
+ * Clang -Wunused-function flagged it. The cost estimation it provided is handled
+ * implicitly by the lazy-evaluation parser which uses actual Huffman code lengths
+ * rather than fixed estimates. */
 
 /* ═══════════════════════════════════════════════════════════════════
  * COMPRESS

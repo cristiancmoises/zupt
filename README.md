@@ -169,14 +169,23 @@ build.bat                   # Windows
 
 ---
 
-## Roadmap
+## Release History
 
 | Version | Status | Description |
 |---------|--------|-------------|
-| v0.5 | ✅ | Security hardening, Huffman codec fix |
-| v0.6 | ✅ | Multi-threaded compression |
+| v0.1 | ✅ | Initial release — LZ77 compression, `.zupt` format, XXH64 checksums |
+| v0.2 | ✅ | AES-256-CTR + HMAC-SHA256 encryption, PBKDF2, directory recursion |
+| v0.3 | ✅ | Zupt-LZH codec — LZ77 + Huffman, 1MB window, near-optimal parsing |
+| v0.4 | ✅ | Byte prediction preprocessor (Zupt-LZHP), solid mode |
+| v0.5 | ✅ | Security hardening — 16 bug fixes, Huffman codec fix, CSPRNG hardened |
+| v0.6 | ✅ | Multi-threaded compression (`-t N`), batch-parallel pipeline |
 | v0.7 | ✅ | Post-quantum hybrid encryption (ML-KEM-768 + X25519) |
-| **v1.0** | **✅ Current** | **Stable release, format frozen, security audit** |
+| v1.0 | ✅ | Stable release — format frozen v1.4, security audit, MIT license |
+| v1.1 | ✅ | X25519 formula fix, 13 NIST/RFC test vectors, zero `-Wpedantic` warnings |
+| v1.2 | ✅ | CPUID runtime detection (AES-NI, AVX2, SSE4.1, PCLMUL) |
+| v1.3 | ✅ | ACSL predicates, Jasmin source files (initial), security review |
+| v1.4 | ✅ | All 4 Jasmin `.jazz` files compile on jasminc 2026.03.0 |
+| **v1.5** | **✅ Current version** | **Jasmin assembly linked — CT MAC verify + ML-KEM FO select active in binary** |
 
 ---
 

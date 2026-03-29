@@ -42,36 +42,45 @@ static void fe_frombytes(fe h, const uint8_t s[32]) {
     h[4] = (lo >> 4) & ((UINT64_C(1) << 51) - 1);
 }
 
-/* Reduce and store field element to 32 bytes little-endian */
+/* Reduce and store field element to 32 bytes little-endian.
+ * Uses the standard donna64 approach: trial addition of 19, then
+ * conditional addition to reduce mod p = 2^255 - 19.
+ * CT-REQUIRED: no branches on field element values. */
 static void fe_tobytes(uint8_t s[32], const fe h) {
     uint64_t t[5];
+    const uint64_t mask51 = (UINT64_C(1) << 51) - 1;
     for (int i = 0; i < 5; i++) t[i] = h[i];
 
-    /* Reduce: carry chain */
+    /* Two rounds of carry propagation to ensure limbs in [0, 2^51) */
     uint64_t c;
-    for (int i = 0; i < 5; i++) {
-        c = t[i] >> 51;
-        t[i] &= (UINT64_C(1) << 51) - 1;
-        if (i < 4) t[i+1] += c;
-        else t[0] += c * 19;
+    for (int round = 0; round < 2; round++) {
+        for (int i = 0; i < 5; i++) {
+            c = t[i] >> 51;
+            t[i] &= mask51;
+            if (i < 4) t[i+1] += c;
+            else t[0] += c * 19;
+        }
     }
-    c = t[0] >> 51; t[0] &= (UINT64_C(1) << 51) - 1; t[1] += c;
+    /* One more carry from t[0] to t[1] after the wraparound */
+    c = t[0] >> 51; t[0] &= mask51; t[1] += c;
 
-    /* Reduce mod 2^255-19: if t >= p, subtract p */
-    uint64_t mask = -(uint64_t)(t[0] >= (UINT64_C(1) << 51) - 19);
-    /* Check if t >= 2^255 - 19 */
-    uint64_t ge = 1;
-    for (int i = 4; i >= 1; i--) {
-        ge &= (t[i] == ((UINT64_C(1) << 51) - 1)) ? 1 : (t[i] > ((UINT64_C(1) << 51) - 1)) ? 1 : 0;
-    }
-    ge &= (t[0] >= ((UINT64_C(1) << 51) - 19)) ? 1 : 0;
-    mask = -(uint64_t)ge;
+    /* Reduce mod p = 2^255 - 19 using trial addition.
+     * If t >= p, then t + 19 >= 2^255, and the carry propagates out of t[4].
+     * q = 0 if t < p, q = 1 if t >= p. */
+    uint64_t q = (t[0] + 19) >> 51;
+    q = (t[1] + q) >> 51;
+    q = (t[2] + q) >> 51;
+    q = (t[3] + q) >> 51;
+    q = (t[4] + q) >> 51;  /* q ∈ {0, 1} */
 
-    t[0] -= mask & ((UINT64_C(1) << 51) - 19);
-    for (int i = 1; i < 5; i++)
-        t[i] -= mask & ((UINT64_C(1) << 51) - 1);
+    t[0] += q * 19;
+    c = t[0] >> 51; t[0] &= mask51; t[1] += c;
+    c = t[1] >> 51; t[1] &= mask51; t[2] += c;
+    c = t[2] >> 51; t[2] &= mask51; t[3] += c;
+    c = t[3] >> 51; t[3] &= mask51; t[4] += c;
+    t[4] &= mask51;  /* Discard overflow past 2^255 */
 
-    /* Pack into 255 bits */
+    /* Pack 5 × 51-bit limbs into 32 bytes (little-endian, 255 bits) */
     uint64_t combined = t[0] | (t[1] << 51);
     for (int i = 0; i < 8; i++) s[i] = (uint8_t)(combined >> (8*i));
     combined = (t[1] >> 13) | (t[2] << 38);
@@ -112,8 +121,17 @@ static void fe_sub(fe h, const fe f, const fe g) {
 
 /* 128-bit type for multiplication — use unsigned __int128 where available */
 #if defined(__SIZEOF_INT128__)
-typedef unsigned __int128 uint128_t;
-#define MUL64(a,b) ((uint128_t)(a) * (uint128_t)(b))
+  /* __int128 is a GCC/Clang extension — not ISO C11 but universally available
+   * on 64-bit targets. The struct fallback below covers MSVC and strict-ISO builds. */
+  #if defined(__GNUC__) || defined(__clang__)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wpedantic"
+  #endif
+  typedef unsigned __int128 uint128_t;
+  #if defined(__GNUC__) || defined(__clang__)
+    #pragma GCC diagnostic pop
+  #endif
+  #define MUL64(a,b) ((uint128_t)(a) * (uint128_t)(b))
 #else
 /* Fallback: split multiplication */
 typedef struct { uint64_t lo, hi; } uint128_t;
@@ -243,12 +261,16 @@ void zupt_x25519(uint8_t out[32], const uint8_t scalar[32], const uint8_t point[
         fe_sq(bb, b);
         fe_mul(x2, aa, bb);
         fe_sub(e2, aa, bb);
-        /* a24 = (A + 2) / 4 for Curve25519 (A = 486662) per RFC 7748 */
+        /* a24 = 121666 = (486662+2)/4
+         * z2 = E * (BB + a24 * E)
+         * SECURITY NOTE: The formula using BB (not AA) is algebraically correct
+         * for the Montgomery curve y^2 = x^3 + 486662*x^2 + x.
+         * Verified against RFC 7748 test vectors and libsodium. */
         fe_copy(dc, e2);
         for (int i = 0; i < 5; i++) tmp0[i] = 0;
-        tmp0[0] = 121666; /* a24 */
+        tmp0[0] = 121666;
         fe_mul(tmp0, dc, tmp0);
-        fe_add(tmp0, aa, tmp0);
+        fe_add(tmp0, bb, tmp0);
         fe_mul(z2, e2, tmp0);
     }
     fe_cswap(x2, x3, swap);

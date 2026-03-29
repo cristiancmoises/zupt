@@ -1,0 +1,28 @@
+/* Zupt — Constant-Time MAC Comparison (Jasmin)
+ * Copyright (c) 2026 Cristian Cezar Moisés — MIT License
+ *
+ * CT-REQUIRED: Timing independent of input byte values.
+ * Compare 32 bytes as 4 × u64 — no byte-level access needed.
+ */
+
+export fn zupt_mac_verify_ct(
+    reg u64 expected_ptr,
+    reg u64 actual_ptr)
+    -> reg u64
+{
+    reg u64 diff a b tmp;
+    inline int i;
+
+    diff = 0;
+
+    /* 4 × 8 bytes = 32 bytes. u64 loads — no size mismatch. */
+    for i = 0 to 4 {
+        a = [expected_ptr + 8 * i];
+        b = [actual_ptr + 8 * i];
+        tmp = a;
+        tmp ^= b;
+        diff |= tmp;
+    }
+
+    return diff;
+}

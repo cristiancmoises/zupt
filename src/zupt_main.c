@@ -1,9 +1,10 @@
 /*
- * ZUPT - CLI v0.6.0
+ * ZUPT - CLI v1.5.0
  * Multi-threaded compression, AES-256 encryption, progress bars
  */
 #include "zupt.h"
 #include "zupt_thread.h"
+#include "zupt_cpuid.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,7 +18,7 @@
 
 static void banner(void) {
     fprintf(stderr,
-        "Zupt %s - Backup compression with AES-256 authentication and post-quantum encryption\n"
+        "Zupt %s - Next-Generation Compression Utility\n"
         "Format v%d.%d | Codec: Zupt-LZ | Checksum: XXH64\n"
         "Encryption: AES-256-CTR + HMAC-SHA256 | KDF: PBKDF2-SHA256\n\n",
         ZUPT_VERSION_STRING, ZUPT_FORMAT_MAJOR, ZUPT_FORMAT_MINOR);
@@ -32,6 +33,7 @@ static void usage(void) {
         "  zupt list     [OPTIONS] <archive.zupt>\n"
         "  zupt test     [OPTIONS] <archive.zupt>\n"
         "  zupt bench    <files/dirs...>          Compare levels 1-9\n"
+        "  zupt keygen                            Key generation"
         "  zupt version\n"
         "  zupt help\n"
         "\n"
@@ -51,17 +53,22 @@ static void usage(void) {
         "Extract/List/Test Options:\n"
         "  -o, --output <DIR>    Output directory (extract only)\n"
         "  -p, --password <PW>   Decryption password\n"
+        "  -pq,--post-quantum    Post-quantum Encryption|Decryption \n"
         "  -v, --verbose         Verbose output\n"
         "  -t, --threads <N>     Thread count for decompression\n"
         "\n"
         "Directories are traversed recursively.\n"
         "\n"
         "Examples:\n"
-        "  zupt compress backup.zupt ~/Documents/\n"
-        "  zupt compress -l 9 -p mysecret secure.zupt data/\n"
-        "  zupt list secure.zupt -p mysecret\n"
-        "  zupt extract -o restored/ -p mysecret secure.zupt\n"
-        "  zupt bench ~/Documents/\n"
+        "  zupt keygen -o mykey.key                               # Generate keypair\n"
+        "  zupt keygen --pub -o pub.key -k mykey.key              # Export public key\n"
+        "  zupt compress --pq pub.key backup.zupt ~/Documents/    # Encrypt with public key\n" 
+        "  zupt extract --pq mykey.key -o ~/restored/ backup.zupt # Decrypt with private key\n"
+        "  zupt compress backup.zupt ~/Documents/                 # Compress (without password)\n" 
+        "  zupt compress -l 9 -p mysecret secure.zupt data/       # High Compression with password\n"
+        "  zupt list secure.zupt -p mysecret                      # List\n"
+        "  zupt extract -o restored/ -p mysecret secure.zupt      # Extract with password\n"
+        "  zupt bench ~/Documents/                                # Benchmark\n"
         "\n"
         "Compression: LZ77 (1MB window) + Huffman entropy coding\n"
         "Security:    AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)\n"
@@ -103,19 +110,21 @@ static int streq(const char *a, const char *b) { return strcmp(a,b)==0; }
 static int isopt(const char *a) { return a[0]=='-'; }
 
 int main(int argc, char **argv) {
+    /* Detect CPU features (AES-NI, AVX2) at startup */
+    zupt_detect_cpu(&zupt_cpu);
+
     if (argc < 2) { usage(); return 1; }
     const char *cmd = argv[1];
 
     if (streq(cmd,"help")||streq(cmd,"--help")||streq(cmd,"-h")) { usage(); return 0; }
     if (streq(cmd,"version")||streq(cmd,"--version")||streq(cmd,"-V")) {
-        printf("zupt %s (format v%d.%d)\n"
-               "Backup compression with AES-256 authentication and post-quantum encryption\n"
-               "Codec: Zupt-LZH (0x%04X) | KDF: PBKDF2-SHA256 (%d iter)\n"
-               "Copyright (c) 2026 Cristian Cezar Moisés | License: MIT\n",
+        printf("zupt %s\nFormat: v%d.%d\nCodec: Zupt-LZ (0x%04X)\n"
+               "Encryption: AES-256-CTR+HMAC-SHA256\nKDF: PBKDF2-SHA256 (%d iter)\n",
                ZUPT_VERSION_STRING, ZUPT_FORMAT_MAJOR, ZUPT_FORMAT_MINOR,
                ZUPT_CODEC_ZUPT_LZ, ZUPT_KDF_ITERATIONS);
         return 0;
     }
+
     /* ─── compress ─── */
     if (streq(cmd,"compress")||streq(cmd,"c")) {
         zupt_options_t opts; zupt_default_options(&opts);
@@ -160,7 +169,7 @@ int main(int argc, char **argv) {
             ai++;
         }
         if (argc-ai<2) {
-            fprintf(stderr,"-p, --password <PW>   Encrypt with AES-256 (prompted if empty)\n"); return 1;
+            fprintf(stderr,"Error: compress requires <output.zupt> <files/dirs...>\n"); return 1;
         }
         const char *output = argv[ai++];
 

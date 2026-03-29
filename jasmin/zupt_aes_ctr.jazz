@@ -1,0 +1,124 @@
+/* Zupt — AES-256 Single Block Encrypt via AES-NI (Jasmin)
+ * Copyright (c) 2026 Cristian Cezar Moisés — MIT License
+ *
+ * CT-REQUIRED: AES-NI has no data-dependent timing.
+ *
+ * Uses reg ptr for read-only u128 inputs (key, counter, plaintext).
+ * Uses reg u64 for write output (store infers width from reg u128 source).
+ * C handles CTR loop and tail bytes.
+ */
+
+inline fn key_expand_even(reg u128 t0, reg u128 assist) -> reg u128 {
+    reg u128 tmp;
+    assist = #VPSHUFD(assist, 0xFF);
+    tmp = #VPSLLDQ(t0, 4);
+    t0 ^= tmp;
+    tmp = #VPSLLDQ(t0, 4);
+    t0 ^= tmp;
+    tmp = #VPSLLDQ(t0, 4);
+    t0 ^= tmp;
+    t0 ^= assist;
+    return t0;
+}
+
+inline fn key_expand_odd(reg u128 t0, reg u128 t1) -> reg u128 {
+    reg u128 tmp assist;
+    assist = #VAESKEYGENASSIST(t0, 0);
+    assist = #VPSHUFD(assist, 0xAA);
+    tmp = #VPSLLDQ(t1, 4);
+    t1 ^= tmp;
+    tmp = #VPSLLDQ(t1, 4);
+    t1 ^= tmp;
+    tmp = #VPSLLDQ(t1, 4);
+    t1 ^= tmp;
+    t1 ^= assist;
+    return t1;
+}
+
+export fn zupt_aes256_blk(
+    reg u64 out_ptr,
+    reg ptr u128[1] in_blk,
+    reg ptr u128[2] key,
+    reg ptr u128[1] ctr_blk)
+{
+    stack u128[15] rk;
+    reg u128 t0 t1 assist b data;
+
+    /* Key expansion */
+    t0 = key.[0];
+    t1 = key.[1];
+    rk.[0] = t0;
+    rk.[1] = t1;
+
+    assist = #VAESKEYGENASSIST(t1, 0x01);
+    t0 = key_expand_even(t0, assist);
+    rk.[2] = t0;
+    t1 = key_expand_odd(t0, t1);
+    rk.[3] = t1;
+
+    assist = #VAESKEYGENASSIST(t1, 0x02);
+    t0 = key_expand_even(t0, assist);
+    rk.[4] = t0;
+    t1 = key_expand_odd(t0, t1);
+    rk.[5] = t1;
+
+    assist = #VAESKEYGENASSIST(t1, 0x04);
+    t0 = key_expand_even(t0, assist);
+    rk.[6] = t0;
+    t1 = key_expand_odd(t0, t1);
+    rk.[7] = t1;
+
+    assist = #VAESKEYGENASSIST(t1, 0x08);
+    t0 = key_expand_even(t0, assist);
+    rk.[8] = t0;
+    t1 = key_expand_odd(t0, t1);
+    rk.[9] = t1;
+
+    assist = #VAESKEYGENASSIST(t1, 0x10);
+    t0 = key_expand_even(t0, assist);
+    rk.[10] = t0;
+    t1 = key_expand_odd(t0, t1);
+    rk.[11] = t1;
+
+    assist = #VAESKEYGENASSIST(t1, 0x20);
+    t0 = key_expand_even(t0, assist);
+    rk.[12] = t0;
+    t1 = key_expand_odd(t0, t1);
+    rk.[13] = t1;
+
+    assist = #VAESKEYGENASSIST(t1, 0x40);
+    t0 = key_expand_even(t0, assist);
+    rk.[14] = t0;
+
+    /* Encrypt counter block: 14 rounds AES-256 */
+    b = ctr_blk.[0];
+    b ^= rk.[0];
+    b = #VAESENC(b, rk.[1]);
+    b = #VAESENC(b, rk.[2]);
+    b = #VAESENC(b, rk.[3]);
+    b = #VAESENC(b, rk.[4]);
+    b = #VAESENC(b, rk.[5]);
+    b = #VAESENC(b, rk.[6]);
+    b = #VAESENC(b, rk.[7]);
+    b = #VAESENC(b, rk.[8]);
+    b = #VAESENC(b, rk.[9]);
+    b = #VAESENC(b, rk.[10]);
+    b = #VAESENC(b, rk.[11]);
+    b = #VAESENC(b, rk.[12]);
+    b = #VAESENC(b, rk.[13]);
+    b = #VAESENCLAST(b, rk.[14]);
+
+    /* XOR keystream with plaintext, store result */
+    data = in_blk.[0];
+    b ^= data;
+    [out_ptr + 0] = b;
+
+    /* Wipe round keys */
+    reg u128 wipe;
+    inline int z;
+    for z = 0 to 15 {
+        wipe = rk.[z];
+        wipe ^= wipe;
+        rk.[z] = wipe;
+    }
+}

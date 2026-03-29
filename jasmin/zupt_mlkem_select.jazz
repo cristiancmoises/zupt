@@ -1,0 +1,31 @@
+/* Zupt — ML-KEM Constant-Time Select (Jasmin)
+ * Copyright (c) 2026 Cristian Cezar Moisés — MIT License
+ *
+ * CT-REQUIRED: FO implicit rejection must not leak via timing.
+ * Operates in u64 chunks: 4 × 8 = 32 bytes, no byte access.
+ */
+
+export fn zupt_ct_select_32(
+    reg u64 out_ptr,
+    reg u64 a_ptr,
+    reg u64 b_ptr,
+    reg u64 cond)
+{
+    reg u64 mask va vb tmp sel;
+    inline int i;
+
+    mask = 0;
+    mask -= cond;
+
+    /* 4 × u64 = 32 bytes */
+    for i = 0 to 4 {
+        va = [a_ptr + 8 * i];
+        vb = [b_ptr + 8 * i];
+        tmp = va;
+        tmp ^= vb;
+        tmp &= mask;
+        sel = va;
+        sel ^= tmp;
+        [out_ptr + 8 * i] = sel;
+    }
+}

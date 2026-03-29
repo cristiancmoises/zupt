@@ -9,6 +9,7 @@
  */
 #define _GNU_SOURCE
 #include "zupt.h"
+#include "zupt_jasmin.h"
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -249,9 +250,16 @@ uint8_t *zupt_decrypt_buffer(const zupt_keyring_t *kr,
                      expected_mac);
 
     const uint8_t *stored_mac = pkg + ZUPT_NONCE_SIZE + clen;
-    uint8_t diff = 0;
+#ifdef ZUPT_USE_JASMIN
+    /* JASMIN-VERIFIED: CT MAC comparison — 4×u64 XOR accumulation.
+     * Proven constant-time by Jasmin type system. */
+    uint64_t diff = zupt_mac_verify_ct(expected_mac, stored_mac);
+#else
+    /* CT-REQUIRED: XOR accumulation fallback */
+    uint64_t diff = 0;
     for (int i = 0; i < 32; i++)
-        diff |= (expected_mac[i] ^ stored_mac[i]);
+        diff |= (uint64_t)(expected_mac[i] ^ stored_mac[i]);
+#endif
 
     zupt_secure_wipe(expected_mac, 32);
 

@@ -18,6 +18,7 @@
 #include "zupt_mlkem.h"
 #include "zupt_keccak.h"
 #include "zupt.h" /* for zupt_random_bytes, zupt_secure_wipe */
+#include "zupt_jasmin.h"
 #include <string.h>
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -44,11 +45,13 @@ static int16_t montgomery_reduce(int32_t a) {
 }
 
 /* CT-REQUIRED: Constant-time conditional move (no branch on b) */
+#ifndef ZUPT_USE_JASMIN
 static void cmov(uint8_t *r, const uint8_t *x, size_t len, uint8_t b) {
     uint8_t mask = -(uint8_t)(b & 1);
     for (size_t i = 0; i < len; i++)
         r[i] ^= mask & (r[i] ^ x[i]);
 }
+#endif
 
 /* ═══════════════════════════════════════════════════════════════════
  * NTT — Number Theoretic Transform
@@ -167,7 +170,10 @@ static void polyvec_invntt(polyvec pv) {
     for (int i = 0; i < MLKEM_K; i++) inv_ntt(pv[i]);
 }
 
-static void polyvec_pointwise_acc(poly r, const polyvec a, const polyvec b) {
+/* C11 §6.7.3: arrays-of-arrays cannot undergo multi-level const conversion.
+ * Reference pqcrystals/kyber uses non-const polyvec parameters for the same reason.
+ * These functions do not modify the input arrays. */
+static void polyvec_pointwise_acc(poly r, polyvec a, polyvec b) {
     poly t;
     poly_basemul(r, a[0], b[0]);
     for (int i = 1; i < MLKEM_K; i++) {
@@ -302,13 +308,13 @@ static void poly_decompress(poly r, const uint8_t *a, int d) {
 }
 
 /* Polyvec encode/decode (12 bits per coeff) */
-static void polyvec_tobytes(uint8_t *r, const polyvec a) {
+static void polyvec_tobytes(uint8_t *r, polyvec a) {
     for (int i = 0; i < MLKEM_K; i++) poly_tobytes(r + i*384, a[i]);
 }
 static void polyvec_frombytes(polyvec r, const uint8_t *a) {
     for (int i = 0; i < MLKEM_K; i++) poly_frombytes(r[i], a + i*384);
 }
-static void polyvec_compress(uint8_t *r, const polyvec a) {
+static void polyvec_compress(uint8_t *r, polyvec a) {
     for (int i = 0; i < MLKEM_K; i++) poly_compress(r + i*320, a[i], MLKEM_DU);
 }
 static void polyvec_decompress(polyvec r, const uint8_t *a) {
@@ -586,8 +592,14 @@ int zupt_mlkem768_decaps(uint8_t ss[32], const uint8_t ct[1088],
      * Convert diff (0 or nonzero) to fail (0 or 1) using constant-time
      * bit trick: fail = ((-(uint64_t)diff) >> 63) & 1 */
     uint8_t fail = (uint8_t)(((-(int64_t)(uint64_t)diff) >> 63) & 1);
+#ifdef ZUPT_USE_JASMIN
+    /* JASMIN-VERIFIED: CT select — proven by Jasmin type system.
+     * fail=0 → ss_success, fail=1 → ss_reject */
+    zupt_ct_select_32(ss, ss_success, ss_reject, (uint64_t)fail);
+#else
     memcpy(ss, ss_reject, 32);
     cmov(ss, ss_success, 32, (uint8_t)(1 - fail));
+#endif
 
     zupt_secure_wipe(m_prime, 32);
     zupt_secure_wipe(kr, 64);

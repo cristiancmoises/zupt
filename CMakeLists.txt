@@ -1,0 +1,16 @@
+cmake_minimum_required(VERSION 3.10)
+project(zupt VERSION 0.4.0 LANGUAGES C)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(SOURCES
+    src/zupt_main.c src/zupt_format.c src/zupt_lz.c src/zupt_lzh.c src/zupt_xxh.c
+    src/zupt_sha256.c src/zupt_aes256.c src/zupt_crypto.c src/zupt_predict.c)
+add_executable(zupt ${SOURCES})
+target_include_directories(zupt PRIVATE include)
+target_link_libraries(zupt m)
+if(MSVC)
+    target_compile_options(zupt PRIVATE /W4 /D_CRT_SECURE_NO_WARNINGS)
+else()
+    target_compile_options(zupt PRIVATE -Wall -Wextra -O2)
+endif()
+install(TARGETS zupt DESTINATION bin)
