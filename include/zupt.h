@@ -30,7 +30,7 @@
   #define zupt_mkdir(p) mkdir(p, 0755)
 #endif
 
-#define ZUPT_VERSION_STRING "1.5.0"
+#define ZUPT_VERSION_STRING "2.0.0"
 #define ZUPT_FORMAT_MAJOR   1
 #define ZUPT_FORMAT_MINOR   4
 
@@ -74,6 +74,7 @@
 #define ZUPT_CODEC_ZUPT_LZ 0x0008
 #define ZUPT_CODEC_ZUPT_LZH 0x0009  /* LZ77 + Huffman */
 #define ZUPT_CODEC_ZUPT_LZHP 0x000A /* LZ77 + Huffman + Byte Prediction (default) */
+#define ZUPT_CODEC_VAPTVUPT  0x0010 /* VAPTVUPT: VaptVupt LZ + ANS entropy codec */
 
 /* Crypto */
 #define ZUPT_SALT_SIZE       32
@@ -128,14 +129,34 @@ typedef struct {
     uint8_t *payload;
 } zupt_block_t;
 
+/* Buffer canary for keyring overflow detection */
+#define ZUPT_CANARY 0xDEADCAFEBABEFACEULL
+
 typedef struct {
+    uint64_t canary_head;                  /* Must equal ZUPT_CANARY */
     uint8_t enc_key[ZUPT_AES_KEY_SIZE];
     uint8_t mac_key[ZUPT_HMAC_SIZE];
     uint8_t salt[ZUPT_SALT_SIZE];
     uint8_t base_nonce[ZUPT_NONCE_SIZE];
     uint32_t iterations;
     int active;
+    uint64_t canary_tail;                  /* Must equal ZUPT_CANARY */
 } zupt_keyring_t;
+
+/* Check keyring canaries — abort on buffer overflow */
+static inline void zupt_keyring_init(zupt_keyring_t *kr) {
+    volatile uint8_t *p = (volatile uint8_t *)kr;
+    for (size_t i = 0; i < sizeof(*kr); i++) p[i] = 0;
+    kr->canary_head = ZUPT_CANARY;
+    kr->canary_tail = ZUPT_CANARY;
+}
+static inline void zupt_keyring_check(const zupt_keyring_t *kr) {
+    if (kr->canary_head != ZUPT_CANARY || kr->canary_tail != ZUPT_CANARY) {
+        fprintf(stderr, "FATAL: keyring buffer overflow detected (canary corrupted)\n");
+        /* Use exit(127) instead of abort() to avoid needing <stdlib.h> */
+        _exit(127);
+    }
+}
 
 typedef struct {
     char **paths, **arc_paths;
@@ -188,6 +209,11 @@ static inline uint64_t zupt_le64_get(const uint8_t *p) {
  * SECURE MEMORY WIPE (resists dead-store elimination by compilers)
  * ═══════════════════════════════════════════════════════════════════ */
 
+/* FRAMA-C: Secure memory wipe — resists dead-store elimination */
+/*@ requires \valid((uint8_t *)ptr + (0..len-1));
+  @ assigns ((uint8_t *)ptr)[0..len-1];
+  @ ensures \forall integer i; 0 <= i < len ==> ((uint8_t *)ptr)[i] == 0;
+*/
 static inline void zupt_secure_wipe(void *ptr, size_t len) {
 #if defined(_WIN32)
     SecureZeroMemory(ptr, len);
@@ -243,6 +269,14 @@ void zupt_derive_keys(zupt_keyring_t *kr, const char *pw, const uint8_t salt[32]
 uint8_t *zupt_encrypt_buffer(const zupt_keyring_t *kr, const uint8_t *plain, size_t plen, uint64_t seq, size_t *olen);
 uint8_t *zupt_decrypt_buffer(const zupt_keyring_t *kr, const uint8_t *pkg, size_t pkglen, uint64_t seq, size_t *olen);
 void zupt_random_bytes(uint8_t *buf, size_t len);
+
+/* ─── Memory locking for key material ─── */
+int  zupt_mlock_keys(void *ptr, size_t len);
+void zupt_munlock_keys(void *ptr, size_t len);
+
+/* ─── Adaptive compression: file type detection ─── */
+/* Returns: -1=store (incompressible), 0=default, 5=medium, 9=max */
+int zupt_detect_filetype(const uint8_t *header, size_t header_len);
 
 /* ─── XXH64 ─── */
 uint64_t zupt_xxh64(const void *data, size_t len, uint64_t seed);

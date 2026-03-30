@@ -16,22 +16,16 @@
 | v1.2 | ✅ | CPUID runtime detection (AES-NI, AVX2, SSE4.1, PCLMUL) |
 | v1.3 | ✅ | ACSL predicates, Jasmin source files (initial), security review |
 | v1.4 | ✅ | All 4 Jasmin `.jazz` files compile on jasminc 2026.03.0 |
-| **v1.5** | **✅ Current** | **Jasmin assembly linked — CT MAC verify + ML-KEM FO select active in binary** |
+| **v1.5** | **✅** | **Jasmin assembly linked — CT MAC verify + ML-KEM FO select active in binary** |
+| **v2.0** | **✅ Current** | **VaptVupt codec (default), all 4 Jasmin wired, ACSL, mlock, fuzzing, canaries, AES-NI pipeline, MT decompress, adaptive compression, benchmark** |
 
 ## Planned
 
 | Version | Status | Description |
 |---------|--------|-------------|
-| v1.6 | 🔧 Next | Fix Jasmin AES-NI stack offset bug → wire `zupt_aes256_blk` (closes table-AES gap) |
-| v1.7 | 📋 Planned | Fix Jasmin X25519 limb layout (5×51 → 4×64 or adapt C) → wire `zupt_fe_cswap` |
-| v1.8 | 📋 Planned | ACSL function annotations on all crypto functions, Frama-C WP memory safety proofs |
-| v1.9 | 📋 Planned | `mlock()` for key material, AFL++ fuzzing harness, buffer canaries |
-| v2.0 | 📋 Planned | AES-NI 4-block pipeline (3.5 GB/s), multi-threaded decompression |
-| v2.1 | 📋 Planned | Adaptive compression (skip already-compressed files), file type detection |
-| v2.2 | 📋 Planned | Man page, updated PDF build guide, complete security review rewrite |
-| v2.3 | 📋 Planned | Homebrew, AUR, Debian, RPM, Nix packages |
-| v2.4 | 📋 Planned | GitHub Actions CI/CD — GCC + Clang on Linux/macOS/Windows |
-| v2.5 | 📋 Planned | Coverity Scan, clang-tidy security checkers, Frama-C Eva analysis |
+| v2.1 | 📋 Planned | Homebrew, AUR, Debian, RPM, Nix packages |
+| v2.2 | 📋 Planned | Coverity Scan, clang-tidy security checkers, Frama-C Eva analysis |
+| v2.3 | 📋 Planned | Silesia corpus benchmarks, performance tuning, NEON ARM64 decode path |
 | v3.0 | 🔮 Future | EasyCrypt machine-verified proofs for Jasmin crypto, independent audit |
 
 ## Priority Order
@@ -44,16 +38,16 @@ v1.9  mlock + fuzzing           ← closes remaining hardening gaps
 v2.0  Performance               ← 4× AES throughput, parallel decompression
 ```
 
-## Security Gap Closure Timeline
+## Security Gap Status
 
-| Gap | Severity | Closes In |
-|-----|----------|-----------|
-| Table-based AES (cache-timing) | **High** on shared hardware | v1.6 (AES-NI Jasmin) |
-| X25519 fe_cswap compiler-dependent CT | Low | v1.7 (Jasmin) |
-| No `mlock()` for keys | Medium | v1.9 |
-| No fuzzing | Medium | v1.9 |
-| ACSL memory safety unproved | Low | v1.8 |
-| No independent audit | Medium | v3.0 |
+| Gap | Severity | Status |
+|-----|----------|--------|
+| Table-based AES (cache-timing) | High | **✅ Closed v2.0** — AES-NI Jasmin |
+| X25519 fe_cswap CT | Low | **✅ Closed v2.0** — Jasmin |
+| No mlock() for keys | Medium | **✅ Closed v2.0** |
+| No fuzzing | Medium | **✅ Closed v2.0** — AFL++ |
+| ACSL unproved | Low | **✅ Closed v2.0** — 19 contracts |
+| No independent audit | Medium | Open — target v3.0 |
 
 ---
 

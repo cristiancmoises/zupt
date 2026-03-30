@@ -5,6 +5,7 @@
 #include "zupt.h"
 #include "zupt_thread.h"
 #include "zupt_cpuid.h"
+#include "vaptvupt.h"  /* VAPTVUPT: codec ID */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,6 +47,7 @@ static void usage(void) {
         "  -b, --block <SIZE>    Block size in bytes (default: 128KB)\n"
         "  -s, --store           Store without compression\n"
         "  -f, --fast            Use fast LZ codec (less compression)\n"
+        "  --vv, --vaptvupt      Use VaptVupt codec (fast LZ + ANS entropy)\n"
         "  -p, --password <PW>   Encrypt with AES-256 (prompted if empty)\n"
         "  -v, --verbose         Verbose per-file output\n"
         "  -t, --threads <N>     Thread count (0=auto, 1=single, 2-64=explicit)\n"
@@ -53,7 +55,7 @@ static void usage(void) {
         "Extract/List/Test Options:\n"
         "  -o, --output <DIR>    Output directory (extract only)\n"
         "  -p, --password <PW>   Decryption password\n"
-        "  --pq,--post-quantum    Post-quantum Encryption|Decryption \n"
+        "  -pq,--post-quantum    Post-quantum Encryption|Decryption \n"
         "  -v, --verbose         Verbose output\n"
         "  -t, --threads <N>     Thread count for decompression\n"
         "\n"
@@ -140,6 +142,8 @@ int main(int argc, char **argv) {
                 opts.codec_id=ZUPT_CODEC_STORE;
             } else if (streq(argv[ai],"-f")||streq(argv[ai],"--fast")) {
                 opts.codec_id=ZUPT_CODEC_ZUPT_LZ;
+            } else if (streq(argv[ai],"--vv")||streq(argv[ai],"--vaptvupt")) {
+                opts.codec_id=ZUPT_CODEC_VAPTVUPT; /* VAPTVUPT */
             } else if (streq(argv[ai],"-p")||streq(argv[ai],"--password")) {
                 opts.encrypt=1;
                 if (ai+1<argc && !isopt(argv[ai+1])) {
@@ -296,59 +300,184 @@ int main(int argc, char **argv) {
     /* ─── bench ─── */
     if (streq(cmd,"bench")||streq(cmd,"b")) {
         int ai = 2;
-        if (ai >= argc) { fprintf(stderr, "Error: bench requires <files/dirs...>\n"); return 1; }
+        int compare_mode = 0;
+        if (ai < argc && streq(argv[ai], "--compare")) { compare_mode = 1; ai++; }
+
+        if (!compare_mode && ai >= argc) { fprintf(stderr, "Error: bench requires <files/dirs...> or --compare\n"); return 1; }
+
+        /* Generate corpus if --compare with no files */
+        char gen_dir[256] = {0};
+        if (compare_mode && ai >= argc) {
+            snprintf(gen_dir, sizeof(gen_dir), "/tmp/zupt_bench_corpus_%d", (int)getpid());
+            zupt_mkdir(gen_dir);
+            char p[512]; FILE *gf;
+            snprintf(p, sizeof(p), "%s/text.txt", gen_dir);
+            gf = fopen(p, "wb");
+            if (gf) { for (int i=0;i<15000;i++) fprintf(gf, "The quick brown fox jumps over the lazy dog. Line %d value %d.\n", i, i*17%997); fclose(gf); }
+            snprintf(p, sizeof(p), "%s/data.json", gen_dir);
+            gf = fopen(p, "wb");
+            if (gf) { for (int i=0;i<12000;i++) fprintf(gf, "{\"id\":%d,\"name\":\"user_%d\",\"score\":%d}\n", i, i, i*31%1000); fclose(gf); }
+            snprintf(p, sizeof(p), "%s/records.csv", gen_dir);
+            gf = fopen(p, "wb");
+            if (gf) { fprintf(gf,"id,name,score\n"); for (int i=0;i<14000;i++) fprintf(gf,"%d,user_%d,%d\n", i, i, i*17%100); fclose(gf); }
+            snprintf(p, sizeof(p), "%s/random.bin", gen_dir);
+            gf = fopen(p, "wb");
+            if (gf) { uint8_t rb[4096]; for (int i=0;i<64;i++){zupt_random_bytes(rb,sizeof(rb));fwrite(rb,1,sizeof(rb),gf);} fclose(gf); }
+            /* Use gen_dir as the input path — need a writable argv slot */
+            static char gen_arg[256];
+            strncpy(gen_arg, gen_dir, sizeof(gen_arg)-1);
+            gen_arg[sizeof(gen_arg)-1] = '\0';
+            argv[argc] = gen_arg;
+            ai = argc; argc++;
+        }
 
         zupt_filelist_t fl; zupt_filelist_init(&fl);
         for (int i = ai; i < argc; i++)
             zupt_collect_files(&fl, argv[i], argv[i]);
         if (fl.count == 0) { fprintf(stderr, "No files found.\n"); zupt_filelist_free(&fl); return 1; }
 
-        /* Compute total input size */
         uint64_t total_in = 0;
         for (int i = 0; i < fl.count; i++) {
             FILE *tf = fopen(fl.paths[i], "rb");
             if (tf) { fseek(tf, 0, SEEK_END); total_in += (uint64_t)ftell(tf); fclose(tf); }
         }
         char isz[32]; zupt_format_size(total_in, isz, sizeof(isz));
-
         banner();
-        fprintf(stderr, "  Benchmarking %d file(s), %s\n\n", fl.count, isz);
-        fprintf(stderr, "  %-7s %12s %10s %10s %10s\n", "Level", "Compressed", "Ratio", "%", "Speed");
-        fprintf(stderr, "  ─────────────────────────────────────────────────────────\n");
 
-        char tmp_path[256];
-        snprintf(tmp_path, sizeof(tmp_path), "/tmp/zupt_bench_%d.zupt", (int)getpid());
+        if (compare_mode) {
+            fprintf(stderr, "  Codec Comparison — %d file(s), %s\n\n", fl.count, isz);
+            fprintf(stderr, "  %-20s %12s %12s %10s\n", "Codec", "Compress", "Decompress", "Ratio");
+            fprintf(stderr, "  ────────────────────────────────────────────────────────────\n");
 
-        for (int lvl = 1; lvl <= 9; lvl++) {
-            zupt_options_t opts; zupt_default_options(&opts);
-            opts.level = lvl;
-            opts.verbose = 0;
-            opts.quiet = 1;
+            char tmp_path[256], tmp_out[256];
+            snprintf(tmp_path, sizeof(tmp_path), "/tmp/zupt_cmp_%d.zupt", (int)getpid());
+            snprintf(tmp_out, sizeof(tmp_out), "/tmp/zupt_cmp_out_%d", (int)getpid());
 
-            time_t t0 = time(NULL);
-            zupt_error_t err = zupt_compress_files(tmp_path,
-                (const char**)fl.arc_paths, (const char**)fl.paths, fl.count, &opts);
-            time_t elapsed = time(NULL) - t0;
-            if (elapsed < 1) elapsed = 1;
+            struct { const char *name; uint16_t codec; int level; } codecs[] = {
+                {"VaptVupt UF",  ZUPT_CODEC_VAPTVUPT, 1},
+                {"VaptVupt BAL", ZUPT_CODEC_VAPTVUPT, 5},
+                {"VaptVupt EXT", ZUPT_CODEC_VAPTVUPT, 9},
+                {"Zupt-LZHP",    ZUPT_CODEC_ZUPT_LZHP,7},
+                {"Zupt-LZ",      ZUPT_CODEC_ZUPT_LZ,  5},
+            };
+            int ncodecs = (int)(sizeof(codecs)/sizeof(codecs[0]));
 
-            if (err == ZUPT_OK) {
-                FILE *zf = fopen(tmp_path, "rb");
-                uint64_t zsize = 0;
-                if (zf) { fseek(zf, 0, SEEK_END); zsize = (uint64_t)ftell(zf); fclose(zf); }
+            for (int ci = 0; ci < ncodecs; ci++) {
+                zupt_options_t opts; zupt_default_options(&opts);
+                opts.codec_id = codecs[ci].codec; opts.level = codecs[ci].level; opts.quiet = 1;
 
-                char csz[32]; zupt_format_size(zsize, csz, sizeof(csz));
-                double ratio = total_in > 0 ? (double)total_in / (double)zsize : 1.0;
-                double pct = total_in > 0 ? (double)zsize / (double)total_in * 100.0 : 100.0;
-                double speed = (double)total_in / (double)elapsed / 1048576.0;
+                struct timespec t0, t1;
+                clock_gettime(CLOCK_MONOTONIC, &t0);
+                zupt_error_t cerr = zupt_compress_files(tmp_path,
+                    (const char**)fl.arc_paths, (const char**)fl.paths, fl.count, &opts);
+                clock_gettime(CLOCK_MONOTONIC, &t1);
+                double csec = (double)(t1.tv_sec-t0.tv_sec)+(double)(t1.tv_nsec-t0.tv_nsec)/1e9;
+                if (csec < 0.001) csec = 0.001;
 
-                fprintf(stderr, "  %-7d %12s %9.2f:1 %9.1f%% %8.1f MB/s\n",
-                        lvl, csz, ratio, pct, speed);
-            } else {
-                fprintf(stderr, "  %-7d %12s\n", lvl, "FAILED");
+                if (cerr != ZUPT_OK) { fprintf(stderr, "  %-20s  FAILED\n", codecs[ci].name); continue; }
+
+                FILE *zf = fopen(tmp_path, "rb"); uint64_t zsize = 0;
+                if (zf) { fseek(zf,0,SEEK_END); zsize=(uint64_t)ftell(zf); fclose(zf); }
+
+                zupt_options_t dopts; zupt_default_options(&dopts); dopts.quiet = 1;
+                clock_gettime(CLOCK_MONOTONIC, &t0);
+                zupt_extract_archive(tmp_path, tmp_out, &dopts);
+                clock_gettime(CLOCK_MONOTONIC, &t1);
+                double dsec = (double)(t1.tv_sec-t0.tv_sec)+(double)(t1.tv_nsec-t0.tv_nsec)/1e9;
+                if (dsec < 0.001) dsec = 0.001;
+
+                fprintf(stderr, "  %-20s %9.1f MB/s %9.1f MB/s %8.2f:1\n",
+                    codecs[ci].name, (double)total_in/csec/1048576.0,
+                    (double)total_in/dsec/1048576.0,
+                    total_in>0&&zsize>0?(double)total_in/(double)zsize:1.0);
+
+                char rm[512]; snprintf(rm,sizeof(rm),"rm -rf '%s'",tmp_out); if (system(rm)) { /* ignore */ }
+                remove(tmp_path);
             }
-            remove(tmp_path);
+
+            /* External tools */
+            fprintf(stderr, "  ────────────────────────────────────────────────────────────\n");
+            char concat[256];
+            snprintf(concat, sizeof(concat), "/tmp/zupt_cmp_cat_%d", (int)getpid());
+            FILE *cf = fopen(concat, "wb");
+            if (cf) {
+                for (int i=0;i<fl.count;i++){FILE*inf=fopen(fl.paths[i],"rb");if(inf){uint8_t buf[65536];size_t n;while((n=fread(buf,1,sizeof(buf),inf))>0)fwrite(buf,1,n,cf);fclose(inf);}}
+                fclose(cf);
+            }
+            const char *exts[][3] = {
+                {"gzip -6","gzip -6 -k -f","gzip -d -k -f"},
+                {"lz4","lz4 -f","lz4 -d -f"},
+                {"zstd -1","zstd -1 -f","zstd -d -f"},
+                {"zstd -7","zstd -7 -f","zstd -d -f"},
+                {NULL,NULL,NULL}
+            };
+            const char *ext_sfx[] = {".gz",".lz4",".zst",".zst"};
+            for (int ti=0; exts[ti][0]; ti++) {
+                char tn[32]; strncpy(tn,exts[ti][0],sizeof(tn)-1); char *sp=strchr(tn,' '); if(sp)*sp='\0';
+                char wh[128]; snprintf(wh,sizeof(wh),"which %s >/dev/null 2>&1",tn);
+                if (system(wh)!=0) continue;
+
+                char co[256]; snprintf(co,sizeof(co),"%s%s",concat,ext_sfx[ti]);
+                remove(co);
+                char ccmd[512]; snprintf(ccmd,sizeof(ccmd),"%s %s >/dev/null 2>&1",exts[ti][1],concat);
+                struct timespec t0,t1;
+                clock_gettime(CLOCK_MONOTONIC,&t0); if (system(ccmd)) { /* ignore */ } clock_gettime(CLOCK_MONOTONIC,&t1);
+                double csec=(double)(t1.tv_sec-t0.tv_sec)+(double)(t1.tv_nsec-t0.tv_nsec)/1e9; if(csec<0.001)csec=0.001;
+                FILE*ef=fopen(co,"rb"); uint64_t esz=0; if(ef){fseek(ef,0,SEEK_END);esz=(uint64_t)ftell(ef);fclose(ef);}
+
+                char dcmd[512]; snprintf(dcmd,sizeof(dcmd),"%s %s >/dev/null 2>&1",exts[ti][2],co);
+                clock_gettime(CLOCK_MONOTONIC,&t0); if (system(dcmd)) { /* ignore */ } clock_gettime(CLOCK_MONOTONIC,&t1);
+                double dsec=(double)(t1.tv_sec-t0.tv_sec)+(double)(t1.tv_nsec-t0.tv_nsec)/1e9; if(dsec<0.001)dsec=0.001;
+
+                fprintf(stderr, "  %-20s %9.1f MB/s %9.1f MB/s %8.2f:1\n",
+                    exts[ti][0], (double)total_in/csec/1048576.0, (double)total_in/dsec/1048576.0,
+                    total_in>0&&esz>0?(double)total_in/(double)esz:1.0);
+                remove(co); char dec[512]; snprintf(dec,sizeof(dec),"%s.dec",concat); remove(dec);
+            }
+            remove(concat);
+            if (gen_dir[0]) { char rm[512]; snprintf(rm,sizeof(rm),"rm -rf '%s'",gen_dir); if (system(rm)) { /* ignore */ } }
+            fprintf(stderr, "\n");
+        } else {
+            /* ═══ ORIGINAL PER-LEVEL BENCHMARK ═══ */
+            fprintf(stderr, "  Benchmarking %d file(s), %s\n\n", fl.count, isz);
+            fprintf(stderr, "  %-7s %12s %10s %10s %10s\n", "Level", "Compressed", "Ratio", "%", "Speed");
+            fprintf(stderr, "  ─────────────────────────────────────────────────────────\n");
+
+            char tmp_path[256];
+            snprintf(tmp_path, sizeof(tmp_path), "/tmp/zupt_bench_%d.zupt", (int)getpid());
+
+            for (int lvl = 1; lvl <= 9; lvl++) {
+                zupt_options_t opts; zupt_default_options(&opts);
+                opts.level = lvl;
+                opts.verbose = 0;
+                opts.quiet = 1;
+
+                time_t t0 = time(NULL);
+                zupt_error_t err = zupt_compress_files(tmp_path,
+                    (const char**)fl.arc_paths, (const char**)fl.paths, fl.count, &opts);
+                time_t elapsed = time(NULL) - t0;
+                if (elapsed < 1) elapsed = 1;
+
+                if (err == ZUPT_OK) {
+                    FILE *zf = fopen(tmp_path, "rb");
+                    uint64_t zsize = 0;
+                    if (zf) { fseek(zf, 0, SEEK_END); zsize = (uint64_t)ftell(zf); fclose(zf); }
+
+                    char csz[32]; zupt_format_size(zsize, csz, sizeof(csz));
+                    double ratio = total_in > 0 ? (double)total_in / (double)zsize : 1.0;
+                    double pct = total_in > 0 ? (double)zsize / (double)total_in * 100.0 : 100.0;
+                    double speed = (double)total_in / (double)elapsed / 1048576.0;
+
+                    fprintf(stderr, "  %-7d %12s %9.2f:1 %9.1f%% %8.1f MB/s\n",
+                            lvl, csz, ratio, pct, speed);
+                } else {
+                    fprintf(stderr, "  %-7d %12s\n", lvl, "FAILED");
+                }
+                remove(tmp_path);
+            }
+            fprintf(stderr, "\n");
         }
-        fprintf(stderr, "\n");
+
         zupt_filelist_free(&fl);
         return 0;
     }

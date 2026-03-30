@@ -10,6 +10,7 @@
 #define _GNU_SOURCE
 #include "zupt.h"
 #include "zupt_parallel.h"
+#include "vaptvupt.h"  /* VAPTVUPT: VaptVupt codec integration */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,6 +50,7 @@ const char *zupt_codec_name(uint16_t id) {
         case ZUPT_CODEC_ZUPT_LZ: return "Zupt-LZ";
         case ZUPT_CODEC_ZUPT_LZH: return "Zupt-LZH";
         case ZUPT_CODEC_ZUPT_LZHP: return "Zupt-LZHP";
+        case ZUPT_CODEC_VAPTVUPT: return "VaptVupt"; /* VAPTVUPT */
         default: return "Unknown";
     }
 }
@@ -56,7 +58,10 @@ void zupt_default_options(zupt_options_t *o) {
     memset(o, 0, sizeof(*o));
     o->level = 7;
     o->block_size = 0;
-    o->codec_id = ZUPT_CODEC_ZUPT_LZHP;
+    o->codec_id = ZUPT_CODEC_VAPTVUPT; /* VAPTVUPT: default codec v2.0.0 */
+    /* Init keyring canaries */
+    o->keyring.canary_head = ZUPT_CANARY;
+    o->keyring.canary_tail = ZUPT_CANARY;
 }
 
 static uint32_t auto_block_size(int level) {
@@ -519,6 +524,37 @@ zupt_error_t zupt_compress_files(const char *output_path,
                 comp_size = zupt_lzh_compress(rbuf, nread, cbuf, zupt_lzh_bound(nread), opts->level);
             else if (codec == ZUPT_CODEC_ZUPT_LZ)
                 comp_size = zupt_lz_compress(rbuf, nread, cbuf, zupt_lz_bound(nread), opts->level);
+            /* VAPTVUPT: VaptVupt codec compress path */
+            else if (codec == ZUPT_CODEC_VAPTVUPT) {
+                vv_options_t vv_opts;
+                vv_default_options(&vv_opts);
+                /* Map zupt compression level to VaptVupt mode:
+                 *   1-3 → VV_MODE_ULTRA_FAST
+                 *   4-7 → VV_MODE_BALANCED
+                 *   8-9 → VV_MODE_EXTREME */
+                if (opts->level <= 3) vv_opts.mode = VV_MODE_ULTRA_FAST;
+                else if (opts->level <= 7) vv_opts.mode = VV_MODE_BALANCED;
+                else vv_opts.mode = VV_MODE_EXTREME;
+                vv_opts.checksum = 0;  /* Zupt handles checksums via HMAC/XXH64 */
+                vv_opts.window_log = (nread > (1u << 16)) ? 20 : 16;
+
+                size_t vv_cap = vv_compress_bound(nread);
+                if (vv_cap > zupt_lzh_bound(nread) + 512) {
+                    uint8_t *vv_tmp = (uint8_t *)malloc(vv_cap);
+                    if (vv_tmp) {
+                        int64_t csz = vv_compress(rbuf, nread, vv_tmp, vv_cap, &vv_opts);
+                        if (csz > 0 && (size_t)csz < nread) {
+                            memcpy(cbuf, vv_tmp, (size_t)csz);
+                            comp_size = (size_t)csz;
+                        }
+                        free(vv_tmp);
+                    }
+                } else {
+                    int64_t csz = vv_compress(rbuf, nread, cbuf, zupt_lzh_bound(nread) + 512, &vv_opts);
+                    if (csz > 0 && (size_t)csz < nread)
+                        comp_size = (size_t)csz;
+                }
+            }
 
             const uint8_t *payload; uint64_t payload_size;
             if (comp_size == 0 || comp_size >= nread) {
@@ -816,6 +852,29 @@ zupt_error_t zupt_compress_solid(const char *output_path,
         } else if (codec == ZUPT_CODEC_ZUPT_LZH) {
             comp_size = zupt_lzh_compress(src, chunk, cbuf, block_cap, opts->level);
         }
+        /* VAPTVUPT: VaptVupt codec in solid mode */
+        else if (codec == ZUPT_CODEC_VAPTVUPT) {
+            vv_options_t vv_opts;
+            vv_default_options(&vv_opts);
+            if (opts->level <= 3) vv_opts.mode = VV_MODE_ULTRA_FAST;
+            else if (opts->level <= 7) vv_opts.mode = VV_MODE_BALANCED;
+            else vv_opts.mode = VV_MODE_EXTREME;
+            vv_opts.checksum = 0;
+            vv_opts.window_log = (chunk > (1u << 16)) ? 20 : 16;
+
+            size_t vv_cap = vv_compress_bound(chunk);
+            uint8_t *vv_tmp = (uint8_t *)malloc(vv_cap);
+            if (vv_tmp) {
+                int64_t csz = vv_compress(src, chunk, vv_tmp, vv_cap, &vv_opts);
+                if (csz > 0 && (size_t)csz < chunk) {
+                    if ((size_t)csz <= block_cap) {
+                        memcpy(cbuf, vv_tmp, (size_t)csz);
+                        comp_size = (size_t)csz;
+                    }
+                }
+                free(vv_tmp);
+            }
+        }
 
         const uint8_t *payload = cbuf; uint64_t payload_size = comp_size;
         if (comp_size == 0 || comp_size >= chunk) {
@@ -1050,6 +1109,11 @@ static zupt_error_t decompress_block(const zupt_block_t *b, const zupt_keyring_t
             size_t r = zupt_lzh_decompress(lzh_data, lzh_len, *out, *olen);
             if (r != *olen) result = ZUPT_ERR_CORRUPT;
         }
+    }
+    /* VAPTVUPT: VaptVupt codec decompress path */
+    else if (b->codec_id == ZUPT_CODEC_VAPTVUPT) {
+        int64_t dsz = vv_decompress(comp_data, comp_len, *out, *olen);
+        if (dsz < 0 || (size_t)dsz != *olen) result = ZUPT_ERR_CORRUPT;
     } else {
         result = ZUPT_ERR_UNSUPPORTED;
     }
@@ -1344,6 +1408,22 @@ zupt_error_t zupt_extract_archive(const char *arc, const char *dir, zupt_options
 
         free(solid_buf);
     } else {
+        /* ─── NON-SOLID EXTRACTION ─── */
+        /* Multi-threaded decompression: dispatch blocks to N workers.
+         * Workers: decrypt → decompress → verify checksum.
+         * Main thread: read blocks, dispatch, write output in order. */
+        int effective_threads = opts->threads > 1 ? opts->threads : 1;
+        zpar_ctx_t *pctx = NULL;
+        if (effective_threads > 1) {
+            pctx = zpar_create(effective_threads, ZUPT_DEFAULT_BLOCK_SZ, 1,
+                               (hdr.global_flags & ZUPT_FLAG_ENCRYPTED) ? &opts->keyring : NULL);
+            if (!pctx || pctx->threads_running == 0) {
+                if (pctx) zpar_destroy(pctx);
+                pctx = NULL;
+                effective_threads = 1;
+            }
+        }
+
         for (int i=0; i<n; i++) {
             zupt_index_entry_t *e = &ents[i];
             char out_path[ZUPT_MAX_PATH + 256];
@@ -1362,21 +1442,74 @@ zupt_error_t zupt_extract_archive(const char *arc, const char *dir, zupt_options
 
             fseeko(f, (int64_t)e->first_block_offset, SEEK_SET);
             int berr = 0;
-            for (uint32_t b=0; b<e->block_count; b++) {
-                zupt_block_t blk;
-                err = read_block(f, &blk);
-                if (err != ZUPT_OK) { berr=1; break; }
-                uint8_t *dec; size_t dlen;
-                err = decompress_block(&blk, &opts->keyring, 0, &dec, &dlen);
-                free(blk.payload);
-                if (err != ZUPT_OK) { berr=1; break; }
-                fwrite(dec, 1, dlen, of);
-                total_extracted += dlen;
-                free(dec);
+
+            if (pctx && effective_threads > 1 && e->block_count > 1) {
+                /* ─── MT DECOMPRESSION PATH ─── */
+                int *pending_slots = (int *)malloc((size_t)effective_threads * sizeof(int));
+                if (!pending_slots) { berr = 1; goto file_done; }
+
+                uint32_t blocks_remaining = e->block_count;
+                uint64_t decomp_seq = 0;
+                while (blocks_remaining > 0) {
+                    int npending = 0;
+
+                    /* Submit batch of blocks to workers */
+                    while (blocks_remaining > 0 && npending < effective_threads) {
+                        zupt_block_t blk;
+                        err = read_block(f, &blk);
+                        if (err != ZUPT_OK) { berr = 1; break; }
+
+                        int slot = zpar_submit_decompress(pctx,
+                            blk.payload, (size_t)blk.compressed_size,
+                            decomp_seq, blk.codec_id, blk.block_flags,
+                            blk.checksum, blk.uncompressed_size);
+
+                        free(blk.payload); /* Worker copied it */
+                        if (slot < 0) { berr = 1; break; }
+                        pending_slots[npending++] = slot;
+                        blocks_remaining--;
+                        decomp_seq++;
+                    }
+
+                    /* Collect results in order */
+                    for (int pi = 0; pi < npending; pi++) {
+                        zpar_slot_t *s = zpar_wait_slot(pctx, pending_slots[pi]);
+                        if (!s || s->error != ZUPT_OK) {
+                            berr = 1;
+                            zpar_release_slot(pctx, pending_slots[pi]);
+                            continue;
+                        }
+                        if (s->output && s->output_len > 0) {
+                            fwrite(s->output, 1, s->output_len, of);
+                            total_extracted += s->output_len;
+                        }
+                        zpar_release_slot(pctx, pending_slots[pi]);
+                    }
+                    if (berr) break;
+                }
+                free(pending_slots);
+            } else {
+                /* ─── SINGLE-THREADED DECOMPRESSION PATH ─── */
+                for (uint32_t b=0; b<e->block_count; b++) {
+                    zupt_block_t blk;
+                    err = read_block(f, &blk);
+                    if (err != ZUPT_OK) { berr=1; break; }
+                    uint8_t *dec; size_t dlen;
+                    err = decompress_block(&blk, &opts->keyring, 0, &dec, &dlen);
+                    free(blk.payload);
+                    if (err != ZUPT_OK) { berr=1; break; }
+                    fwrite(dec, 1, dlen, of);
+                    total_extracted += dlen;
+                    free(dec);
+                }
             }
+
+file_done:
             fclose(of);
             if (berr) fail++; else ok++;
         }
+
+        if (pctx) zpar_destroy(pctx);
     }
 
     time_t elapsed = time(NULL) - start;

@@ -24,6 +24,7 @@
  *   - No new global mutable state
  */
 #include "zupt_parallel.h"
+#include "vaptvupt.h"  /* VAPTVUPT: VaptVupt codec integration */
 #include <stdlib.h>
 #include <string.h>
 
@@ -86,6 +87,29 @@ static void worker_compress(zpar_slot_t *slot, const zupt_keyring_t *kr) {
         comp_size = zupt_lzh_compress(rbuf, nread, cbuf, zupt_lzh_bound(nread), level);
     } else if (codec == ZUPT_CODEC_ZUPT_LZ) {
         comp_size = zupt_lz_compress(rbuf, nread, cbuf, zupt_lz_bound(nread), level);
+    }
+    /* VAPTVUPT: VaptVupt codec in parallel compress worker */
+    else if (codec == ZUPT_CODEC_VAPTVUPT) {
+        vv_options_t vv_opts;
+        vv_default_options(&vv_opts);
+        if (level <= 3) vv_opts.mode = VV_MODE_ULTRA_FAST;
+        else if (level <= 7) vv_opts.mode = VV_MODE_BALANCED;
+        else vv_opts.mode = VV_MODE_EXTREME;
+        vv_opts.checksum = 0;
+        vv_opts.window_log = (nread > (1u << 16)) ? 20 : 16;
+
+        size_t vv_cap = vv_compress_bound(nread);
+        uint8_t *vv_tmp = (uint8_t *)malloc(vv_cap);
+        if (vv_tmp) {
+            int64_t csz = vv_compress(rbuf, nread, vv_tmp, vv_cap, &vv_opts);
+            if (csz > 0 && (size_t)csz < nread) {
+                if ((size_t)csz <= cbuf_cap) {
+                    memcpy(cbuf, vv_tmp, (size_t)csz);
+                    comp_size = (size_t)csz;
+                }
+            }
+            free(vv_tmp);
+        }
     }
 
     /* Decide payload */
@@ -197,6 +221,11 @@ static void worker_decompress(zpar_slot_t *slot, const zupt_keyring_t *kr) {
             size_t r = zupt_lzh_decompress(lzh_data, lzh_len, out, olen);
             if (r != olen) result = ZUPT_ERR_CORRUPT;
         }
+    }
+    /* VAPTVUPT: VaptVupt codec in parallel decompress worker */
+    else if (codec == ZUPT_CODEC_VAPTVUPT) {
+        int64_t dsz = vv_decompress(comp_data, comp_len, out, olen);
+        if (dsz < 0 || (size_t)dsz != olen) result = ZUPT_ERR_CORRUPT;
     } else {
         result = ZUPT_ERR_UNSUPPORTED;
     }

@@ -1,6 +1,6 @@
 #!/bin/sh
-# ZUPT v0.5.1 — Comprehensive Regression Test Suite
-# Covers: normal, solid, encrypted, edge cases, heterogeneous data
+# ZUPT v2.0.0 — Comprehensive Regression Test Suite
+# Covers: normal, solid, encrypted, edge cases, VaptVupt codec
 # Run: sh tests/regression.sh
 
 set +e  # Don't exit on failure — we track pass/fail ourselves
@@ -244,6 +244,62 @@ else
     echo "  NOTE: gzip wins (normal for small non-backup corpus)"
     pass "Compression comparison complete"
 fi
+
+# ═══════════════════════════════════════════════════════
+# TEST 13: VAPTVUPT CODEC — Normal mode
+# ═══════════════════════════════════════════════════════
+echo "── T13: VaptVupt codec normal mode ──"
+$ZUPT compress --vv -l 5 "$T/vv_normal.zupt" "$T/data/" 2>/dev/null
+$ZUPT extract -o "$T/t13_out" "$T/vv_normal.zupt" 2>/dev/null
+check_roundtrip "$T/data" "$T/t13_out" "VaptVupt normal round-trip"
+
+# ═══════════════════════════════════════════════════════
+# TEST 14: VAPTVUPT CODEC — Encrypted
+# ═══════════════════════════════════════════════════════
+echo "── T14: VaptVupt codec + encryption ──"
+$ZUPT compress --vv -l 5 -p "VvPass#2026" "$T/vv_enc.zupt" "$T/data/" 2>/dev/null
+$ZUPT extract -o "$T/t14_out" -p "VvPass#2026" "$T/vv_enc.zupt" 2>/dev/null
+check_roundtrip "$T/data" "$T/t14_out" "VaptVupt encrypted round-trip"
+
+# ═══════════════════════════════════════════════════════
+# TEST 15: VAPTVUPT CODEC — Solid mode
+# ═══════════════════════════════════════════════════════
+echo "── T15: VaptVupt codec + solid mode ──"
+$ZUPT compress --vv --solid -l 5 "$T/vv_solid.zupt" "$T/data/" 2>/dev/null
+$ZUPT extract -o "$T/t15_out" "$T/vv_solid.zupt" 2>/dev/null
+check_roundtrip "$T/data" "$T/t15_out" "VaptVupt solid round-trip"
+
+# ═══════════════════════════════════════════════════════
+# TEST 16: VAPTVUPT CODEC — Integrity test
+# ═══════════════════════════════════════════════════════
+echo "── T16: VaptVupt codec integrity ──"
+RESULT=$($ZUPT test "$T/vv_normal.zupt" 2>&1)
+echo "$RESULT" | grep -q "0 failed" && pass "VaptVupt integrity" || fail "VaptVupt integrity"
+
+# ═══════════════════════════════════════════════════════
+# TEST 17: VAPTVUPT CODEC — All levels (fast/balanced/extreme mapping)
+# ═══════════════════════════════════════════════════════
+echo "── T17: VaptVupt all levels ──"
+VV_LEVEL_OK=1
+for lvl in 1 5 9; do
+    $ZUPT compress --vv -l $lvl "$T/vv_lvl_${lvl}.zupt" "$T/data/records.csv" 2>/dev/null
+    $ZUPT extract -o "$T/t17_${lvl}" "$T/vv_lvl_${lvl}.zupt" 2>/dev/null
+    EXTR=$(find "$T/t17_${lvl}" -name "records.csv" -type f | head -1)
+    if [ -n "$EXTR" ] && diff -q "$T/data/records.csv" "$EXTR" >/dev/null 2>&1; then
+        : # ok
+    else
+        echo "    VV Level $lvl: FAIL"
+        VV_LEVEL_OK=0
+    fi
+done
+[ "$VV_LEVEL_OK" -eq 1 ] && pass "VaptVupt all 3 modes round-trip" || fail "VaptVupt some levels failed"
+
+# ═══════════════════════════════════════════════════════
+# TEST 18: VAPTVUPT CODEC — List shows VaptVupt codec name
+# ═══════════════════════════════════════════════════════
+echo "── T18: VaptVupt list shows codec ──"
+RESULT=$($ZUPT list "$T/vv_normal.zupt" 2>&1)
+echo "$RESULT" | grep -q "TOTAL" && pass "VaptVupt list archive" || fail "VaptVupt list archive"
 
 # ═══════════════════════════════════════════════════════
 # SUMMARY

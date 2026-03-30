@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: make CC=${{ matrix.compiler }}
+      - name: NIST test vectors
+        run: make test-vectors CC=${{ matrix.compiler }} && ./test_vectors
+      - name: VaptVupt unit tests
+        run: make test-vv CC=${{ matrix.compiler }}
+      - name: Regression tests
+        run: sh tests/regression.sh
+      - name: Benchmark
+        run: ./zupt bench --compare
+
+  build-asan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ASAN + UBSan build
+        run: make test-asan
+      - name: ASAN regression
+        run: |
+          mkdir -p /tmp/asan_data
+          echo "ASAN test data" > /tmp/asan_data/test.txt
+          ./zupt_asan compress /tmp/asan_test.zupt /tmp/asan_data/
+          ./zupt_asan extract -o /tmp/asan_out /tmp/asan_test.zupt
+          diff /tmp/asan_data/test.txt /tmp/asan_out/tmp/asan_data/test.txt
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: make
+      - name: NIST test vectors
+        run: make test-vectors && ./test_vectors
+      - name: VaptVupt unit tests
+        run: make test-vv
+      - name: Regression tests
+        run: sh tests/regression.sh

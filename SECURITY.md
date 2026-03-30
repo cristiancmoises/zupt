@@ -1,4 +1,4 @@
-# Security Policy — Zupt v1.5.0
+# Security Policy — Zupt v2.0.0
 
 ## Reporting Vulnerabilities
 

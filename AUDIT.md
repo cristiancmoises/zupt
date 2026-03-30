@@ -1,8 +1,8 @@
-# Security Audit — Zupt v1.5.0
+# Security Audit — Zupt v2.0.0
 
-**Date:** March 28, 2026
+**Date:** March 29, 2026
 **Author:** Cristian Cezar Moisés
-**Audit type:** Self-audit with formal verification (Jasmin) and NIST/RFC test vectors
+**Audit type:** Self-audit with formal verification (Jasmin CT proofs, ACSL contracts) and NIST/RFC test vectors
 **Status:** No independent third-party audit performed
 
 ---
@@ -22,11 +22,43 @@ All primitives tested against published reference vectors:
 | XXH64 | xxHash spec | 1 (empty string, seed=0) | **PASS** |
 | **Total** | | **13** | **13/13 PASS** |
 
-Reproduction: `make test-vectors && ./test_vectors`
+## 2. Jasmin Constant-Time Verification
 
----
+| Function | Purpose | Status |
+|----------|---------|--------|
+| `zupt_mac_verify_ct` | HMAC comparison | **✅ Linked, CT-proven** |
+| `zupt_ct_select_32` | ML-KEM FO select | **✅ Linked, CT-proven** |
+| `zupt_fe_cswap` | X25519 conditional swap | **✅ Linked, CT-proven** |
+| `zupt_aes256_blk` | AES-256 single-block (AES-NI) | **✅ Linked, CT by hardware** |
+| `zupt_aes256_ctr4` | AES-256 4-block pipeline | **✅ Linked, CT by hardware** |
 
-## 2. Functional Test Results
+## 3. ACSL Formal Annotations
+
+19 security-critical functions annotated with `requires/ensures/assigns` contracts.
+Target: `frama-c -wp -wp-rte -wp-model Typed+Cast`
+
+## 4. Security Hardening
+
+| Feature | Status |
+|---------|--------|
+| mlock() key protection | **✅ Active** |
+| Buffer canaries (keyring) | **✅ Active** |
+| Always-decrypt timing mitigation | **✅ Active** |
+| AFL++ fuzz harnesses | **✅ Available** (`make fuzz-build`) |
+
+## 5. VaptVupt Codec Tests
+
+| Test | Status |
+|------|--------|
+| Roundtrip all 3 modes (UF/BAL/EXT) | **PASS** |
+| Roundtrip + AES-256 encryption | **PASS** |
+| Roundtrip + PQ hybrid encryption | **PASS** |
+| Roundtrip + multi-threaded | **PASS** |
+| Roundtrip + solid mode | **PASS** |
+| Incompressible fallback to store | **PASS** |
+| Empty/small input | **PASS** |
+| Multi-block (2 MB) | **PASS** |
+| **Total** | **11/11 PASS** |
 
 | Suite | Tests | Result | What It Covers |
 |-------|-------|--------|----------------|

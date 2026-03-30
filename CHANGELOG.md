@@ -5,6 +5,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [2.0.0] — 2026-03-29
+
+### Added — VaptVupt Codec Integration (Sprint 1)
+- **VaptVupt codec** integrated as `0x0010` — LZ77 + tANS entropy + AVX2 SIMD decode.
+- Three compression modes: Ultra-Fast (greedy), Balanced (lazy + 4-way ANS), Extreme (lazy-2 + order-1 context).
+- CLI flags `--vv` / `--vaptvupt` to select VaptVupt codec.
+- VaptVupt source files with dual MIT + Apache-2.0 headers.
+- `vv_xxh64` aliased to `zupt_xxh64` via macro (no duplicate symbol).
+- Wired into compress (ST, MT, solid) and decompress paths.
+- 11 VaptVupt unit tests + 6 regression tests (T13–T18).
+
+### Fixed — Jasmin Assembly (Sprint 2)
+- **AES-NI stack offset bug** fixed: replaced `stack u128[15]` with 15 individual `stack u128` variables to avoid jasminc byte-offset indexing. Round keys now at correct 16-byte aligned offsets.
+- **X25519 fe_cswap** wired: Jasmin swaps first 4 limbs (32 bytes), C handles 5th limb.
+- **All 4 Jasmin functions now active**: `zupt_mac_verify_ct`, `zupt_ct_select_32`, `zupt_fe_cswap`, `zupt_aes256_blk`.
+- AES-NI dispatch in `zupt_aes256_ctr()` with CPUID guard — eliminates table-based AES cache-timing on supported CPUs.
+
+### Added — ACSL Formal Annotations (Sprint 3)
+- 19 security-critical functions annotated with complete `requires/ensures/assigns` ACSL contracts.
+- Covers: SHA-256, HMAC, PBKDF2, AES-256-CTR, key derivation, encrypt/decrypt, hybrid KEM, SHA3, SHAKE, ML-KEM-768, X25519, secure_wipe.
+- Target: `frama-c -wp -wp-rte -wp-model Typed+Cast`.
+
+### Added — Security Hardening (Sprint 4)
+- **mlock()** for key material — prevents swap to disk (Linux/BSD/Windows).
+- **Buffer canaries** on `zupt_keyring_t` — `canary_head`/`canary_tail` detect overflow, abort on corruption.
+- **Always-decrypt timing mitigation** — `zupt_decrypt_buffer()` always decrypts even on MAC failure (then wipes), preventing timing oracle.
+- **AFL++ fuzzing harnesses** — `fuzz_decompress.c` (archive format) and `fuzz_vv_decompress.c` (VaptVupt codec). `make fuzz-build`.
+
+### Added — Performance (Sprint 5)
+- **AES-NI 4-block pipeline** — `zupt_aes256_ctr4` interleaves 4 counter blocks per AES round for pipeline saturation.
+- **Multi-threaded decompression** — non-solid extract dispatches blocks to N worker threads via existing `zpar_ctx_t` infrastructure.
+- **Adaptive compression** — `zupt_detect_filetype()` identifies 16+ file formats by magic bytes; already-compressed files get STORE.
+- **Benchmark harness** — `zupt bench --compare` tests all codecs + auto-detects gzip/lz4/zstd.
+
+### Changed — Default Codec (Sprint 6)
+- **VaptVupt is now the default codec** (`zupt_default_options` sets `ZUPT_CODEC_VAPTVUPT`).
+- Previous default Zupt-LZHP remains available. Old archives decompress unchanged.
+- Version bumped to 2.0.0.
+
+---
+
 ## [1.5.0] — 2026-03-28
 
 ### Added — Jasmin Assembly Integration (Sprint 1)
