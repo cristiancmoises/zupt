@@ -252,7 +252,7 @@ All codecs are forward-compatible: archives created with any codec can be read b
 ---
 
 ## License
-MIT — see [LICENSE](LICENSE).
+MIT | [LICENSE](LICENSE).
 
 Security vulnerabilities: see [SECURITY.md](SECURITY.md).
 
