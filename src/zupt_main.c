@@ -53,7 +53,7 @@ static void usage(void) {
         "Extract/List/Test Options:\n"
         "  -o, --output <DIR>    Output directory (extract only)\n"
         "  -p, --password <PW>   Decryption password\n"
-        "  -pq,--post-quantum    Post-quantum Encryption|Decryption \n"
+        "  --pq,--post-quantum    Post-quantum Encryption|Decryption \n"
         "  -v, --verbose         Verbose output\n"
         "  -t, --threads <N>     Thread count for decompression\n"
         "\n"
