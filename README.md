@@ -11,6 +11,12 @@
 Backup compression with the VaptVupt codec, AES-256 authenticated encryption, and post-quantum key encapsulation. Pure C11, zero dependencies, ~12,000 lines.
 
 ---
+Some fixes have been made in version 2.0-RC it is already suitable for *personal use* and *testing*, but *not yet for critical environments* or *large-scale data*.
+See [SECURITY.md](SECURITY.md) for threat model. See [AUDIT.md](AUDIT.md) for audit checklist.
+
+`❗Please wait for the full version 2.0 release, which will fix all remaining bugs and improve performance.`
+
+---
 
 ## Why Zupt
 
@@ -18,7 +24,7 @@ Backup compression with the VaptVupt codec, AES-256 authenticated encryption, an
 - **Post-quantum encryption** — `--pq` mode uses ML-KEM-768 + X25519 hybrid KEM (same approach as Signal and iMessage). Protects against "harvest now, decrypt later" quantum attacks.
 - **AES-NI hardware acceleration** — AES-256-CTR via Jasmin-verified assembly with 4-block interleaved pipeline. No table-based AES on supported CPUs — eliminates cache-timing side channels.
 - **Multi-threaded** — Compression and decompression both parallelized. `-t 0` auto-detects cores.
-- **Encrypted backups in one command** — `zupt compress -p backup.zupt ~/data/` — AES-256 + HMAC-SHA256, file names hidden.
+- **Encrypted backups in one command** — `zupt compress -p "changeme" backup.zupt ~/data/` — AES-256 + HMAC-SHA256, file names hidden.
 - **Per-block integrity** — XXH64 checksum + HMAC-SHA256 per block. Wrong password rejected instantly.
 - **Formally verified crypto** — 5 Jasmin assembly functions with constant-time proofs. 19 ACSL-annotated functions for Frama-C memory safety analysis.
 - **Zero dependencies** — ML-KEM, X25519, Keccak, SHA-256, AES-256, HMAC, PBKDF2, VaptVupt codec — all pure C11. Builds with `gcc` or `cl` alone.
