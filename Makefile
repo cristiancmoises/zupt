@@ -1,4 +1,4 @@
-# Zupt v1.5.0 — Makefile with Jasmin integration
+# Zupt v1.5.2 — Makefile with Jasmin integration
 CC       ?= gcc
 CFLAGS   ?= -Wall -Wextra -O2 -std=c11
 CFLAGS   += -Iinclude -Isrc
@@ -17,17 +17,26 @@ HEADERS  = include/zupt.h include/zupt_keccak.h include/zupt_mlkem.h \
 
 TARGET   = zupt
 
-# Jasmin: use pre-compiled .s files if present (mac_verify + mlkem_select)
+# Detect target architecture from compiler triple
+TARGET_TRIPLE := $(shell $(CC) -dumpmachine 2>/dev/null)
+IS_X86_64 := $(filter x86_64-% amd64-%,$(TARGET_TRIPLE))
+
+# Jasmin: enable only on x86_64 and only if assembly sources are present
 JAZZ_S = jasmin/zupt_mac_verify.s jasmin/zupt_mlkem_select.s
 JAZZ_AVAILABLE := $(wildcard $(JAZZ_S))
 
-ifeq ($(JAZZ_AVAILABLE),$(JAZZ_S))
-  CFLAGS += -DZUPT_USE_JASMIN
-  JAZZ_O = jasmin/zupt_mac_verify.o jasmin/zupt_mlkem_select.o
-  $(info [jasmin] Verified assembly found — linking CT crypto)
-else
+ifeq ($(IS_X86_64),)
   JAZZ_O =
-  $(info [jasmin] Assembly not found — using C fallback)
+  $(info [jasmin] Non-x86_64 target ($(TARGET_TRIPLE)) — using C fallback)
+else
+  ifeq ($(JAZZ_AVAILABLE),$(JAZZ_S))
+    CFLAGS += -DZUPT_USE_JASMIN
+    JAZZ_O = jasmin/zupt_mac_verify.o jasmin/zupt_mlkem_select.o
+    $(info [jasmin] x86_64 target ($(TARGET_TRIPLE)) with assembly found : linking CT crypto)
+  else
+    JAZZ_O =
+    $(info [jasmin] x86_64 target ($(TARGET_TRIPLE)) but assembly not found : using C fallback)
+  endif
 endif
 
 .PHONY: all clean install uninstall test test-all test-asan test-vectors help
