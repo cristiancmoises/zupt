@@ -47,17 +47,22 @@ else
   VV_SIMD_FLAGS =
 endif
 
-# --- Jasmin: use pre-compiled .s files if present ---
+# --- Jasmin: enable only on supported architectures ---
 JAZZ_S = jasmin/zupt_mac_verify.s jasmin/zupt_mlkem_select.s jasmin/zupt_aes_ctr.s jasmin/zupt_x25519_fe.s jasmin/zupt_aes_ctr4.s
-JAZZ_AVAILABLE := $(wildcard $(JAZZ_S))
+JAZZ_O =
 
-ifeq ($(JAZZ_AVAILABLE),$(JAZZ_S))
-  CFLAGS += -DZUPT_USE_JASMIN
-  JAZZ_O = jasmin/zupt_mac_verify.o jasmin/zupt_mlkem_select.o jasmin/zupt_aes_ctr.o jasmin/zupt_x25519_fe.o jasmin/zupt_aes_ctr4.o
-  $(info [jasmin] Verified assembly found - linking CT crypto)
+# Only enable Jasmin on x86_64
+ifeq ($(ARCH),x86_64)
+  JAZZ_AVAILABLE := $(wildcard $(JAZZ_S))
+  ifeq ($(JAZZ_AVAILABLE),$(JAZZ_S))
+    CFLAGS += -DZUPT_USE_JASMIN
+    JAZZ_O = jasmin/zupt_mac_verify.o jasmin/zupt_mlkem_select.o jasmin/zupt_aes_ctr.o jasmin/zupt_x25519_fe.o jasmin/zupt_aes_ctr4.o
+    $(info [jasmin] Enabled (x86_64) - linking CT crypto)
+  else
+    $(info [jasmin] Assembly not found - using C fallback)
+  endif
 else
-  JAZZ_O =
-  $(info [jasmin] Assembly not found - using C fallback)
+  $(info [jasmin] Disabled on $(ARCH) - using C fallback)
 endif
 
 # --- Object files for per-file CFLAGS (VV SIMD files need -mavx2) ---
