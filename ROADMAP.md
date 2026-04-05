@@ -17,7 +17,8 @@
 | v1.3 | ✅ | ACSL predicates, Jasmin source files (initial), security review |
 | v1.4 | ✅ | All 4 Jasmin `.jazz` files compile on jasminc 2026.03.0 |
 | **v1.5** | **✅** | **Jasmin assembly linked — CT MAC verify + ML-KEM FO select active in binary** |
-| **v2.0** | **✅ Current** | **VaptVupt codec (default), all 4 Jasmin wired, ACSL, mlock, fuzzing, canaries, AES-NI pipeline, MT decompress, adaptive compression, benchmark** |
+| **v1.5.5** | **✅** | **Man page install, V=1 verbose, LDFLAGS/PIE, rpmlint, multi-arch Makefile** |
+| **v2.0** | **✅ Current** | **VaptVupt 1.1.0 codec with auto hardware detection, all 5 Jasmin wired, AVX SIGILL fix, copy_match/litlen fixes, ACSL, mlock, fuzzing, canaries, AES-NI pipeline, MT decompress, multi-arch (6 arches)** |
 
 ## Planned
 

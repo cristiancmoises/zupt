@@ -5,44 +5,86 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
-## [2.0.0] — 2026-03-29
+## [2.0.0] — 2026-04-05
 
-### Added — VaptVupt Codec Integration (Sprint 1)
+### Added — VaptVupt 1.1.0 Codec Integration
 - **VaptVupt codec** integrated as `0x0010` — LZ77 + tANS entropy + AVX2 SIMD decode.
 - Three compression modes: Ultra-Fast (greedy), Balanced (lazy + 4-way ANS), Extreme (lazy-2 + order-1 context).
+- **Rep-match offset coding** — 3 recent offsets tracked (like zstd), saves 10–15 bits per repeated match.
+- **Adaptive window selection** — trial-compresses at wlog=16 vs wlog=20, picks larger window only if ≥3% improvement.
 - CLI flags `--vv` / `--vaptvupt` to select VaptVupt codec.
+- CLI flag `--lzhp` to explicitly select Zupt-LZHP codec.
 - VaptVupt source files with dual MIT + Apache-2.0 headers.
 - `vv_xxh64` aliased to `zupt_xxh64` via macro (no duplicate symbol).
-- Wired into compress (ST, MT, solid) and decompress paths.
+- Wired into compress (single-thread, multi-thread, solid) and decompress paths.
 - 11 VaptVupt unit tests + 6 regression tests (T13–T18).
 
-### Fixed — Jasmin Assembly (Sprint 2)
+### Added — Auto Codec Detection
+- **`ZUPT_CODEC_AUTO`** — hardware-aware default codec selection:
+  - x86_64 with AVX2: VaptVupt (inline AVX2 SIMD decode, ~2–3 GB/s).
+  - aarch64 with NEON: VaptVupt (NEON SIMD decode path).
+  - All other architectures: Zupt-LZHP (scalar decoder, no SIMD dependency).
+- `zupt_resolve_auto_codec()` checks compile-time flags (`__AVX2__`, `__ARM_NEON`) and runtime CPUID.
+- Decompression is universal — any archive extracts on any architecture regardless of codec.
+- Users can override with `--vv` (force VaptVupt) or `--lzhp` (force LZHP).
+
+### Fixed — Jasmin Assembly
 - **AES-NI stack offset bug** fixed: replaced `stack u128[15]` with 15 individual `stack u128` variables to avoid jasminc byte-offset indexing. Round keys now at correct 16-byte aligned offsets.
 - **X25519 fe_cswap** wired: Jasmin swaps first 4 limbs (32 bytes), C handles 5th limb.
-- **All 4 Jasmin functions now active**: `zupt_mac_verify_ct`, `zupt_ct_select_32`, `zupt_fe_cswap`, `zupt_aes256_blk`.
-- AES-NI dispatch in `zupt_aes256_ctr()` with CPUID guard — eliminates table-based AES cache-timing on supported CPUs.
+- **All 5 Jasmin functions now active**: `zupt_mac_verify_ct`, `zupt_ct_select_32`, `zupt_fe_cswap`, `zupt_aes256_blk`, `zupt_aes256_ctr4`.
+- **SIGILL fix: AVX detection with OSXSAVE/XCR0 check.** The Jasmin AES assembly uses VEX-encoded instructions (`vaesenc`, `vmovdqu`, `vpxor`) which require AVX — not just AES-NI. Previous dispatch only checked `has_aesni`, causing SIGILL on CPUs with AES-NI but without AVX or without OS XSAVE support. Now checks `has_aesni && has_avx` with proper XGETBV XCR0 validation.
+- Added `has_avx` field to `zupt_cpu_features_t` with correct detection: CPUID ECX[28] (AVX) + ECX[27] (OSXSAVE) + XCR0 bits 1+2.
 
-### Added — ACSL Formal Annotations (Sprint 3)
+### Fixed — VaptVupt Codec Bugs
+- **`copy_match_scalar` overlap corruption** (`vv_simd.c`): 8-byte bulk copy was used for offsets 4–7, where source overlaps destination by more than the copy stride. The `memcpy` read-then-write semantics don't correctly replicate the overlapping pattern. Fix: byte-by-byte for offsets < 8 (was < 4). This caused silent data corruption on inputs with short-offset matches near the output buffer tail.
+- **`vva_encode_sequences` heap overflow** (`vv_ans.c`): litlen varint buffer allocated as `nseq * 5 + 1` bytes, but individual literal lengths in solid mode can reach 1 MB, requiring up to `ceil(litlen/255) + 1` bytes per varint. Fix: compute exact bound from actual litlen values. This caused heap corruption and abort (`malloc(): invalid size`) on large solid-mode archives.
+
+### Added — ACSL Formal Annotations
 - 19 security-critical functions annotated with complete `requires/ensures/assigns` ACSL contracts.
 - Covers: SHA-256, HMAC, PBKDF2, AES-256-CTR, key derivation, encrypt/decrypt, hybrid KEM, SHA3, SHAKE, ML-KEM-768, X25519, secure_wipe.
 - Target: `frama-c -wp -wp-rte -wp-model Typed+Cast`.
 
-### Added — Security Hardening (Sprint 4)
+### Added — Security Hardening
 - **mlock()** for key material — prevents swap to disk (Linux/BSD/Windows).
 - **Buffer canaries** on `zupt_keyring_t` — `canary_head`/`canary_tail` detect overflow, abort on corruption.
 - **Always-decrypt timing mitigation** — `zupt_decrypt_buffer()` always decrypts even on MAC failure (then wipes), preventing timing oracle.
 - **AFL++ fuzzing harnesses** — `fuzz_decompress.c` (archive format) and `fuzz_vv_decompress.c` (VaptVupt codec). `make fuzz-build`.
 
-### Added — Performance (Sprint 5)
+### Added — Performance
 - **AES-NI 4-block pipeline** — `zupt_aes256_ctr4` interleaves 4 counter blocks per AES round for pipeline saturation.
-- **Multi-threaded decompression** — non-solid extract dispatches blocks to N worker threads via existing `zpar_ctx_t` infrastructure.
+- **Multi-threaded decompression** — non-solid extract dispatches blocks to N worker threads via `zpar_ctx_t` infrastructure.
 - **Adaptive compression** — `zupt_detect_filetype()` identifies 16+ file formats by magic bytes; already-compressed files get STORE.
 - **Benchmark harness** — `zupt bench --compare` tests all codecs + auto-detects gzip/lz4/zstd.
 
-### Changed — Default Codec (Sprint 6)
-- **VaptVupt is now the default codec** (`zupt_default_options` sets `ZUPT_CODEC_VAPTVUPT`).
-- Previous default Zupt-LZHP remains available. Old archives decompress unchanged.
-- Version bumped to 2.0.0.
+### Changed — Multi-Architecture Support
+- **Makefile rewritten** for full multi-arch builds: x86_64, aarch64, armhf, ppc64le, s390x, riscv64.
+- Jasmin CT assembly: x86_64 only (C fallback on all others).
+- AVX2 SIMD decode: x86_64 only. NEON decode: aarch64. Scalar fallback: everywhere.
+- `LDFLAGS` honored on link line for PIE linking (`-pie -Wl,-z,relro,-z,now`).
+- `LDLIBS` placed after objects (correct rpmlint/OBS link order).
+- `DESTDIR` support for staged packaging installs.
+- Man page `doc/zupt.1` compressed and installed to `$(MANDIR)/man1/zupt.1.gz`.
+- Verbose build with `make V=1`.
+- `make help` shows available targets and detected architecture capabilities.
+- AVX2 detection gates `has_avx2` on `has_avx` (OS XSAVE must be enabled).
+
+### Tests
+- **70 tests total:** 11 VV unit + 13 NIST/RFC vectors + 22 regression + 14 multi-threaded + 10 post-quantum.
+- ASAN clean across all modes (normal, encrypted, solid, threaded, PQ).
+- All 5 Jasmin symbols linked (confirmed via `nm`).
+
+---
+
+## [1.5.5] — 2026-04-01
+
+### Fixed — Makefile & Packaging
+- Added man page installation (`doc/zupt.1` → `zupt.1.gz` in `$(MAN1DIR)`).
+- Enabled verbose build output with `V=1` support.
+- Fixed Makefile to honor `LDFLAGS` and support PIE linking.
+- Improved rpmlint compliance for OBS/openSUSE packaging.
+- Jasmin assembly gated to x86_64 only (`ifeq ($(ARCH),x86_64)`) — clean build on aarch64/armhf/ppc64le.
+- Object files excluded from distribution tarballs.
+- `install.sh` convenience installer restored.
 
 ---
 
@@ -174,7 +216,9 @@ All 4 `.jazz` files rewritten to fix compilation errors:
 
 | Version | Key Change | Tests |
 |---------|-----------|-------|
-| **1.5.0** | Jasmin assembly linked: MAC verify + ML-KEM select **active** in binary | 53+13 PASS |
+| **2.0.0** | VaptVupt 1.1.0 codec, auto codec detection, all 5 Jasmin wired, AVX SIGILL fix, multi-arch, copy_match fix, litlen overflow fix | 70 PASS |
+| **1.5.5** | Man page install, V=1 verbose, LDFLAGS/PIE, rpmlint, multi-arch Makefile | 53+13 PASS |
+| **1.5.0** | Jasmin assembly linked: MAC verify + ML-KEM select active in binary | 53+13 PASS |
 | **1.4.0** | All 4 `.jazz` files compile on jasminc 2026.03.0 | 53+13 PASS |
 | **1.3.0** | ACSL predicates, security review, partial Jasmin fixes | 53+13 PASS |
 | **1.2.0** | CPUID detection, Jasmin source files (with errors) | 53+13 PASS |
