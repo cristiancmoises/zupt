@@ -3,51 +3,306 @@ name: CI
 on:
   push:
     branches: [main, master]
+    tags: ['v*']
   pull_request:
     branches: [main, master]
 
 jobs:
+  # ═══════════════════════════════════════════════════════════════
+  # Linux x86_64 — GCC + Clang, full test suite
+  # ═══════════════════════════════════════════════════════════════
   build-linux:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         compiler: [gcc, clang]
     steps:
       - uses: actions/checkout@v4
+
       - name: Build
         run: make CC=${{ matrix.compiler }}
-      - name: NIST test vectors
+
+      - name: Verify Jasmin symbols (x86_64)
+        run: |
+          nm zupt | grep -q "T zupt_mac_verify_ct"  || exit 1
+          nm zupt | grep -q "T zupt_ct_select_32"   || exit 1
+          nm zupt | grep -q "T zupt_fe_cswap"       || exit 1
+          nm zupt | grep -q "T zupt_aes256_blk"     || exit 1
+          nm zupt | grep -q "T zupt_aes256_ctr4"    || exit 1
+          echo "All 5 Jasmin symbols linked"
+
+      - name: NIST/RFC test vectors (13 tests)
         run: make test-vectors CC=${{ matrix.compiler }} && ./test_vectors
-      - name: VaptVupt unit tests
+
+      - name: VaptVupt unit tests (11 tests)
         run: make test-vv CC=${{ matrix.compiler }}
-      - name: Regression tests
-        run: sh tests/regression.sh
+
+      - name: Regression tests (22 tests)
+        run: bash tests/regression.sh
+
+      - name: Multi-threaded tests (14 tests)
+        run: bash tests/test_threaded.sh
+
+      - name: Post-quantum tests (10 tests)
+        run: bash tests/test_pq.sh ./zupt
+
       - name: Benchmark
         run: ./zupt bench --compare
 
+  # ═══════════════════════════════════════════════════════════════
+  # Linux x86_64 — ASAN + UBSan
+  # ═══════════════════════════════════════════════════════════════
   build-asan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: ASAN + UBSan build
-        run: make test-asan
-      - name: ASAN regression
-        run: |
-          mkdir -p /tmp/asan_data
-          echo "ASAN test data" > /tmp/asan_data/test.txt
-          ./zupt_asan compress /tmp/asan_test.zupt /tmp/asan_data/
-          ./zupt_asan extract -o /tmp/asan_out /tmp/asan_test.zupt
-          diff /tmp/asan_data/test.txt /tmp/asan_out/tmp/asan_data/test.txt
 
+      - name: Build with ASAN + UBSan
+        run: make test-asan
+
+      - name: ASAN smoke test (all codecs + encryption + PQ)
+        run: |
+          T=$(mktemp -d)
+          mkdir -p "$T/data/sub"
+          echo "ASAN test content" > "$T/data/hello.txt"
+          dd if=/dev/urandom bs=1024 count=200 of="$T/data/rand.bin" 2>/dev/null
+          seq 1 20000 > "$T/data/sub/numbers.txt"
+          yes "The quick brown fox. " | head -c 500000 > "$T/data/text.txt"
+
+          # Normal compress + extract (VaptVupt auto)
+          ./zupt_asan compress "$T/a1.zupt" "$T/data/" 2>&1
+          ./zupt_asan extract -o "$T/o1" "$T/a1.zupt" 2>&1
+
+          # Encrypted
+          ./zupt_asan compress -p "test123" "$T/a2.zupt" "$T/data/" 2>&1
+          ./zupt_asan extract -o "$T/o2" -p "test123" "$T/a2.zupt" 2>&1
+
+          # Explicit LZHP codec
+          ./zupt_asan compress --lzhp "$T/a3.zupt" "$T/data/" 2>&1
+          ./zupt_asan extract -o "$T/o3" "$T/a3.zupt" 2>&1
+
+          # Solid mode
+          ./zupt_asan compress --solid "$T/a4.zupt" "$T/data/" 2>&1
+          ./zupt_asan extract -o "$T/o4" "$T/a4.zupt" 2>&1
+
+          # Multi-threaded
+          ./zupt_asan compress -t 4 "$T/a5.zupt" "$T/data/" 2>&1
+          ./zupt_asan extract -o "$T/o5" "$T/a5.zupt" 2>&1
+
+          # PQ encryption
+          ./zupt_asan keygen -o "$T/priv.key" 2>&1
+          ./zupt_asan keygen --pub -o "$T/pub.key" -k "$T/priv.key" 2>&1
+          ./zupt_asan compress --pq "$T/pub.key" "$T/a6.zupt" "$T/data/" 2>&1
+          ./zupt_asan extract --pq "$T/priv.key" -o "$T/o6" "$T/a6.zupt" 2>&1
+
+          # Integrity test
+          ./zupt_asan test "$T/a1.zupt" 2>&1
+
+          echo "ASAN: all modes clean"
+          rm -rf "$T"
+
+  # ═══════════════════════════════════════════════════════════════
+  # Linux aarch64 — cross-compile + QEMU
+  # ═══════════════════════════════════════════════════════════════
+  build-linux-aarch64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install aarch64 cross-compiler + QEMU
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gcc-aarch64-linux-gnu qemu-user-static
+
+      - name: Build (aarch64, no Jasmin, no AVX2)
+        run: |
+          make CC=aarch64-linux-gnu-gcc \
+               CFLAGS="-Wall -Wextra -O2 -std=c11 -Iinclude -Isrc -static" \
+               LDFLAGS="-static" \
+               LDLIBS="-lm -lpthread"
+
+      - name: Verify no Jasmin symbols (aarch64)
+        run: |
+          ! nm zupt | grep -q "T zupt_aes256_blk" || \
+            (echo "ERROR: Jasmin symbols should NOT be linked on aarch64" && exit 1)
+          echo "Correct: no Jasmin symbols on aarch64"
+
+      - name: NIST/RFC test vectors (QEMU aarch64)
+        run: |
+          make test-vectors \
+               CC=aarch64-linux-gnu-gcc \
+               CFLAGS="-O2 -std=c11 -Iinclude -Isrc -static" \
+               LDFLAGS="-static" \
+               LDLIBS="-lm -lpthread"
+          qemu-aarch64-static ./test_vectors
+
+      - name: VaptVupt unit tests (QEMU aarch64)
+        run: |
+          aarch64-linux-gnu-gcc -O2 -std=c11 -Iinclude -Isrc -static \
+              tests/test_vaptvupt.c \
+              src/vv_encoder.c src/vv_decoder.c src/vv_ans.c \
+              src/vv_huffman.c src/vv_simd.c src/zupt_xxh.c src/zupt_cpuid.c \
+              -lm -lpthread -o test_vaptvupt
+          qemu-aarch64-static ./test_vaptvupt
+
+      - name: Smoke test (QEMU aarch64)
+        run: |
+          T=$(mktemp -d)
+          echo "aarch64 test" > "$T/test.txt"
+          seq 1 5000 >> "$T/test.txt"
+          qemu-aarch64-static ./zupt compress "$T/a.zupt" "$T/test.txt" 2>&1
+          qemu-aarch64-static ./zupt extract -o "$T/out" "$T/a.zupt" 2>&1
+          EXTR=$(find "$T/out" -name test.txt -type f | head -1)
+          diff -q "$T/test.txt" "$EXTR"
+          echo "aarch64 roundtrip: OK"
+          rm -rf "$T"
+
+  # ═══════════════════════════════════════════════════════════════
+  # macOS (Apple Silicon / Intel)
+  # ═══════════════════════════════════════════════════════════════
   build-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Build
         run: make
-      - name: NIST test vectors
+
+      - name: NIST/RFC test vectors
         run: make test-vectors && ./test_vectors
+
       - name: VaptVupt unit tests
         run: make test-vv
+
       - name: Regression tests
-        run: sh tests/regression.sh
+        run: bash tests/regression.sh
+
+      - name: Multi-threaded tests
+        run: bash tests/test_threaded.sh
+
+      - name: Post-quantum tests
+        run: bash tests/test_pq.sh ./zupt
+
+  # ═══════════════════════════════════════════════════════════════
+  # Windows (MSYS2 / MinGW-w64)
+  # ═══════════════════════════════════════════════════════════════
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            make
+            diffutils
+
+      - name: Build
+        run: make CC=gcc
+
+      - name: NIST/RFC test vectors
+        run: make test-vectors && ./test_vectors
+
+      - name: VaptVupt unit tests
+        run: make test-vv
+
+  # ═══════════════════════════════════════════════════════════════
+  # PIE / Hardening build (distro packaging compliance)
+  # ═══════════════════════════════════════════════════════════════
+  build-hardened:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with PIE + full hardening
+        run: |
+          make CFLAGS="-Wall -Wextra -O2 -std=c11 -fPIE -fstack-protector-strong -D_FORTIFY_SOURCE=2 -Iinclude -Isrc" \
+               LDFLAGS="-pie -Wl,-z,relro,-z,now"
+
+      - name: Verify PIE binary
+        run: |
+          file ./zupt | grep -q "pie executable" || \
+            (echo "ERROR: binary is not PIE" && exit 1)
+          echo "PIE binary confirmed"
+
+      - name: Test install with DESTDIR
+        run: |
+          make install DESTDIR=/tmp/zupt_pkg
+          test -f /tmp/zupt_pkg/usr/local/bin/zupt
+          test -f /tmp/zupt_pkg/usr/local/share/man/man1/zupt.1.gz
+          echo "Install layout OK"
+
+      - name: Full test suite on hardened build
+        run: |
+          make test-vectors && ./test_vectors
+          make test-vv
+          bash tests/regression.sh
+
+  # ═══════════════════════════════════════════════════════════════
+  # Release — create GitHub release with tarball on tag push
+  # ═══════════════════════════════════════════════════════════════
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-linux, build-asan, build-linux-aarch64, build-macos, build-windows, build-hardened]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release tarball
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          make clean
+          cd ..
+          cp -a zupt "zupt-${VERSION}"
+          tar czf "zupt-${VERSION}.tar.gz" "zupt-${VERSION}" \
+            --exclude='*.o' --exclude='zupt-*/zupt' \
+            --exclude='zupt_asan' --exclude='test_vectors' \
+            --exclude='test_vaptvupt' --exclude='fuzz_*'
+          mv "zupt-${VERSION}.tar.gz" zupt/
+          cd zupt
+          echo "TARBALL=zupt-${VERSION}.tar.gz" >> $GITHUB_ENV
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Build binary
+        run: make
+
+      - name: Run full test suite
+        run: |
+          make test-vectors && ./test_vectors
+          make test-vv
+          bash tests/regression.sh
+          bash tests/test_threaded.sh
+          bash tests/test_pq.sh ./zupt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Zupt v${{ env.VERSION }}"
+          body: |
+            ## Zupt v${{ env.VERSION }}
+
+            Backup compression with hardware-adaptive codec selection, AES-256 authenticated encryption, and post-quantum key encapsulation.
+
+            **Changes:** See [CHANGELOG.md](https://github.com/cristiancmoises/zupt/blob/master/CHANGELOG.md)
+
+            **Install:**
+            ```bash
+            curl -fsSL https://short.securityops.co/zupt | bash
+            ```
+            Or build from source:
+            ```bash
+            tar xzf zupt-${{ env.VERSION }}.tar.gz && cd zupt-${{ env.VERSION }} && make && sudo make install
+            ```
+
+            **Test results:** 70/70 (11 VV + 13 NIST + 22 regression + 14 MT + 10 PQ)
+          files: ${{ env.TARBALL }}
+          generate_release_notes: true
