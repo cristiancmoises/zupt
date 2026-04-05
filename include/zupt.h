@@ -75,6 +75,7 @@
 #define ZUPT_CODEC_ZUPT_LZH 0x0009  /* LZ77 + Huffman */
 #define ZUPT_CODEC_ZUPT_LZHP 0x000A /* LZ77 + Huffman + Byte Prediction (default) */
 #define ZUPT_CODEC_VAPTVUPT  0x0010 /* VAPTVUPT: VaptVupt LZ + ANS entropy codec */
+#define ZUPT_CODEC_AUTO      0xFFFF /* Auto-detect: VaptVupt if AVX2, else LZHP */
 
 /* Crypto */
 #define ZUPT_SALT_SIZE       32
@@ -325,5 +326,11 @@ const char *zupt_strerror(zupt_error_t e);
 const char *zupt_codec_name(uint16_t id);
 void zupt_default_options(zupt_options_t *o);
 void zupt_format_size(uint64_t bytes, char *buf, size_t cap);
+
+/* Resolve ZUPT_CODEC_AUTO to a concrete codec based on hardware.
+ * On x86_64 with AVX2: VaptVupt (fast ANS+SIMD decode).
+ * On all other arches:  Zupt-LZHP (no SIMD dependency).
+ * Decompression of ALL codecs works on ALL architectures. */
+uint16_t zupt_resolve_auto_codec(void);
 
 #endif

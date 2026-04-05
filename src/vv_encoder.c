@@ -6,6 +6,7 @@
 #if !defined(_DEFAULT_SOURCE) && !defined(_GNU_SOURCE)
   #define _DEFAULT_SOURCE 1
 #endif
+
 /*
  * VaptVupt — Encoder v2 (Sprint 1)
  *
@@ -442,11 +443,8 @@ int64_t vv_compress(const uint8_t *src, size_t src_len,
     if (wlog == 0) {
         switch (opts->mode) {
         case VV_MODE_ULTRA_FAST: wlog = 16; break;
-        case VV_MODE_BALANCED:   wlog = 16; break;
-        case VV_MODE_EXTREME:    wlog = 16; break;
-        /* TRADEOFF: wlog=16 default avoids 3-byte offset overhead on small data.
-         * Users can set opts.window_log=20 (1MB) or 22 (4MB) for large files
-         * with long-range patterns. Zupt sets wlog=20 for backup chunks >1MB. */
+        case VV_MODE_BALANCED:   wlog = 16; break; /* may be overridden below */
+        case VV_MODE_EXTREME:    wlog = 16; break; /* may be overridden below */
         }
     }
     switch (opts->mode) {
@@ -454,6 +452,41 @@ int64_t vv_compress(const uint8_t *src, size_t src_len,
     case VV_MODE_BALANCED:   depth = 48; break;
     case VV_MODE_EXTREME:    depth = 256; break;
     default: depth = 48;
+    }
+
+    /* ─── ADAPTIVE WINDOW (Item 2): trial-compress first block at wlog=16
+     * and wlog=20. If wlog=20 produces ≥3% smaller output, use it.
+     * Only for balanced/extreme with auto wlog (opts->window_log == 0).
+     * Cost: one extra compression of the first block (~10ms for 1MB).
+     * TRADEOFF: encode speed vs automatic ratio optimization.
+     * Zupt benefits because backup data characteristics are unknown. ─── */
+    if (opts->window_log == 0 && opts->mode >= VV_MODE_BALANCED && src_len > 65536) {
+        size_t trial_len = src_len;
+        if (trial_len > VV_MAX_BLOCK_SIZE) trial_len = VV_MAX_BLOCK_SIZE;
+
+        size_t trial_cap = trial_len + trial_len / 255 + 1024;
+        uint8_t *trial_buf = (uint8_t *)malloc(trial_cap);
+        if (trial_buf) {
+            /* Trial at wlog=16 */
+            matcher_t m16;
+            matcher_init(&m16, 16, depth);
+            size_t sz16 = compress_block(src, trial_len, trial_buf, trial_cap, &m16, opts->mode);
+            matcher_free(&m16);
+
+            /* Trial at wlog=20 */
+            matcher_t m20;
+            matcher_init(&m20, 20, depth);
+            size_t sz20 = compress_block(src, trial_len, trial_buf, trial_cap, &m20, opts->mode);
+            matcher_free(&m20);
+
+            free(trial_buf);
+
+            /* Pick winner: wlog=20 must save ≥3% to justify 3-byte offsets */
+            if (sz20 > 0 && sz16 > 0 && sz20 < (sz16 * 97 / 100)) {
+                wlog = 20;
+            }
+            /* Otherwise stay at wlog=16 (no regression on short-offset data) */
+        }
     }
 
     /* Frame header */

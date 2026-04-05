@@ -9,6 +9,7 @@
  */
 #define _GNU_SOURCE
 #include "zupt.h"
+#include "zupt_cpuid.h"   /* zupt_cpu for AUTO codec detection */
 #include "zupt_parallel.h"
 #include "vaptvupt.h"  /* VAPTVUPT: VaptVupt codec integration */
 #include <stdio.h>
@@ -51,6 +52,7 @@ const char *zupt_codec_name(uint16_t id) {
         case ZUPT_CODEC_ZUPT_LZH: return "Zupt-LZH";
         case ZUPT_CODEC_ZUPT_LZHP: return "Zupt-LZHP";
         case ZUPT_CODEC_VAPTVUPT: return "VaptVupt"; /* VAPTVUPT */
+        case ZUPT_CODEC_AUTO: return "Auto";
         default: return "Unknown";
     }
 }
@@ -58,10 +60,39 @@ void zupt_default_options(zupt_options_t *o) {
     memset(o, 0, sizeof(*o));
     o->level = 7;
     o->block_size = 0;
-    o->codec_id = ZUPT_CODEC_VAPTVUPT; /* VAPTVUPT: default codec v2.0.0 */
+    o->codec_id = ZUPT_CODEC_AUTO; /* Auto-detect: VaptVupt if AVX2, else LZHP */
     /* Init keyring canaries */
     o->keyring.canary_head = ZUPT_CANARY;
     o->keyring.canary_tail = ZUPT_CANARY;
+}
+
+/* Resolve ZUPT_CODEC_AUTO to a concrete codec.
+ * VaptVupt decode works on ALL architectures (scalar fallback), but the
+ * AVX2 SIMD decode path gives ~3× throughput. On non-AVX2 hardware,
+ * Zupt-LZHP is a better default since its simpler decoder doesn't
+ * benefit from SIMD as much.
+ *
+ * Detection order:
+ *   1. Compile-time: __x86_64__ + __AVX2__ → VaptVupt (compiled with -mavx2)
+ *   2. Runtime: zupt_cpu.has_avx2 → VaptVupt (for x86_64 without -mavx2)
+ *   3. Compile-time: __aarch64__ + __ARM_NEON → VaptVupt (NEON decode)
+ *   4. Fallback: Zupt-LZHP (works everywhere)
+ */
+uint16_t zupt_resolve_auto_codec(void) {
+#if defined(__x86_64__) || defined(_M_X64)
+    /* x86_64: check AVX2 at compile time (via -mavx2) or runtime (cpuid) */
+  #if defined(__AVX2__)
+    return ZUPT_CODEC_VAPTVUPT;  /* Compiled with -mavx2: inline SIMD decode */
+  #else
+    if (zupt_cpu.has_avx2)
+        return ZUPT_CODEC_VAPTVUPT;  /* Runtime AVX2: vv_simd.c dispatch */
+    return ZUPT_CODEC_ZUPT_LZHP;     /* No AVX2: use LZHP */
+  #endif
+#elif defined(__aarch64__) && defined(__ARM_NEON)
+    return ZUPT_CODEC_VAPTVUPT;  /* NEON SIMD decode available */
+#else
+    return ZUPT_CODEC_ZUPT_LZHP; /* Scalar only: LZHP is a better default */
+#endif
 }
 
 static uint32_t auto_block_size(int level) {
@@ -275,6 +306,10 @@ zupt_error_t zupt_compress_files(const char *output_path,
                                  int num_files,
                                  zupt_options_t *opts) {
     if (opts->block_size == 0) opts->block_size = auto_block_size(opts->level);
+
+    /* Resolve AUTO codec before compression */
+    if (opts->codec_id == ZUPT_CODEC_AUTO)
+        opts->codec_id = zupt_resolve_auto_codec();
 
     FILE *out = fopen(output_path, "wb");
     if (!out) { fprintf(stderr, "Error: Cannot create '%s': %s\n", output_path, strerror(errno)); return ZUPT_ERR_IO; }
@@ -728,6 +763,10 @@ zupt_error_t zupt_compress_solid(const char *output_path,
                                   zupt_options_t *opts) {
     if (opts->block_size == 0) opts->block_size = auto_block_size(opts->level);
     if (opts->block_size < 524288) opts->block_size = 524288;
+
+    /* Resolve AUTO codec before compression */
+    if (opts->codec_id == ZUPT_CODEC_AUTO)
+        opts->codec_id = zupt_resolve_auto_codec();
 
     FILE *out = fopen(output_path, "wb");
     if (!out) { fprintf(stderr, "Error: Cannot create '%s'\n", output_path); return ZUPT_ERR_IO; }

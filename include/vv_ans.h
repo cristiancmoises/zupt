@@ -101,7 +101,7 @@ vva_error_t vva_decode_ctx(const uint8_t *src, size_t src_len,
  */
 
 #define VVA_ML_CODES  36   /* Match length code count */
-#define VVA_OF_CODES  24   /* Offset code count */
+#define VVA_OF_CODES  27   /* Offset code count: 3 rep + 24 explicit */
 
 vva_error_t vva_encode_sequences(const uint8_t *tokens, size_t tok_len,
                                   uint8_t *dst, size_t dst_cap, size_t *dst_len,
