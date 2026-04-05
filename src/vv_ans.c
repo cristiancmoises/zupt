@@ -6,6 +6,7 @@
 #if !defined(_DEFAULT_SOURCE) && !defined(_GNU_SOURCE)
   #define _DEFAULT_SOURCE 1
 #endif
+
 /*
  * VaptVupt — tANS v2 (sparse header + 4-way interleaved decode)
  *
@@ -1170,7 +1171,11 @@ static const uint8_t ml_extra[VVA_ML_CODES] = {
     12,13,14,15
 };
 
+/* Rep-match codes: 0=rep[0], 1=rep[1], 2=rep[2], 3+=explicit offset.
+ * Explicit offset code c (c≥3): offset in [2^(c-3), 2^(c-2)), (c-3) extra bits.
+ * This is how zstd encodes repeated offsets — saves 10-15 bits per rep-match. */
 static const uint8_t of_extra[VVA_OF_CODES] = {
+    0,0,0, /* rep codes: 0 extra bits */
     0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
 };
 
@@ -1192,21 +1197,24 @@ static uint32_t ml_decode(uint8_t code, uint32_t extra) {
     return ml_base[code] + extra;
 }
 
-/* Encode offset → (code, extra_value, extra_bits) */
+/* Encode explicit offset → (code, extra_value, extra_bits).
+ * Returns code in range [3..26]. Caller handles rep-match codes 0-2. */
 static void of_encode(uint32_t offset, uint8_t *code, uint32_t *extra, int *nbits) {
-    if (offset == 0) { *code = 0; *extra = 0; *nbits = 0; return; }
+    if (offset == 0) { *code = 3; *extra = 0; *nbits = 0; return; }
     int c = 0;
     uint32_t v = offset;
     while (v > 1) { v >>= 1; c++; }
-    if (c >= VVA_OF_CODES) c = VVA_OF_CODES - 1;
-    *code = (uint8_t)c;
+    if (c >= 24) c = 23; /* clamp to 24 explicit codes */
+    *code = (uint8_t)(c + 3); /* shift by 3 for rep codes */
     *extra = offset - (1u << c);
-    *nbits = of_extra[c];
+    *nbits = of_extra[c + 3];
 }
 
-/* Decode offset code → offset */
+/* Decode offset code → offset. Codes 0-2 are rep-match (caller resolves).
+ * Codes 3-26 are explicit offsets. */
 static uint32_t of_decode(uint8_t code, uint32_t extra) {
-    return (1u << code) + extra;
+    if (code < 3) return 0; /* rep-match — caller must handle */
+    return (1u << (code - 3)) + extra;
 }
 
 /* Write a varint to a buffer, return bytes written */
@@ -1349,21 +1357,61 @@ vva_error_t vva_encode_sequences(const uint8_t *tokens, size_t tok_len,
         }
     }
 
-    /* ─── Count ML and OF code frequencies ─── */
+    /* ─── Count ML and OF code frequencies with rep-match tracking ─── */
     uint32_t freq_ml[VVA_ML_CODES], freq_of[VVA_OF_CODES];
     memset(freq_ml, 0, sizeof(freq_ml));
     memset(freq_of, 0, sizeof(freq_of));
 
+    /* Precompute OF codes with rep-match detection (forward pass).
+     * Store in per-sequence arrays so the backward ANS pass can use them. */
+    uint8_t *seq_of_code = NULL;
+    uint32_t *seq_of_extra = NULL;
+    int *seq_of_nbits = NULL;
+    seq_of_code = (uint8_t *)malloc(nseq * sizeof(uint8_t));
+    seq_of_extra = (uint32_t *)malloc(nseq * sizeof(uint32_t));
+    seq_of_nbits = (int *)malloc(nseq * sizeof(int));
+    if (!seq_of_code || !seq_of_extra || !seq_of_nbits) {
+        free(seq_of_code); free(seq_of_extra); free(seq_of_nbits);
+        free(seqs); free(lit_buf); free(lit_enc);
+        return VVA_ERR_NOMEM;
+    }
+
     size_t match_count = 0;
+    uint32_t enc_rep[3] = {0, 0, 0}; /* Rep-match tracking during forward pass */
     for (size_t i = 0; i < nseq; i++) {
         if (seqs[i].matchlen > 0) {
             uint8_t mc; uint32_t mx; int mn;
             ml_encode(seqs[i].matchlen, &mc, &mx, &mn);
             freq_ml[mc]++;
+
+            /* Check rep-match before explicit encoding */
+            uint32_t off = seqs[i].offset;
             uint8_t oc; uint32_t ox; int on;
-            of_encode(seqs[i].offset, &oc, &ox, &on);
+            if (off == enc_rep[0] && off != 0) {
+                oc = 0; ox = 0; on = 0; /* rep[0] */
+            } else if (off == enc_rep[1] && off != 0) {
+                oc = 1; ox = 0; on = 0; /* rep[1] */
+            } else if (off == enc_rep[2] && off != 0) {
+                oc = 2; ox = 0; on = 0; /* rep[2] */
+            } else {
+                of_encode(off, &oc, &ox, &on); /* explicit: codes 3-26 */
+            }
+            seq_of_code[i] = oc;
+            seq_of_extra[i] = ox;
+            seq_of_nbits[i] = on;
             freq_of[oc]++;
+
+            /* Update rep array (same logic as LZ engine) */
+            if (off != enc_rep[0] && off != 0) {
+                enc_rep[2] = enc_rep[1];
+                enc_rep[1] = enc_rep[0];
+                enc_rep[0] = off;
+            }
             match_count++;
+        } else {
+            seq_of_code[i] = 0;
+            seq_of_extra[i] = 0;
+            seq_of_nbits[i] = 0;
         }
     }
 
@@ -1440,11 +1488,15 @@ vva_error_t vva_encode_sequences(const uint8_t *tokens, size_t tok_len,
         for (size_t ii = nseq; ii > 0; ii--) {
             if (seqs[ii - 1].matchlen == 0) continue;
 
-            uint8_t mc, oc;
-            uint32_t mx, ox;
-            int mn, on;
+            uint8_t mc;
+            uint32_t mx;
+            int mn;
             ml_encode(seqs[ii - 1].matchlen, &mc, &mx, &mn);
-            of_encode(seqs[ii - 1].offset, &oc, &ox, &on);
+
+            /* Use precomputed OF code from forward pass (rep-match aware) */
+            uint8_t oc = seq_of_code[ii - 1];
+            uint32_t ox = seq_of_extra[ii - 1];
+            int on = seq_of_nbits[ii - 1];
 
             /* Encode in this order (reversed): ml_code, ml_extra, of_code, of_extra
              * Decoder reads: of_extra, of_code, ml_extra, ml_code */
@@ -1513,7 +1565,15 @@ vva_error_t vva_encode_sequences(const uint8_t *tokens, size_t tok_len,
     }
 
     /* ─── Encode litlen varints ─── */
-    litlen_buf = (uint8_t *)malloc(nseq * 5 + 1);
+    /* Each litlen varint uses ceil(litlen/255)+1 bytes. Worst case for
+     * nseq sequences each with large litlen: compute exact bound. */
+    {
+        size_t litlen_cap = nseq; /* at least 1 byte per sequence */
+        for (size_t i = 0; i < nseq; i++)
+            litlen_cap += seqs[i].litlen / 255;
+        litlen_cap += 16; /* safety margin */
+        litlen_buf = (uint8_t *)malloc(litlen_cap);
+    }
     if (!litlen_buf) goto seq_fail;
     {
         size_t pos = 0;
@@ -1572,11 +1632,13 @@ vva_error_t vva_encode_sequences(const uint8_t *tokens, size_t tok_len,
     }
 
     free(seqs); free(lit_buf); free(lit_enc);
+    free(seq_of_code); free(seq_of_extra); free(seq_of_nbits);
     free(ml_hdr_buf); free(of_hdr_buf); free(seq_bs); free(litlen_buf);
     return VVA_OK;
 
 seq_fail:
     free(seqs); free(lit_buf); free(lit_enc);
+    free(seq_of_code); free(seq_of_extra); free(seq_of_nbits);
     free(ml_hdr_buf); free(of_hdr_buf); free(seq_bs); free(litlen_buf);
     return VVA_ERR_OVERFLOW;
 }
@@ -1691,15 +1753,11 @@ vva_error_t vva_decode_sequences(const uint8_t *src, size_t src_len,
     uint8_t *op_end = dst + dst_cap;
     size_t lit_pos = 0;
     size_t matches_decoded = 0;
+    uint32_t dec_rep[3] = {0, 0, 0}; /* Rep-match offset tracking */
 
-    /* We don't know exact nseq, but we have match_count matches + possibly
-     * one final literal-only sequence. Decode until all literals consumed
-     * and all matches decoded. */
     while (lit_pos < total_lits || matches_decoded < match_count) {
-        /* Read litlen from varint stream */
         size_t litlen = seq_read_varint(&ll_p, end);
 
-        /* Copy literals from decoded literal buffer */
         if (lit_pos + litlen > total_lits) { free(dec_ml); free(dec_of); free(lit_buf); return VVA_ERR_CORRUPT; }
         if (op + litlen > op_end) { free(dec_ml); free(dec_of); free(lit_buf); return VVA_ERR_OVERFLOW; }
         if (litlen > 0) {
@@ -1708,23 +1766,31 @@ vva_error_t vva_decode_sequences(const uint8_t *src, size_t src_len,
             lit_pos += litlen;
         }
 
-        /* If all matches decoded, this was the last literal-only sequence */
         if (matches_decoded >= match_count) break;
 
-        /* Decode offset */
+        /* Decode OF code */
         if (r.n < ANS_LOG) br_fill(&r);
         if (state_of >= (uint32_t)ANS_L) { free(dec_ml); free(dec_of); free(lit_buf); return VVA_ERR_CORRUPT; }
         vva_dec_entry_t eof = dec_of[state_of];
         uint32_t of_bits = br_read(&r, eof.nbits);
         state_of = (uint32_t)eof.baseline + of_bits;
 
-        /* Read offset extra bits */
+        /* Resolve offset: codes 0-2 = rep-match, 3+ = explicit */
         uint8_t of_code = eof.symbol;
-        uint32_t of_extra_val = 0;
-        if (of_code < VVA_OF_CODES && of_extra[of_code] > 0) {
-            of_extra_val = br_read(&r, of_extra[of_code]);
+        uint32_t offset;
+        if (of_code < 3) {
+            offset = dec_rep[of_code];
+        } else {
+            uint32_t of_extra_val = 0;
+            if (of_code < VVA_OF_CODES && of_extra[of_code] > 0) {
+                of_extra_val = br_read(&r, of_extra[of_code]);
+            }
+            offset = of_decode(of_code, of_extra_val);
         }
-        uint32_t offset = of_decode(of_code, of_extra_val);
+        /* Update rep offsets */
+        if (offset != 0 && offset != dec_rep[0]) {
+            dec_rep[2] = dec_rep[1]; dec_rep[1] = dec_rep[0]; dec_rep[0] = offset;
+        }
 
         /* Decode match length */
         if (r.n < ANS_LOG) br_fill(&r);

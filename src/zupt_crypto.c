@@ -189,9 +189,11 @@ void zupt_aes256_ctr(const uint8_t key[32], const uint8_t nonce[16],
 
 #ifdef ZUPT_USE_JASMIN
     /* JASMIN-VERIFIED: AES-NI path — constant-time, no T-table leakage.
-     * Requires AES-NI support (detected via CPUID at startup).
-     * Uses 4-block pipeline for bulk data, single-block for tail. */
-    if (zupt_cpu.has_aesni) {
+     * The Jasmin-generated assembly uses VEX-encoded instructions (vaesenc,
+     * vmovdqu, vpxor, etc.) which require BOTH AES-NI AND AVX support.
+     * Checking only has_aesni would SIGILL on CPUs with AES-NI but no AVX,
+     * or where the OS hasn't enabled XSAVE for YMM state. */
+    if (zupt_cpu.has_aesni && zupt_cpu.has_avx) {
         size_t full_blocks = len / 16;
         size_t tail_bytes = len % 16;
 

@@ -6,6 +6,7 @@
 #if !defined(_DEFAULT_SOURCE) && !defined(_GNU_SOURCE)
   #define _DEFAULT_SOURCE 1
 #endif
+
 /*
  * VaptVupt — SIMD-accelerated copy routines
  *
@@ -38,8 +39,8 @@ static void copy_match_scalar(uint8_t *dst, uint32_t offset, size_t length) {
             dst += 16; src += 16; length -= 16;
         }
         if (length > 0) memcpy(dst, src, length);
-    } else if (offset >= 4) {
-        /* Moderate overlap: 8-byte copy with re-read */
+    } else if (offset >= 8) {
+        /* Moderate overlap (8-15): 8-byte copy is safe since offset >= stride */
         while (length >= 8) {
             uint64_t v;
             memcpy(&v, src, 8);
@@ -48,7 +49,7 @@ static void copy_match_scalar(uint8_t *dst, uint32_t offset, size_t length) {
         }
         while (length-- > 0) *dst++ = *src++;
     } else {
-        /* Very short overlap (1-3): byte-by-byte */
+        /* Short overlap (1-7): byte-by-byte to handle pattern repeat correctly */
         for (size_t i = 0; i < length; i++) dst[i] = src[i];
     }
 }

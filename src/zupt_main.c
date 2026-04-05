@@ -48,6 +48,7 @@ static void usage(void) {
         "  -s, --store           Store without compression\n"
         "  -f, --fast            Use fast LZ codec (less compression)\n"
         "  --vv, --vaptvupt      Use VaptVupt codec (fast LZ + ANS entropy)\n"
+        "  --lzhp                Use Zupt-LZHP codec (LZ77+Huffman, no SIMD needed)\n"
         "  -p, --password <PW>   Encrypt with AES-256 (prompted if empty)\n"
         "  -v, --verbose         Verbose per-file output\n"
         "  -t, --threads <N>     Thread count (0=auto, 1=single, 2-64=explicit)\n"
@@ -144,6 +145,8 @@ int main(int argc, char **argv) {
                 opts.codec_id=ZUPT_CODEC_ZUPT_LZ;
             } else if (streq(argv[ai],"--vv")||streq(argv[ai],"--vaptvupt")) {
                 opts.codec_id=ZUPT_CODEC_VAPTVUPT; /* VAPTVUPT */
+            } else if (streq(argv[ai],"--lzhp")) {
+                opts.codec_id=ZUPT_CODEC_ZUPT_LZHP;
             } else if (streq(argv[ai],"-p")||streq(argv[ai],"--password")) {
                 opts.encrypt=1;
                 if (ai+1<argc && !isopt(argv[ai+1])) {
@@ -195,6 +198,10 @@ int main(int argc, char **argv) {
             fprintf(stderr, "  Note: solid mode is single-threaded (cross-file LZ context)\n");
             opts.threads = 1;
         }
+
+        /* Resolve AUTO codec based on hardware detection */
+        if (opts.codec_id == ZUPT_CODEC_AUTO)
+            opts.codec_id = zupt_resolve_auto_codec();
 
         fprintf(stderr, "  Collected %d file(s) for compression%s\n", fl.count,
                 opts.solid ? " (SOLID MODE)" : "");

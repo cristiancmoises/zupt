@@ -6,6 +6,7 @@
 #if !defined(_DEFAULT_SOURCE) && !defined(_GNU_SOURCE)
   #define _DEFAULT_SOURCE 1
 #endif
+
 /*
  * VaptVupt — Decoder v2 (Sprint 1)
  *

@@ -9,7 +9,7 @@
 #include <string.h>
 
 /* Global instance */
-zupt_cpu_features_t zupt_cpu = {0, 0, 0, 0};
+zupt_cpu_features_t zupt_cpu = {0, 0, 0, 0, 0};
 
 /* ═══════════════════════════════════════════════════════════════════
  * CPUID intrinsics — platform-specific
@@ -30,12 +30,20 @@ zupt_cpu_features_t zupt_cpu = {0, 0, 0, 0};
       __cpuidex(regs, leaf, subleaf);
       *eax = regs[0]; *ebx = regs[1]; *ecx = regs[2]; *edx = regs[3];
   }
+  static uint64_t zupt_xgetbv(uint32_t idx) {
+      return _xgetbv(idx);
+  }
 #elif defined(__GNUC__) || defined(__clang__)
   #include <cpuid.h>
   static void zupt_cpuid(int leaf, int subleaf, int *eax, int *ebx, int *ecx, int *edx) {
       unsigned int a = 0, b = 0, c = 0, d = 0;
       __cpuid_count((unsigned int)leaf, (unsigned int)subleaf, a, b, c, d);
       *eax = (int)a; *ebx = (int)b; *ecx = (int)c; *edx = (int)d;
+  }
+  static uint64_t zupt_xgetbv(uint32_t idx) {
+      uint32_t lo, hi;
+      __asm__ __volatile__ ("xgetbv" : "=a"(lo), "=d"(hi) : "c"(idx));
+      return ((uint64_t)hi << 32) | lo;
   }
 #else
   /* Inline assembly fallback */
@@ -45,6 +53,11 @@ zupt_cpu_features_t zupt_cpu = {0, 0, 0, 0};
           : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx)
           : "a"(leaf), "c"(subleaf)
       );
+  }
+  static uint64_t zupt_xgetbv(uint32_t idx) {
+      uint32_t lo, hi;
+      __asm__ __volatile__ ("xgetbv" : "=a"(lo), "=d"(hi) : "c"(idx));
+      return ((uint64_t)hi << 32) | lo;
   }
 #endif
 
@@ -62,11 +75,27 @@ void zupt_detect_cpu(zupt_cpu_features_t *f) {
         f->has_aesni  = (ecx >> 25) & 1;  /* ECX bit 25 */
         f->has_pclmul = (ecx >>  1) & 1;  /* ECX bit 1  */
         f->has_sse41  = (ecx >> 19) & 1;  /* ECX bit 19 */
+
+        /* AVX detection: CPU must support AVX (ECX[28]) AND the OS must
+         * have enabled XSAVE/XRSTOR for YMM state (OSXSAVE, ECX[27]).
+         * If OSXSAVE is set, check XCR0 bits 1+2 (SSE+AVX state).
+         * Without this check, VEX-encoded instructions (vaesenc, vmovdqu,
+         * vpxor, etc.) will SIGILL even if the CPU supports them. */
+        int has_avx_cpu = (ecx >> 28) & 1;
+        int has_osxsave = (ecx >> 27) & 1;
+        if (has_avx_cpu && has_osxsave) {
+            uint64_t xcr0 = zupt_xgetbv(0);
+            /* Bits 1 (SSE/XMM) and 2 (AVX/YMM) must both be set */
+            if ((xcr0 & 0x6) == 0x6)
+                f->has_avx = 1;
+        }
     }
 
     if (max_leaf >= 7) {
         zupt_cpuid(7, 0, &eax, &ebx, &ecx, &edx);
-        f->has_avx2 = (ebx >> 5) & 1;     /* EBX bit 5  */
+        /* AVX2 also requires AVX (OS XSAVE) to be usable */
+        if (f->has_avx && ((ebx >> 5) & 1))
+            f->has_avx2 = 1;
     }
 }
 
@@ -74,7 +103,7 @@ void zupt_detect_cpu(zupt_cpu_features_t *f) {
 
 void zupt_detect_cpu(zupt_cpu_features_t *f) {
     memset(f, 0, sizeof(*f));
-    /* No AES-NI on ARM/RISC-V/etc — use table fallback */
+    /* No AES-NI/AVX on ARM/RISC-V/etc — use table fallback */
 }
 
 #endif /* ZUPT_HAS_CPUID */
