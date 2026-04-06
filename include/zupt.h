@@ -30,7 +30,7 @@
   #define zupt_mkdir(p) mkdir(p, 0755)
 #endif
 
-#define ZUPT_VERSION_STRING "2.1.1"
+#define ZUPT_VERSION_STRING "2.1.2"
 #define ZUPT_FORMAT_MAJOR   1
 #define ZUPT_FORMAT_MINOR   4
 
@@ -332,5 +332,19 @@ void zupt_format_size(uint64_t bytes, char *buf, size_t cap);
  * On all other arches:  Zupt-LZHP (no SIMD dependency).
  * Decompression of ALL codecs works on ALL architectures. */
 uint16_t zupt_resolve_auto_codec(void);
+
+/* ─── Full-Disk Backup/Restore ─── */
+#define ZUPT_FLAG_DISK_IMAGE   (1u << 6)  /* Archive contains a raw disk/partition image */
+
+/* Compress a raw block device or file as a disk image.
+ * Reads source in block_size chunks, detects zero/sparse regions,
+ * compresses non-zero blocks. Supports encryption + PQ. */
+zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
+                               zupt_options_t *opts);
+
+/* Restore a disk image archive to a block device or file.
+ * Writes blocks sequentially, restoring sparse regions as zeros. */
+zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path,
+                                zupt_options_t *opts);
 
 #endif

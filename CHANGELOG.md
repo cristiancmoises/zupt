@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [2.1.2] — 2026-04-06
+
+### Added — Full-Disk Backup/Restore
+- **`zupt disk backup`** — streams a raw block device or file in 4MB chunks, compresses each block with the selected codec (VaptVupt default), detects all-zero (sparse) blocks and stores them with near-zero overhead. Supports password encryption (`-p`), post-quantum encryption (`--pq`), compression level override (`-l 1-9`), and codec selection (`--vv`, `--lzhp`). Real-time progress bar with throughput on stderr.
+- **`zupt disk restore`** — reads a disk image archive block-by-block, decrypts + decompresses each block, validates per-block XXH64 checksums, and writes sequentially to the target device or file. Rejects wrong passwords/keys immediately on first block failure.
+- **`ZUPT_FLAG_DISK_IMAGE (1u << 6)`** — new global flag in the archive header. `zupt disk restore` validates this flag and rejects non-disk archives. Standard `zupt extract` rejects disk archives with a clear error message.
+- **`src/zupt_disk.c`** — 530 lines. Portable device size detection: `BLKGETSIZE64` on Linux, `DKIOCGETBLOCKCOUNT` on macOS, `lseek(SEEK_END)` fallback on FreeBSD/generic. 8-byte-wide sparse block detection.
+- CLI: `zupt disk backup [OPTIONS] <output.zupt> <device_or_file>` / `zupt disk restore [OPTIONS] <archive.zupt> <target>`
+
+### Tests
+- **77 tests total:** 11 VV unit + 13 NIST/RFC vectors + 22 regression + 14 multi-threaded + 10 post-quantum + 7 disk backup (normal, encrypted, PQ, sparse, LZHP, extreme, wrong-password rejection). ASAN + UBSan clean across all paths.
+
+---
+
 ## [2.1.1] — 2026-04-06
 
 ### Fixed — Multi-Architecture Build
@@ -259,6 +273,7 @@ All 4 `.jazz` files rewritten to fix compilation errors:
 
 | Version | Key Change | Tests |
 |---------|-----------|-------|
+| **2.1.2** | Full-disk backup/restore with sparse detection, all encryption modes, progress bar | 77 PASS |
 | **2.1.1** | Termux/Android build fix, arch-safety guard, Keccak UB fix, no stale .o in tarballs | 70 PASS |
 | **2.1.0** | VaptVupt 1.4.0: cross-block dictionary, context prefetch, faster adaptive window, integration API | 70 PASS |
 | **2.0.0** | VaptVupt 1.1.0 codec, auto codec detection, all 5 Jasmin wired, AVX SIGILL fix, multi-arch, copy_match fix, litlen overflow fix | 70 PASS |
