@@ -12,6 +12,7 @@
 #include "zupt_cpuid.h"   /* zupt_cpu for AUTO codec detection */
 #include "zupt_parallel.h"
 #include "vaptvupt.h"  /* VAPTVUPT: VaptVupt codec integration */
+#include "vaptvupt_api.h" /* VAPTVUPT: simplified Zupt integration API */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -559,25 +560,13 @@ zupt_error_t zupt_compress_files(const char *output_path,
                 comp_size = zupt_lzh_compress(rbuf, nread, cbuf, zupt_lzh_bound(nread), opts->level);
             else if (codec == ZUPT_CODEC_ZUPT_LZ)
                 comp_size = zupt_lz_compress(rbuf, nread, cbuf, zupt_lz_bound(nread), opts->level);
-            /* VAPTVUPT: VaptVupt codec compress path */
+            /* VAPTVUPT: VaptVupt codec compress path (v1.4.0 integration API) */
             else if (codec == ZUPT_CODEC_VAPTVUPT) {
-                vv_options_t vv_opts;
-                vv_default_options(&vv_opts);
-                /* Map zupt compression level to VaptVupt mode:
-                 *   1-3 → VV_MODE_ULTRA_FAST
-                 *   4-7 → VV_MODE_BALANCED
-                 *   8-9 → VV_MODE_EXTREME */
-                if (opts->level <= 3) vv_opts.mode = VV_MODE_ULTRA_FAST;
-                else if (opts->level <= 7) vv_opts.mode = VV_MODE_BALANCED;
-                else vv_opts.mode = VV_MODE_EXTREME;
-                vv_opts.checksum = 0;  /* Zupt handles checksums via HMAC/XXH64 */
-                vv_opts.window_log = (nread > (1u << 16)) ? 20 : 16;
-
-                size_t vv_cap = vv_compress_bound(nread);
+                size_t vv_cap = vvz_compress_bound(nread);
                 if (vv_cap > zupt_lzh_bound(nread) + 512) {
                     uint8_t *vv_tmp = (uint8_t *)malloc(vv_cap);
                     if (vv_tmp) {
-                        int64_t csz = vv_compress(rbuf, nread, vv_tmp, vv_cap, &vv_opts);
+                        int64_t csz = vvz_compress(rbuf, nread, vv_tmp, vv_cap, opts->level);
                         if (csz > 0 && (size_t)csz < nread) {
                             memcpy(cbuf, vv_tmp, (size_t)csz);
                             comp_size = (size_t)csz;
@@ -585,7 +574,7 @@ zupt_error_t zupt_compress_files(const char *output_path,
                         free(vv_tmp);
                     }
                 } else {
-                    int64_t csz = vv_compress(rbuf, nread, cbuf, zupt_lzh_bound(nread) + 512, &vv_opts);
+                    int64_t csz = vvz_compress(rbuf, nread, cbuf, zupt_lzh_bound(nread) + 512, opts->level);
                     if (csz > 0 && (size_t)csz < nread)
                         comp_size = (size_t)csz;
                 }
@@ -891,20 +880,12 @@ zupt_error_t zupt_compress_solid(const char *output_path,
         } else if (codec == ZUPT_CODEC_ZUPT_LZH) {
             comp_size = zupt_lzh_compress(src, chunk, cbuf, block_cap, opts->level);
         }
-        /* VAPTVUPT: VaptVupt codec in solid mode */
+        /* VAPTVUPT: VaptVupt codec in solid mode (v1.4.0 integration API) */
         else if (codec == ZUPT_CODEC_VAPTVUPT) {
-            vv_options_t vv_opts;
-            vv_default_options(&vv_opts);
-            if (opts->level <= 3) vv_opts.mode = VV_MODE_ULTRA_FAST;
-            else if (opts->level <= 7) vv_opts.mode = VV_MODE_BALANCED;
-            else vv_opts.mode = VV_MODE_EXTREME;
-            vv_opts.checksum = 0;
-            vv_opts.window_log = (chunk > (1u << 16)) ? 20 : 16;
-
-            size_t vv_cap = vv_compress_bound(chunk);
+            size_t vv_cap = vvz_compress_bound(chunk);
             uint8_t *vv_tmp = (uint8_t *)malloc(vv_cap);
             if (vv_tmp) {
-                int64_t csz = vv_compress(src, chunk, vv_tmp, vv_cap, &vv_opts);
+                int64_t csz = vvz_compress(src, chunk, vv_tmp, vv_cap, opts->level);
                 if (csz > 0 && (size_t)csz < chunk) {
                     if ((size_t)csz <= block_cap) {
                         memcpy(cbuf, vv_tmp, (size_t)csz);
@@ -1149,9 +1130,9 @@ static zupt_error_t decompress_block(const zupt_block_t *b, const zupt_keyring_t
             if (r != *olen) result = ZUPT_ERR_CORRUPT;
         }
     }
-    /* VAPTVUPT: VaptVupt codec decompress path */
+    /* VAPTVUPT: VaptVupt codec decompress path (v1.4.0 cross-block decode) */
     else if (b->codec_id == ZUPT_CODEC_VAPTVUPT) {
-        int64_t dsz = vv_decompress(comp_data, comp_len, *out, *olen);
+        int64_t dsz = vvz_decompress(comp_data, comp_len, *out, *olen);
         if (dsz < 0 || (size_t)dsz != *olen) result = ZUPT_ERR_CORRUPT;
     } else {
         result = ZUPT_ERR_UNSUPPORTED;

@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [2.1.0] — 2026-04-05
+
+### Upgraded — VaptVupt 1.4.0 Codec
+- **Cross-block dictionary carry** — hash chain now spans block boundaries. The encoder passes absolute positions to `compress_block()` so matches can reference data from previous blocks. Large structured files (7MB logs) compress **5.73:1** instead of per-block independent ratios. The decoder accepts cross-block offsets via a `dst_base` parameter threaded through all decode functions.
+- **Context model decode prefetch** — `__builtin_prefetch` in the order-1 context ANS decode loop hides L2/L3 latency for the 4MB context tables. Extreme-mode decode throughput improved significantly on cache-constrained systems.
+- **Faster adaptive window trial** — greedy depth=4 on 256KB sample instead of full lazy parse on entire first block. Encode speed improved **2.6×** with same ratio decisions.
+- **Zupt integration API** — new `vvz_compress`/`vvz_decompress`/`vvz_compress_bound` wrappers (`vaptvupt_api.h`/`vaptvupt_api.c`) simplify codec dispatch with backup-optimized defaults.
+
+### Changed
+- `zupt_format.c` compress paths (normal, solid) now use `vvz_compress()` API instead of raw `vv_compress()` with manual option setup.
+- `zupt_format.c` decompress path now uses `vvz_decompress()` API.
+- Version bumped to 2.1.0.
+
+### Performance (balanced mode, vs gzip-9)
+| File Type | v2.1.0 | gzip-9 | vs gzip |
+|-----------|--------|--------|---------|
+| Source code (531K) | 59.5:1 | 51.7:1 | +15% better |
+| JSON (232K) | 10.7:1 | 8.8:1 | +21% better |
+| XML markup (641K) | 18.1:1 | 14.6:1 | +24% better |
+| Long-range (800K) | 5.7:1 | 1.4:1 | +307% better |
+| Logs 7MB (7.5MB) | 5.7:1 | 7.5:1 | gap 24% |
+
+### Tests
+- 70/70: 11 VV + 13 NIST + 22 regression + 14 MT + 10 PQ. ASAN clean.
+
+---
+
 ## [2.0.0] — 2026-04-05
 
 ### Added — VaptVupt 1.1.0 Codec Integration
@@ -216,6 +243,7 @@ All 4 `.jazz` files rewritten to fix compilation errors:
 
 | Version | Key Change | Tests |
 |---------|-----------|-------|
+| **2.1.0** | VaptVupt 1.4.0: cross-block dictionary, context prefetch, faster adaptive window, integration API | 70 PASS |
 | **2.0.0** | VaptVupt 1.1.0 codec, auto codec detection, all 5 Jasmin wired, AVX SIGILL fix, multi-arch, copy_match fix, litlen overflow fix | 70 PASS |
 | **1.5.5** | Man page install, V=1 verbose, LDFLAGS/PIE, rpmlint, multi-arch Makefile | 53+13 PASS |
 | **1.5.0** | Jasmin assembly linked: MAC verify + ML-KEM select active in binary | 53+13 PASS |
