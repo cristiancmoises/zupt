@@ -1,6 +1,7 @@
-# Zupt v2.0.0 — Makefile with VaptVupt codec + Jasmin integration
+# Zupt v2.1.1 — Makefile with VaptVupt codec + Jasmin integration
 #
 # Multi-architecture: builds on x86_64, aarch64, armhf, ppc64le, s390x, riscv64.
+# Tested on: Linux, macOS, Windows (MSYS2), Termux (Android aarch64).
 # Jasmin CT crypto:    x86_64 only (C fallback on all other architectures).
 # AVX2 SIMD decode:    x86_64 only (NEON on aarch64, scalar elsewhere).
 #
@@ -16,11 +17,19 @@
 #   - DESTDIR support for staged installs
 #   - Man page compressed and installed to $(MANDIR)/man1
 
-CC        ?= gcc
+CC        ?= cc
 CFLAGS    ?= -Wall -Wextra -O2 -std=c11
 CFLAGS    += -Iinclude -Isrc
 LDFLAGS   ?=
-LDLIBS    ?= -lm -lpthread
+LDLIBS    ?= -lm
+
+# pthreads: link -lpthread on Linux/BSD, skip on Android/Termux (bionic built-in)
+ifeq ($(shell uname -o 2>/dev/null),Android)
+  # Termux/Android: pthreads built into bionic libc
+else
+  LDLIBS += -lpthread
+endif
+
 PREFIX    ?= /usr/local
 BINDIR    ?= $(PREFIX)/bin
 MANDIR    ?= $(PREFIX)/share/man
@@ -102,6 +111,29 @@ VV_SIMD_OBJS  = src/vv_encoder.o src/vv_decoder.o src/vv_simd.o
 VV_PLAIN_OBJS = src/vv_ans.o src/vv_huffman.o src/vaptvupt_api.o
 ZUPT_OBJS     = $(patsubst %.c,%.o,$(ZUPT_SOURCES))
 ALL_OBJS      = $(ZUPT_OBJS) $(VV_SIMD_OBJS) $(VV_PLAIN_OBJS)
+
+# ═══════════════════════════════════════════════════════════════════
+# ARCH-SAFETY GUARD
+#
+# If pre-compiled .o files from a different architecture are present
+# (e.g. x86_64 .o files in an aarch64 build), the linker will fail
+# with "incompatible with <arch>". Detect and remove stale objects.
+# This happens when tarballs accidentally include build artifacts.
+# ═══════════════════════════════════════════════════════════════════
+
+STALE_OBJS := $(wildcard src/*.o jasmin/*.o)
+ifneq ($(STALE_OBJS),)
+  # Check if any existing .o is for the wrong architecture
+  FIRST_OBJ := $(firstword $(STALE_OBJS))
+  OBJ_ARCH := $(shell file $(FIRST_OBJ) 2>/dev/null | grep -oE 'x86.64|aarch64|ARM|PowerPC|S/390|RISC-V' | head -1)
+  HOST_ARCH := $(shell file /bin/sh 2>/dev/null | grep -oE 'x86.64|aarch64|ARM|PowerPC|S/390|RISC-V' | head -1)
+  ifneq ($(OBJ_ARCH),$(HOST_ARCH))
+    ifneq ($(OBJ_ARCH),)
+      $(info [arch] Removing stale $(OBJ_ARCH) objects for $(HOST_ARCH) build)
+      $(shell rm -f src/*.o jasmin/*.o)
+    endif
+  endif
+endif
 
 # ═══════════════════════════════════════════════════════════════════
 # BUILD RULES

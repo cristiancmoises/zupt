@@ -17,6 +17,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#if defined(__linux__)
+  #include <sys/syscall.h>
+  #include <unistd.h>
+#endif
 
 /* ═══════════════════════════════════════════════════════════════════
  * RANDOM BYTES (OS-native CSPRNG — NO FALLBACK)
@@ -39,10 +43,11 @@ void zupt_random_bytes(uint8_t *buf, size_t len) {
     exit(1);
 #else
     /* Linux/macOS/BSD: try getrandom(2) first, then /dev/urandom */
-  #if defined(__linux__) && defined(SYS_getrandom)
-    #include <sys/syscall.h>
+  #if defined(__linux__)
+    #if defined(SYS_getrandom)
     ssize_t r = syscall(SYS_getrandom, buf, len, 0);
     if (r == (ssize_t)len) return;
+    #endif
   #endif
     FILE *f = fopen("/dev/urandom", "rb");
     if (f) {
