@@ -34,6 +34,7 @@ static void usage(void) {
         "  zupt list     [OPTIONS] <archive.zupt>\n"
         "  zupt test     [OPTIONS] <archive.zupt>\n"
         "  zupt bench    <files/dirs...>          Compare levels 1-9\n"
+        "  zupt disk     backup|restore            Full-disk backup/restore\n"
         "  zupt keygen                            Key generation"
         "  zupt version\n"
         "  zupt help\n"
@@ -487,6 +488,104 @@ int main(int argc, char **argv) {
 
         zupt_filelist_free(&fl);
         return 0;
+    }
+
+    /* ─── disk (backup/restore) ─── */
+    if (streq(cmd,"disk")) {
+        if (argc < 3) {
+            fprintf(stderr, "Usage:\n");
+            fprintf(stderr, "  zupt disk backup  [OPTIONS] <output.zupt> <device_or_file>\n");
+            fprintf(stderr, "  zupt disk restore [OPTIONS] <archive.zupt> <target_device_or_file>\n");
+            fprintf(stderr, "\nOptions:\n");
+            fprintf(stderr, "  -l <1-9>          Compression level (default: 7)\n");
+            fprintf(stderr, "  -b <SIZE>         Block size (default: 4MB for disks)\n");
+            fprintf(stderr, "  -p [PW]           Password encryption\n");
+            fprintf(stderr, "  --pq <keyfile>    Post-quantum encryption\n");
+            fprintf(stderr, "  --vv              Force VaptVupt codec\n");
+            fprintf(stderr, "  --lzhp            Force Zupt-LZHP codec\n");
+            fprintf(stderr, "  -t <N>            Thread count\n");
+            fprintf(stderr, "  -v                Verbose\n");
+            fprintf(stderr, "\nExamples:\n");
+            fprintf(stderr, "  zupt disk backup backup.zupt /dev/sda1\n");
+            fprintf(stderr, "  zupt disk backup -p secret encrypted.zupt /dev/nvme0n1p2\n");
+            fprintf(stderr, "  zupt disk backup --pq pub.key pq_backup.zupt disk.img\n");
+            fprintf(stderr, "  zupt disk restore backup.zupt /dev/sda1\n");
+            fprintf(stderr, "  zupt disk restore -p secret encrypted.zupt /dev/sda1\n");
+            return 1;
+        }
+
+        const char *subcmd = argv[2];
+        if (!streq(subcmd,"backup") && !streq(subcmd,"restore")) {
+            fprintf(stderr, "Error: disk subcommand must be 'backup' or 'restore'\n");
+            return 1;
+        }
+
+        zupt_options_t opts; zupt_default_options(&opts);
+        int ai = 3;
+        while (ai<argc && isopt(argv[ai])) {
+            if ((streq(argv[ai],"-l")||streq(argv[ai],"--level"))&&ai+1<argc) {
+                opts.level=atoi(argv[++ai]); if(opts.level<1)opts.level=1; if(opts.level>9)opts.level=9;
+            } else if ((streq(argv[ai],"-b")||streq(argv[ai],"--block"))&&ai+1<argc) {
+                opts.block_size=(uint32_t)atol(argv[++ai]);
+                if(opts.block_size<ZUPT_MIN_BLOCK_SZ)opts.block_size=ZUPT_MIN_BLOCK_SZ;
+                if(opts.block_size>ZUPT_MAX_BLOCK_SZ)opts.block_size=ZUPT_MAX_BLOCK_SZ;
+            } else if (streq(argv[ai],"--vv")||streq(argv[ai],"--vaptvupt")) {
+                opts.codec_id=ZUPT_CODEC_VAPTVUPT;
+            } else if (streq(argv[ai],"--lzhp")) {
+                opts.codec_id=ZUPT_CODEC_ZUPT_LZHP;
+            } else if (streq(argv[ai],"-s")||streq(argv[ai],"--store")) {
+                opts.codec_id=ZUPT_CODEC_STORE;
+            } else if (streq(argv[ai],"-p")||streq(argv[ai],"--password")) {
+                opts.encrypt=1;
+                if (ai+1<argc && !isopt(argv[ai+1])) {
+                    strncpy(opts.password, argv[++ai], sizeof(opts.password)-1);
+                } else {
+                    prompt_password("Password: ", opts.password, sizeof(opts.password));
+                    if (streq(subcmd,"backup")) {
+                        char confirm[256];
+                        prompt_password("Confirm:  ", confirm, sizeof(confirm));
+                        if (strcmp(opts.password, confirm)!=0) {
+                            fprintf(stderr, "Error: Passwords do not match.\n"); return 1;
+                        }
+                    }
+                }
+            } else if (streq(argv[ai],"-v")||streq(argv[ai],"--verbose")) {
+                opts.verbose=1;
+            } else if ((streq(argv[ai],"-t")||streq(argv[ai],"--threads"))&&ai+1<argc) {
+                opts.threads=atoi(argv[++ai]);
+            } else if (streq(argv[ai],"--pq")&&ai+1<argc) {
+                opts.pq_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else {
+                fprintf(stderr,"Error: Unknown option '%s'\n",argv[ai]); return 1;
+            }
+            ai++;
+        }
+
+        if (argc - ai < 2) {
+            fprintf(stderr, "Error: disk %s requires <archive> <device/file>\n", subcmd);
+            return 1;
+        }
+
+        banner();
+
+        if (streq(subcmd,"backup")) {
+            const char *output = argv[ai];
+            const char *source = argv[ai+1];
+            fprintf(stderr, "  Full-Disk Backup\n");
+            fprintf(stderr, "  ═══════════════════════════════════════\n\n");
+            zupt_error_t err = zupt_disk_backup(output, source, &opts);
+            zupt_secure_wipe(opts.password, sizeof(opts.password));
+            return err == ZUPT_OK ? 0 : 1;
+        } else {
+            const char *archive = argv[ai];
+            const char *target = argv[ai+1];
+            fprintf(stderr, "  Full-Disk Restore\n");
+            fprintf(stderr, "  ═══════════════════════════════════════\n\n");
+            zupt_error_t err = zupt_disk_restore(archive, target, &opts);
+            zupt_secure_wipe(opts.password, sizeof(opts.password));
+            return err == ZUPT_OK ? 0 : 1;
+        }
     }
 
     /* ─── keygen ─── */

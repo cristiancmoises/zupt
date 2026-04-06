@@ -50,7 +50,7 @@ ZUPT_SOURCES = src/zupt_main.c src/zupt_format.c src/zupt_lz.c src/zupt_lzh.c \
                src/zupt_xxh.c src/zupt_sha256.c src/zupt_aes256.c src/zupt_crypto.c \
                src/zupt_predict.c src/zupt_parallel.c src/zupt_keccak.c \
                src/zupt_x25519.c src/zupt_mlkem.c src/zupt_cpuid.c src/zupt_mlock.c \
-               src/zupt_filetype.c
+               src/zupt_filetype.c src/zupt_disk.c
 
 # --- VAPTVUPT: VaptVupt codec sources (Apache-2.0, integrated under MIT) ---
 VV_SOURCES = src/vv_encoder.c src/vv_decoder.c src/vv_ans.c \

@@ -4,11 +4,11 @@
 
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
-![Version](https://img.shields.io/badge/version-2.1.1-orange)
+![Version](https://img.shields.io/badge/version-2.1.2-orange)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 ![openSUSE](https://img.shields.io/badge/platform-openSUSE-73BA25?logo=opensuse&logoColor=white)
 
-Backup compression with hardware-adaptive codec selection, AES-256 authenticated encryption, and post-quantum key encapsulation. Pure C11, zero dependencies, ~12,000 lines. Builds and runs on x86_64, aarch64, armhf, ppc64le, s390x, and riscv64.
+Backup compression with hardware-adaptive codec selection, AES-256 authenticated encryption, post-quantum key encapsulation, and full-disk backup. Pure C11, zero dependencies, ~13,000 lines. Builds and runs on x86_64, aarch64, armhf, ppc64le, s390x, and riscv64.
 
 ---
 
@@ -18,6 +18,7 @@ Backup compression with hardware-adaptive codec selection, AES-256 authenticated
 - **Post-quantum encryption** — `--pq` mode uses ML-KEM-768 + X25519 hybrid KEM (same approach as Signal and iMessage). Protects against "harvest now, decrypt later" quantum attacks.
 - **AES-NI hardware acceleration** — AES-256-CTR via Jasmin-verified assembly with 4-block interleaved pipeline. Safe AVX detection with OSXSAVE/XCR0 validation — no SIGILL on any CPU. Falls back to C table-based AES on unsupported hardware.
 - **Multi-threaded** — Compression and decompression both parallelized. `-t 0` auto-detects cores.
+- **Full-disk backup** — `zupt disk backup` clones entire disks or partitions in one command. Sparse block detection skips zero regions, real-time progress bar, all encryption modes supported. Restore with byte-for-byte verification via per-block XXH64 checksums.
 - **Encrypted backups in one command** — `zupt compress -p changeme backup.zupt ~/data/` — AES-256 + HMAC-SHA256, file names hidden.
 - **Per-block integrity** — XXH64 checksum + HMAC-SHA256 per block. Wrong password rejected instantly.
 - **Formally verified crypto** — 5 Jasmin assembly functions with constant-time proofs. 19 ACSL-annotated functions for Frama-C memory safety analysis.
@@ -155,6 +156,84 @@ Public key → ML-KEM-768 Encaps + X25519 ECDH → hybrid shared secret
 
 ---
 
+## Full-Disk Backup
+
+Clone entire disks, partitions, or raw images with compression and encryption in one command.
+
+### Quick start
+```bash
+# Clone a partition (requires read access)
+sudo zupt disk backup backup.zupt /dev/sda1
+
+# Clone with post-quantum encryption (strongest)
+zupt keygen -o mykey.key
+zupt keygen --pub -o pub.key -k mykey.key
+sudo zupt disk backup --pq pub.key backup.zupt /dev/nvme0n1p2
+
+# Clone with password encryption
+sudo zupt disk backup -p backup.zupt /dev/sda1
+
+# Maximum compression (level 9, extreme mode)
+sudo zupt disk backup -l 9 backup.zupt /dev/sda1
+
+# Restore to a device or file
+sudo zupt disk restore backup.zupt /dev/sda1
+sudo zupt disk restore --pq mykey.key backup.zupt /dev/sda1
+```
+
+### How it works
+
+```
+Source device → Read 4MB blocks → Sparse detection → Compress → Encrypt → Write .zupt
+                                      │                 │          │
+                                      │                 │          └─ AES-256-CTR + HMAC-SHA256
+                                      │                 └─ VaptVupt/LZHP (auto-selected)
+                                      └─ Zero blocks stored as STORE (near-zero overhead)
+```
+
+Zupt reads the source device sequentially in 4MB chunks. Each block is checked for all-zero content (sparse detection uses 8-byte-wide comparison). Zero blocks are stored with codec `STORE` — effectively just the block header with no payload, saving both compression CPU time and archive space. Non-zero blocks are compressed with the selected codec and optionally encrypted. Per-block XXH64 checksums ensure byte-for-byte integrity on restore.
+
+### Best practices
+
+**Encryption hierarchy (strongest → fastest):**
+
+| Mode | Command | Security Level | Speed Impact |
+|------|---------|---------------|-------------|
+| PQ Hybrid | `--pq pub.key` | Quantum-resistant + classical | ~5% overhead |
+| Password | `-p` | AES-256, PBKDF2 600K iter | ~3% overhead |
+| None | (default) | Integrity only (XXH64) | Fastest |
+
+**Compression levels for disks:**
+
+| Level | Mode | Best for | Typical ratio |
+|-------|------|----------|--------------|
+| `-l 1` to `-l 3` | Ultra-Fast | Live systems, NVMe (speed priority) | 1.5–2.5:1 |
+| `-l 4` to `-l 7` | Balanced (default) | General partitions, ext4/NTFS | 2–5:1 |
+| `-l 8` to `-l 9` | Extreme | Cold storage, archival backups | 3–10:1 |
+
+**Operational guidance:**
+
+- **Unmount before backup** for filesystem consistency. For live systems, use LVM snapshots or filesystem freeze: `fsfreeze -f /mnt/data && zupt disk backup ... && fsfreeze -u /mnt/data`.
+- **Block devices require root** on Linux. Regular files (disk images, `.img`, `.raw`) do not.
+- **Sparse-heavy disks** (freshly formatted, VMs with thin provisioning) compress extremely well — the sparse detector skips zero blocks at memory-copy speed with no compression overhead.
+- **Verify after backup** with `zupt test archive.zupt` — checks every block's XXH64 checksum without extracting.
+- **PQ encryption for long-term** — disk backups stored for years should use `--pq` to resist future quantum attacks. Generate one keypair, store the private key offline, distribute the public key.
+- **Restore is non-destructive on files** — writing to a regular file creates/overwrites it. Writing to a block device overwrites the raw device. Double-check the target path before restoring to a device.
+
+### Comparison with other tools
+
+| Feature | Zupt disk | dd + gzip | Clonezilla | partclone |
+|---------|-----------|-----------|------------|-----------|
+| Compression | VaptVupt/LZHP (adaptive) | gzip (fixed) | Multiple | Multiple |
+| Encryption | AES-256 + PQ hybrid | None (pipe to gpg) | None | None |
+| Sparse detection | Automatic | None | Filesystem-aware | Filesystem-aware |
+| Per-block integrity | XXH64 per block | None | None | CRC32 |
+| Single binary | ✓ (zero deps) | 2+ tools | ISO boot | Multiple |
+| Post-quantum | ML-KEM-768 | — | — | — |
+| Cross-platform | 6 architectures | ✓ | x86 only | Linux only |
+
+---
+
 ## Multi-Architecture Support
 
 Zupt builds and runs on all major architectures. The Makefile auto-detects the platform and enables the best available features.
@@ -178,9 +257,10 @@ make install DESTDIR=/buildroot
 
 ## Feature Comparison
 
-| Feature | Zupt v2.0 | gzip | zstd | 7-Zip |
+| Feature | Zupt v2.1 | gzip | zstd | 7-Zip |
 |---------|-----------|------|------|-------|
 | Default codec | VaptVupt/LZHP (auto) | DEFLATE | FSE+Huffman | LZMA2 |
+| Full-disk backup | **`zupt disk`** | — | — | — |
 | Post-quantum encryption | **ML-KEM-768** | — | — | — |
 | Password encryption | AES-256 + HMAC | — | — | AES-256 |
 | AES-NI hardware accel | **Jasmin-verified** | — | — | — |
@@ -220,6 +300,8 @@ zupt compress [OPTIONS] <output.zupt> <files/dirs...>
 zupt extract  [OPTIONS] <archive.zupt>
 zupt list     [OPTIONS] <archive.zupt>
 zupt test     [OPTIONS] <archive.zupt>
+zupt disk     backup [OPTIONS] <output.zupt> <device_or_file>
+zupt disk     restore [OPTIONS] <archive.zupt> <target>
 zupt bench    [--compare] <files/dirs...>
 zupt keygen   [-o file] [--pub] [-k privkey]
 zupt version
@@ -248,7 +330,7 @@ zupt help
 ```bash
 make                        # Auto-detects arch, Jasmin, AVX2
 make V=1                    # Verbose build output
-make test-all               # 70 tests: regression + NIST + VV + MT + PQ
+make test-all               # 77 tests: regression + NIST + VV + MT + PQ + disk
 make test-vv                # VaptVupt codec unit tests only
 make test-asan              # AddressSanitizer + UBSan build
 make fuzz-build             # AFL++ fuzzing harnesses
@@ -290,9 +372,10 @@ All codecs are forward-compatible: archives created with any codec can be read b
 | v1.1–v1.4 | X25519 fix, NIST vectors, CPUID detection, Jasmin source files fixed |
 | v1.5 | Jasmin CT assembly linked (MAC verify + ML-KEM select active) |
 | v1.5.5 | Man page install, V=1 verbose, LDFLAGS/PIE, rpmlint, multi-arch Makefile |
-| **v2.1.1** | **Termux/Android build fix, arch-safety guard removes stale cross-arch .o, Keccak ROL64 UB fix, zero UBSan violations** |
-| v2.1 | VaptVupt 1.4.0: cross-block dictionary carry, context decode prefetch, faster adaptive window trial (2.6× encode), integration API |
 | v2.0 | VaptVupt 1.1.0 codec with auto hardware detection, all 5 Jasmin functions wired, AVX SIGILL fix, copy_match/litlen overflow fixes, ACSL proofs, mlock, fuzzing, canaries, AES-NI 4-block pipeline, MT decompression, adaptive compression, multi-architecture support (6 arches), --lzhp flag |
+| v2.1 | VaptVupt 1.4.0: cross-block dictionary carry, context decode prefetch, faster adaptive window trial (2.6× encode), integration API |
+| v2.1.1 | Termux/Android build fix, arch-safety guard removes stale cross-arch .o, Keccak ROL64 UB fix, zero UBSan violations |
+| **v2.1.2** | **Full-disk backup/restore (`zupt disk`), sparse detection, all encryption modes, per-block XXH64 verification, progress bar, 77 tests** |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.
 
