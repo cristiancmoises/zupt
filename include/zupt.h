@@ -30,7 +30,7 @@
   #define zupt_mkdir(p) mkdir(p, 0755)
 #endif
 
-#define ZUPT_VERSION_STRING "2.0.0"
+#define ZUPT_VERSION_STRING "2.1.0"
 #define ZUPT_FORMAT_MAJOR   1
 #define ZUPT_FORMAT_MINOR   4
 

@@ -49,7 +49,7 @@ static void copy_match_scalar(uint8_t *dst, uint32_t offset, size_t length) {
         }
         while (length-- > 0) *dst++ = *src++;
     } else {
-        /* Short overlap (1-7): byte-by-byte to handle pattern repeat correctly */
+        /* Very short overlap (1-3): byte-by-byte */
         for (size_t i = 0; i < length; i++) dst[i] = src[i];
     }
 }

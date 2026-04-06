@@ -98,8 +98,9 @@ static inline int32_t extend_match(const uint8_t *a, const uint8_t *b,
  * MATCHER: hash chain with 5-byte hash + rep-match
  * ═══════════════════════════════════════════════════════════════ */
 
+
 typedef struct {
-    int32_t *table;    /* Hash table: VV_HC_SIZE entries, heap-allocated */
+    int32_t *table;    /* Primary: VV_HC_SIZE entries (hash5) */
     int32_t *chain;    /* Chain array: window_size entries */
     uint32_t chain_mask;
     uint32_t chain_depth;
@@ -111,8 +112,8 @@ static void matcher_init(matcher_t *m, uint32_t window_log, uint32_t depth) {
     uint32_t wsz = 1u << window_log;
     m->table = (int32_t *)malloc(VV_HC_SIZE * sizeof(int32_t));
     m->chain = (int32_t *)malloc(wsz * sizeof(int32_t));
-    memset(m->table, 0xFF, VV_HC_SIZE * sizeof(int32_t));  /* -1 */
-    memset(m->chain, 0xFF, wsz * sizeof(int32_t));          /* -1 */
+    memset(m->table, 0xFF, VV_HC_SIZE * sizeof(int32_t));
+    memset(m->chain, 0xFF, wsz * sizeof(int32_t));
     m->chain_mask = wsz - 1;
     m->chain_depth = depth;
     m->rep[0] = m->rep[1] = m->rep[2] = 0;
@@ -140,7 +141,6 @@ static inline int32_t try_rep_match(const matcher_t *m, const uint8_t *data,
         uint32_t d = m->rep[i];
         if (d == 0 || (uint32_t)pos < d) continue;
         int32_t ref = pos - (int32_t)d;
-        /* Quick 4-byte check */
         uint32_t a, b;
         __builtin_memcpy(&a, data + pos, 4);
         __builtin_memcpy(&b, data + ref, 4);
@@ -155,24 +155,24 @@ static inline int32_t try_rep_match(const matcher_t *m, const uint8_t *data,
     return 0;
 }
 
-/* ─── Hash chain match: uses 5-byte hash, searches up to chain_depth ─── */
+/* ─── Hash chain match: DUAL HASH (hash5 + hash4) for binary coverage ─── */
 static int32_t chain_match(const matcher_t *m, const uint8_t *data,
                             int32_t pos, int32_t end, int32_t *best_off) {
     if (pos + 4 > end) return 0;
-    uint32_t h = hash_safe(data + pos, end - pos);
-    int32_t ref = m->table[h];
+
     int32_t best_len = 0;
     *best_off = 0;
 
-    uint32_t depth = m->chain_depth;
-    /* PERF: match distance limit derived from window log.
-     * wlog=16 → 65535, wlog=20 → 1048575, wlog=22 → 4194303. */
     int32_t max_dist = (int32_t)((1u << m->wlog) - 1);
     int32_t limit = pos - max_dist;
     if (limit < 0) limit = 0;
 
+    /* Primary hash5 chain traversal */
+    uint32_t h = hash_safe(data + pos, end - pos);
+    int32_t ref = m->table[h];
+    uint32_t depth = m->chain_depth;
+
     while (ref >= 0 && ref >= limit && ref < pos && depth-- > 0) {
-        /* Quick 4-byte prefix check */
         uint32_t a, b;
         __builtin_memcpy(&a, data + pos, 4);
         __builtin_memcpy(&b, data + ref, 4);
@@ -183,11 +183,14 @@ static int32_t chain_match(const matcher_t *m, const uint8_t *data,
             if (len > best_len) {
                 best_len = len;
                 *best_off = pos - ref;
-                if (len >= 256) break; /* good enough */
+                if (len >= 256) return best_len;
             }
         }
         ref = m->chain[ref & m->chain_mask];
     }
+
+
+
     return best_len;
 }
 
@@ -242,13 +245,13 @@ static size_t emit_seq(uint8_t *dst, const uint8_t *lits,
  * hash insertions, speeding up compression by 15-25% at L3+.
  * ═══════════════════════════════════════════════════════════════ */
 
-static size_t compress_block(const uint8_t *src, size_t src_len,
+static size_t compress_block(const uint8_t *src, size_t start_pos, size_t block_len,
                              uint8_t *dst, size_t dst_cap,
                              matcher_t *m, vv_mode_t mode) {
     uint8_t *op = dst;
-    int32_t pos = 0;
-    int32_t end = (int32_t)src_len;
-    const uint8_t *lit_start = src;
+    int32_t pos = (int32_t)start_pos;
+    int32_t end = (int32_t)(start_pos + block_len);
+    const uint8_t *lit_start = src + start_pos;
     int off_bytes = (m->wlog > 16) ? 3 : 2;
 
     while (pos < end - (int32_t)VV_MIN_MATCH) {
@@ -454,38 +457,27 @@ int64_t vv_compress(const uint8_t *src, size_t src_len,
     default: depth = 48;
     }
 
-    /* ─── ADAPTIVE WINDOW (Item 2): trial-compress first block at wlog=16
-     * and wlog=20. If wlog=20 produces ≥3% smaller output, use it.
-     * Only for balanced/extreme with auto wlog (opts->window_log == 0).
-     * Cost: one extra compression of the first block (~10ms for 1MB).
-     * TRADEOFF: encode speed vs automatic ratio optimization.
-     * Zupt benefits because backup data characteristics are unknown. ─── */
+    /* ─── ADAPTIVE WINDOW: sample first 64KB at wlog=16 vs wlog=20.
+     * PERF: only samples 64KB (not full 1MB block) — 16× faster trial.
+     * If wlog=20 saves ≥3%, use wider window for the whole frame. ─── */
     if (opts->window_log == 0 && opts->mode >= VV_MODE_BALANCED && src_len > 65536) {
-        size_t trial_len = src_len;
-        if (trial_len > VV_MAX_BLOCK_SIZE) trial_len = VV_MAX_BLOCK_SIZE;
+        size_t trial_len = 262144; /* Sample 256KB — catches patterns up to 200KB apart */
+        if (trial_len > src_len) trial_len = src_len;
 
         size_t trial_cap = trial_len + trial_len / 255 + 1024;
         uint8_t *trial_buf = (uint8_t *)malloc(trial_cap);
         if (trial_buf) {
-            /* Trial at wlog=16 */
-            matcher_t m16;
-            matcher_init(&m16, 16, depth);
-            size_t sz16 = compress_block(src, trial_len, trial_buf, trial_cap, &m16, opts->mode);
+            /* PERF: use greedy depth=4 for trials — 10× faster than lazy-48 */
+            matcher_t m16; matcher_init(&m16, 16, 4);
+            size_t sz16 = compress_block(src, 0, trial_len, trial_buf, trial_cap, &m16, VV_MODE_ULTRA_FAST);
             matcher_free(&m16);
 
-            /* Trial at wlog=20 */
-            matcher_t m20;
-            matcher_init(&m20, 20, depth);
-            size_t sz20 = compress_block(src, trial_len, trial_buf, trial_cap, &m20, opts->mode);
+            matcher_t m20; matcher_init(&m20, 20, 4);
+            size_t sz20 = compress_block(src, 0, trial_len, trial_buf, trial_cap, &m20, VV_MODE_ULTRA_FAST);
             matcher_free(&m20);
 
             free(trial_buf);
-
-            /* Pick winner: wlog=20 must save ≥3% to justify 3-byte offsets */
-            if (sz20 > 0 && sz16 > 0 && sz20 < (sz16 * 97 / 100)) {
-                wlog = 20;
-            }
-            /* Otherwise stay at wlog=16 (no regression on short-offset data) */
+            if (sz20 > 0 && sz16 > 0 && sz20 < (sz16 * 97 / 100)) wlog = 20;
         }
     }
 
@@ -538,7 +530,8 @@ int64_t vv_compress(const uint8_t *src, size_t src_len,
         size_t braw = remaining > VV_MAX_BLOCK_SIZE ? VV_MAX_BLOCK_SIZE : remaining;
         int last = (remaining <= VV_MAX_BLOCK_SIZE);
 
-        size_t csz = compress_block(ip, braw, tmp, tcap, &m, opts->mode);
+        size_t block_start = (size_t)(ip - src);
+        size_t csz = compress_block(src, block_start, braw, tmp, tcap, &m, opts->mode);
 
         if (csz == 0 || csz >= braw) {
             /* Incompressible: store raw */

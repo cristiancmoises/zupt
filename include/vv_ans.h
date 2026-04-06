@@ -3,6 +3,7 @@
  * Copyright (c) 2026 Cristian Cezar Moisés
  * SPDX-License-Identifier: MIT AND Apache-2.0
  */
+
 /*
  * VaptVupt — tANS Entropy Codec (v2: sparse header + 4-way interleaved)
  *
@@ -108,7 +109,8 @@ vva_error_t vva_encode_sequences(const uint8_t *tokens, size_t tok_len,
                                   int off_bytes);
 
 vva_error_t vva_decode_sequences(const uint8_t *src, size_t src_len,
-                                  uint8_t *dst, size_t dst_cap, size_t *dst_len);
+                                  uint8_t *dst, size_t dst_cap, size_t *dst_len,
+                                  const uint8_t *dst_base);
 
 static inline size_t vva_bound(size_t src_len) {
     /* Context model header can be up to ~10KB, seq coding adds 3 table headers */
