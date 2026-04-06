@@ -4,7 +4,7 @@
 
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
-![Version](https://img.shields.io/badge/version-2.1.0-orange)
+![Version](https://img.shields.io/badge/version-2.1.1-orange)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 ![openSUSE](https://img.shields.io/badge/platform-openSUSE-73BA25?logo=opensuse&logoColor=white)
 
@@ -290,8 +290,9 @@ All codecs are forward-compatible: archives created with any codec can be read b
 | v1.1–v1.4 | X25519 fix, NIST vectors, CPUID detection, Jasmin source files fixed |
 | v1.5 | Jasmin CT assembly linked (MAC verify + ML-KEM select active) |
 | v1.5.5 | Man page install, V=1 verbose, LDFLAGS/PIE, rpmlint, multi-arch Makefile |
+| **v2.1.1** | **Termux/Android build fix, arch-safety guard removes stale cross-arch .o, Keccak ROL64 UB fix, zero UBSan violations** |
+| v2.1 | VaptVupt 1.4.0: cross-block dictionary carry, context decode prefetch, faster adaptive window trial (2.6× encode), integration API |
 | v2.0 | VaptVupt 1.1.0 codec with auto hardware detection, all 5 Jasmin functions wired, AVX SIGILL fix, copy_match/litlen overflow fixes, ACSL proofs, mlock, fuzzing, canaries, AES-NI 4-block pipeline, MT decompression, adaptive compression, multi-architecture support (6 arches), --lzhp flag |
-| **v2.1** | **VaptVupt 1.4.0: cross-block dictionary carry, context decode prefetch, faster adaptive window trial (2.6× encode), integration API** |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.
 

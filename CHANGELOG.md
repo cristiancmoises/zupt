@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [2.1.1] — 2026-04-06
+
+### Fixed — Multi-Architecture Build
+- **Stale object files removed from distribution.** Previous tarballs shipped pre-compiled x86_64 `.o` files. On aarch64 (Termux, Raspberry Pi, etc.) the linker failed with `ld.lld: error: src/zupt_xxh.o is incompatible with aarch64linux`. All `.o` files now excluded from release tarballs.
+- **Arch-safety guard in Makefile.** Detects pre-compiled `.o` files from a different architecture via `file(1)` and auto-removes them before linking. Prevents silent link failures if stale objects are accidentally present.
+- **Termux/Android compatibility.** Default compiler changed from `gcc` to `cc` (Termux ships clang). `-lpthread` skipped on Android/Termux (bionic libc has pthreads built-in, detected via `uname -o`).
+- **`sys/syscall.h` include moved to file top** in `zupt_crypto.c`. Was inside function body (non-standard C, rejected by some compilers).
+
+### Fixed — Undefined Behavior
+- **Keccak ROL64 shift-by-64 UB.** `ROL64(x, 0)` expanded to `(x >> 64)` which is undefined behavior in C. The Keccak rotation table has `KECCAK_ROT[0] = 0`, triggering this on every Keccak-f[1600] call (SHA3-256, SHA3-512, SHAKE-128, SHAKE-256, ML-KEM-768). Fix: `ROL64` now returns `x` unchanged when `n == 0`. Confirmed zero UBSan violations across all PQ paths.
+
+### Tests
+- 70/70: 11 VV + 13 NIST + 22 regression + 14 MT + 10 PQ. ASAN + UBSan clean (zero violations).
+
+---
+
 ## [2.1.0] — 2026-04-05
 
 ### Upgraded — VaptVupt 1.4.0 Codec
@@ -243,6 +259,7 @@ All 4 `.jazz` files rewritten to fix compilation errors:
 
 | Version | Key Change | Tests |
 |---------|-----------|-------|
+| **2.1.1** | Termux/Android build fix, arch-safety guard, Keccak UB fix, no stale .o in tarballs | 70 PASS |
 | **2.1.0** | VaptVupt 1.4.0: cross-block dictionary, context prefetch, faster adaptive window, integration API | 70 PASS |
 | **2.0.0** | VaptVupt 1.1.0 codec, auto codec detection, all 5 Jasmin wired, AVX SIGILL fix, multi-arch, copy_match fix, litlen overflow fix | 70 PASS |
 | **1.5.5** | Man page install, V=1 verbose, LDFLAGS/PIE, rpmlint, multi-arch Makefile | 53+13 PASS |
