@@ -1,5 +1,5 @@
 /*
- * Zupt v2.1.3 — Full-Disk Backup/Restore
+ * Zupt v2.1.4 — Full-Disk Backup/Restore
  * Copyright (c) 2026 Cristian Cezar Moisés — MIT License
  *
  * Reads a raw block device or file, compresses in streaming chunks,
@@ -75,17 +75,22 @@ static int64_t get_device_size(const char *path) {
     CloseHandle(h);
     return -1;
 #else
+    /* Open first, then fstat on the fd — eliminates TOCTOU race between
+     * stat() and open() where the path could change between the two calls. */
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return -1;
+
     struct stat st;
-    if (stat(path, &st) != 0) return -1;
+    if (fstat(fd, &st) != 0) { close(fd); return -1; }
 
     if (S_ISREG(st.st_mode)) {
-        return (int64_t)st.st_size;
+        int64_t sz = (int64_t)st.st_size;
+        close(fd);
+        return sz;
     }
 
   #ifdef __linux__
     if (S_ISBLK(st.st_mode)) {
-        int fd = open(path, O_RDONLY);
-        if (fd < 0) return -1;
         uint64_t sz = 0;
         if (ioctl(fd, BLKGETSIZE64, &sz) == 0) {
             close(fd);
@@ -98,8 +103,6 @@ static int64_t get_device_size(const char *path) {
 
   #ifdef __APPLE__
     if (S_ISBLK(st.st_mode) || S_ISCHR(st.st_mode)) {
-        int fd = open(path, O_RDONLY);
-        if (fd < 0) return -1;
         uint64_t bc = 0, bs = 0;
         if (ioctl(fd, DKIOCGETBLOCKCOUNT, &bc) == 0 &&
             ioctl(fd, DKIOCGETBLOCKSIZE, &bs) == 0) {
@@ -112,8 +115,6 @@ static int64_t get_device_size(const char *path) {
   #endif
 
     /* FreeBSD/generic: try seeking to end */
-    int fd = open(path, O_RDONLY);
-    if (fd < 0) return -1;
     off_t end = lseek(fd, 0, SEEK_END);
     close(fd);
     return (end >= 0) ? (int64_t)end : -1;
@@ -580,7 +581,10 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
      * Block devices require raw POSIX I/O (open/write) because stdio
      * buffering can cause misaligned or partial writes that corrupt data.
      * O_SYNC ensures each write is flushed to the device before returning.
-     * For loop devices, this ensures data reaches the backing file. */
+     * For loop devices, this ensures data reaches the backing file.
+     *
+     * To avoid TOCTOU races (stat then open on a path that could change),
+     * we open the fd first, then fstat on the fd to classify it. */
 #ifdef _WIN32
     FILE *tgt = fopen(target_path, "wb");
     if (!tgt) {
@@ -590,17 +594,13 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
         return ZUPT_ERR_IO;
     }
 #else
-    struct stat tgt_st;
     int tgt_fd;
     int is_block_dev = 0;
 
-    /* For block/char devices: O_WRONLY | O_SYNC (no truncate, sync writes).
-     * For regular files: O_WRONLY | O_CREAT | O_TRUNC. */
-    if (stat(target_path, &tgt_st) == 0 &&
-        (S_ISBLK(tgt_st.st_mode) || S_ISCHR(tgt_st.st_mode))) {
-        tgt_fd = open(target_path, O_WRONLY | O_SYNC);
-        is_block_dev = 1;
-    } else {
+    /* Open the target — try without O_CREAT first (for existing devices/files),
+     * fall back to O_CREAT | O_TRUNC for new files. */
+    tgt_fd = open(target_path, O_WRONLY);
+    if (tgt_fd < 0) {
         tgt_fd = open(target_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     }
     if (tgt_fd < 0) {
@@ -608,6 +608,23 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
                 target_path, strerror(errno));
         fclose(f);
         return ZUPT_ERR_IO;
+    }
+
+    /* Classify the fd (not the path) to avoid TOCTOU */
+    {
+        struct stat tgt_st;
+        if (fstat(tgt_fd, &tgt_st) == 0 &&
+            (S_ISBLK(tgt_st.st_mode) || S_ISCHR(tgt_st.st_mode))) {
+            is_block_dev = 1;
+            /* Enable synchronous I/O for block devices */
+            int fl = fcntl(tgt_fd, F_GETFL);
+            if (fl >= 0) fcntl(tgt_fd, F_SETFL, fl | O_SYNC);
+        } else if (fstat(tgt_fd, &tgt_st) == 0 && S_ISREG(tgt_st.st_mode)) {
+            /* Regular file — truncate if we opened without O_TRUNC */
+            if (ftruncate(tgt_fd, 0) != 0) {
+                /* Non-fatal: file may already be empty */
+            }
+        }
     }
 #endif
 

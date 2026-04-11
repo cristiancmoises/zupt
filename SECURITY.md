@@ -4,7 +4,7 @@
 
 **Be free to report vulnerabilities. For high-risk send an email.**
 
-Email: **ethicalhacker@riseup.net**
+Email: **zupt@riseup.net**
 
 Include: description, reproduction steps, impact assessment.
 Response within 48 hours. Fix within 30 days for critical issues.

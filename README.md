@@ -376,7 +376,10 @@ All codecs are forward-compatible: archives created with any codec can be read b
 | v2.1.0 | VaptVupt 1.4.0: cross-block dictionary carry, context decode prefetch, faster adaptive window (2.6× encode), integration API |
 | v2.1.1 | Termux/Android build fix, arch-safety guard, Keccak ROL64 UB fix, zero UBSan violations |
 | v2.1.2 | Full-disk backup/restore (`zupt disk`), sparse detection, all encryption modes, progress bar |
-| **v2.1.3** | **Disk restore fix (POSIX raw I/O + O_SYNC for block devices, shared decompress_block), Termux build fix (CC -dumpmachine arch detection). LZHP prediction encoding fix (data corruption on structured data), shared write_enc_header, SOLID flag removed from disk, 78 tests** |
+| v2.1.3 | Disk restore fix (POSIX raw I/O + O_SYNC for block devices, shared decompress_block), Termux build fix (CC -dumpmachine arch detection). LZHP prediction encoding fix (data corruption on structured data), shared write_enc_header, SOLID flag removed from disk, 78 tests |
+| **v2.1.4** |  **Resolved high-severity vulnerabilities by removing TOCTOU filesystem races via fd-first open()/fstat() patterns and enforcing non-optimizable secure memory zeroization for cryptographic material.**|
+
+
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.
 
