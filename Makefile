@@ -118,19 +118,29 @@ ALL_OBJS      = $(ZUPT_OBJS) $(VV_SIMD_OBJS) $(VV_PLAIN_OBJS)
 # If pre-compiled .o files from a different architecture are present
 # (e.g. x86_64 .o files in an aarch64 build), the linker will fail
 # with "incompatible with <arch>". Detect and remove stale objects.
-# This happens when tarballs accidentally include build artifacts.
+# This happens when tarballs accidentally include build artifacts,
+# or when the same source tree is shared between different machines.
+#
+# Detection: uses $(CC) -dumpmachine which works on ALL platforms
+# including Termux (where /bin/sh does not exist).
 # ═══════════════════════════════════════════════════════════════════
 
 STALE_OBJS := $(wildcard src/*.o jasmin/*.o)
 ifneq ($(STALE_OBJS),)
-  # Check if any existing .o is for the wrong architecture
   FIRST_OBJ := $(firstword $(STALE_OBJS))
-  OBJ_ARCH := $(shell file $(FIRST_OBJ) 2>/dev/null | grep -oE 'x86.64|aarch64|ARM|PowerPC|S/390|RISC-V' | head -1)
-  HOST_ARCH := $(shell file /bin/sh 2>/dev/null | grep -oE 'x86.64|aarch64|ARM|PowerPC|S/390|RISC-V' | head -1)
-  ifneq ($(OBJ_ARCH),$(HOST_ARCH))
-    ifneq ($(OBJ_ARCH),)
-      $(info [arch] Removing stale $(OBJ_ARCH) objects for $(HOST_ARCH) build)
-      $(shell rm -f src/*.o jasmin/*.o)
+  OBJ_ARCH := $(shell file $(FIRST_OBJ) 2>/dev/null | grep -oiE 'x86.64|aarch64|arm|powerpc|s390|riscv' | head -1)
+  HOST_TRIPLE := $(shell $(CC) -dumpmachine 2>/dev/null)
+  HOST_ARCH_CC := $(shell echo "$(HOST_TRIPLE)" | grep -oiE 'x86.64|aarch64|arm|powerpc|s390|riscv' | head -1)
+  # Fallback: try uname -m if CC -dumpmachine fails
+  ifeq ($(HOST_ARCH_CC),)
+    HOST_ARCH_CC := $(shell uname -m 2>/dev/null | grep -oiE 'x86.64|aarch64|arm|powerpc|s390|riscv' | head -1)
+  endif
+  ifneq ($(OBJ_ARCH),)
+    ifneq ($(HOST_ARCH_CC),)
+      ifneq ($(OBJ_ARCH),$(HOST_ARCH_CC))
+        $(info [arch] Removing stale $(OBJ_ARCH) objects for $(HOST_ARCH_CC) build)
+        $(shell rm -f src/*.o jasmin/*.o)
+      endif
     endif
   endif
 endif

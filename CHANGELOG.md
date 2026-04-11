@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [2.1.3] — 2026-04-11
+
+### Fixed — LZHP Prediction Encoding Missing in Disk Backup (data corruption)
+- **Root cause:** `zupt_disk_backup()` LZHP compression path skipped the `zupt_predict_encode()` step. When byte prediction was active (`pred_active=1`), it stored the prediction table and wrote `cbuf[0] = 0x01`, but then compressed the **raw block data** instead of the prediction-encoded data. On restore, `decompress_block()` correctly applied `zupt_predict_decode()` to the decompressed output, producing corrupted data. Checksum mismatch on block 0 for any block with structured content (ext4 metadata, NTFS headers, partition tables).
+- **Impact:** ALL disk backups using LZHP codec (default on CPUs without AVX2) on non-random data were silently corrupted. VaptVupt codec was unaffected (no prediction path). Random/incompressible data was unaffected (prediction benefit < threshold → `pred_active=0`).
+- **Fix:** Added `zupt_predict_encode(rbuf, transformed, nread, pred)` before `zupt_lzh_compress()`, matching the correct path in `zupt_format.c` (lines 557–563). Allocated temporary buffer for prediction-encoded data, freed after compression.
+
+### Fixed — Spurious SOLID Flag on Disk Archives
+- Disk backup no longer sets `ZUPT_FLAG_SOLID` in the archive header. Disk images are independent per-block archives, not solid streams. The SOLID flag caused `zupt_extract_archive()` to take the wrong code path if a disk archive was ever parsed by the extract function.
+
+### Fixed — Shared Encryption Header (eliminates all format mismatches)
+- **Extracted `write_enc_header()`** from `zupt_format.c` as a shared non-static function. ALL three encryption write paths — `zupt_compress_files()`, `zupt_compress_solid()`, and `zupt_disk_backup()` — now call the same function.
+- **Solid compress now supports PQ encryption.**
+- **`zupt_w8()`, `zupt_w16le()`, `zupt_w64le()`** made non-static and declared in `zupt.h`.
+
+### Fixed — Block Device Restore I/O
+- Restore uses POSIX raw I/O (`open()` + `write()` loop) with `O_SYNC` for block devices, `fsync()` + `sync()` before close.
+
+### Fixed — Termux/Android Build
+- Arch-safety guard uses `$(CC) -dumpmachine` for host detection. Falls back to `uname -m`.
+
+### Tests
+- **78 total:** 70 core + 8 disk (including LZHP+PQ+password on ext4 — the exact failing case). ASAN + UBSan clean.
+
+---
+
 ## [2.1.2] — 2026-04-06
 
 ### Added — Full-Disk Backup/Restore
@@ -273,6 +299,7 @@ All 4 `.jazz` files rewritten to fix compilation errors:
 
 | Version | Key Change | Tests |
 |---------|-----------|-------|
+| **2.1.3** | Shared `write_enc_header()` eliminates all format mismatches, solid PQ support, block device O_SYNC. Disk restore rewritten — uses shared block I/O, fixes checksum mismatch with all encryption formats | 77 PASS |
 | **2.1.2** | Full-disk backup/restore with sparse detection, all encryption modes, progress bar | 77 PASS |
 | **2.1.1** | Termux/Android build fix, arch-safety guard, Keccak UB fix, no stale .o in tarballs | 70 PASS |
 | **2.1.0** | VaptVupt 1.4.0: cross-block dictionary, context prefetch, faster adaptive window, integration API | 70 PASS |

@@ -1,5 +1,5 @@
 /*
- * Zupt v2.1.2 — Full-Disk Backup/Restore
+ * Zupt v2.1.3 — Full-Disk Backup/Restore
  * Copyright (c) 2026 Cristian Cezar Moisés — MIT License
  *
  * Reads a raw block device or file, compresses in streaming chunks,
@@ -224,7 +224,7 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
     hdr.magic[4] = ZUPT_MAGIC_4; hdr.magic[5] = ZUPT_MAGIC_5;
     hdr.version_major = ZUPT_FORMAT_MAJOR;
     hdr.version_minor = ZUPT_FORMAT_MINOR;
-    hdr.global_flags = ZUPT_FLAG_CKSUM_XXH64 | ZUPT_FLAG_SOLID | ZUPT_FLAG_DISK_IMAGE;
+    hdr.global_flags = ZUPT_FLAG_CKSUM_XXH64 | ZUPT_FLAG_DISK_IMAGE;
     if (opts->encrypt) hdr.global_flags |= ZUPT_FLAG_ENCRYPTED;
     if (opts->threads > 1) hdr.global_flags |= ZUPT_FLAG_MULTITHREADED;
     hdr.creation_time = (uint64_t)time(NULL) * 1000000000ULL;
@@ -234,67 +234,12 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
     if (fwrite(&hdr, sizeof(hdr), 1, out) != 1) write_err = 1;
 
     /* ─── Encryption header ─── */
+    /* ─── Encryption header (uses same code as zupt compress) ─── */
     if (opts->encrypt) {
-        hdr.encryption_header_off = (uint64_t)ftello(out);
-
-        if (opts->pq_mode) {
-            uint8_t enc_hdr_buf[1200];
-            size_t enc_hdr_len = 0;
-            fprintf(stderr, "  Post-quantum key encapsulation (ML-KEM-768 + X25519)...\n");
-            if (zupt_hybrid_encrypt_init(&opts->keyring, opts->keyfile,
-                                          enc_hdr_buf, &enc_hdr_len) != 0) {
-                fprintf(stderr, "Error: PQ hybrid key encapsulation failed.\n");
-                fclose(src_f); fclose(out);
-                return ZUPT_ERR_AUTH_FAIL;
-            }
-
-            /* Write encryption block */
-            uint8_t bm0 = 0xBB, bm1 = 0x01, bt = ZUPT_BLOCK_ENC_HEADER;
-            fwrite(&bm0, 1, 1, out); fwrite(&bm1, 1, 1, out); fwrite(&bt, 1, 1, out);
-            uint8_t cs[2] = {0, 0}; fwrite(cs, 1, 2, out); fwrite(cs, 1, 2, out);
-            zupt_write_varint(out, enc_hdr_len);
-            zupt_write_varint(out, enc_hdr_len);
-            uint64_t ck = zupt_xxh64(enc_hdr_buf, enc_hdr_len, 0);
-            uint8_t ck8[8]; for (int i = 0; i < 8; i++) ck8[i] = (uint8_t)(ck >> (i*8));
-            fwrite(ck8, 1, 8, out);
-            fwrite(enc_hdr_buf, 1, enc_hdr_len, out);
-
-            hdr.global_flags |= ZUPT_FLAG_PQ_HYBRID;
-            fseeko(out, 0, SEEK_SET);
-            fwrite(&hdr, sizeof(hdr), 1, out);
-            fseeko(out, 0, SEEK_END);
-
-            fprintf(stderr, "  Encryption: PQ Hybrid (ML-KEM-768 + X25519)\n\n");
-        } else {
-            uint8_t salt[ZUPT_SALT_SIZE], nonce[ZUPT_NONCE_SIZE];
-            zupt_random_bytes(salt, ZUPT_SALT_SIZE);
-            zupt_random_bytes(nonce, ZUPT_NONCE_SIZE);
-
-            fprintf(stderr, "  Deriving encryption key (PBKDF2-SHA256, %d iterations)...\n",
-                    ZUPT_KDF_ITERATIONS);
-            zupt_derive_keys(&opts->keyring, opts->password, salt, nonce, ZUPT_KDF_ITERATIONS);
-
-            uint8_t enc_hdr[53];
-            enc_hdr[0] = 0x01; /* ZUPT_ENC_PBKDF2 */
-            memcpy(enc_hdr + 1, salt, 32);
-            memcpy(enc_hdr + 33, nonce, 16);
-            uint32_t iter = ZUPT_KDF_ITERATIONS;
-            memcpy(enc_hdr + 49, &iter, 4);
-
-            uint8_t bm0 = 0xBB, bm1 = 0x01, bt = ZUPT_BLOCK_ENC_HEADER;
-            fwrite(&bm0, 1, 1, out); fwrite(&bm1, 1, 1, out); fwrite(&bt, 1, 1, out);
-            uint8_t cs[2] = {0, 0}; fwrite(cs, 1, 2, out); fwrite(cs, 1, 2, out);
-            zupt_write_varint(out, 53); zupt_write_varint(out, 53);
-            uint64_t ck = zupt_xxh64(enc_hdr, 53, 0);
-            uint8_t ck8[8]; for (int i = 0; i < 8; i++) ck8[i] = (uint8_t)(ck >> (i*8));
-            fwrite(ck8, 1, 8, out);
-            fwrite(enc_hdr, 1, 53, out);
-
-            fseeko(out, 0, SEEK_SET);
-            fwrite(&hdr, sizeof(hdr), 1, out);
-            fseeko(out, 0, SEEK_END);
-
-            fprintf(stderr, "  Encryption: AES-256-CTR + HMAC-SHA256\n\n");
+        zupt_error_t enc_err = write_enc_header(out, &hdr, opts);
+        if (enc_err != ZUPT_OK) {
+            fclose(src_f); fclose(out);
+            return enc_err;
         }
     }
 
@@ -346,17 +291,32 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
                 if (csz > 0 && (size_t)csz < nread)
                     comp_size = (size_t)csz;
             } else if (codec == ZUPT_CODEC_ZUPT_LZHP) {
-                /* LZHP with prediction */
+                /* LZHP with prediction — must encode through prediction
+                 * table before compressing, matching zupt_format.c */
                 float benefit = zupt_predict_benefit(rbuf, nread);
                 if (benefit > 0.02f && nread > 256) {
                     uint8_t pred[256];
                     zupt_predict_build(rbuf, nread, pred);
-                    cbuf[0] = 0x01;
-                    memcpy(cbuf + 1, pred, 256);
-                    size_t plain = zupt_lzh_compress(rbuf, nread, cbuf + 257,
-                                                      comp_cap - 257, opts->level);
-                    if (plain > 0 && 257 + plain < nread)
-                        comp_size = 257 + plain;
+                    uint8_t *transformed = (uint8_t *)malloc(nread);
+                    if (transformed) {
+                        zupt_predict_encode(rbuf, transformed, nread, pred);
+                        size_t plain = zupt_lzh_compress(transformed, nread,
+                                                          cbuf + 257,
+                                                          comp_cap - 257, opts->level);
+                        free(transformed);
+                        if (plain > 0 && 257 + plain < nread) {
+                            cbuf[0] = 0x01;
+                            memcpy(cbuf + 1, pred, 256);
+                            comp_size = 257 + plain;
+                        } else {
+                            /* Prediction didn't help — fall back to plain LZH */
+                            cbuf[0] = 0x00;
+                            plain = zupt_lzh_compress(rbuf, nread, cbuf + 1,
+                                                        comp_cap - 1, opts->level);
+                            if (plain > 0 && 1 + plain < nread)
+                                comp_size = 1 + plain;
+                        }
+                    }
                 } else {
                     cbuf[0] = 0x00;
                     size_t plain = zupt_lzh_compress(rbuf, nread, cbuf + 1,
@@ -535,25 +495,37 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
 /* ═══════════════════════════════════════════════════════════════════
  * DISK RESTORE (extract archive → device/file)
  *
- * Uses the standard zupt_extract_archive path but writes to a single
- * file (the target device) instead of creating a directory tree.
- * For disk images, the archive contains exactly one index entry.
+ * Rewritten for v2.1.3: uses the same read_block() / read_enc_header() /
+ * decompress_block() functions as zupt_extract_archive(). This eliminates
+ * the hand-rolled block parser that caused checksum mismatches due to
+ * encryption header format differences (52-byte vs 53-byte) and seek
+ * offset errors.
+ *
+ * Flow:
+ *   1. Read archive header → validate magic + DISK_IMAGE flag
+ *   2. Read encryption header (if encrypted) → derive keys using
+ *      read_enc_header() which handles PQ, PBKDF2, and legacy formats
+ *   3. Read data blocks sequentially with read_block()
+ *   4. Decompress+decrypt+checksum each block with decompress_block()
+ *   5. Write decompressed data to target
  * ═══════════════════════════════════════════════════════════════════ */
 
 zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path,
                                 zupt_options_t *opts) {
-    /* Open archive */
     FILE *f = fopen(archive_path, "rb");
     if (!f) {
         fprintf(stderr, "Error: Cannot open '%s': %s\n", archive_path, strerror(errno));
         return ZUPT_ERR_IO;
     }
 
-    /* Read archive header */
+    /* ─── Read archive header ─── */
     zupt_archive_header_t hdr;
-    if (fread(&hdr, sizeof(hdr), 1, f) != 1) { fclose(f); return ZUPT_ERR_IO; }
+    if (fread(&hdr, sizeof(hdr), 1, f) != 1) {
+        fclose(f);
+        fprintf(stderr, "Error: Cannot read archive header\n");
+        return ZUPT_ERR_IO;
+    }
 
-    /* Verify magic */
     if (hdr.magic[0] != ZUPT_MAGIC_0 || hdr.magic[1] != ZUPT_MAGIC_1 ||
         hdr.magic[2] != ZUPT_MAGIC_2 || hdr.magic[3] != ZUPT_MAGIC_3) {
         fclose(f);
@@ -561,208 +533,153 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
         return ZUPT_ERR_BAD_MAGIC;
     }
 
-    /* Check disk image flag */
     if (!(hdr.global_flags & ZUPT_FLAG_DISK_IMAGE)) {
         fclose(f);
         fprintf(stderr, "Error: Archive is not a disk image. Use 'zupt extract' instead.\n");
         return ZUPT_ERR_INVALID;
     }
 
-    /* Handle encryption */
+    /* ─── Read encryption header (uses same code as zupt extract) ─── */
     if (hdr.global_flags & ZUPT_FLAG_ENCRYPTED) {
         if (!opts->encrypt && opts->password[0] == '\0' && !opts->pq_mode) {
             fclose(f);
             fprintf(stderr, "Error: Archive is encrypted. Use -p or --pq to provide key.\n");
             return ZUPT_ERR_AUTH_FAIL;
         }
+        opts->encrypt = 1;
 
-        /* Read encryption header block */
-        fseeko(f, (int64_t)hdr.encryption_header_off, SEEK_SET);
-
-        /* Skip block magic (2B) + type (1B) + codec (2B) + flags (2B) */
-        uint8_t skip[7];
-        if (fread(skip, 1, 7, f) != 7) { fclose(f); return ZUPT_ERR_CORRUPT; }
-
-        uint64_t uncomp_sz, comp_sz;
-        if (zupt_read_varint(f, &uncomp_sz) < 0) { fclose(f); return ZUPT_ERR_CORRUPT; }
-        if (zupt_read_varint(f, &comp_sz) < 0) { fclose(f); return ZUPT_ERR_CORRUPT; }
-
-        /* Skip checksum (8B) */
-        uint8_t ck_skip[8];
-        if (fread(ck_skip, 1, 8, f) != 8) { fclose(f); return ZUPT_ERR_CORRUPT; }
-
-        uint8_t *enc_data = (uint8_t *)malloc((size_t)comp_sz);
-        if (!enc_data) { fclose(f); return ZUPT_ERR_NOMEM; }
-        if (fread(enc_data, 1, (size_t)comp_sz, f) != (size_t)comp_sz) {
-            free(enc_data); fclose(f); return ZUPT_ERR_CORRUPT;
+        zupt_error_t enc_err = read_enc_header(f, &hdr, opts);
+        if (enc_err != ZUPT_OK) {
+            fclose(f);
+            fprintf(stderr, "Error: Encryption header read failed (%s)\n",
+                    zupt_strerror(enc_err));
+            return enc_err;
         }
-
-        if (opts->pq_mode) {
-            if (zupt_hybrid_decrypt_init(&opts->keyring, opts->keyfile,
-                                          enc_data, (size_t)comp_sz) != 0) {
-                free(enc_data); fclose(f);
-                fprintf(stderr, "Error: PQ decryption failed.\n");
-                return ZUPT_ERR_AUTH_FAIL;
-            }
-        } else {
-            /* Password mode */
-            if (comp_sz < 53) { free(enc_data); fclose(f); return ZUPT_ERR_CORRUPT; }
-            uint8_t enc_type = enc_data[0];
-            if (enc_type != 0x01) { free(enc_data); fclose(f); return ZUPT_ERR_CORRUPT; }
-            uint8_t *salt = enc_data + 1;
-            uint8_t *nonce = enc_data + 33;
-            uint32_t iter;
-            memcpy(&iter, enc_data + 49, 4);
-            zupt_derive_keys(&opts->keyring, opts->password, salt, nonce, iter);
-        }
-        free(enc_data);
     }
 
-    /* Read footer to find index */
+    /* ─── Read footer to get total block count ─── */
+    int64_t after_enc_pos = ftello(f);  /* Save position after enc header */
+
     fseeko(f, -(int64_t)sizeof(zupt_footer_t), SEEK_END);
     zupt_footer_t ft;
-    if (fread(&ft, sizeof(ft), 1, f) != 1) { fclose(f); return ZUPT_ERR_CORRUPT; }
-    if (ft.footer_magic[0] != 'Z' || ft.footer_magic[1] != 'E') {
-        fclose(f); return ZUPT_ERR_BAD_MAGIC;
+    if (fread(&ft, sizeof(ft), 1, f) != 1) {
+        fclose(f);
+        return ZUPT_ERR_CORRUPT;
+    }
+    if (ft.footer_magic[0] != 'Z' || ft.footer_magic[1] != 'E' ||
+        ft.footer_magic[2] != 'N' || ft.footer_magic[3] != 'D') {
+        fclose(f);
+        fprintf(stderr, "Error: Invalid footer magic\n");
+        return ZUPT_ERR_BAD_MAGIC;
     }
 
-    /* Seek to first data block (skip archive header + encryption header) */
-    fseeko(f, sizeof(zupt_archive_header_t), SEEK_SET);
-    if (hdr.global_flags & ZUPT_FLAG_ENCRYPTED) {
-        /* Skip past encryption header block to reach data blocks */
-        fseeko(f, (int64_t)hdr.encryption_header_off, SEEK_SET);
-        /* Skip the enc header block entirely */
-        uint8_t skip2[7];
-        if (fread(skip2, 1, 7, f) != 7) { fclose(f); return ZUPT_ERR_CORRUPT; }
-        uint64_t u1, u2; zupt_read_varint(f, &u1); zupt_read_varint(f, &u2);
-        uint8_t sk8[8];
-        if (fread(sk8, 1, 8, f) != 8) { fclose(f); return ZUPT_ERR_CORRUPT; }
-        fseeko(f, (int64_t)u2, SEEK_CUR);
-    }
+    /* ─── Seek back to first data block ─── */
+    fseeko(f, after_enc_pos, SEEK_SET);
 
-    /* Open target for writing */
+    /* ─── Open target for writing ───
+     * Block devices require raw POSIX I/O (open/write) because stdio
+     * buffering can cause misaligned or partial writes that corrupt data.
+     * O_SYNC ensures each write is flushed to the device before returning.
+     * For loop devices, this ensures data reaches the backing file. */
+#ifdef _WIN32
     FILE *tgt = fopen(target_path, "wb");
     if (!tgt) {
-        fprintf(stderr, "Error: Cannot open target '%s': %s\n", target_path, strerror(errno));
+        fprintf(stderr, "Error: Cannot open target '%s': %s\n",
+                target_path, strerror(errno));
         fclose(f);
         return ZUPT_ERR_IO;
     }
+#else
+    struct stat tgt_st;
+    int tgt_fd;
+    int is_block_dev = 0;
+
+    /* For block/char devices: O_WRONLY | O_SYNC (no truncate, sync writes).
+     * For regular files: O_WRONLY | O_CREAT | O_TRUNC. */
+    if (stat(target_path, &tgt_st) == 0 &&
+        (S_ISBLK(tgt_st.st_mode) || S_ISCHR(tgt_st.st_mode))) {
+        tgt_fd = open(target_path, O_WRONLY | O_SYNC);
+        is_block_dev = 1;
+    } else {
+        tgt_fd = open(target_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    }
+    if (tgt_fd < 0) {
+        fprintf(stderr, "Error: Cannot open target '%s': %s\n",
+                target_path, strerror(errno));
+        fclose(f);
+        return ZUPT_ERR_IO;
+    }
+#endif
 
     fprintf(stderr, "  Restoring disk image to: %s\n", target_path);
     fprintf(stderr, "  Blocks: %llu\n\n", (unsigned long long)ft.total_blocks);
 
     time_t start_time = time(NULL);
     uint64_t total_written = 0;
+    uint64_t block_seq = 0;
     int errors = 0;
 
+    /* ─── Read and restore blocks sequentially ─── */
     for (uint64_t bi = 0; bi < ft.total_blocks; bi++) {
-        /* Read block header */
-        uint8_t bm[2];
-        if (fread(bm, 1, 2, f) != 2) { errors++; break; }
-        if (bm[0] != ZUPT_BLOCK_MAGIC_0 || bm[1] != ZUPT_BLOCK_MAGIC_1) {
-            errors++; break;
-        }
+        zupt_block_t blk;
+        zupt_error_t rerr = read_block(f, &blk);
 
-        uint8_t block_type;
-        if (fread(&block_type, 1, 1, f) != 1) { errors++; break; }
-        if (block_type == ZUPT_BLOCK_INDEX) break; /* reached index */
-
-        uint8_t c16[2], f16[2];
-        if (fread(c16, 1, 2, f) != 2) { errors++; break; }
-        if (fread(f16, 1, 2, f) != 2) { errors++; break; }
-        uint16_t codec = (uint16_t)c16[0] | ((uint16_t)c16[1] << 8);
-        uint16_t bflags = (uint16_t)f16[0] | ((uint16_t)f16[1] << 8);
-
-        uint64_t uncomp_size, comp_size, checksum;
-        if (zupt_read_varint(f, &uncomp_size) < 0) { errors++; break; }
-        if (zupt_read_varint(f, &comp_size) < 0) { errors++; break; }
-        uint8_t ck8[8];
-        if (fread(ck8, 1, 8, f) != 8) { errors++; break; }
-        checksum = 0;
-        for (int i = 7; i >= 0; i--) checksum = (checksum << 8) | ck8[i];
-
-        /* Read payload */
-        if (comp_size > ZUPT_MAX_BLOCK_SZ + 1024) { errors++; break; }
-        uint8_t *payload = (uint8_t *)malloc((size_t)comp_size);
-        if (!payload) { errors++; break; }
-        if (fread(payload, 1, (size_t)comp_size, f) != (size_t)comp_size) {
-            free(payload); errors++; break;
-        }
-
-        /* Decrypt if needed */
-        const uint8_t *comp_data = payload;
-        size_t comp_len = (size_t)comp_size;
-        uint8_t *dec_payload = NULL;
-
-        if (bflags & ZUPT_BFLAG_ENCRYPTED) {
-            if (!opts->keyring.active) { free(payload); errors++; break; }
-            size_t dec_len;
-            dec_payload = zupt_decrypt_buffer(&opts->keyring, comp_data, comp_len, bi, &dec_len);
-            if (!dec_payload) {
-                fprintf(stderr, "  Block %llu: decryption failed\n", (unsigned long long)bi);
-                free(payload); errors++; break;
-            }
-            comp_data = dec_payload;
-            comp_len = dec_len;
-        }
-
-        /* Decompress */
-        uint8_t *out_buf = (uint8_t *)malloc((size_t)uncomp_size);
-        if (!out_buf) { free(dec_payload); free(payload); errors++; break; }
-
-        if (codec == ZUPT_CODEC_STORE) {
-            if (comp_len >= (size_t)uncomp_size)
-                memcpy(out_buf, comp_data, (size_t)uncomp_size);
-            else { free(out_buf); free(dec_payload); free(payload); errors++; break; }
-        } else if (codec == ZUPT_CODEC_VAPTVUPT) {
-            int64_t dsz = vvz_decompress(comp_data, comp_len, out_buf, (size_t)uncomp_size);
-            if (dsz < 0 || (size_t)dsz != (size_t)uncomp_size) {
-                free(out_buf); free(dec_payload); free(payload); errors++; break;
-            }
-        } else if (codec == ZUPT_CODEC_ZUPT_LZHP) {
-            if (comp_len < 1) { free(out_buf); free(dec_payload); free(payload); errors++; break; }
-            uint8_t pflag = comp_data[0];
-            if (pflag & 0x01) {
-                if (comp_len < 257) { free(out_buf); free(dec_payload); free(payload); errors++; break; }
-                uint8_t pred[256]; memcpy(pred, comp_data + 1, 256);
-                uint8_t *temp = (uint8_t *)malloc((size_t)uncomp_size);
-                if (!temp) { free(out_buf); free(dec_payload); free(payload); errors++; break; }
-                size_t r = zupt_lzh_decompress(comp_data + 257, comp_len - 257, temp, (size_t)uncomp_size);
-                if (r == (size_t)uncomp_size)
-                    zupt_predict_decode(temp, out_buf, (size_t)uncomp_size, pred);
-                else errors++;
-                free(temp);
-            } else {
-                size_t r = zupt_lzh_decompress(comp_data + 1, comp_len - 1, out_buf, (size_t)uncomp_size);
-                if (r != (size_t)uncomp_size) errors++;
-            }
-        } else if (codec == ZUPT_CODEC_ZUPT_LZH) {
-            size_t r = zupt_lzh_decompress(comp_data, comp_len, out_buf, (size_t)uncomp_size);
-            if (r != (size_t)uncomp_size) errors++;
-        } else if (codec == ZUPT_CODEC_ZUPT_LZ) {
-            size_t r = zupt_lz_decompress(comp_data, comp_len, out_buf, (size_t)uncomp_size);
-            if (r != (size_t)uncomp_size) errors++;
-        } else {
+        if (rerr != ZUPT_OK) {
+            fprintf(stderr, "  Block %llu: read error (%s)\n",
+                    (unsigned long long)bi, zupt_strerror(rerr));
             errors++;
+            break;
         }
 
-        free(dec_payload);
-        free(payload);
+        /* Skip non-data blocks (index, etc.) */
+        if (blk.block_type == ZUPT_BLOCK_INDEX) {
+            free(blk.payload);
+            break;  /* Reached index — all data blocks done */
+        }
+        if (blk.block_type != ZUPT_BLOCK_DATA) {
+            free(blk.payload);
+            continue;  /* Skip unknown block types */
+        }
 
-        if (errors) { free(out_buf); break; }
+        /* Decompress + decrypt + verify checksum */
+        uint8_t *out_buf = NULL;
+        size_t out_len = 0;
+        zupt_error_t derr = decompress_block(&blk, &opts->keyring,
+                                              block_seq, &out_buf, &out_len);
+        free(blk.payload);
 
-        /* Verify checksum */
-        uint64_t actual_ck = zupt_xxh64(out_buf, (size_t)uncomp_size, 0);
-        if (actual_ck != checksum) {
-            fprintf(stderr, "  Block %llu: checksum mismatch\n", (unsigned long long)bi);
-            free(out_buf); errors++; break;
+        if (derr != ZUPT_OK) {
+            fprintf(stderr, "  Block %llu: decompression/checksum failed (%s)\n",
+                    (unsigned long long)bi, zupt_strerror(derr));
+            errors++;
+            break;
         }
 
         /* Write to target */
-        if (fwrite(out_buf, 1, (size_t)uncomp_size, tgt) != (size_t)uncomp_size) {
-            free(out_buf); errors++; break;
+        int write_ok = 0;
+#ifdef _WIN32
+        write_ok = (fwrite(out_buf, 1, out_len, tgt) == out_len);
+#else
+        {
+            size_t written = 0;
+            while (written < out_len) {
+                ssize_t w = write(tgt_fd, out_buf + written, out_len - written);
+                if (w <= 0) break;
+                written += (size_t)w;
+            }
+            write_ok = (written == out_len);
         }
-        total_written += uncomp_size;
+#endif
+        if (!write_ok) {
+            fprintf(stderr, "  Block %llu: write error (%s)\n",
+                    (unsigned long long)bi, strerror(errno));
+            free(out_buf);
+            errors++;
+            break;
+        }
+
+        total_written += out_len;
+        block_seq++;
         free(out_buf);
 
         /* Progress */
@@ -771,7 +688,19 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
     }
 
     fclose(f);
+#ifdef _WIN32
     fclose(tgt);
+#else
+    if (tgt_fd >= 0) {
+        fsync(tgt_fd);   /* Flush file descriptor buffers */
+        close(tgt_fd);
+    }
+    if (is_block_dev) {
+        sync();  /* Force kernel to flush ALL dirty pages to disk.
+                  * Critical for loop devices: fsync on the loop fd
+                  * may not flush the backing file's page cache. */
+    }
+#endif
 
     if (errors > 0) {
         fprintf(stderr, "\n  Restore FAILED: %d error(s)\n", errors);
