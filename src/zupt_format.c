@@ -249,11 +249,93 @@ void zupt_collect_files(zupt_filelist_t *fl, const char *path, const char *base)
  * WRITE / READ HELPERS (LE-safe, error-checked)
  * ═══════════════════════════════════════════════════════════════════ */
 
-static int w8(FILE*f,uint8_t v){return fwrite(&v,1,1,f)==1?0:-1;}
-static int w16le(FILE*f,uint16_t v){uint8_t b[2];zupt_le16_put(b,v);return fwrite(b,1,2,f)==2?0:-1;}
-static int w64le(FILE*f,uint64_t v){uint8_t b[8];zupt_le64_put(b,v);return fwrite(b,1,8,f)==8?0:-1;}
+int zupt_w8(FILE*f,uint8_t v){return fwrite(&v,1,1,f)==1?0:-1;}
+int zupt_w16le(FILE*f,uint16_t v){uint8_t b[2];zupt_le16_put(b,v);return fwrite(b,1,2,f)==2?0:-1;}
+int zupt_w64le(FILE*f,uint64_t v){uint8_t b[8];zupt_le64_put(b,v);return fwrite(b,1,8,f)==8?0:-1;}
 static int r16le(FILE*f,uint16_t*v){uint8_t b[2];if(fread(b,1,2,f)!=2)return -1;*v=zupt_le16_get(b);return 0;}
 static int r64le(FILE*f,uint64_t*v){uint8_t b[8];if(fread(b,1,8,f)!=8)return -1;*v=zupt_le64_get(b);return 0;}
+
+/* Aliases for internal use (backward compat with existing code) */
+#define w8 zupt_w8
+#define w16le zupt_w16le
+#define w64le zupt_w64le
+
+/* ═══════════════════════════════════════════════════════════════════
+ * SHARED ENCRYPTION HEADER WRITER
+ *
+ * Used by BOTH zupt_compress_files() and zupt_disk_backup().
+ * Writes the encryption header block and updates hdr.encryption_header_off.
+ * After return, the file position is at the end (ready for data blocks).
+ * ═══════════════════════════════════════════════════════════════════ */
+zupt_error_t write_enc_header(FILE *out, zupt_archive_header_t *hdr,
+                               zupt_options_t *opts) {
+    hdr->encryption_header_off = (uint64_t)ftello(out);
+
+    if (opts->pq_mode) {
+        /* ─── PQ HYBRID MODE ─── */
+        hdr->global_flags |= ZUPT_FLAG_PQ_HYBRID;
+
+        uint8_t enc_hdr_buf[1200];
+        size_t enc_hdr_len = 0;
+        if (!opts->quiet)
+            fprintf(stderr, "  Post-quantum key encapsulation (ML-KEM-768 + X25519)...\n");
+        if (zupt_hybrid_encrypt_init(&opts->keyring, opts->keyfile,
+                                      enc_hdr_buf, &enc_hdr_len) != 0) {
+            fprintf(stderr, "Error: PQ hybrid key encapsulation failed.\n");
+            return ZUPT_ERR_AUTH_FAIL;
+        }
+
+        zupt_w8(out, ZUPT_BLOCK_MAGIC_0); zupt_w8(out, ZUPT_BLOCK_MAGIC_1);
+        zupt_w8(out, ZUPT_BLOCK_ENC_HEADER);
+        zupt_w16le(out, ZUPT_CODEC_STORE); zupt_w16le(out, 0);
+        zupt_write_varint(out, enc_hdr_len);
+        zupt_write_varint(out, enc_hdr_len);
+        zupt_w64le(out, zupt_xxh64(enc_hdr_buf, enc_hdr_len, 0));
+        if (fwrite(enc_hdr_buf, 1, enc_hdr_len, out) != enc_hdr_len)
+            return ZUPT_ERR_IO;
+
+        /* Re-write header with PQ flag */
+        fseeko(out, 0, SEEK_SET);
+        if (fwrite(hdr, sizeof(*hdr), 1, out) != 1) return ZUPT_ERR_IO;
+        fseeko(out, 0, SEEK_END);
+
+        if (!opts->quiet)
+            fprintf(stderr, "  Encryption: PQ Hybrid (ML-KEM-768 + X25519) + AES-256-CTR + HMAC-SHA256\n\n");
+    } else {
+        /* ─── PASSWORD MODE (PBKDF2) ─── */
+        uint8_t salt[ZUPT_SALT_SIZE], nonce[ZUPT_NONCE_SIZE];
+        zupt_random_bytes(salt, ZUPT_SALT_SIZE);
+        zupt_random_bytes(nonce, ZUPT_NONCE_SIZE);
+
+        if (!opts->quiet)
+            fprintf(stderr, "  Deriving encryption key (PBKDF2-SHA256, %d iterations)...\n",
+                    ZUPT_KDF_ITERATIONS);
+        zupt_derive_keys(&opts->keyring, opts->password, salt, nonce, ZUPT_KDF_ITERATIONS);
+
+        uint8_t enc_hdr[53];
+        enc_hdr[0] = ZUPT_ENC_PBKDF2;
+        memcpy(enc_hdr + 1, salt, 32);
+        memcpy(enc_hdr + 33, nonce, 16);
+        uint32_t iter = ZUPT_KDF_ITERATIONS;
+        memcpy(enc_hdr + 49, &iter, 4);
+
+        zupt_w8(out, ZUPT_BLOCK_MAGIC_0); zupt_w8(out, ZUPT_BLOCK_MAGIC_1);
+        zupt_w8(out, ZUPT_BLOCK_ENC_HEADER);
+        zupt_w16le(out, ZUPT_CODEC_STORE); zupt_w16le(out, 0);
+        zupt_write_varint(out, 53); zupt_write_varint(out, 53);
+        zupt_w64le(out, zupt_xxh64(enc_hdr, 53, 0));
+        if (fwrite(enc_hdr, 1, 53, out) != 53) return ZUPT_ERR_IO;
+
+        fseeko(out, 0, SEEK_SET);
+        if (fwrite(hdr, sizeof(*hdr), 1, out) != 1) return ZUPT_ERR_IO;
+        fseeko(out, 0, SEEK_END);
+
+        if (!opts->quiet)
+            fprintf(stderr, "  Encryption: AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)\n\n");
+    }
+
+    return ZUPT_OK;
+}
 
 static void ensure_dirs(const char *path) {
     char tmp[ZUPT_MAX_PATH]; strncpy(tmp, path, sizeof(tmp)-1); tmp[sizeof(tmp)-1]='\0';
@@ -330,63 +412,8 @@ zupt_error_t zupt_compress_files(const char *output_path,
     if (fwrite(&hdr, sizeof(hdr), 1, out) != 1) write_err = 1;
 
     if (opts->encrypt) {
-        hdr.encryption_header_off = safe_ftello(out);
-
-        if (opts->pq_mode) {
-            /* ─── PQ HYBRID MODE ─── */
-            if (hdr.global_flags & ZUPT_FLAG_PQ_HYBRID) {} /* already set */
-            hdr.global_flags |= ZUPT_FLAG_PQ_HYBRID;
-
-            uint8_t enc_hdr_buf[1200]; /* enc_type(1) + ct(1088) + eph_pk(32) + nonce(16) = 1137 */
-            size_t enc_hdr_len = 0;
-            if (!opts->quiet) fprintf(stderr, "  Post-quantum key encapsulation (ML-KEM-768 + X25519)...\n");
-            if (zupt_hybrid_encrypt_init(&opts->keyring, opts->keyfile, enc_hdr_buf, &enc_hdr_len) != 0) {
-                fprintf(stderr, "Error: PQ hybrid key encapsulation failed.\n");
-                fclose(out); return ZUPT_ERR_AUTH_FAIL;
-            }
-
-            w8(out, ZUPT_BLOCK_MAGIC_0); w8(out, ZUPT_BLOCK_MAGIC_1);
-            w8(out, ZUPT_BLOCK_ENC_HEADER);
-            w16le(out, ZUPT_CODEC_STORE); w16le(out, 0);
-            zupt_write_varint(out, enc_hdr_len); zupt_write_varint(out, enc_hdr_len);
-            w64le(out, zupt_xxh64(enc_hdr_buf, enc_hdr_len, 0));
-            if (fwrite(enc_hdr_buf, 1, enc_hdr_len, out) != enc_hdr_len) write_err = 1;
-
-            fseeko(out, 0, SEEK_SET);
-            if (fwrite(&hdr, sizeof(hdr), 1, out) != 1) write_err = 1;
-            fseeko(out, 0, SEEK_END);
-
-            if (!opts->quiet) fprintf(stderr, "  Encryption: PQ Hybrid (ML-KEM-768 + X25519) + AES-256-CTR + HMAC-SHA256\n\n");
-        } else {
-            /* ─── PASSWORD MODE (PBKDF2, unchanged from v0.5.1) ─── */
-            uint8_t salt[ZUPT_SALT_SIZE], nonce[ZUPT_NONCE_SIZE];
-            zupt_random_bytes(salt, ZUPT_SALT_SIZE);
-            zupt_random_bytes(nonce, ZUPT_NONCE_SIZE);
-
-            if (!opts->quiet) fprintf(stderr, "  Deriving encryption key (PBKDF2-SHA256, %d iterations)...\n", ZUPT_KDF_ITERATIONS);
-            zupt_derive_keys(&opts->keyring, opts->password, salt, nonce, ZUPT_KDF_ITERATIONS);
-
-            /* enc_type prefix for backward compat detection */
-            uint8_t enc_hdr[53]; /* enc_type(1) + salt(32) + nonce(16) + iter(4) */
-            enc_hdr[0] = ZUPT_ENC_PBKDF2;
-            memcpy(enc_hdr + 1, salt, 32);
-            memcpy(enc_hdr + 33, nonce, 16);
-            uint32_t iter = ZUPT_KDF_ITERATIONS;
-            memcpy(enc_hdr + 49, &iter, 4);
-
-            w8(out, ZUPT_BLOCK_MAGIC_0); w8(out, ZUPT_BLOCK_MAGIC_1);
-            w8(out, ZUPT_BLOCK_ENC_HEADER);
-            w16le(out, ZUPT_CODEC_STORE); w16le(out, 0);
-            zupt_write_varint(out, 53); zupt_write_varint(out, 53);
-            w64le(out, zupt_xxh64(enc_hdr, 53, 0));
-            if (fwrite(enc_hdr, 1, 53, out) != 53) write_err = 1;
-
-            fseeko(out, 0, SEEK_SET);
-            if (fwrite(&hdr, sizeof(hdr), 1, out) != 1) write_err = 1;
-            fseeko(out, 0, SEEK_END);
-
-            if (!opts->quiet) fprintf(stderr, "  Encryption: AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)\n\n");
-        }
+        zupt_error_t enc_err = write_enc_header(out, &hdr, opts);
+        if (enc_err != ZUPT_OK) { fclose(out); return enc_err; }
     }
 
     zupt_index_entry_t *index = (zupt_index_entry_t*)calloc((size_t)num_files, sizeof(zupt_index_entry_t));
@@ -774,25 +801,8 @@ zupt_error_t zupt_compress_solid(const char *output_path,
     if (fwrite(&hdr, sizeof(hdr), 1, out) != 1) write_err = 1;
 
     if (opts->encrypt) {
-        hdr.encryption_header_off = safe_ftello(out);
-        uint8_t salt[ZUPT_SALT_SIZE], nonce[ZUPT_NONCE_SIZE];
-        zupt_random_bytes(salt, ZUPT_SALT_SIZE);
-        zupt_random_bytes(nonce, ZUPT_NONCE_SIZE);
-        if (!opts->quiet) fprintf(stderr, "  Deriving encryption key...\n");
-        zupt_derive_keys(&opts->keyring, opts->password, salt, nonce, ZUPT_KDF_ITERATIONS);
-        uint8_t enc_hdr[52];
-        memcpy(enc_hdr, salt, 32); memcpy(enc_hdr+32, nonce, 16);
-        uint32_t iter = ZUPT_KDF_ITERATIONS; memcpy(enc_hdr+48, &iter, 4);
-        w8(out, ZUPT_BLOCK_MAGIC_0); w8(out, ZUPT_BLOCK_MAGIC_1);
-        w8(out, ZUPT_BLOCK_ENC_HEADER);
-        w16le(out, ZUPT_CODEC_STORE); w16le(out, 0);
-        zupt_write_varint(out, 52); zupt_write_varint(out, 52);
-        w64le(out, zupt_xxh64(enc_hdr, 52, 0));
-        if (fwrite(enc_hdr, 1, 52, out) != 52) write_err = 1;
-        fseeko(out, 0, SEEK_SET);
-        if (fwrite(&hdr, sizeof(hdr), 1, out) != 1) write_err = 1;
-        fseeko(out, 0, SEEK_END);
-        if (!opts->quiet) fprintf(stderr, "  Encryption: AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)\n\n");
+        zupt_error_t enc_err = write_enc_header(out, &hdr, opts);
+        if (enc_err != ZUPT_OK) { fclose(out); return enc_err; }
     }
 
     zupt_index_entry_t *index = (zupt_index_entry_t*)calloc((size_t)num_files, sizeof(zupt_index_entry_t));
@@ -1036,7 +1046,7 @@ static zupt_error_t read_footer(FILE *f, zupt_footer_t *ft) {
     return ZUPT_OK;
 }
 
-static zupt_error_t read_block(FILE *f, zupt_block_t *b) {
+zupt_error_t read_block(FILE *f, zupt_block_t *b) {
     uint8_t m[2];
     if (fread(m,1,2,f)!=2) return ZUPT_ERR_IO;
     if (m[0]!=ZUPT_BLOCK_MAGIC_0||m[1]!=ZUPT_BLOCK_MAGIC_1) return ZUPT_ERR_CORRUPT;
@@ -1058,7 +1068,7 @@ static zupt_error_t read_block(FILE *f, zupt_block_t *b) {
     return ZUPT_OK;
 }
 
-static zupt_error_t decompress_block(const zupt_block_t *b, const zupt_keyring_t *kr,
+zupt_error_t decompress_block(const zupt_block_t *b, const zupt_keyring_t *kr,
                                       uint64_t block_seq, uint8_t **out, size_t *olen) {
     const uint8_t *comp_data = b->payload;
     size_t comp_len = (size_t)b->compressed_size;
@@ -1147,7 +1157,7 @@ done:
     return ZUPT_OK;
 }
 
-static zupt_error_t read_enc_header(FILE *f, zupt_archive_header_t *hdr, zupt_options_t *opts) {
+zupt_error_t read_enc_header(FILE *f, zupt_archive_header_t *hdr, zupt_options_t *opts) {
     if (!(hdr->global_flags & ZUPT_FLAG_ENCRYPTED)) return ZUPT_OK;
 
     fseeko(f, (int64_t)hdr->encryption_header_off, SEEK_SET);

@@ -21,7 +21,9 @@
 | **v2.0** | **✅** | **VaptVupt 1.1.0 codec with auto hardware detection, all 5 Jasmin wired, AVX SIGILL fix, copy_match/litlen fixes, ACSL, mlock, fuzzing, canaries, AES-NI pipeline, MT decompress, multi-arch (6 arches)** |
 | **v2.1** | **✅** | **VaptVupt 1.4.0: cross-block dictionary, context prefetch, faster adaptive window, integration API** |
 | **v2.1.1** | **✅** | **Termux/Android build fix, arch-safety guard, Keccak UB fix, no stale .o in tarballs** |
-| **v2.1.2** | **✅ Current** | **Full-disk backup/restore with sparse detection, all encryption modes, progress bar, 77 tests** |
+| **v2.1.2** | **✅** | **Full-disk backup/restore with sparse detection, all encryption modes, progress bar, 77 tests** |
+| **v2.1.3** | **✅** | **Disk restore rewritten — shared block I/O, fixes checksum mismatch on encrypted/PQ archives** |
+| **v2.1.3** | **✅ Current** | **LZHP prediction encoding fix, shared write_enc_header, SOLID flag removed from disk, block device O_SYNC, 78 tests** |
 
 ## Planned
 

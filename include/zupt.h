@@ -30,7 +30,7 @@
   #define zupt_mkdir(p) mkdir(p, 0755)
 #endif
 
-#define ZUPT_VERSION_STRING "2.1.2"
+#define ZUPT_VERSION_STRING "2.1.3"
 #define ZUPT_FORMAT_MAJOR   1
 #define ZUPT_FORMAT_MINOR   4
 
@@ -346,5 +346,16 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
  * Writes blocks sequentially, restoring sparse regions as zeros. */
 zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path,
                                 zupt_options_t *opts);
+
+/* ─── Internal Block I/O (used by format + disk modules) ─── */
+zupt_error_t read_block(FILE *f, zupt_block_t *b);
+zupt_error_t read_enc_header(FILE *f, zupt_archive_header_t *hdr, zupt_options_t *opts);
+zupt_error_t decompress_block(const zupt_block_t *b, const zupt_keyring_t *kr,
+                               uint64_t block_seq, uint8_t **out, size_t *olen);
+zupt_error_t write_enc_header(FILE *out, zupt_archive_header_t *hdr,
+                               zupt_options_t *opts);
+int zupt_w8(FILE *f, uint8_t v);
+int zupt_w16le(FILE *f, uint16_t v);
+int zupt_w64le(FILE *f, uint64_t v);
 
 #endif
