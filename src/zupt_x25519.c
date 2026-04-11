@@ -314,8 +314,11 @@ void zupt_x25519(uint8_t out[32], const uint8_t scalar[32], const uint8_t point[
     fe_mul(x2, x2, z2);
     fe_tobytes(out, x2);
 
-    /* Wipe stack */
-    memset(e, 0, 32);
+    /* Wipe clamped scalar from stack.
+     * Use volatile pointer to resist dead-store elimination (CodeQL alert #3).
+     * Cannot use zupt_secure_wipe() here because this file does not include zupt.h. */
+    volatile uint8_t *ve = (volatile uint8_t *)e;
+    for (int i = 0; i < 32; i++) ve[i] = 0;
 }
 
 /* FRAMA-C: X25519 with standard basepoint (u=9) */

@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [v2.1.4] — 2026-04-11
+
+### Fixed — CodeQL Security Alerts (4/4 resolved)
+
+- **Alert #1 & #2: TOCTOU filesystem race in `get_device_size()`** (High). The function called `stat(path)` to classify the file type, then `open(path)` to read it — between those two calls an attacker could swap the path to a different file. Fix: open the fd first with `open()`, then classify via `fstat(fd)`. The fd is stable and cannot be swapped.
+- **Alert #3: Dead-store `memset` in `zupt_x25519()`** (High). The `memset(e, 0, 32)` call to wipe the clamped scalar was the last use of `e` before the function returned, so the compiler could legally optimize it away (and some do at `-O2`). Fix: volatile pointer loop (`volatile uint8_t *ve = e; for(...) ve[i] = 0;`) which the compiler must emit.
+- **Alert #4: TOCTOU filesystem race in `zupt_disk_restore()`** (High). Restore called `stat(target_path)` to check for block devices, then `open(target_path)` — same race window as alerts #1/#2. Fix: open fd first, then `fstat(fd)` to classify, then `fcntl(fd, F_SETFL, O_SYNC)` for block devices.
+
+### Tests
+- **78 total:** 70 core + 8 disk. ASAN + UBSan clean.
+
+---
+
 ## [2.1.3] — 2026-04-11
 
 ### Fixed — LZHP Prediction Encoding Missing in Disk Backup (data corruption)
@@ -299,8 +312,9 @@ All 4 `.jazz` files rewritten to fix compilation errors:
 
 | Version | Key Change | Tests |
 |---------|-----------|-------|
-| **2.1.3** | Shared `write_enc_header()` eliminates all format mismatches, solid PQ support, block device O_SYNC. Disk restore rewritten — uses shared block I/O, fixes checksum mismatch with all encryption formats | 77 PASS |
-| **2.1.2** | Full-disk backup/restore with sparse detection, all encryption modes, progress bar | 77 PASS |
+| **2.1.4** |Resolved CodeQL-reported high-severity vulnerabilities by removing TOCTOU filesystem races via fd-first open()/fstat() patterns and enforcing non-optimizable secure memory zeroization for cryptographic material.| 78 PASS |
+| **2.1.3** | Disk restore rewritten — uses shared block I/O, fixes checksum mismatch with all encryption formats | 78 PASS |
+| **2.1.2** | Full-disk backup/restore with sparse detection, all encryption modes, progress bar. Shared `write_enc_header()` eliminates all format mismatches, solid PQ support, block device O_SYNC | 78 PASS |
 | **2.1.1** | Termux/Android build fix, arch-safety guard, Keccak UB fix, no stale .o in tarballs | 70 PASS |
 | **2.1.0** | VaptVupt 1.4.0: cross-block dictionary, context prefetch, faster adaptive window, integration API | 70 PASS |
 | **2.0.0** | VaptVupt 1.1.0 codec, auto codec detection, all 5 Jasmin wired, AVX SIGILL fix, multi-arch, copy_match fix, litlen overflow fix | 70 PASS |

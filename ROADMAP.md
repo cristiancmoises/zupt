@@ -23,7 +23,8 @@
 | **v2.1.1** | **✅** | **Termux/Android build fix, arch-safety guard, Keccak UB fix, no stale .o in tarballs** |
 | **v2.1.2** | **✅** | **Full-disk backup/restore with sparse detection, all encryption modes, progress bar, 77 tests** |
 | **v2.1.3** | **✅** | **Disk restore rewritten — shared block I/O, fixes checksum mismatch on encrypted/PQ archives** |
-| **v2.1.3** | **✅ Current** | **LZHP prediction encoding fix, shared write_enc_header, SOLID flag removed from disk, block device O_SYNC, 78 tests** |
+| **v2.1.3** | **✅** | **LZHP prediction encoding fix, shared write_enc_header, SOLID flag removed from disk, 78 tests** |
+| **v2.1.4** | **✅ Current** | **CodeQL: 4 security fixes — TOCTOU races (fstat on fd), X25519 scalar wipe (volatile), 78 tests** |
 
 ## Planned
 
