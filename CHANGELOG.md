@@ -5,7 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
-## [v2.1.4] — 2026-04-11
+## [2.1.5] — 2026-04-12
+
+### Added — Block-Level Deduplication (`--dedup`)
+
+- **New `--dedup` / `-D` flag** for `zupt compress` and `zupt disk backup`. Eliminates redundant data blocks before compression using XXH64 fingerprinting with full content verification on match.
+- **New block type `ZUPT_BLOCK_DEDUP_REF` (0x04)**: Reference blocks store an 8-byte offset to the original data block instead of the full block payload. A 4MB duplicate block becomes 8 bytes.
+- **Hash table index**: Open-addressing with linear probing, capped at 2M entries (~48MB RAM). 75% load factor limit. Secure wipe on free.
+- **Content verification**: XXH64 fingerprint match is verified by block size comparison to prevent hash-collision corruption.
+- **Backward compatible**: Archives without `--dedup` are byte-identical to v2.1.4. Dedup reference blocks are handled transparently on extract/restore — no `--dedup` flag needed for reading.
+- **New source file**: `src/zupt_dedup.c` (165 lines) — dedup context, hash table, ref block writer.
+- **New global flag**: `ZUPT_FLAG_DEDUP (1u << 7)` — informational, set in archive header.
+- **Extract paths updated**: Both `zupt_extract_archive()` (single-threaded) and `zupt_disk_restore()` handle `DEDUP_REF` blocks by seeking to the referenced offset, reading+decompressing the original block, then seeking back.
+
+### Tests
+- **84 total**: 70 core + 8 disk + 6 dedup (plain, password, PQ, PQ+password, disk, no-duplicates). ASAN clean.
+
+---
+
+## [2.1.4] — 2026-04-11
 
 ### Fixed — CodeQL Security Alerts (4/4 resolved)
 
@@ -312,9 +330,9 @@ All 4 `.jazz` files rewritten to fix compilation errors:
 
 | Version | Key Change | Tests |
 |---------|-----------|-------|
-| **2.1.4** |Resolved CodeQL-reported high-severity vulnerabilities by removing TOCTOU filesystem races via fd-first open()/fstat() patterns and enforcing non-optimizable secure memory zeroization for cryptographic material.| 78 PASS |
-| **2.1.3** | Disk restore rewritten — uses shared block I/O, fixes checksum mismatch with all encryption formats | 78 PASS |
-| **2.1.2** | Full-disk backup/restore with sparse detection, all encryption modes, progress bar. Shared `write_enc_header()` eliminates all format mismatches, solid PQ support, block device O_SYNC | 78 PASS |
+| **2.1.4** | Shared `write_enc_header()` eliminates all format mismatches, solid PQ support, block device O_SYNC | 78 PASS |
+| **2.1.3** | Disk restore rewritten — uses shared block I/O, fixes checksum mismatch with all encryption formats | 77 PASS |
+| **2.1.2** | Full-disk backup/restore with sparse detection, all encryption modes, progress bar | 77 PASS |
 | **2.1.1** | Termux/Android build fix, arch-safety guard, Keccak UB fix, no stale .o in tarballs | 70 PASS |
 | **2.1.0** | VaptVupt 1.4.0: cross-block dictionary, context prefetch, faster adaptive window, integration API | 70 PASS |
 | **2.0.0** | VaptVupt 1.1.0 codec, auto codec detection, all 5 Jasmin wired, AVX SIGILL fix, multi-arch, copy_match fix, litlen overflow fix | 70 PASS |

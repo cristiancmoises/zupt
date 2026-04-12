@@ -407,6 +407,7 @@ zupt_error_t zupt_compress_files(const char *output_path,
     hdr.global_flags = ZUPT_FLAG_CKSUM_XXH64;
     if (opts->encrypt) hdr.global_flags |= ZUPT_FLAG_ENCRYPTED;
     if (opts->threads > 1) hdr.global_flags |= ZUPT_FLAG_MULTITHREADED;
+    if (opts->dedup) hdr.global_flags |= ZUPT_FLAG_DEDUP;
     hdr.creation_time = now_ns();
     gen_uuid(hdr.archive_id);
     if (fwrite(&hdr, sizeof(hdr), 1, out) != 1) write_err = 1;
@@ -425,9 +426,18 @@ zupt_error_t zupt_compress_files(const char *output_path,
     uint64_t block_seq = 0;
     time_t start_time = time(NULL);
 
-    /* Create parallel context if multi-threaded */
+    /* Dedup context (NULL if --dedup not set) */
+    zupt_dedup_ctx_t *dedup = opts->dedup ? zupt_dedup_init() : NULL;
+
+    /* Create parallel context if multi-threaded.
+     * Dedup requires sequential block ordering, so force single-threaded. */
     zpar_ctx_t *pctx = NULL;
     int effective_threads = opts->threads > 1 ? opts->threads : 1;
+    if (opts->dedup) {
+        effective_threads = 1;
+        if (!opts->quiet && opts->threads > 1)
+            fprintf(stderr, "  Note: dedup mode uses single-threaded compression\n");
+    }
     if (effective_threads > 1) {
         pctx = zpar_create(effective_threads, opts->block_size, 0,
                            opts->encrypt ? &opts->keyring : NULL);
@@ -545,6 +555,27 @@ zupt_error_t zupt_compress_files(const char *output_path,
             /* Chained hash: feed previous hash as seed for next block */
             file_hash_state = zupt_xxh64(rbuf, nread, file_hash_state);
 
+            /* ─── Dedup check: skip compression if block already written ─── */
+            if (dedup) {
+                zupt_dedup_record_block(dedup);
+                uint64_t ref_off = 0; uint32_t ref_sz = 0;
+                if (zupt_dedup_lookup(dedup, checksum, &ref_off, &ref_sz) &&
+                    ref_sz == (uint32_t)nread) {
+                    /* Fingerprint match + same size — write reference block */
+                    zupt_dedup_write_ref(out, ref_off, (uint32_t)nread, checksum);
+                    zupt_dedup_record_hit(dedup, nread);
+                    file_comp += 8; /* ref block payload is 8 bytes */
+                    index[fi].block_count++;
+                    total_blocks++;
+                    block_seq++;
+                    remaining -= nread;
+                    file_done += nread;
+                    if (!opts->verbose && !opts->quiet && file_size > (int64_t)opts->block_size)
+                        show_progress(arc_paths[fi], file_done, (uint64_t)file_size);
+                    continue;
+                }
+            }
+
             size_t comp_size = 0;
             uint16_t codec = opts->codec_id;
 
@@ -625,6 +656,9 @@ zupt_error_t zupt_compress_files(const char *output_path,
                 bflags |= ZUPT_BFLAG_ENCRYPTED;
             }
 
+            /* Record offset before writing block header (for dedup index) */
+            uint64_t this_block_off = (uint64_t)ftello(out);
+
             w8(out, ZUPT_BLOCK_MAGIC_0); w8(out, ZUPT_BLOCK_MAGIC_1);
             w8(out, ZUPT_BLOCK_DATA);
             w16le(out, codec); w16le(out, bflags);
@@ -632,6 +666,10 @@ zupt_error_t zupt_compress_files(const char *output_path,
             zupt_write_varint(out, payload_size);
             w64le(out, checksum);
             if (fwrite(payload, 1, (size_t)payload_size, out) != (size_t)payload_size) write_err = 1;
+
+            /* Insert into dedup index so future blocks can reference this one */
+            if (dedup)
+                zupt_dedup_insert(dedup, checksum, this_block_off, (uint32_t)nread);
 
             free(enc_payload);
             file_comp += payload_size;
@@ -761,9 +799,20 @@ zupt_error_t zupt_compress_files(const char *output_path,
         fprintf(stderr, "  Blocks:       %llu\n", (unsigned long long)total_blocks);
         fprintf(stderr, "  Codec:        %s (level %d)\n", zupt_codec_name(opts->codec_id), opts->level);
         if (opts->encrypt) fprintf(stderr, "  Encryption:   AES-256 + HMAC-SHA256\n");
+        if (dedup) {
+            uint64_t ds_seen, ds_dedup, ds_saved;
+            zupt_dedup_stats(dedup, &ds_seen, &ds_dedup, &ds_saved);
+            if (ds_dedup > 0) {
+                char sv[32]; zupt_format_size(ds_saved, sv, sizeof(sv));
+                fprintf(stderr, "  Dedup:        %llu/%llu blocks deduped (saved %s, %.0f%% dedup ratio)\n",
+                        (unsigned long long)ds_dedup, (unsigned long long)ds_seen, sv,
+                        ds_seen > 0 ? 100.0 * (double)ds_dedup / (double)ds_seen : 0.0);
+            }
+        }
         fprintf(stderr, "  Speed:        %.1f MB/s (%llds)\n", speed, (long long)elapsed);
     }
 
+    zupt_dedup_free(dedup);
     free(ic); free(ibuf); free(index); free(rbuf); free(cbuf);
     return ZUPT_OK;
 }
@@ -1489,6 +1538,41 @@ zupt_error_t zupt_extract_archive(const char *arc, const char *dir, zupt_options
                         err = read_block(f, &blk);
                         if (err != ZUPT_OK) { berr = 1; break; }
 
+                        /* Handle dedup ref blocks inline (can't submit to workers) */
+                        if (blk.block_type == ZUPT_BLOCK_DEDUP_REF && blk.compressed_size == 8 && blk.payload) {
+                            /* Flush pending workers first to maintain order */
+                            for (int pi = 0; pi < npending; pi++) {
+                                zpar_slot_t *s = zpar_wait_slot(pctx, pending_slots[pi]);
+                                if (!s || s->error != ZUPT_OK) { berr = 1; }
+                                else if (s->output && s->output_len > 0) {
+                                    fwrite(s->output, 1, s->output_len, of);
+                                    total_extracted += s->output_len;
+                                }
+                                zpar_release_slot(pctx, pending_slots[pi]);
+                            }
+                            npending = 0;
+                            if (berr) { free(blk.payload); break; }
+
+                            uint64_t ref_off = zupt_le64_get(blk.payload);
+                            free(blk.payload);
+                            int64_t cur2 = ftello(f);
+                            fseeko(f, (int64_t)ref_off, SEEK_SET);
+                            zupt_block_t ref_blk;
+                            err = read_block(f, &ref_blk);
+                            fseeko(f, cur2, SEEK_SET);
+                            if (err != ZUPT_OK) { berr = 1; break; }
+                            uint8_t *rdec; size_t rdlen;
+                            err = decompress_block(&ref_blk, &opts->keyring, 0, &rdec, &rdlen);
+                            free(ref_blk.payload);
+                            if (err != ZUPT_OK) { berr = 1; break; }
+                            fwrite(rdec, 1, rdlen, of);
+                            total_extracted += rdlen;
+                            free(rdec);
+                            blocks_remaining--;
+                            decomp_seq++;
+                            continue;
+                        }
+
                         int slot = zpar_submit_decompress(pctx,
                             blk.payload, (size_t)blk.compressed_size,
                             decomp_seq, blk.codec_id, blk.block_flags,
@@ -1524,6 +1608,27 @@ zupt_error_t zupt_extract_archive(const char *arc, const char *dir, zupt_options
                     zupt_block_t blk;
                     err = read_block(f, &blk);
                     if (err != ZUPT_OK) { berr=1; break; }
+
+                    /* Handle dedup reference blocks */
+                    if (blk.block_type == ZUPT_BLOCK_DEDUP_REF && blk.compressed_size == 8 && blk.payload) {
+                        uint64_t ref_off = zupt_le64_get(blk.payload);
+                        free(blk.payload);
+                        int64_t cur = ftello(f);
+                        fseeko(f, (int64_t)ref_off, SEEK_SET);
+                        zupt_block_t ref_blk;
+                        err = read_block(f, &ref_blk);
+                        fseeko(f, cur, SEEK_SET);
+                        if (err != ZUPT_OK) { berr=1; break; }
+                        uint8_t *dec; size_t dlen;
+                        err = decompress_block(&ref_blk, &opts->keyring, 0, &dec, &dlen);
+                        free(ref_blk.payload);
+                        if (err != ZUPT_OK) { berr=1; break; }
+                        fwrite(dec, 1, dlen, of);
+                        total_extracted += dlen;
+                        free(dec);
+                        continue;
+                    }
+
                     uint8_t *dec; size_t dlen;
                     err = decompress_block(&blk, &opts->keyring, 0, &dec, &dlen);
                     free(blk.payload);

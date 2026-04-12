@@ -30,7 +30,7 @@
   #define zupt_mkdir(p) mkdir(p, 0755)
 #endif
 
-#define ZUPT_VERSION_STRING "2.1.4"
+#define ZUPT_VERSION_STRING "2.1.5"
 #define ZUPT_FORMAT_MAJOR   1
 #define ZUPT_FORMAT_MINOR   4
 
@@ -56,6 +56,7 @@
 #define ZUPT_FLAG_MULTITHREADED (1u << 2) /* Informational: archive was produced with MT */
 #define ZUPT_FLAG_PQ_HYBRID    (1u << 3) /* Post-quantum hybrid encryption */
 #define ZUPT_FLAG_FORMAT_STABLE (1u << 4) /* v1.0: format frozen */
+#define ZUPT_FLAG_DEDUP        (1u << 7) /* Block-level deduplication enabled */
 
 /* Encryption types (stored in encryption header block) */
 #define ZUPT_ENC_PBKDF2     0x01  /* Password-based: PBKDF2 → AES-256-CTR + HMAC */
@@ -65,6 +66,7 @@
 #define ZUPT_BLOCK_DATA       0x00
 #define ZUPT_BLOCK_INDEX      0x02
 #define ZUPT_BLOCK_ENC_HEADER 0x03
+#define ZUPT_BLOCK_DEDUP_REF  0x04  /* Dedup reference: payload = 8B offset of original block */
 
 /* Block flags */
 #define ZUPT_BFLAG_ENCRYPTED  (1u << 0)
@@ -168,6 +170,7 @@ typedef struct {
     int level; uint32_t block_size; uint16_t codec_id;
     int verbose, encrypt, quiet, solid, threads;
     int pq_mode;           /* 1 = post-quantum hybrid KEM mode */
+    int dedup;             /* 1 = block-level deduplication enabled */
     char password[256];
     char keyfile[ZUPT_MAX_PATH]; /* Path to .zupt-key file */
     zupt_keyring_t keyring;
@@ -358,4 +361,23 @@ int zupt_w8(FILE *f, uint8_t v);
 int zupt_w16le(FILE *f, uint16_t v);
 int zupt_w64le(FILE *f, uint64_t v);
 
-#endif
+/* ─── Block-Level Deduplication ─── */
+#define ZUPT_DEDUP_MAX_ENTRIES  (2 * 1024 * 1024)  /* 2M entries, ~48MB RAM */
+
+typedef struct zupt_dedup_ctx zupt_dedup_ctx_t;
+
+zupt_dedup_ctx_t *zupt_dedup_init(void);
+void zupt_dedup_free(zupt_dedup_ctx_t *ctx);
+int  zupt_dedup_lookup(zupt_dedup_ctx_t *ctx, uint64_t fingerprint,
+                       uint64_t *ref_offset, uint32_t *ref_size);
+int  zupt_dedup_insert(zupt_dedup_ctx_t *ctx, uint64_t fingerprint,
+                       uint64_t block_offset, uint32_t block_size);
+void zupt_dedup_record_hit(zupt_dedup_ctx_t *ctx, uint64_t saved_bytes);
+void zupt_dedup_record_block(zupt_dedup_ctx_t *ctx);
+void zupt_dedup_stats(const zupt_dedup_ctx_t *ctx,
+                      uint64_t *blocks_seen, uint64_t *blocks_deduped,
+                      uint64_t *bytes_saved);
+int  zupt_dedup_write_ref(FILE *out, uint64_t ref_offset,
+                          uint32_t orig_size, uint64_t orig_checksum);
+
+#endif /* ZUPT_H */
