@@ -171,6 +171,8 @@ int main(int argc, char **argv) {
             } else if (streq(argv[ai],"--pq")&&ai+1<argc) {
                 opts.pq_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--dedup")||streq(argv[ai],"-D")) {
+                opts.dedup=1;
             } else {
                 fprintf(stderr,"Error: Unknown option '%s'\n",argv[ai]); return 1;
             }
@@ -556,6 +558,8 @@ int main(int argc, char **argv) {
             } else if (streq(argv[ai],"--pq")&&ai+1<argc) {
                 opts.pq_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--dedup")||streq(argv[ai],"-D")) {
+                opts.dedup=1;
             } else {
                 fprintf(stderr,"Error: Unknown option '%s'\n",argv[ai]); return 1;
             }

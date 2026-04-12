@@ -228,6 +228,7 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
     hdr.global_flags = ZUPT_FLAG_CKSUM_XXH64 | ZUPT_FLAG_DISK_IMAGE;
     if (opts->encrypt) hdr.global_flags |= ZUPT_FLAG_ENCRYPTED;
     if (opts->threads > 1) hdr.global_flags |= ZUPT_FLAG_MULTITHREADED;
+    if (opts->dedup) hdr.global_flags |= ZUPT_FLAG_DEDUP;
     hdr.creation_time = (uint64_t)time(NULL) * 1000000000ULL;
     zupt_random_bytes(hdr.archive_id, 16);
     hdr.archive_id[6] = (hdr.archive_id[6] & 0x0F) | 0x40;
@@ -263,6 +264,9 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
     uint64_t first_block_off = (uint64_t)ftello(out);
     time_t start_time = time(NULL);
 
+    /* Dedup context (NULL if --dedup not set) */
+    zupt_dedup_ctx_t *dedup = opts->dedup ? zupt_dedup_init() : NULL;
+
     while (total_read < (uint64_t)source_size) {
         size_t to_read = opts->block_size;
         if (total_read + to_read > (uint64_t)source_size)
@@ -276,6 +280,23 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
             memset(rbuf + nread, 0, to_read - nread);
 
         uint64_t checksum = zupt_xxh64(rbuf, nread, 0);
+
+        /* ─── Dedup check: skip compression if block already written ─── */
+        if (dedup) {
+            zupt_dedup_record_block(dedup);
+            uint64_t ref_off = 0; uint32_t ref_sz = 0;
+            if (zupt_dedup_lookup(dedup, checksum, &ref_off, &ref_sz) &&
+                ref_sz == (uint32_t)nread) {
+                zupt_dedup_write_ref(out, ref_off, (uint32_t)nread, checksum);
+                zupt_dedup_record_hit(dedup, nread);
+                total_read += nread;
+                total_written += 8;
+                block_seq++;
+                if (!opts->quiet)
+                    disk_progress("Backup", total_read, (uint64_t)source_size, start_time);
+                continue;
+            }
+        }
 
         /* Sparse detection: skip zero blocks */
         uint16_t codec = opts->codec_id;
@@ -364,6 +385,7 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
         }
 
         /* Write block: magic + type + codec + flags + uncomp_size + comp_size + checksum + payload */
+        uint64_t this_block_off = (uint64_t)ftello(out);
         uint8_t bm[2] = {ZUPT_BLOCK_MAGIC_0, ZUPT_BLOCK_MAGIC_1};
         fwrite(bm, 1, 2, out);
         uint8_t bt = ZUPT_BLOCK_DATA;
@@ -381,6 +403,10 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
         fwrite(ck8, 1, 8, out);
         if (fwrite(payload, 1, (size_t)payload_size, out) != (size_t)payload_size)
             write_err = 1;
+
+        /* Insert into dedup index */
+        if (dedup)
+            zupt_dedup_insert(dedup, checksum, this_block_off, (uint32_t)nread);
 
         free(enc_payload);
         total_read += nread;
@@ -488,8 +514,19 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
     fprintf(stderr, "  Speed:        %.1f MB/s\n",
             (double)source_size / (double)elapsed / 1048576.0);
     if (opts->encrypt) fprintf(stderr, "  Encrypted:    YES\n");
+    if (dedup) {
+        uint64_t ds_seen, ds_dedup, ds_saved;
+        zupt_dedup_stats(dedup, &ds_seen, &ds_dedup, &ds_saved);
+        if (ds_dedup > 0) {
+            char sv[32]; zupt_format_size(ds_saved, sv, sizeof(sv));
+            fprintf(stderr, "  Dedup:        %llu/%llu blocks (saved %s, %.0f%%)\n",
+                    (unsigned long long)ds_dedup, (unsigned long long)ds_seen, sv,
+                    ds_seen > 0 ? 100.0 * (double)ds_dedup / (double)ds_seen : 0.0);
+        }
+    }
     fprintf(stderr, "\n");
 
+    zupt_dedup_free(dedup);
     return write_err ? ZUPT_ERR_IO : ZUPT_OK;
 }
 
@@ -653,12 +690,52 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
             free(blk.payload);
             break;  /* Reached index — all data blocks done */
         }
+
+        /* Handle dedup reference blocks — seek to original, decompress it */
+        if (blk.block_type == ZUPT_BLOCK_DEDUP_REF && blk.compressed_size == 8 && blk.payload) {
+            uint64_t ref_off = zupt_le64_get(blk.payload);
+            free(blk.payload);
+            int64_t cur = ftello(f);
+            fseeko(f, (int64_t)ref_off, SEEK_SET);
+            zupt_block_t ref_blk;
+            zupt_error_t rr = read_block(f, &ref_blk);
+            fseeko(f, cur, SEEK_SET);
+            if (rr != ZUPT_OK) {
+                fprintf(stderr, "  Block %llu: dedup ref read error\n", (unsigned long long)bi);
+                errors++; break;
+            }
+            uint8_t *dbuf = NULL; size_t dlen = 0;
+            zupt_error_t dr = decompress_block(&ref_blk, &opts->keyring, block_seq, &dbuf, &dlen);
+            free(ref_blk.payload);
+            if (dr != ZUPT_OK) {
+                fprintf(stderr, "  Block %llu: dedup ref decompress failed\n", (unsigned long long)bi);
+                errors++; break;
+            }
+            /* Write dedup-resolved data to target */
+            int dok = 0;
+#ifdef _WIN32
+            dok = (fwrite(dbuf, 1, dlen, tgt) == dlen);
+#else
+            { size_t dw = 0;
+              while (dw < dlen) { ssize_t w = write(tgt_fd, dbuf + dw, dlen - dw); if (w<=0) break; dw += (size_t)w; }
+              dok = (dw == dlen); }
+#endif
+            if (!dok) { fprintf(stderr, "  Block %llu: write error\n", (unsigned long long)bi); free(dbuf); errors++; break; }
+            total_written += dlen;
+            block_seq++;
+            free(dbuf);
+            if (!opts->quiet && ft.total_blocks > 0)
+                disk_progress("Restore", bi + 1, ft.total_blocks, start_time);
+            continue;
+        }
+
         if (blk.block_type != ZUPT_BLOCK_DATA) {
             free(blk.payload);
             continue;  /* Skip unknown block types */
         }
 
         /* Decompress + decrypt + verify checksum */
+        {
         uint8_t *out_buf = NULL;
         size_t out_len = 0;
         zupt_error_t derr = decompress_block(&blk, &opts->keyring,
@@ -702,6 +779,7 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
         /* Progress */
         if (!opts->quiet && ft.total_blocks > 0)
             disk_progress("Restore", bi + 1, ft.total_blocks, start_time);
+        } /* end decompress scope */
     }
 
     fclose(f);
