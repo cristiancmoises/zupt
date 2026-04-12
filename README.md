@@ -11,7 +11,7 @@
 Backup compression with hardware-adaptive codec selection, AES-256 authenticated encryption, post-quantum key encapsulation, and full-disk backup. Pure C11, zero dependencies, ~13,000 lines. Builds and runs on x86_64, aarch64, armhf, ppc64le, s390x, and riscv64.
 
 ---
-## Try Zupt Web ![NOW!](https://share.securityops.co)
+## Try Zupt Web [NOW!](https://share.securityops.co)
 
 ## Why Zupt
 
