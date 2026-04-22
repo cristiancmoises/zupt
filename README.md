@@ -171,7 +171,7 @@ zupt keygen --pub -o pub.key -k mykey.key
 sudo zupt disk backup --pq pub.key backup.zupt /dev/nvme0n1p2
 
 # Clone with password encryption
-sudo zupt disk backup -p backup.zupt /dev/sda1
+sudo zupt disk backup -p "changeme" backup.zupt /dev/sda1
 
 # Maximum compression (level 9, extreme mode)
 sudo zupt disk backup -l 9 backup.zupt /dev/sda1
