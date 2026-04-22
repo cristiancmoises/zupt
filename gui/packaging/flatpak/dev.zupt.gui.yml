@@ -1,0 +1,37 @@
+app-id: dev.zupt.gui
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: zupt-gui
+
+finish-args:
+  - --share=ipc
+  - --socket=x11
+  - --socket=wayland
+  - --filesystem=home
+  - --device=all  # For disk backup (block devices)
+
+modules:
+  - name: python3-pyside6
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=/app PySide6
+
+  - name: zupt
+    buildsystem: simple
+    build-commands:
+      - make
+      - install -Dm755 zupt /app/bin/zupt
+    sources:
+      - type: git
+        url: https://github.com/cristiancmoises/zupt
+        tag: v2.1.6
+
+  - name: zupt-gui
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 src/zupt_gui.py /app/bin/zupt-gui
+      - install -Dm644 packaging/zupt-gui.desktop /app/share/applications/dev.zupt.gui.desktop
+    sources:
+      - type: dir
+        path: .

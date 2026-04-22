@@ -1,0 +1,7 @@
+[Nemo Action]
+Name=Extract with Zupt
+Comment=Decrypt and extract .zupt archive
+Exec=zupt-gui --extract %F
+Icon-Name=package-x-generic
+Selection=S
+Extensions=zupt;

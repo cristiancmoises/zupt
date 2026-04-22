@@ -1,4 +1,4 @@
-# Security Policy — Zupt 
+# Security Policy — Zupt
 
 ## Reporting Vulnerabilities
 

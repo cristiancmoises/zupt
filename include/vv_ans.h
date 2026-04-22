@@ -1,9 +1,3 @@
-/* VaptVupt codec — originally Apache-2.0 by Cristian Cezar Moisés
- * Integrated into Zupt — MIT License
- * Copyright (c) 2026 Cristian Cezar Moisés
- * SPDX-License-Identifier: MIT AND Apache-2.0
- */
-
 /*
  * VaptVupt — tANS Entropy Codec (v2: sparse header + 4-way interleaved)
  *
@@ -103,14 +97,30 @@ vva_error_t vva_decode_ctx(const uint8_t *src, size_t src_len,
 
 #define VVA_ML_CODES  36   /* Match length code count */
 #define VVA_OF_CODES  27   /* Offset code count: 3 rep + 24 explicit */
+#define VVA_LL_CODES  36   /* Literal-run length code count (covers 0-65536+) */
 
 vva_error_t vva_encode_sequences(const uint8_t *tokens, size_t tok_len,
                                   uint8_t *dst, size_t dst_cap, size_t *dst_len,
                                   int off_bytes);
 
+/* Format-v2 variant: encodes match-length codes using ml_base_v2
+ * (min_match=3). Used for 'T' tag blocks. Added v2.34.0. */
+vva_error_t vva_encode_sequences_v2(const uint8_t *tokens, size_t tok_len,
+                                     uint8_t *dst, size_t dst_cap, size_t *dst_len,
+                                     int off_bytes);
+
 vva_error_t vva_decode_sequences(const uint8_t *src, size_t src_len,
                                   uint8_t *dst, size_t dst_cap, size_t *dst_len,
                                   const uint8_t *dst_base);
+
+/* Format-v2 variant: same wire payload as vva_decode_sequences but
+ * interprets match-length codes with a table shifted down by 1
+ * (min_match=3 instead of 4). Produced by tag 'T' (VV_ENTROPY_SEQ_V2)
+ * blocks; closes the ~10% binary-compression gap vs gzip-9. Added
+ * v2.33.0. */
+vva_error_t vva_decode_sequences_v2(const uint8_t *src, size_t src_len,
+                                     uint8_t *dst, size_t dst_cap, size_t *dst_len,
+                                     const uint8_t *dst_base);
 
 static inline size_t vva_bound(size_t src_len) {
     /* Context model header can be up to ~10KB, seq coding adds 3 table headers */

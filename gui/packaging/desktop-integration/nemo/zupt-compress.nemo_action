@@ -1,0 +1,7 @@
+[Nemo Action]
+Name=Compress with Zupt
+Comment=Create encrypted .zupt archive
+Exec=zupt-gui --compress %F
+Icon-Name=package-x-generic
+Selection=Any
+Extensions=any;

@@ -54,7 +54,7 @@ ZUPT_SOURCES = src/zupt_main.c src/zupt_format.c src/zupt_lz.c src/zupt_lzh.c \
 
 # --- VAPTVUPT: VaptVupt codec sources (Apache-2.0, integrated under MIT) ---
 VV_SOURCES = src/vv_encoder.c src/vv_decoder.c src/vv_ans.c \
-             src/vv_huffman.c src/vv_simd.c src/vaptvupt_api.c
+             src/vv_huffman.c src/vv_simd.c src/vv_xxh64.c src/vaptvupt_api.c
 
 SOURCES = $(ZUPT_SOURCES) $(VV_SOURCES)
 
@@ -62,6 +62,7 @@ HEADERS  = include/zupt.h include/zupt_keccak.h include/zupt_mlkem.h \
            include/zupt_x25519.h include/zupt_cpuid.h include/zupt_jasmin.h \
            include/zupt_acsl.h \
            include/vaptvupt.h include/vaptvupt_api.h include/vv_huffman.h include/vv_ans.h \
+           include/vv_platform.h \
            src/zupt_thread.h src/zupt_parallel.h
 
 TARGET     = zupt
@@ -108,7 +109,7 @@ endif
 # --- Object files ---
 # VV SIMD files need -mavx2 on x86_64 (no-op on other arches)
 VV_SIMD_OBJS  = src/vv_encoder.o src/vv_decoder.o src/vv_simd.o
-VV_PLAIN_OBJS = src/vv_ans.o src/vv_huffman.o src/vaptvupt_api.o
+VV_PLAIN_OBJS = src/vv_ans.o src/vv_huffman.o src/vv_xxh64.o src/vaptvupt_api.o
 ZUPT_OBJS     = $(patsubst %.c,%.o,$(ZUPT_SOURCES))
 ALL_OBJS      = $(ZUPT_OBJS) $(VV_SIMD_OBJS) $(VV_PLAIN_OBJS)
 
@@ -236,7 +237,7 @@ test-vectors: tests/test_vectors.c $(HEADERS)
 test-vv: tests/test_vaptvupt.c $(HEADERS)
 	$(Q)$(CC) $(CFLAGS) $(VV_SIMD_FLAGS) $(LDFLAGS) tests/test_vaptvupt.c \
 	    src/vv_encoder.c src/vv_decoder.c src/vv_ans.c src/vv_huffman.c \
-	    src/vv_simd.c src/vaptvupt_api.c src/zupt_xxh.c src/zupt_cpuid.c \
+	    src/vv_simd.c src/vv_xxh64.c src/vaptvupt_api.c src/zupt_xxh.c src/zupt_cpuid.c \
 	    -o test_vaptvupt $(LDLIBS)
 	$(Q)./test_vaptvupt
 

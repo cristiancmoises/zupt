@@ -1,12 +1,3 @@
-/* VaptVupt codec — originally Apache-2.0 by Cristian Cezar Moisés
- * Integrated into Zupt — MIT License
- * Copyright (c) 2026 Cristian Cezar Moisés
- * SPDX-License-Identifier: MIT AND Apache-2.0
- */
-#if !defined(_DEFAULT_SOURCE) && !defined(_GNU_SOURCE)
-  #define _DEFAULT_SOURCE 1
-#endif
-
 /*
  * VaptVupt — Canonical Huffman Codec Implementation
  *
@@ -526,7 +517,7 @@ vvh_error_t vvh_decode(const uint8_t *src, size_t src_len,
         int sym = (int)(entry & 0xFF);
         int len = (int)((entry >> 8) & 0xF);
 
-        if (__builtin_expect(len > 0, 1)) {
+        if (VV_LIKELY(len > 0)) {
             /* Fast path: code ≤ 12 bits */
             br_consume(&r, len);
             dst[i] = (uint8_t)sym;

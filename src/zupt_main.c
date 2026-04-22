@@ -33,6 +33,7 @@ static void usage(void) {
         "  zupt extract  [OPTIONS] <archive.zupt>\n"
         "  zupt list     [OPTIONS] <archive.zupt>\n"
         "  zupt test     [OPTIONS] <archive.zupt>\n"
+        "  zupt info     <archive.zupt>           Archive metadata (no password needed)\n"
         "  zupt bench    <files/dirs...>          Compare levels 1-9\n"
         "  zupt disk     backup|restore            Full-disk backup/restore\n"
         "  zupt keygen                            Key generation"
@@ -129,6 +130,12 @@ int main(int argc, char **argv) {
         return 0;
     }
 
+    /* ─── info ─── */
+    if (streq(cmd,"info")||streq(cmd,"i")) {
+        if (argc < 3) { fprintf(stderr, "Error: info requires <archive.zupt>\n"); return 1; }
+        return zupt_archive_info(argv[2]) != ZUPT_OK ? 1 : 0;
+    }
+
     /* ─── compress ─── */
     if (streq(cmd,"compress")||streq(cmd,"c")) {
         zupt_options_t opts; zupt_default_options(&opts);
@@ -194,6 +201,24 @@ int main(int argc, char **argv) {
         }
 
         banner();
+
+        /* Password strength warning */
+        if (opts.encrypt && opts.password[0]) {
+            size_t pwlen = strlen(opts.password);
+            int has_upper=0, has_lower=0, has_digit=0, has_special=0;
+            for (size_t pi=0; pi<pwlen; pi++) {
+                unsigned char ch = (unsigned char)opts.password[pi];
+                if (ch>='A' && ch<='Z') has_upper=1;
+                else if (ch>='a' && ch<='z') has_lower=1;
+                else if (ch>='0' && ch<='9') has_digit=1;
+                else has_special=1;
+            }
+            int classes = has_upper + has_lower + has_digit + has_special;
+            if (pwlen < 8)
+                fprintf(stderr, "  WARNING: Password is very short (%zu chars). Use 12+ chars for security.\n", pwlen);
+            else if (pwlen < 12 && classes < 3)
+                fprintf(stderr, "  WARNING: Weak password. Use 12+ chars with mixed case, digits, and symbols.\n");
+        }
 
         /* Resolve thread count */
         opts.threads = zupt_resolve_threads(opts.threads);

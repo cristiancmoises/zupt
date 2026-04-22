@@ -1345,6 +1345,9 @@ zupt_error_t zupt_list_archive(const char *arc, zupt_options_t *opts) {
     printf("\n ZUPT Archive: %s\n", arc);
     printf(" Format: v%u.%u | Blocks: %llu", hdr.version_major, hdr.version_minor, (unsigned long long)ft.total_blocks);
     if (hdr.global_flags & ZUPT_FLAG_ENCRYPTED) printf(" | Encrypted");
+    if (hdr.global_flags & ZUPT_FLAG_PQ_HYBRID) printf(" | PQ");
+    if (hdr.global_flags & ZUPT_FLAG_DEDUP) printf(" | Dedup");
+    if (hdr.global_flags & ZUPT_FLAG_DISK_IMAGE) printf(" | Disk");
     printf("\n\n");
     printf(" %-50s %12s %12s  %s\n", "Path", "Original", "Compressed", "Ratio");
     printf(" %s\n", "--------------------------------------------------------------------------------------------");
@@ -1773,4 +1776,93 @@ zupt_error_t zupt_test_archive(const char *arc, zupt_options_t *opts) {
     printf("\n  Test: %d passed, %d failed (%d files)\n", pass, fail, n);
     free(ents); fclose(f);
     return fail>0 ? ZUPT_ERR_BAD_CHECKSUM : ZUPT_OK;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * ARCHIVE INFO — read-only metadata inspection (no password needed)
+ *
+ * Shows: format version, creation time, UUID, flags (encrypted,
+ * solid, multithreaded, PQ, dedup, disk), archive size, block count.
+ * Does NOT decrypt or verify checksums — works on any archive.
+ * ═══════════════════════════════════════════════════════════════════ */
+zupt_error_t zupt_archive_info(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) { fprintf(stderr, "Error: Cannot open '%s': %s\n", path, strerror(errno)); return ZUPT_ERR_IO; }
+
+    zupt_archive_header_t hdr;
+    if (fread(&hdr, sizeof(hdr), 1, f) != 1) {
+        fprintf(stderr, "Error: Not a zupt archive (file too small)\n");
+        fclose(f); return ZUPT_ERR_CORRUPT;
+    }
+    if (hdr.magic[0]!=ZUPT_MAGIC_0 || hdr.magic[1]!=ZUPT_MAGIC_1 ||
+        hdr.magic[2]!=ZUPT_MAGIC_2 || hdr.magic[3]!=ZUPT_MAGIC_3) {
+        fprintf(stderr, "Error: Not a zupt archive (bad magic)\n");
+        fclose(f); return ZUPT_ERR_BAD_MAGIC;
+    }
+
+    /* Archive file size */
+    fseeko(f, 0, SEEK_END);
+    uint64_t file_size = (uint64_t)ftello(f);
+    char sz_buf[32];
+    zupt_format_size(file_size, sz_buf, sizeof(sz_buf));
+
+    /* Try to read footer for block count */
+    uint64_t total_blocks = 0;
+    int has_footer = 0;
+    if (file_size > sizeof(zupt_footer_t)) {
+        fseeko(f, -(int64_t)sizeof(zupt_footer_t), SEEK_END);
+        zupt_footer_t ft;
+        if (fread(&ft, sizeof(ft), 1, f) == 1 &&
+            ft.footer_magic[0]=='Z' && ft.footer_magic[1]=='E' &&
+            ft.footer_magic[2]=='N' && ft.footer_magic[3]=='D') {
+            total_blocks = ft.total_blocks;
+            has_footer = 1;
+        }
+    }
+    fclose(f);
+
+    /* UUID */
+    char uuid[40];
+    snprintf(uuid, sizeof(uuid),
+        "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+        hdr.archive_id[0], hdr.archive_id[1], hdr.archive_id[2], hdr.archive_id[3],
+        hdr.archive_id[4], hdr.archive_id[5], hdr.archive_id[6], hdr.archive_id[7],
+        hdr.archive_id[8], hdr.archive_id[9], hdr.archive_id[10], hdr.archive_id[11],
+        hdr.archive_id[12], hdr.archive_id[13], hdr.archive_id[14], hdr.archive_id[15]);
+
+    /* Creation time */
+    uint64_t ct_sec = hdr.creation_time / 1000000000ULL;
+    char timebuf[64] = "unknown";
+    if (ct_sec > 0) {
+        time_t tt = (time_t)ct_sec;
+        struct tm *tm = localtime(&tt);
+        if (tm) strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", tm);
+    }
+
+    /* Flags */
+    uint32_t fl = hdr.global_flags;
+
+    printf("\n");
+    printf("  Archive:       %s\n", path);
+    printf("  Size:          %s (%llu bytes)\n", sz_buf, (unsigned long long)file_size);
+    printf("  Format:        v%u.%u\n", hdr.version_major, hdr.version_minor);
+    printf("  UUID:          %s\n", uuid);
+    printf("  Created:       %s\n", timebuf);
+    if (has_footer)
+        printf("  Blocks:        %llu\n", (unsigned long long)total_blocks);
+    printf("  Encrypted:     %s\n", (fl & ZUPT_FLAG_ENCRYPTED) ? "YES" : "no");
+    if (fl & ZUPT_FLAG_PQ_HYBRID)
+        printf("  PQ Hybrid:     YES (ML-KEM-768 + X25519)\n");
+    if (fl & ZUPT_FLAG_SOLID)
+        printf("  Solid:         YES\n");
+    if (fl & ZUPT_FLAG_MULTITHREADED)
+        printf("  Multithreaded: YES\n");
+    if (fl & ZUPT_FLAG_DEDUP)
+        printf("  Dedup:         YES (block-level)\n");
+    if (fl & ZUPT_FLAG_DISK_IMAGE)
+        printf("  Disk image:    YES\n");
+    printf("  Flags:         0x%04X\n", fl);
+    printf("\n");
+
+    return ZUPT_OK;
 }
