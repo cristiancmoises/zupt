@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Zupt GUI
+GenericName=Post-Quantum Backup
+Comment=Compress, encrypt, and backup with quantum-resistant cryptography
+Exec=zupt-gui
+Icon=zupt-gui
+Categories=Utility;Archiving;Security;
+Keywords=backup;compress;encrypt;quantum;zupt;
+Terminal=false
+StartupNotify=true
+MimeType=application/x-zupt;

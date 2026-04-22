@@ -1,9 +1,3 @@
-/* VaptVupt codec — originally Apache-2.0 by Cristian Cezar Moisés
- * Integrated into Zupt — MIT License
- * Copyright (c) 2026 Cristian Cezar Moisés
- * SPDX-License-Identifier: MIT AND Apache-2.0
- */
-
 /*
  * VaptVupt — Zupt Integration API
  * SPDX-License-Identifier: GPL-3.0-or-later

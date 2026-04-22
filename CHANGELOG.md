@@ -5,6 +5,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [2.1.6] — 2026-04-22
+
+### Added — Archive Info Command (`zupt info`)
+- **New `zupt info <archive>` subcommand**: Shows archive metadata without needing a password. Displays format version, UUID, creation timestamp, file size, block count, and all flags (encrypted, PQ hybrid, solid, multithreaded, dedup, disk image). Useful for inspecting archives before decryption, triaging backups, and scripting.
+- Works on all archive types: plain, encrypted, PQ, dedup, disk images.
+- Rejects non-archive files with a clear error message.
+
+### Added — Password Strength Warnings
+- **Weak password detection** during `zupt compress -p`: warns if password is shorter than 8 characters ("very short") or shorter than 12 characters with fewer than 3 character classes ("weak"). Uses character class analysis: uppercase, lowercase, digits, special characters.
+- Non-blocking: warning is informational only, compression proceeds. PBKDF2 with 600K iterations provides baseline protection even for weaker passwords.
+
+### Enhanced — `zupt list` Shows Dedup & PQ Flags
+- Archive listing header now displays `| Dedup`, `| PQ`, `| Disk` flags when present, making it immediately visible what features an archive uses.
+
+### Upgraded — VaptVupt 2.40.0 Codec
+- **VaptVupt 2.40.0** integrated (production hardening release). 55-case adversarial test suite, 10,200-case differential fuzzer, new `vv_xxh64.c` and `vv_platform.h`.
+- **format_v2 enabled**: 4-7% better compression ratio on binary data (ELF, shared libraries). All v2.33.0+ decoders read v2 frames transparently.
+- **VV_DECOMPRESS_SKIP_CHECKSUM**: Decode skips redundant XXH64 verification since zupt's HMAC-SHA256 already authenticates compressed data. Up to 3.7x faster decode on post-encryption random data.
+
+### Added — Zupt GUI (PySide6 Desktop Application)
+- Cross-platform graphical interface in `gui/` subdirectory. Covers all zupt operations: key generation (generate + export public key), compress (all codecs, levels, dedup, solid, password, PQ), extract, verify, info, disk backup/restore.
+- System integration: Nemo right-click actions (Compress/Extract with Zupt), .zupt MIME type, desktop file.
+- Packaging: .deb, .rpm, .whl, source tarball, NSIS Windows installer, AppImage, Flatpak configs.
+- Dynamic version display from zupt binary (no hardcoded version strings). Window icon on all platforms.
+
+### Tests
+- **97 total**: 84 existing (70 core + 8 disk + 6 dedup) + 13 v2.1.6 (7 info, 4 password, 2 list flags). VV unit tests 11/11. ASAN clean.
+
+---
+
 ## [2.1.5] — 2026-04-12
 
 ### Added — Block-Level Deduplication (`--dedup`)
@@ -330,10 +360,9 @@ All 4 `.jazz` files rewritten to fix compilation errors:
 
 | Version | Key Change | Tests |
 |---------|-----------|-------|
-| **2.1.5** | **Block-level deduplication (`--dedup`), XXH64 fingerprint index, DEDUP_REF block type, 81 tests** |
 | **2.1.4** | Shared `write_enc_header()` eliminates all format mismatches, solid PQ support, block device O_SYNC | 78 PASS |
-| **2.1.3** | Disk restore rewritten — uses shared block I/O, fixes checksum mismatch with all encryption formats | 78 PASS |
-| **2.1.2** | Full-disk backup/restore with sparse detection, all encryption modes, progress bar | 78 PASS |
+| **2.1.3** | Disk restore rewritten — uses shared block I/O, fixes checksum mismatch with all encryption formats | 77 PASS |
+| **2.1.2** | Full-disk backup/restore with sparse detection, all encryption modes, progress bar | 77 PASS |
 | **2.1.1** | Termux/Android build fix, arch-safety guard, Keccak UB fix, no stale .o in tarballs | 70 PASS |
 | **2.1.0** | VaptVupt 1.4.0: cross-block dictionary, context prefetch, faster adaptive window, integration API | 70 PASS |
 | **2.0.0** | VaptVupt 1.1.0 codec, auto codec detection, all 5 Jasmin wired, AVX SIGILL fix, multi-arch, copy_match fix, litlen overflow fix | 70 PASS |

@@ -1,12 +1,3 @@
-/* VaptVupt codec — originally Apache-2.0 by Cristian Cezar Moisés
- * Integrated into Zupt — MIT License
- * Copyright (c) 2026 Cristian Cezar Moisés
- * SPDX-License-Identifier: MIT AND Apache-2.0
- */
-#if !defined(_DEFAULT_SOURCE) && !defined(_GNU_SOURCE)
-  #define _DEFAULT_SOURCE 1
-#endif
-
 /*
  * VaptVupt — SIMD-accelerated copy routines
  *
@@ -40,7 +31,8 @@ static void copy_match_scalar(uint8_t *dst, uint32_t offset, size_t length) {
         }
         if (length > 0) memcpy(dst, src, length);
     } else if (offset >= 8) {
-        /* Moderate overlap (8-15): 8-byte copy is safe since offset >= stride */
+        /* Offset >= 8: can safely copy 8 bytes at a time — each chunk fits
+         * within the overlap window without reading unwritten bytes. */
         while (length >= 8) {
             uint64_t v;
             memcpy(&v, src, 8);
@@ -49,8 +41,18 @@ static void copy_match_scalar(uint8_t *dst, uint32_t offset, size_t length) {
         }
         while (length-- > 0) *dst++ = *src++;
     } else {
-        /* Very short overlap (1-3): byte-by-byte */
-        for (size_t i = 0; i < length; i++) dst[i] = src[i];
+        /* CRITICAL: for offset < 8 the "moderate overlap" 8-byte bulk copy
+         * is UNSAFE. Reading 8 bytes at src before writing means we read
+         * bytes at positions we're about to write, which may be uninitialized.
+         *
+         * Example: offset=7, length=8. src = dst-7. Read src[0..7] reads
+         * dst[-7..0]. But dst[0] is the first byte we'll WRITE, not a
+         * literal we already wrote. Bulk-read gets garbage there, then
+         * writes it to dst[7], corrupting position 7.
+         *
+         * Safe implementation: byte-by-byte, where each write feeds the
+         * next read correctly (the classic LZ "self-reference" pattern). */
+        for (size_t i = 0; i < length; i++) dst[i] = dst[i - (ptrdiff_t)offset];
     }
 }
 
@@ -106,6 +108,33 @@ static void copy_match_avx2(uint8_t *dst, uint32_t offset, size_t length) {
 }
 #endif /* __AVX2__ */
 
+/* SSE2 path: baseline on all x86-64 CPUs. No runtime check needed.
+ * Used when AVX2 is not available at runtime, or when compiled without -mavx2. */
+#include <emmintrin.h>  /* SSE2 is guaranteed on x86-64 */
+
+static void copy_fast_sse2(uint8_t *dst, const uint8_t *src, size_t n) {
+    while (n >= 16) {
+        __m128i v = _mm_loadu_si128((const __m128i *)src);
+        _mm_storeu_si128((__m128i *)dst, v);
+        dst += 16; src += 16; n -= 16;
+    }
+    if (n > 0) memcpy(dst, src, n);
+}
+
+static void copy_match_sse2(uint8_t *dst, uint32_t offset, size_t length) {
+    const uint8_t *src = dst - offset;
+    if (offset >= 16) {
+        while (length >= 16) {
+            __m128i v = _mm_loadu_si128((const __m128i *)src);
+            _mm_storeu_si128((__m128i *)dst, v);
+            dst += 16; src += 16; length -= 16;
+        }
+        if (length > 0) memcpy(dst, src, length);
+    } else {
+        copy_match_scalar(dst, offset, length);
+    }
+}
+
 #endif /* x86-64 */
 
 /* ═══════════════════════════════════════════════════════════════
@@ -160,6 +189,10 @@ static void vv_init_simd(void) {
         return;
     }
 #endif
+    /* SSE2 is baseline on all x86-64 — no runtime check needed */
+    g_copy_fast  = copy_fast_sse2;
+    g_copy_match = copy_match_sse2;
+    return;
 #endif
 
 #if defined(__aarch64__) && defined(__ARM_NEON)

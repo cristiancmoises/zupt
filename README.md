@@ -11,7 +11,6 @@
 Backup compression with hardware-adaptive codec selection, AES-256 authenticated encryption, post-quantum key encapsulation, and full-disk backup. Pure C11, zero dependencies, ~13,000 lines. Builds and runs on x86_64, aarch64, armhf, ppc64le, s390x, and riscv64.
 
 ---
-## Try Zupt Web [NOW!](https://share.securityops.co)
 
 ## Why Zupt
 
@@ -377,8 +376,9 @@ All codecs are forward-compatible: archives created with any codec can be read b
 | v2.1.0 | VaptVupt 1.4.0: cross-block dictionary carry, context decode prefetch, faster adaptive window (2.6× encode), integration API |
 | v2.1.1 | Termux/Android build fix, arch-safety guard, Keccak ROL64 UB fix, zero UBSan violations |
 | v2.1.2 | Full-disk backup/restore (`zupt disk`), sparse detection, all encryption modes, progress bar |
-| v2.1.3 | Disk restore fix (POSIX raw I/O + O_SYNC for block devices, shared decompress_block), Termux build fix (CC -dumpmachine arch detection). LZHP prediction encoding fix (data corruption on structured data), shared write_enc_header, SOLID flag removed from disk, 78 tests** |
-| v2.1.4 | 4 security fixes — TOCTOU races eliminated (fstat on fd), X25519 scalar wipe via volatile, 78 tests |
+| v2.1.3 | Disk restore fix (POSIX raw I/O + O_SYNC for block devices, shared decompress_block), Termux build fix (CC -dumpmachine arch detection), 77 tests |
+| **v2.1.3** | **LZHP prediction encoding fix (data corruption on structured data), shared write_enc_header, SOLID flag removed from disk, 78 tests** |
+| **v2.1.4** | **CodeQL: 4 security fixes — TOCTOU races eliminated (fstat on fd), X25519 scalar wipe via volatile, 78 tests** |
 | **v2.1.5** | **Block-level deduplication (`--dedup`), XXH64 fingerprint index, DEDUP_REF block type, 81 tests** |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.

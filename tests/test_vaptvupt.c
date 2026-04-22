@@ -13,6 +13,7 @@
 #endif
 
 #include "vaptvupt.h"
+#include "zupt.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

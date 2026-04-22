@@ -30,7 +30,7 @@
   #define zupt_mkdir(p) mkdir(p, 0755)
 #endif
 
-#define ZUPT_VERSION_STRING "2.1.5"
+#define ZUPT_VERSION_STRING "2.1.6"
 #define ZUPT_FORMAT_MAJOR   1
 #define ZUPT_FORMAT_MINOR   4
 
@@ -379,5 +379,8 @@ void zupt_dedup_stats(const zupt_dedup_ctx_t *ctx,
                       uint64_t *bytes_saved);
 int  zupt_dedup_write_ref(FILE *out, uint64_t ref_offset,
                           uint32_t orig_size, uint64_t orig_checksum);
+
+/* ─── Archive Info (read-only metadata inspection) ─── */
+zupt_error_t zupt_archive_info(const char *path);
 
 #endif /* ZUPT_H */
