@@ -4,7 +4,7 @@
 
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
-![Version](https://img.shields.io/badge/version-2.1.5-orange)
+![Version](https://img.shields.io/badge/version-2.1.6-orange)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 ![openSUSE](https://img.shields.io/badge/platform-openSUSE-73BA25?logo=opensuse&logoColor=white)
 
