@@ -59,4 +59,4 @@ v2.0  Performance               ← 4× AES throughput, parallel decompression
 
 ---
 
-© 2026 Cristian Cezar Moisés — MIT License
+© 2026 Cristian Cezar Moisés — AGPL-3.0-or-later (commercial: sac@securityops.co)

@@ -1,7 +1,7 @@
 /*
  * Zupt — Backup-oriented compression with AES-256 encryption
  * Copyright (c) 2026 Cristian Cezar Moisés
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #ifndef ZUPT_H
 #define ZUPT_H
@@ -30,7 +30,7 @@
   #define zupt_mkdir(p) mkdir(p, 0755)
 #endif
 
-#define ZUPT_VERSION_STRING "2.1.6"
+#define ZUPT_VERSION_STRING "2.1.7"
 #define ZUPT_FORMAT_MAJOR   1
 #define ZUPT_FORMAT_MINOR   4
 

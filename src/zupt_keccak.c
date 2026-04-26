@@ -1,7 +1,7 @@
 /*
  * Zupt — Backup-oriented compression with AES-256 encryption
  * Copyright (c) 2026 Cristian Cezar Moisés
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * Keccak-f[1600] permutation with SHA3-256, SHA3-512, SHAKE-128, SHAKE-256.
  * Implements FIPS 202 (SHA-3 Standard).

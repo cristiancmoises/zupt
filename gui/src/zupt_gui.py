@@ -462,7 +462,7 @@ class AboutTab(QWidget):
             ("SHA3/SHAKE     FIPS 202     Hash / XOF", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("", ""),
             ("CREDITS", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
-            ("zupt        Cristian Cezar Moises        MIT", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("zupt        Cristian Cezar Moises        AGPL-3.0", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("github.com/cristiancmoises/zupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
             ("", ""),
             ("libzupt     Alessandro de Oliveira Faria  MIT", "color:#5a7a88;font-size:12px;font-family:monospace;"),

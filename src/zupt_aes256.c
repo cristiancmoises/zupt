@@ -1,5 +1,10 @@
 /*
  * ZUPT - AES-256 Block Cipher (FIPS 197)
+ *
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (C) 2026 Cristian Cezar Moisés
+ * Commercial licensing: sac@securityops.co
+ *
  * Pure C, constant-time T-table implementation.
  * FRAMA-C: ACSL-annotated (v2.0.0)
  */

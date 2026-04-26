@@ -1,6 +1,7 @@
 /*
  * Zupt — NIST/RFC Cryptographic Test Vectors
- * Copyright (c) 2026 Cristian Cezar Moisés — MIT License
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-or-later (commercial: sac@securityops.co)
  *
  * Tests: SHA-256 (FIPS 180-4), HMAC-SHA256 (RFC 4231),
  *        X25519 (RFC 7748 §6.1), ML-KEM-768 roundtrip,

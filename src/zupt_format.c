@@ -1,6 +1,10 @@
 /*
  * ZUPT - Archive Format I/O v0.6.0
  *
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (C) 2026 Cristian Cezar Moisés
+ * Commercial licensing: sac@securityops.co
+ *
  * v0.6.0 changes:
  *   - Multi-threaded compression and decompression via zupt_parallel.h
  *   - Format version bump v1.2 → v1.3 (backward compatible)

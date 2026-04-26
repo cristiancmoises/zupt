@@ -3,7 +3,8 @@
  * Public API and data structures
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
- * Copyright 2026 Cristian.
+ * Copyright (C) 2026 Cristian Cezar Moisés
+ * Commercial licensing: sac@securityops.co
  * Zero dependencies. Pure C11.
  */
 #ifndef VAPTVUPT_H

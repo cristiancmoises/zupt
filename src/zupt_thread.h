@@ -1,6 +1,10 @@
 /*
  * ZUPT v0.6.0 — Platform Threading Abstraction
  *
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (C) 2026 Cristian Cezar Moisés
+ * Commercial licensing: sac@securityops.co
+ *
  * Header-only. Wraps pthreads (Linux/macOS) and Win32 threads.
  * No semaphores (not portable to macOS). No barriers (not on Windows).
  * Uses C11 stdatomic.h when available, InterlockedExchange on MSVC.

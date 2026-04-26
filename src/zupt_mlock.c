@@ -1,7 +1,7 @@
 /*
  * Zupt — Memory Locking for Key Material
  * Copyright (c) 2026 Cristian Cezar Moisés
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * Prevents key material from being swapped to disk.
  * Uses mlock() on Linux/BSD, VirtualLock() on Windows.

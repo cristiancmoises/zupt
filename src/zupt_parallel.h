@@ -1,6 +1,10 @@
 /*
  * ZUPT v0.6.0 — Parallel Compress / Decompress Pipeline
  *
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (C) 2026 Cristian Cezar Moisés
+ * Commercial licensing: sac@securityops.co
+ *
  * Batch-parallel design: the main thread reads N blocks (N = thread_count),
  * workers process them in parallel (compress+encrypt or HMAC+decrypt+decompress),
  * and the main thread writes results in sequential order.

@@ -1,4 +1,8 @@
 /*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 Cristian Cezar Moisés
+ * Commercial licensing: sac@securityops.co
+ *
  * VaptVupt — XXH64 checksum (simplified, standalone)
  * Based on xxHash by Yann Collet. Public domain.
  */

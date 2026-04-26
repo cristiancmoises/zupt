@@ -1,6 +1,10 @@
 /*
  * ZUPT - LZH Codec v4: High-Compression LZ77 + Canonical Huffman
  *
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (C) 2026 Cristian Cezar Moisés
+ * Commercial licensing: sac@securityops.co
+ *
  * Key advances over v3:
  *   - 1MB sliding window (was 128KB) with 40 extended distance codes
  *   - Extended match lengths up to 4322 (was 258) with 7 extra length codes
