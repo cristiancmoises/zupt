@@ -1,7 +1,8 @@
 /*
  * VaptVupt — Zupt Integration API
  * SPDX-License-Identifier: GPL-3.0-or-later
- * Copyright 2026 Cristian.
+ * Copyright (C) 2026 Cristian Cezar Moisés
+ * Commercial licensing: sac@securityops.co
  *
  * ZUPT-COMPAT: This is the API that Zupt calls. It wraps the internal
  * VaptVupt API with sensible defaults for backup workloads:

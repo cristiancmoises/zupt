@@ -5,6 +5,68 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [2.1.7] — 2026-04-26
+
+### Changed — License (MIT → AGPL-3.0-or-later)
+
+- **Zupt is now licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later).** All previous versions are also retroactively re-licensed under AGPL-3.0-or-later by the sole copyright holder. The MIT license under which v0.1.0 through v2.1.6 were originally released is hereby withdrawn for any future use; cached MIT-licensed copies of those versions remain valid under their original terms but are not authorized for redistribution under MIT going forward.
+- **Rationale.** Years of work on post-quantum hybrid encryption (ML-KEM-768 + X25519), formally-verified Jasmin constant-time assembly, authenticated encryption (AES-256-CTR + HMAC-SHA256), and the custom VaptVupt compression codec were given to the world under MIT — and silent absorption into proprietary products is the foreseeable end-state of permissive licensing on infrastructure software. The AGPL closes the SaaS loophole specifically: anyone running a modified Zupt as a network service (cloud backup product, archival backend, etc.) must release the source code of their modifications. Personal use, internal corporate use, sysadmin use, research use, and academic use are unaffected and remain unrestricted.
+- **Commercial licensing channel established.** Organizations whose use is incompatible with the AGPL (proprietary embedding, hosted SaaS without source disclosure, redistribution under closed terms, requirement of warranty/indemnification) can obtain a commercial license at: **sac@securityops.co**.
+
+### Changed — VaptVupt License clarification (GPL-3.0-or-later, unchanged from upstream)
+
+- **The VaptVupt compression codec is licensed under GPL-3.0-or-later** (`src/vv_*.c`, `src/vaptvupt_api.c`, `include/vaptvupt.h`, `include/vaptvupt_api.h`, `include/vv_huffman.h`, `include/vv_ans.h`, `include/vv_platform.h`). This matches the canonical upstream at [github.com/cristiancmoises/vaptvupt](https://github.com/cristiancmoises/vaptvupt) and was not changed in this sprint — VaptVupt has been GPL-3.0-or-later since its initial release.
+- **Why a separate license from Zupt's AGPL-3.0.** VaptVupt has independent reuse value as a standalone compression codec. Anyone wishing to embed VaptVupt in another GPL-3.0 project should be able to do so without inheriting the network-clause obligations of Zupt's AGPL.
+- **Compatibility with Zupt.** GPL-3.0-or-later is two-way compatible with AGPL-3.0-or-later via the explicit GPL/AGPL combination provision in section 13 of both licenses. The combined Zupt binary remains valid AGPL-3.0.
+- Earlier sprint drafts briefly considered GPL-2.0-or-later for kernel-mergeability; that path was incorrect (the Linux kernel is GPL-2-only and rejects GPL-3+ code) and was withdrawn before release. VaptVupt is and remains GPL-3.0-or-later.
+
+### Upgraded — VaptVupt 2.40.0 → 2.46.1
+
+- **Pulled in upstream VaptVupt v2.46.1** (April 22, 2026), six minor versions ahead of the previously bundled v2.40.0. All 12 VaptVupt files (`src/vv_*.c`, `src/vaptvupt_api.c`, `include/vaptvupt*.h`, `include/vv_*.h`) replaced from `github.com/cristiancmoises/vaptvupt` `master`.
+- **Public API and on-disk frame format are byte-identical** to v2.40.0 — confirmed by diffing the public `vv_compress`/`vv_decompress`/`vv_default_options`/`vv_compress_bound` declarations and the `vv_options_t` struct. **No caller changes required** in `zupt_lzh.c`, `zupt_format.c`, `zupt_main.c`, etc.
+- **Improvements pulled in:**
+  - **v2.41–v2.43** internal tightening (covered by upstream's "correctness release" v2.44.0 rollup).
+  - **v2.44.0** — correctness release ships over v2.43.0 (encoder ANS state recovery, decoder bounds tightening).
+  - **v2.45.0** — size-based window-log heuristic (better ratio on small inputs without manual tuning).
+  - **v2.46.0** — Huffman-in-SEQ literal coding (additional ratio gain on text-heavy streams).
+  - **v2.46.1** — **memory-safety patch:** fixes a 16,384-byte leak on three decoder error paths in `vva_decode_sequences_impl` (`src/vv_ans.c`). The `dec_ll` buffer was not freed on three malformed-input return paths. No behavior change on the success path; output byte-identical to v2.46.0 for valid inputs. **This is a correctness/safety fix that closes a denial-of-service vector** where an attacker controlling many malformed compressed frames could exhaust memory.
+
+### Notes on the v2.46.1 upgrade
+- VaptVupt 2.46.1 retains the same SPDX-License-Identifier headers (`GPL-3.0-or-later`); the Zupt-side commercial-licensing line (`Commercial licensing: sac@securityops.co`) was re-applied to each file's header block.
+
+### Added — `LICENSE-VAPTVUPT`
+- New top-level file containing the formal GPL-3.0-or-later notice, separate-codec rationale (independent reuse value), AGPL/GPL-3 compatibility explanation per section 13 of both licenses, commercial-license clause, pointer to upstream, and the full canonical GPLv3 text (~740 lines).
+
+### Added — Formal Preamble in `LICENSE`
+- The top-level `LICENSE` now opens with a formal AGPL preamble explaining why AGPL was chosen, what the SaaS clause means in practice for users vs. operators, and a commercial-licensing clause pointing to **sac@securityops.co**. The full canonical AGPL-3.0 text follows below the preamble.
+
+### Added — SPDX-License-Identifier headers (full coverage)
+- Every `.c` and `.h` source file now carries a machine-readable SPDX tag: `AGPL-3.0-or-later` for Zupt-core, `GPL-3.0-or-later` for VaptVupt. Each header also includes the commercial-license contact. This brings Zupt into REUSE 3.0 / SPDX 2.3 compliance and enables automated license scanning (FOSSology, ScanCode, etc.) to correctly classify the project.
+
+### Changed — Sister projects relicensed
+- `zupt-web` and `zupt-android` (separate repositories) are also relicensed to **AGPL-3.0-or-later** for the same reason. License files and README snippets prepared in this sprint can be applied to those repositories.
+
+### Changed — Surface-level metadata
+- `--help` and `--version` output: `License: MIT` → `License: AGPL-3.0-or-later (commercial: sac@securityops.co)`.
+- Manpage `doc/zupt.1` `.SH LICENSE` section rewritten.
+- README badge: `license-MIT-blue` → `license-AGPL--3.0-blue`. New commercial badge added.
+- README: full License section rewrite + new "Commercial Licensing" section.
+- README comparison table: license row updated.
+- GUI About box: zupt credit "MIT" → "AGPL-3.0".
+- `gui/setup.py`: `license="AGPL-3.0-or-later"` and OSI classifier updated.
+- `gui/packaging/rpm/zupt-gui.spec`: `License: AGPL-3.0-or-later`, `Requires: zupt >= 2.1.7`.
+- `gui/LICENSE-GUI`: rewritten as AGPL-3.0-or-later notice.
+- `Makefile`: header banner updated to v2.1.7 with SPDX tag; comment "Apache-2.0, integrated under MIT" replaced with "GPL-3.0-or-later, separate copyleft".
+
+### Audit — Security re-validation on the relicensed tree
+- See `AUDIT.md` for the v2.1.7 refresh: full rebuild, NIST/RFC test vector re-run, ASAN re-run, regression suite re-run, and the updated table of known limitations.
+
+### Notes for downstream packagers
+- The SPDX tags are authoritative. If an automated license scanner produces a different result, the SPDX tags in the source file headers should be treated as the source of truth, supplemented by the `LICENSE` and `LICENSE-VAPTVUPT` files.
+- Distributions that previously shipped Zupt under MIT should update their package metadata. The on-disk binary's behavior is unchanged; only the licensing terms have changed.
+
+---
+
 ## [2.1.6] — 2026-04-22
 
 ### Added — Archive Info Command (`zupt info`)

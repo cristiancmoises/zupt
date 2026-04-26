@@ -1,4 +1,8 @@
-# Zupt v2.1.1 — Makefile with VaptVupt codec + Jasmin integration
+# Zupt v2.1.7 — Makefile with VaptVupt codec + Jasmin integration
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Cristian Cezar Moisés
+# Commercial licensing: sac@securityops.co
 #
 # Multi-architecture: builds on x86_64, aarch64, armhf, ppc64le, s390x, riscv64.
 # Tested on: Linux, macOS, Windows (MSYS2), Termux (Android aarch64).
@@ -52,7 +56,7 @@ ZUPT_SOURCES = src/zupt_main.c src/zupt_format.c src/zupt_lz.c src/zupt_lzh.c \
                src/zupt_x25519.c src/zupt_mlkem.c src/zupt_cpuid.c src/zupt_mlock.c \
                src/zupt_filetype.c src/zupt_disk.c src/zupt_dedup.c
 
-# --- VAPTVUPT: VaptVupt codec sources (Apache-2.0, integrated under MIT) ---
+# --- VAPTVUPT: VaptVupt codec sources (GPL-3.0-or-later, separate copyleft) ---
 VV_SOURCES = src/vv_encoder.c src/vv_decoder.c src/vv_ans.c \
              src/vv_huffman.c src/vv_simd.c src/vv_xxh64.c src/vaptvupt_api.c
 
@@ -266,7 +270,7 @@ fuzz-build:
 	@echo "  afl-fuzz -i corpus_vv -o findings_vv -- ./fuzz_vv_decompress"
 
 help:
-	@echo "Zupt v2.0.0 build targets:"
+	@echo "Zupt v2.1.7 build targets:"
 	@echo "  make              Build zupt binary"
 	@echo "  make V=1          Build with verbose output"
 	@echo "  make test         Quick test"

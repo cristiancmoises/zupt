@@ -1,7 +1,7 @@
 /*
  * Zupt — Backup-oriented compression with AES-256 encryption
  * Copyright (c) 2026 Cristian Cezar Moisés
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * ML-KEM-768 (FIPS 203, formerly CRYSTALS-Kyber).
  * Post-quantum key encapsulation mechanism.

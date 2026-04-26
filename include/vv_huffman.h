@@ -1,4 +1,8 @@
 /*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 Cristian Cezar Moisés
+ * Commercial licensing: sac@securityops.co
+ *
  * VaptVupt — Canonical Huffman Codec
  *
  * Standalone header: can be used independently with VV_HUFFMAN_STANDALONE.

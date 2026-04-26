@@ -124,4 +124,6 @@ The GUI calls the zupt CLI binary — all cryptography runs in native C, not Pyt
 
 ## License
 
-MIT
+**AGPL-3.0-or-later** — see [LICENSE-GUI](LICENSE-GUI) and the project-root [LICENSE](../LICENSE).
+
+For commercial licensing inquiries, contact: **sac@securityops.co**

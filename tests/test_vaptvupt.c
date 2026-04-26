@@ -6,7 +6,7 @@
  *
  * VAPTVUPT: Integration test suite
  * Copyright (c) 2026 Cristian Cezar Moisés
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #if !defined(_DEFAULT_SOURCE) && !defined(_GNU_SOURCE)
   #define _DEFAULT_SOURCE 1

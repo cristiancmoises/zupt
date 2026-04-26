@@ -3,10 +3,11 @@
 **Compress everything. Trust nothing. Encrypt always.**
 
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![License](https://img.shields.io/badge/license-MIT-blue)
-![Version](https://img.shields.io/badge/version-2.1.6-orange)
+![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
+![Version](https://img.shields.io/badge/version-2.1.7-orange)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 ![openSUSE](https://img.shields.io/badge/platform-openSUSE-73BA25?logo=opensuse&logoColor=white)
+![Commercial](https://img.shields.io/badge/commercial-sac%40securityops.co-darkgreen)
 
 Backup compression with hardware-adaptive codec selection, AES-256 authenticated encryption, post-quantum key encapsulation, and full-disk backup. Pure C11, zero dependencies, ~13,000 lines. Builds and runs on x86_64, aarch64, armhf, ppc64le, s390x, and riscv64.
 
@@ -273,7 +274,7 @@ make install DESTDIR=/buildroot
 | Multi-architecture | **6 arches** | ✓ | ✓ | ✓ |
 | Zero dependencies | ✓ | ✓ | — | — |
 | Codebase | ~12K lines | ~10K | ~75K | ~100K+ |
-| License | MIT | GPL | BSD | LGPL |
+| License | **AGPL-3.0** (commercial available) | GPL | BSD | LGPL |
 
 ---
 
@@ -380,13 +381,37 @@ All codecs are forward-compatible: archives created with any codec can be read b
 | **v2.1.3** | **LZHP prediction encoding fix (data corruption on structured data), shared write_enc_header, SOLID flag removed from disk, 78 tests** |
 | **v2.1.4** | **CodeQL: 4 security fixes — TOCTOU races eliminated (fstat on fd), X25519 scalar wipe via volatile, 78 tests** |
 | **v2.1.5** | **Block-level deduplication (`--dedup`), XXH64 fingerprint index, DEDUP_REF block type, 81 tests** |
+| **v2.1.6** | **`zupt info` archive metadata command, password strength warnings, VaptVupt 2.40.0 (format_v2), GUI desktop application, 97 tests** |
+| **v2.1.7** | **Relicense MIT → AGPL-3.0-or-later. VaptVupt remains GPL-3.0-or-later (kept in sync with upstream); upgraded VaptVupt 2.40.0 → 2.46.1. Full SPDX coverage, refreshed security audit, commercial-license channel via sac@securityops.co** |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.
 
 ---
 
 ## License
-MIT | [LICENSE](LICENSE).
+
+**Zupt is licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later).**
+
+The full license text is in [LICENSE](LICENSE), preceded by a formal preamble explaining the rationale. In short:
+
+- **You can use Zupt freely** — for personal backups, in your business, on your servers, in air-gapped environments, anywhere. The AGPL imposes essentially no obligations on simple use.
+- **If you modify Zupt and run the modified version as a network service** (a backup-as-a-service product, a cloud archival backend, etc.), you must make the source code of your modifications available to the users of that service. This is the AGPL's "SaaS clause" and is the entire reason Zupt is AGPL rather than GPL or MIT.
+- **If you redistribute Zupt** (modified or not), the AGPL travels with it.
+
+The integrated **VaptVupt compression codec** (`src/vv_*.c`, `include/vaptvupt*.h`, `include/vv_*.h`) is licensed separately under **GPL-3.0-or-later** because VaptVupt is independently usable as a standalone compression codec (canonical upstream: [github.com/cristiancmoises/vaptvupt](https://github.com/cristiancmoises/vaptvupt)). GPL-3.0-or-later is two-way compatible with AGPL-3.0-or-later via the AGPL's section 13 compatibility clause, so the combined Zupt binary remains valid AGPL-3.0. See [LICENSE-VAPTVUPT](LICENSE-VAPTVUPT) for details.
+
+### Commercial Licensing
+
+If your intended use is incompatible with the AGPL — for example:
+
+- Embedding Zupt or VaptVupt into a closed-source product, appliance, or firmware
+- Operating Zupt as a hosted/SaaS backend without releasing your modifications
+- Redistributing Zupt as part of a proprietary commercial product
+- Requiring warranty, indemnification, or written terms
+
+**A commercial license is available.** Contact: **sac@securityops.co**
+
+The author retains full copyright ownership of all original Zupt and VaptVupt source code and is therefore able to grant alternative licensing terms.
 
 Security vulnerabilities: see [SECURITY.md](SECURITY.md).
 

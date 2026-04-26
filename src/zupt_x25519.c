@@ -1,7 +1,7 @@
 /*
  * Zupt — Backup-oriented compression with AES-256 encryption
  * Copyright (c) 2026 Cristian Cezar Moisés
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * X25519 Diffie-Hellman (RFC 7748) over Curve25519.
  * Field: GF(2^255-19), represented as 4 × 64-bit limbs (donna64 layout).

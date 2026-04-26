@@ -2,14 +2,14 @@ Name:           zupt-gui
 Version:        1.0.0
 Release:        1%{?dist}
 Summary:        Zupt GUI — Post-Quantum Backup Utility
-License:        MIT
+License:        AGPL-3.0-or-later
 URL:            https://github.com/cristiancmoises/zupt
 Source0:        %{name}-%{version}.tar.gz
 BuildArch:      noarch
 
 Requires:       python3 >= 3.9
 Requires:       python3-pyside6
-Requires:       zupt >= 2.1.6
+Requires:       zupt >= 2.1.7
 
 %description
 Cross-platform graphical interface for the zupt backup compression

@@ -1,4 +1,8 @@
 /*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 Cristian Cezar Moisés
+ * Commercial licensing: sac@securityops.co
+ *
  * VaptVupt — tANS Entropy Codec (v2: sparse header + 4-way interleaved)
  *
  * Standalone: define VV_ANS_STANDALONE to use without VaptVupt.

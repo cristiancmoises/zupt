@@ -209,4 +209,4 @@ jasminc -arch x86-64 -o /dev/null jasmin/zupt_mlkem_select.jazz
 
 ---
 
-© 2026 Cristian Cezar Moisés — MIT License
+© 2026 Cristian Cezar Moisés — AGPL-3.0-or-later (commercial: sac@securityops.co)

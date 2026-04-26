@@ -1,6 +1,7 @@
 /*
  * Zupt v2.0.0 — Adaptive Compression: File Type Detection
- * Copyright (c) 2026 Cristian Cezar Moisés — MIT License
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-or-later (commercial: sac@securityops.co)
  *
  * Detects file type by magic bytes (not just extension) and returns
  * a recommended compression level. Already-compressed files (JPEG,

@@ -1,5 +1,10 @@
 /*
  * ZUPT - CLI v1.5.0
+ *
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Copyright (C) 2026 Cristian Cezar Moisés
+ * Commercial licensing: sac@securityops.co
+ *
  * Multi-threaded compression, AES-256 encryption, progress bars
  */
 #include "zupt.h"
@@ -79,7 +84,7 @@ static void usage(void) {
         "Security:    AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)\n"
         "KDF:         PBKDF2-SHA256 (600,000 iterations)\n"
         "\n"
-        "License: MIT\n"
+        "License: AGPL-3.0-or-later (commercial: sac@securityops.co)\n"
     );
 }
 

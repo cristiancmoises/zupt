@@ -1,7 +1,7 @@
 /*
  * Zupt — Backup-oriented compression with AES-256 encryption
  * Copyright (c) 2026 Cristian Cezar Moisés
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * Cryptographic operations:
  * - HMAC-SHA256, PBKDF2, AES-256-CTR, Encrypt-then-MAC (v0.2+)
