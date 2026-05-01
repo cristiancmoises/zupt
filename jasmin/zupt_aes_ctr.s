@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Cristian Cezar Moisés
+# Generated from jasmin/zupt_aes_ctr.jazz by jasminc.
 	.intel_syntax noprefix
 	.text
 	.p2align	5

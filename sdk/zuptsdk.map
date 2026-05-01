@@ -1,0 +1,98 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Cristian Cezar Moisés
+# libzuptsdk symbol version script
+# All public symbols are namespaced under ZUPTSDK_1.0.
+# Anything not listed here is hidden via `local: *;` — guaranteed no leakage
+# of internal zupt_*, vv_*, or other symbols from the static libraries we
+# link against.
+#
+# Adding new symbols in v1.x: add a new ZUPTSDK_1.x block that inherits from
+# the previous one. NEVER modify or remove symbols within an existing block.
+#
+# Verification: after build, `nm -D --defined-only libzuptsdk.so | grep ' T '`
+# must show ONLY symbols listed below.
+
+ZUPTSDK_1.0 {
+    global:
+        # Version
+        zuptsdk_version_string;
+        zuptsdk_version_check;
+
+        # Errors
+        zuptsdk_strerror;
+        zuptsdk_last_error_detail;
+
+        # Global config
+        zuptsdk_set_allocator;
+
+        # Context
+        zuptsdk_ctx_create;
+        zuptsdk_ctx_destroy;
+        zuptsdk_ctx_set_threads;
+        zuptsdk_ctx_set_progress_callback;
+        zuptsdk_ctx_set_log_callback;
+
+        # Options
+        zuptsdk_options_create;
+        zuptsdk_options_destroy;
+        zuptsdk_options_set_codec;
+        zuptsdk_options_set_level;
+        zuptsdk_options_set_dedup;
+        zuptsdk_options_set_solid;
+        zuptsdk_options_set_block_size;
+        zuptsdk_options_set_max_decompressed;
+
+        # Secure buffers
+        zuptsdk_secure_buf_create;
+        zuptsdk_secure_buf_destroy;
+        zuptsdk_secure_buf_get;
+        zuptsdk_secure_buf_from_data;
+
+        # Keys
+        zuptsdk_keypair_generate;
+        zuptsdk_keypair_destroy;
+        zuptsdk_keypair_save_private;
+        zuptsdk_keypair_save_public;
+        zuptsdk_privkey_load;
+        zuptsdk_privkey_destroy;
+        zuptsdk_pubkey_load;
+        zuptsdk_pubkey_destroy;
+        zuptsdk_privkey_get_public;
+
+        # Compress / decompress (buffer)
+        zuptsdk_compress_files;
+        zuptsdk_compress_buffer;
+        zuptsdk_extract_to_dir;
+        zuptsdk_extract_buffer;
+
+        # Compress / decompress (stream)
+        zuptsdk_compress_stream;
+        zuptsdk_decompress_stream;
+
+        # Verify / info
+        zuptsdk_verify;
+        zuptsdk_archive_info_read;
+        zuptsdk_archive_info_destroy;
+        zuptsdk_archive_info_format_major;
+        zuptsdk_archive_info_format_minor;
+        zuptsdk_archive_info_uuid;
+        zuptsdk_archive_info_created_unix;
+        zuptsdk_archive_info_size;
+        zuptsdk_archive_info_block_count;
+        zuptsdk_archive_info_is_encrypted;
+        zuptsdk_archive_info_is_pq_hybrid;
+        zuptsdk_archive_info_is_solid;
+        zuptsdk_archive_info_is_dedup;
+        zuptsdk_archive_info_is_disk_image;
+
+        # Disk
+        zuptsdk_disk_backup;
+        zuptsdk_disk_restore;
+
+        # Misc
+        zuptsdk_free;
+        zuptsdk_secure_zero;
+
+    local:
+        *;
+};

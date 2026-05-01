@@ -1,15 +1,47 @@
 #!/usr/bin/env python3
-"""Zupt GUI — Cross-Platform Post-Quantum Backup. Requires PySide6."""
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2025-2026 Cristian Cezar Moisés
+"""Zupt GUI — Cross-Platform Post-Quantum Backup.
+
+Tries PySide6 first (preferred), falls back to PyQt6 if PySide6 is
+not installed. PyQt6 is the default available package on Debian/Ubuntu
+without requiring pip; PySide6 ships with broader signal/slot semantics
+but the API surface used here is portable between the two.
+"""
 import sys, os, subprocess, shutil
 from pathlib import Path
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QLineEdit, QComboBox, QFileDialog,
-    QTextEdit, QProgressBar, QTabWidget, QFrame, QCheckBox,
-    QSpinBox, QMessageBox, QStatusBar, QScrollArea
-)
-from PySide6.QtCore import Qt, Signal, QObject, QThread
-from PySide6.QtGui import QPalette, QColor, QIcon, QPixmap
+
+# Try PySide6, fall back to PyQt6. The two have nearly-identical APIs;
+# the only adjustment needed is Signal/pyqtSignal naming, handled below.
+try:
+    from PySide6.QtWidgets import (
+        QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+        QLabel, QPushButton, QLineEdit, QComboBox, QFileDialog,
+        QTextEdit, QProgressBar, QTabWidget, QFrame, QCheckBox,
+        QSpinBox, QMessageBox, QStatusBar, QScrollArea
+    )
+    from PySide6.QtCore import Qt, Signal, QObject, QThread
+    from PySide6.QtGui import QPalette, QColor, QIcon, QPixmap
+    QT_BINDING = "PySide6"
+except ImportError:
+    try:
+        from PyQt6.QtWidgets import (
+            QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+            QLabel, QPushButton, QLineEdit, QComboBox, QFileDialog,
+            QTextEdit, QProgressBar, QTabWidget, QFrame, QCheckBox,
+            QSpinBox, QMessageBox, QStatusBar, QScrollArea
+        )
+        from PyQt6.QtCore import Qt, pyqtSignal as Signal, QObject, QThread
+        from PyQt6.QtGui import QPalette, QColor, QIcon, QPixmap
+        QT_BINDING = "PyQt6"
+    except ImportError:
+        sys.stderr.write(
+            "ERROR: zupt-gui requires PySide6 or PyQt6. Install one of:\n"
+            "  Debian/Ubuntu:  sudo apt install python3-pyqt6\n"
+            "  Fedora/RHEL:    sudo dnf install python3-pyqt6\n"
+            "  pip (any OS):   pip install PySide6\n"
+        )
+        sys.exit(1)
 
 # ── Find zupt binary ──
 def _find_zupt():
@@ -146,7 +178,7 @@ def Log(h=150):
     t = QTextEdit(); t.setReadOnly(True); t.setMaximumHeight(h); return t
 
 def PwField(ph="Optional"):
-    pw = QLineEdit(); pw.setEchoMode(QLineEdit.Password); pw.setPlaceholderText(ph); return pw
+    pw = QLineEdit(); pw.setEchoMode(QLineEdit.EchoMode.Password); pw.setPlaceholderText(ph); return pw
 
 class PathField(QWidget):
     def __init__(self, ph="", mode="open", filters="All Files (*)"):
@@ -178,7 +210,7 @@ class PathField(QWidget):
         if ps: self.edit.setText("|".join(ps) if self.mode == "multi" else ps[0])
 
 def scrollable(w):
-    sa = QScrollArea(); sa.setWidgetResizable(True); sa.setWidget(w); sa.setFrameShape(QFrame.NoFrame); return sa
+    sa = QScrollArea(); sa.setWidgetResizable(True); sa.setWidget(w); sa.setFrameShape(QFrame.Shape.NoFrame); return sa
 
 def run_async(parent, cmd, btn, log, progress=None):
     log.clear(); btn.setEnabled(False)
@@ -213,6 +245,11 @@ class KeysTab(QWidget):
         self.gen_priv = PathField("e.g. ~/zupt_private.key", "save", "Key (*.key);;All (*)")
         v.addWidget(self.gen_priv)
 
+        self.gen_sdk = QCheckBox("SDK v2 format (HKDF combiner + commitment + HPKE — recommended)")
+        self.gen_sdk.setChecked(True)
+        self.gen_sdk.setToolTip("Generates a libzuptsdk-format keypair. Use --pq-sdk in CLI or 'SDK v2' checkbox in compress to use these keys. Disable for legacy --pq compatibility.")
+        v.addWidget(self.gen_sdk)
+
         self.gen_btn = QPushButton("Generate Keypair")
         self.gen_btn.clicked.connect(self._generate)
         v.addWidget(self.gen_btn)
@@ -245,16 +282,25 @@ class KeysTab(QWidget):
         p = self.gen_priv.path() or str(Path.home() / "zupt_private.key")
         self.gen_priv.edit.setText(p)
         self.gen_log.clear(); self.gen_btn.setEnabled(False)
-        code, _, err = run_zupt(["keygen", "-o", p])
-        self.gen_log.append(err.strip())
-        if code == 0:
-            pub = p.rsplit(".", 1)[0] + "_public.key" if "." in p else p + ".pub"
-            c2, _, e2 = run_zupt(["keygen", "--pub", "-o", pub, "-k", p])
-            self.gen_log.append(e2.strip())
-            if c2 == 0:
-                self.gen_log.append(f"\nPrivate key:  {p}\nPublic key:   {pub}")
+        if self.gen_sdk.isChecked():
+            # SDK keygen creates both files in one step.
+            code, _, err = run_zupt(["keygen", "--sdk", "-o", p])
+            self.gen_log.append(err.strip())
+            if code == 0:
+                self.gen_log.append(f"\nPrivate key:  {p}\nPublic key:   {p}.pub")
+            else:
+                self.gen_log.append("\nFailed.")
         else:
-            self.gen_log.append("\nFailed.")
+            code, _, err = run_zupt(["keygen", "-o", p])
+            self.gen_log.append(err.strip())
+            if code == 0:
+                pub = p.rsplit(".", 1)[0] + "_public.key" if "." in p else p + ".pub"
+                c2, _, e2 = run_zupt(["keygen", "--pub", "-o", pub, "-k", p])
+                self.gen_log.append(e2.strip())
+                if c2 == 0:
+                    self.gen_log.append(f"\nPrivate key:  {p}\nPublic key:   {pub}")
+            else:
+                self.gen_log.append("\nFailed.")
         self.gen_btn.setEnabled(True)
 
     def _export(self):
@@ -296,7 +342,11 @@ class CompressTab(QWidget):
         v.addLayout(row); v.addWidget(Sep())
         enc = QHBoxLayout(); enc.setSpacing(16)
         pw = QVBoxLayout(); pw.addWidget(H("Password")); self.pw = PwField("AES-256"); pw.addWidget(self.pw); enc.addLayout(pw)
-        pq = QVBoxLayout(); pq.addWidget(H("PQ public key")); self.pq = PathField("Optional .key", filters="Key (*.key);;All (*)"); pq.addWidget(self.pq); enc.addLayout(pq)
+        pq = QVBoxLayout(); pq.addWidget(H("PQ public key")); self.pq = PathField("Optional .key", filters="Key (*.key *.pub);;All (*)"); pq.addWidget(self.pq); enc.addLayout(pq)
+        sdk_box = QVBoxLayout(); sdk_box.addWidget(H("Mode"))
+        self.sdk = QCheckBox("Use SDK v2 (HKDF + commitment + HPKE)"); self.sdk.setChecked(True)
+        self.sdk.setToolTip("v2.2+ uses libzuptsdk: HKDF-SHA3 combiner, key commitment, HPKE binding, Argon2id. Disable for legacy --pq compatibility.")
+        sdk_box.addWidget(self.sdk); sdk_box.addStretch(); enc.addLayout(sdk_box)
         v.addLayout(enc)
         self.btn = QPushButton("Compress"); self.btn.clicked.connect(self._run); v.addWidget(self.btn)
         self.progress = QProgressBar(); self.progress.setRange(0,0); self.progress.hide(); v.addWidget(self.progress)
@@ -319,7 +369,9 @@ class CompressTab(QWidget):
         if self.dedup.isChecked(): cmd.append("--dedup")
         if self.solid.isChecked(): cmd.append("--solid")
         if self.pw.text(): cmd += ["-p", self.pw.text()]
-        if self.pq.path(): cmd += ["--pq", self.pq.path()]
+        if self.pq.path():
+            flag = "--pq-sdk" if self.sdk.isChecked() else "--pq"
+            cmd += [flag, self.pq.path()]
         cmd.append(dst); cmd.extend(srcs)
         run_async(self, cmd, self.btn, self.log, self.progress)
 
@@ -337,6 +389,10 @@ class ExtractTab(QWidget):
         enc = QHBoxLayout(); enc.setSpacing(16)
         pw = QVBoxLayout(); pw.addWidget(H("Password")); self.pw = PwField(); pw.addWidget(self.pw); enc.addLayout(pw)
         pq = QVBoxLayout(); pq.addWidget(H("PQ private key")); self.pq = PathField("Optional .key", filters="Key (*.key);;All (*)"); pq.addWidget(self.pq); enc.addLayout(pq)
+        sdk_box = QVBoxLayout(); sdk_box.addWidget(H("Mode"))
+        self.sdk = QCheckBox("Auto-detect (SDK or legacy)"); self.sdk.setChecked(True)
+        self.sdk.setToolTip("Tries --pq-sdk first, falls back to --pq for legacy archives.")
+        sdk_box.addWidget(self.sdk); sdk_box.addStretch(); enc.addLayout(sdk_box)
         v.addLayout(enc)
         self.btn = QPushButton("Extract"); self.btn.setObjectName("green"); self.btn.clicked.connect(self._run); v.addWidget(self.btn)
         self.progress = QProgressBar(); self.progress.setRange(0,0); self.progress.hide(); v.addWidget(self.progress)
@@ -350,7 +406,12 @@ class ExtractTab(QWidget):
         cmd = ["extract"]
         if self.out.path(): cmd += ["-o", self.out.path()]
         if self.pw.text(): cmd += ["-p", self.pw.text()]
-        if self.pq.path(): cmd += ["--pq", self.pq.path()]
+        if self.pq.path():
+            # Auto-detect: zupt's extract auto-discovers enc type from header,
+            # so passing --pq-sdk works for both SDK and legacy keyfiles when
+            # the archive is SDK-encoded; --pq is needed for legacy archives.
+            flag = "--pq-sdk" if self.sdk.isChecked() else "--pq"
+            cmd += [flag, self.pq.path()]
         cmd.append(arc)
         run_async(self, cmd, self.btn, self.log, self.progress)
 
@@ -433,7 +494,8 @@ class DiskTab(QWidget):
     def _restore(self):
         a, t = self.rarc.path(), self.rtgt.path()
         if not a or not t: QMessageBox.warning(self, "Zupt", "Set archive and target."); return
-        if QMessageBox.warning(self, "Confirm", f"OVERWRITE {t}?", QMessageBox.Yes|QMessageBox.Cancel) != QMessageBox.Yes: return
+        SB = QMessageBox.StandardButton
+        if QMessageBox.warning(self, "Confirm", f"OVERWRITE {t}?", SB.Yes|SB.Cancel) != SB.Yes: return
         cmd = ["disk", "restore"]
         if self.rpw.text(): cmd += ["-p", self.rpw.text()]
         cmd += [a, t]; run_async(self, cmd, self.rbtn, self.rlog)
@@ -462,11 +524,11 @@ class AboutTab(QWidget):
             ("SHA3/SHAKE     FIPS 202     Hash / XOF", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("", ""),
             ("CREDITS", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
-            ("zupt        Cristian Cezar Moises        AGPL-3.0", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("github.com/cristiancmoises/zupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
+            ("zupt        Cristian Cezar Moises        MIT", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("git.securityops.co/cristiancmoises/zupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
             ("", ""),
-            ("libzupt     Alessandro de Oliveira Faria  MIT", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("github.com/cabelo/libzupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
+            ("zupt        Cristian Cezar Moises          AGPL-3.0+", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("git.securityops.co/cristiancmoises/zupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
             ("", ""),
             ("WEBSITE", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
             ("https://zupt.securityops.co", "color:#5a7a88;font-size:12px;font-family:monospace;"),
@@ -555,10 +617,13 @@ def main():
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
     pal = QPalette()
-    for role, c in [(QPalette.Window,"#0a0a0a"),(QPalette.WindowText,"#90acb8"),
-        (QPalette.Base,"#0e1820"),(QPalette.Text,"#c0dce8"),
-        (QPalette.Button,"#0a2028"),(QPalette.ButtonText,"#00dde0"),
-        (QPalette.Highlight,"#004858"),(QPalette.HighlightedText,"#00dde0")]:
+    # PyQt6 requires scoped enums (QPalette.ColorRole.Window); PySide6 supports
+    # both forms but we use the scoped form for cross-binding compatibility.
+    CR = QPalette.ColorRole
+    for role, c in [(CR.Window,"#0a0a0a"),(CR.WindowText,"#90acb8"),
+        (CR.Base,"#0e1820"),(CR.Text,"#c0dce8"),
+        (CR.Button,"#0a2028"),(CR.ButtonText,"#00dde0"),
+        (CR.Highlight,"#004858"),(CR.HighlightedText,"#00dde0")]:
         pal.setColor(role, QColor(c))
     app.setPalette(pal)
     win = ZuptWindow(compress_files=compress_files, extract_file=extract_file)

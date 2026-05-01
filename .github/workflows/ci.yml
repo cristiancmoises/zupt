@@ -1,0 +1,104 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 Cristian Cezar Moisés
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libargon2-dev libargon2-1 \
+            libssl-dev libssl3 \
+            python3
+
+      - name: Build zupt
+        run: make
+
+      - name: Run quick tests
+        run: make test
+
+      - name: Run audit suite
+        run: bash tests/test_audit.sh
+
+      - name: Run dedup property tests
+        run: bash tests/test_dedup_props.sh
+
+  asan-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libargon2-dev libssl-dev
+
+      - name: Build zupt (release)
+        run: make
+
+      - name: Build zupt (ASAN/UBSAN)
+        run: make test-asan
+
+      - name: Run all suites under ASAN/UBSAN
+        env:
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+        run: make test-asan-run
+
+  fuzz-format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libargon2-dev libssl-dev
+
+      - name: Build zupt + ASAN binary
+        run: |
+          make
+          make test-asan
+
+      - name: Build fuzz harness
+        run: make fuzz-format
+
+      - name: Run 1000 fuzz iterations under ASAN/UBSAN
+        env:
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+        run: make fuzz-format-run
+
+  package-deb:
+    runs-on: ubuntu-24.04
+    needs: [build-and-test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libargon2-dev libssl-dev dpkg-dev
+
+      - name: Build zupt
+        run: make
+
+      - name: Build .deb
+        run: bash packaging/build-deb.sh
+
+      - name: Build GUI .deb
+        run: bash packaging/build-gui-deb.sh
+
+      - name: Verify deb installs
+        run: |
+          sudo dpkg -i /tmp/zupt_*.deb
+          zupt version
+          which zupt
+          ls /usr/include/zuptsdk*.h

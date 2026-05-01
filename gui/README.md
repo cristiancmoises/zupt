@@ -1,6 +1,6 @@
 # Zupt GUI — Cross-Platform Post-Quantum Backup
 
-Desktop application for [zupt](https://github.com/cristiancmoises/zupt) backup compression with ML-KEM-768 + X25519 post-quantum hybrid encryption.
+Desktop application for [zupt](https://git.securityops.co/cristiancmoises/zupt) backup compression with ML-KEM-768 + X25519 post-quantum hybrid encryption.
 
 Works on GNU/Linux, BSD, macOS, and Windows.
 
@@ -111,7 +111,7 @@ The GUI calls the zupt CLI binary — all cryptography runs in native C, not Pyt
 |----------|--------|------|
 | Any | pip | `pip install .` |
 | Debian/Ubuntu/Mint | .deb | `packaging/deb/control` |
-| Fedora/openSUSE | .rpm | `rpmbuild -ba packaging/rpm/zupt-gui.spec` |
+| Fedora/RHEL | .rpm | `rpmbuild -ba packaging/rpm/zupt-gui.spec` |
 | Universal Linux | .AppImage | `packaging/appimage/build-appimage.sh` |
 | Sandboxed Linux | .flatpak | `packaging/flatpak/dev.zupt.gui.yml` |
 | Windows | .exe installer | `packaging/windows/build-windows.bat` |
@@ -119,11 +119,8 @@ The GUI calls the zupt CLI binary — all cryptography runs in native C, not Pyt
 
 ## Credits
 
-- **zupt** v2.1.6 — Cristian Cezar Moises ([github](https://github.com/cristiancmoises/zupt))
-- **libzupt** v1.0.2 — Alessandro de Oliveira Faria ([github](https://github.com/cabelo/libzupt))
+- **zupt** v2.2.2 — Cristian Cezar Moisés ([github](https://git.securityops.co/cristiancmoises/zupt))
 
 ## License
 
-**AGPL-3.0-or-later** — see [LICENSE-GUI](LICENSE-GUI) and the project-root [LICENSE](../LICENSE).
-
-For commercial licensing inquiries, contact: **sac@securityops.co**
+AGPL-3.0-or-later

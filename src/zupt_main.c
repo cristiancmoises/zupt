@@ -1,10 +1,7 @@
 /*
- * ZUPT - CLI v1.5.0
- *
  * SPDX-License-Identifier: AGPL-3.0-or-later
- * Copyright (C) 2026 Cristian Cezar Moisés
- * Commercial licensing: sac@securityops.co
- *
+ * Copyright (c) 2025-2026 Cristian Cezar Moisés
+ * ZUPT - CLI v1.5.0
  * Multi-threaded compression, AES-256 encryption, progress bars
  */
 #include "zupt.h"
@@ -57,34 +54,58 @@ static void usage(void) {
         "  --vv, --vaptvupt      Use VaptVupt codec (fast LZ + ANS entropy)\n"
         "  --lzhp                Use Zupt-LZHP codec (LZ77+Huffman, no SIMD needed)\n"
         "  -p, --password <PW>   Encrypt with AES-256 (prompted if empty)\n"
+        "  --pq <pubkey>         Post-quantum encryption (legacy XOR+SHA3 combiner)\n"
+        "  --pq-sdk <pubkey>     Post-quantum encryption via libzuptsdk\n"
+        "                          (HKDF combiner + key commitment + HPKE binding\n"
+        "                          + Argon2id; recommended for new archives)\n"
+        "  --dedup, -D           Block-level deduplication\n"
+        "  --solid               Solid mode (single stream)\n"
         "  -v, --verbose         Verbose per-file output\n"
         "  -t, --threads <N>     Thread count (0=auto, 1=single, 2-64=explicit)\n"
         "\n"
         "Extract/List/Test Options:\n"
         "  -o, --output <DIR>    Output directory (extract only)\n"
         "  -p, --password <PW>   Decryption password\n"
-        "  -pq,--post-quantum    Post-quantum Encryption|Decryption \n"
+        "  --pq <privkey>        Post-quantum decryption (legacy combiner)\n"
+        "  --pq-sdk <privkey>    Post-quantum decryption via libzuptsdk\n"
         "  -v, --verbose         Verbose output\n"
         "  -t, --threads <N>     Thread count for decompression\n"
+        "\n"
+        "Keygen Options:\n"
+        "  -o <file>             Output keyfile path (required)\n"
+        "  --pub                 Export public key from existing private key (-k)\n"
+        "  -k <privkey>          Source private keyfile (with --pub)\n"
+        "  --sdk, --pq-sdk       Generate SDK v2 keypair (writes <file> and <file>.pub)\n"
+        "                          Use these keys with --pq-sdk on compress/extract.\n"
         "\n"
         "Directories are traversed recursively.\n"
         "\n"
         "Examples:\n"
-        "  zupt keygen -o mykey.key                               # Generate keypair\n"
-        "  zupt keygen --pub -o pub.key -k mykey.key              # Export public key\n"
-        "  zupt compress --pq pub.key backup.zupt ~/Documents/    # Encrypt with public key\n" 
-        "  zupt extract --pq mykey.key -o ~/restored/ backup.zupt # Decrypt with private key\n"
-        "  zupt compress backup.zupt ~/Documents/                 # Compress (without password)\n" 
-        "  zupt compress -l 9 -p mysecret secure.zupt data/       # High Compression with password\n"
-        "  zupt list secure.zupt -p mysecret                      # List\n"
-        "  zupt extract -o restored/ -p mysecret secure.zupt      # Extract with password\n"
+        "  # Legacy PQ workflow\n"
+        "  zupt keygen -o mykey.key                                   # Generate keypair\n"
+        "  zupt keygen --pub -o pub.key -k mykey.key                  # Export public key\n"
+        "  zupt compress --pq pub.key backup.zupt ~/Documents/        # Encrypt\n"
+        "  zupt extract  --pq mykey.key backup.zupt -o ~/restored/    # Decrypt\n"
+        "\n"
+        "  # SDK v2 PQ workflow (recommended for new archives)\n"
+        "  zupt keygen --sdk -o mykey.priv                            # Writes mykey.priv + .pub\n"
+        "  zupt compress --pq-sdk mykey.priv.pub backup.zupt files/   # Encrypt (HKDF+commit+HPKE)\n"
+        "  zupt extract  --pq-sdk mykey.priv backup.zupt              # Decrypt\n"
+        "\n"
+        "  # Conventional / password\n"
+        "  zupt compress backup.zupt ~/Documents/                     # No encryption\n"
+        "  zupt compress -l 9 -p mysecret secure.zupt data/           # Password + max compression\n"
+        "  zupt list secure.zupt -p mysecret                          # List with password\n"
+        "  zupt extract -o restored/ -p mysecret secure.zupt          # Extract with password\n"
         "  zupt bench ~/Documents/                                # Benchmark\n"
         "\n"
         "Compression: LZ77 (1MB window) + Huffman entropy coding\n"
         "Security:    AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)\n"
         "KDF:         PBKDF2-SHA256 (600,000 iterations)\n"
         "\n"
-        "License: AGPL-3.0-or-later (commercial: sac@securityops.co)\n"
+        "License: AGPL-3.0-or-later (Zupt) + GPL-3.0-or-later (VaptVupt codec)\n"
+        "         Commercial license available: sac@securityops.co\n"
+        "Project: https://git.securityops.co/cristiancmoises/zupt\n"
     );
 }
 
@@ -129,7 +150,10 @@ int main(int argc, char **argv) {
     if (streq(cmd,"help")||streq(cmd,"--help")||streq(cmd,"-h")) { usage(); return 0; }
     if (streq(cmd,"version")||streq(cmd,"--version")||streq(cmd,"-V")) {
         printf("zupt %s\nFormat: v%d.%d\nCodec: Zupt-LZ (0x%04X)\n"
-               "Encryption: AES-256-CTR+HMAC-SHA256\nKDF: PBKDF2-SHA256 (%d iter)\n",
+               "Encryption: AES-256-CTR+HMAC-SHA256\nKDF: PBKDF2-SHA256 (%d iter)\n"
+               "License: AGPL-3.0-or-later (Zupt) + GPL-3.0-or-later (VaptVupt)\n"
+               "Project: https://git.securityops.co/cristiancmoises/zupt\n"
+               "Commercial: sac@securityops.co\n",
                ZUPT_VERSION_STRING, ZUPT_FORMAT_MAJOR, ZUPT_FORMAT_MINOR,
                ZUPT_CODEC_ZUPT_LZ, ZUPT_KDF_ITERATIONS);
         return 0;
@@ -180,6 +204,15 @@ int main(int argc, char **argv) {
                 opts.threads=atoi(argv[++ai]);
                 if(opts.threads<0)opts.threads=0;
                 if(opts.threads>ZUPT_MAX_THREADS)opts.threads=ZUPT_MAX_THREADS;
+            } else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
+                opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
+                opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
+                opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             } else if (streq(argv[ai],"--pq")&&ai+1<argc) {
                 opts.pq_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
@@ -260,8 +293,16 @@ int main(int argc, char **argv) {
     if (streq(cmd,"extract")||streq(cmd,"x")) {
         zupt_options_t opts; zupt_default_options(&opts);
         const char *outdir = NULL;
+        const char *archive = NULL;
+        /* POSIX-friendly: accept options before OR after the positional
+         * archive argument. Scan all argv from index 2; pick first
+         * non-option as archive, parse all options regardless of order. */
         int ai = 2;
-        while (ai<argc && isopt(argv[ai])) {
+        while (ai < argc) {
+            if (!isopt(argv[ai])) {
+                if (!archive) { archive = argv[ai]; ai++; continue; }
+                fprintf(stderr, "Error: unexpected extra argument '%s'\n", argv[ai]); return 1;
+            }
             if ((streq(argv[ai],"-o")||streq(argv[ai],"--output"))&&ai+1<argc)
                 outdir = argv[++ai];
             else if (streq(argv[ai],"-p")||streq(argv[ai],"--password")) {
@@ -274,16 +315,19 @@ int main(int argc, char **argv) {
                 if(opts.threads<0)opts.threads=0;
                 if(opts.threads>ZUPT_MAX_THREADS)opts.threads=ZUPT_MAX_THREADS;
             }
-            else if (streq(argv[ai],"--pq")&&ai+1<argc) {
+            else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
+                opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--pq")&&ai+1<argc) {
                 opts.pq_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             }
             else { fprintf(stderr,"Unknown option '%s'\n",argv[ai]); return 1; }
             ai++;
         }
-        if (ai>=argc) { fprintf(stderr,"Error: extract requires <archive.zupt>\n"); return 1; }
+        if (!archive) { fprintf(stderr,"Error: extract requires <archive.zupt>\n"); return 1; }
         banner();
-        zupt_error_t err = zupt_extract_archive(argv[ai], outdir, &opts);
+        zupt_error_t err = zupt_extract_archive(archive, outdir, &opts);
         zupt_secure_wipe(opts.password, sizeof(opts.password));
         return err==ZUPT_OK ? 0 : 1;
     }
@@ -291,23 +335,31 @@ int main(int argc, char **argv) {
     /* ─── list ─── */
     if (streq(cmd,"list")||streq(cmd,"l")) {
         zupt_options_t opts; zupt_default_options(&opts);
+        const char *archive = NULL;
         int ai = 2;
-        while (ai<argc && isopt(argv[ai])) {
+        while (ai < argc) {
+            if (!isopt(argv[ai])) {
+                if (!archive) { archive = argv[ai]; ai++; continue; }
+                fprintf(stderr, "Error: unexpected extra argument '%s'\n", argv[ai]); return 1;
+            }
             if (streq(argv[ai],"-v")||streq(argv[ai],"--verbose")) opts.verbose=1;
             else if (streq(argv[ai],"-p")||streq(argv[ai],"--password")) {
                 opts.encrypt=1;
                 if (ai+1<argc && !isopt(argv[ai+1])) strncpy(opts.password,argv[++ai],sizeof(opts.password)-1);
                 else prompt_password("Password: ", opts.password, sizeof(opts.password));
             }
-            else if (streq(argv[ai],"--pq")&&ai+1<argc) {
+            else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
+                opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--pq")&&ai+1<argc) {
                 opts.pq_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             }
             else { fprintf(stderr,"Unknown option '%s'\n",argv[ai]); return 1; }
             ai++;
         }
-        if (ai>=argc) { fprintf(stderr,"Error: list requires <archive.zupt>\n"); return 1; }
-        zupt_error_t err = zupt_list_archive(argv[ai], &opts);
+        if (!archive) { fprintf(stderr,"Error: list requires <archive.zupt>\n"); return 1; }
+        zupt_error_t err = zupt_list_archive(archive, &opts);
         zupt_secure_wipe(opts.password, sizeof(opts.password));
         return err==ZUPT_OK ? 0 : 1;
     }
@@ -315,24 +367,32 @@ int main(int argc, char **argv) {
     /* ─── test ─── */
     if (streq(cmd,"test")||streq(cmd,"t")) {
         zupt_options_t opts; zupt_default_options(&opts);
+        const char *archive = NULL;
         int ai = 2;
-        while (ai<argc && isopt(argv[ai])) {
+        while (ai < argc) {
+            if (!isopt(argv[ai])) {
+                if (!archive) { archive = argv[ai]; ai++; continue; }
+                fprintf(stderr, "Error: unexpected extra argument '%s'\n", argv[ai]); return 1;
+            }
             if (streq(argv[ai],"-v")||streq(argv[ai],"--verbose")) opts.verbose=1;
             else if (streq(argv[ai],"-p")||streq(argv[ai],"--password")) {
                 opts.encrypt=1;
                 if (ai+1<argc && !isopt(argv[ai+1])) strncpy(opts.password,argv[++ai],sizeof(opts.password)-1);
                 else prompt_password("Password: ", opts.password, sizeof(opts.password));
             }
-            else if (streq(argv[ai],"--pq")&&ai+1<argc) {
+            else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
+                opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--pq")&&ai+1<argc) {
                 opts.pq_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             }
             else { fprintf(stderr,"Unknown option '%s'\n",argv[ai]); return 1; }
             ai++;
         }
-        if (ai>=argc) { fprintf(stderr,"Error: test requires <archive.zupt>\n"); return 1; }
+        if (!archive) { fprintf(stderr,"Error: test requires <archive.zupt>\n"); return 1; }
         banner();
-        zupt_error_t err = zupt_test_archive(argv[ai], &opts);
+        zupt_error_t err = zupt_test_archive(archive, &opts);
         zupt_secure_wipe(opts.password, sizeof(opts.password));
         return err==ZUPT_OK ? 0 : 1;
     }
@@ -627,6 +687,7 @@ int main(int argc, char **argv) {
         const char *outfile = NULL;
         const char *privfile = NULL;
         int export_pub = 0;
+        int sdk_mode = 0;
         int ai = 2;
         while (ai < argc && isopt(argv[ai])) {
             if ((streq(argv[ai],"-o")||streq(argv[ai],"--output")) && ai+1 < argc)
@@ -635,6 +696,8 @@ int main(int argc, char **argv) {
                 privfile = argv[++ai];
             else if (streq(argv[ai],"--pub"))
                 export_pub = 1;
+            else if (streq(argv[ai],"--sdk")||streq(argv[ai],"--pq-sdk"))
+                sdk_mode = 1;
             else { fprintf(stderr, "Unknown option '%s'\n", argv[ai]); return 1; }
             ai++;
         }
@@ -654,6 +717,16 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "Error: Failed to export public key.\n"); return 1;
             }
             fprintf(stderr, "  Public key written to: %s\n", outfile);
+        } else if (sdk_mode) {
+            fprintf(stderr, "  Generating ML-KEM-768 + X25519 keypair (SDK-v2 format)...\n");
+            char pubfile[512];
+            snprintf(pubfile, sizeof(pubfile), "%s.pub", outfile);
+            if (zupt_sdk_hybrid_keygen(outfile, pubfile) != 0) {
+                fprintf(stderr, "Error: SDK key generation failed.\n"); return 1;
+            }
+            fprintf(stderr, "  Private key:  %s\n", outfile);
+            fprintf(stderr, "  Public key:   %s\n", pubfile);
+            fprintf(stderr, "  SECURITY: Keep the private key file secret.\n");
         } else {
             fprintf(stderr, "  Generating ML-KEM-768 + X25519 keypair...\n");
             if (zupt_hybrid_keygen(outfile) != 0) {

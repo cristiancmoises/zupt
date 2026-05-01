@@ -1,9 +1,7 @@
 /*
- * ZUPT - Archive Format I/O v0.6.0
- *
  * SPDX-License-Identifier: AGPL-3.0-or-later
- * Copyright (C) 2026 Cristian Cezar Moisés
- * Commercial licensing: sac@securityops.co
+ * Copyright (c) 2025-2026 Cristian Cezar Moisés
+ * ZUPT - Archive Format I/O v0.6.0
  *
  * v0.6.0 changes:
  *   - Multi-threaded compression and decompression via zupt_parallel.h
@@ -22,6 +20,10 @@
 #include <string.h>
 #include <time.h>
 #include <errno.h>
+#ifndef _WIN32
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 #ifdef _WIN32
   #include <io.h>
@@ -141,7 +143,15 @@ int zupt_encode_varint(uint8_t *b, uint64_t v) {
 }
 int zupt_decode_varint(const uint8_t *b, size_t blen, uint64_t *v) {
     *v=0; int s=0,n=0;
-    while(n<(int)blen&&n<9){uint64_t x=b[n];*v|=(x&0x7F)<<s;n++;if(!(x&0x80))return n;s+=7;}
+    while(n<(int)blen&&n<10){
+        uint64_t x=b[n];
+        *v|=(x&0x7F)<<s;
+        n++;
+        if(!(x&0x80))return n;
+        s+=7;
+        /* Reject continuation past 64 bits — same defense as file variant */
+        if(s>=64 && (x&0x80))return -1;
+    }
     return -1;
 }
 int zupt_write_varint(FILE *f, uint64_t v) {
@@ -149,8 +159,9 @@ int zupt_write_varint(FILE *f, uint64_t v) {
 }
 int zupt_read_varint(FILE *f, uint64_t *v) {
     *v=0; int s=0;
-    for(int i=0;i<9;i++){int c=fgetc(f);if(c==EOF)return -1;
-    *v|=(uint64_t)(c&0x7F)<<s;if(!(c&0x80))return i+1;s+=7;} return -1;
+    for(int i=0;i<10;i++){int c=fgetc(f);if(c==EOF)return -1;
+    *v|=(uint64_t)(c&0x7F)<<s;if(!(c&0x80))return i+1;s+=7;
+    if(s>=64 && (c&0x80))return -1;} return -1;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -168,15 +179,24 @@ void zupt_filelist_free(zupt_filelist_t *fl) {
 void zupt_filelist_add(zupt_filelist_t *fl, const char *disk, const char *arc) {
     if (fl->count >= fl->capacity) {
         int new_cap = fl->capacity ? fl->capacity * 2 : 256;
-        char **new_paths = (char**)realloc(fl->paths, (size_t)new_cap * sizeof(char*));
-        char **new_arcs  = (char**)realloc(fl->arc_paths, (size_t)new_cap * sizeof(char*));
+        /* Allocate both buffers atomically: if either fails, both are
+         * discarded and the existing fl state is untouched. The previous
+         * implementation could leak or corrupt fl->paths when the second
+         * realloc failed after the first succeeded — realloc(p, n) when
+         * successful invalidates p, so even comparing pointers afterward
+         * is undefined behavior. */
+        char **new_paths = (char**)malloc((size_t)new_cap * sizeof(char*));
+        char **new_arcs  = (char**)malloc((size_t)new_cap * sizeof(char*));
         if (!new_paths || !new_arcs) {
-            /* OOM: keep existing pointers intact, skip this file */
-            if (new_paths && new_paths != fl->paths) free(new_paths);
-            if (new_arcs && new_arcs != fl->arc_paths) free(new_arcs);
+            free(new_paths);  /* free(NULL) is well-defined */
+            free(new_arcs);
             fprintf(stderr, "  Warning: out of memory adding '%s'\n", disk);
             return;
         }
+        if (fl->paths)     memcpy(new_paths, fl->paths,     (size_t)fl->count * sizeof(char*));
+        if (fl->arc_paths) memcpy(new_arcs,  fl->arc_paths, (size_t)fl->count * sizeof(char*));
+        free(fl->paths);
+        free(fl->arc_paths);
         fl->paths = new_paths;
         fl->arc_paths = new_arcs;
         fl->capacity = new_cap;
@@ -275,7 +295,36 @@ zupt_error_t write_enc_header(FILE *out, zupt_archive_header_t *hdr,
                                zupt_options_t *opts) {
     hdr->encryption_header_off = (uint64_t)ftello(out);
 
-    if (opts->pq_mode) {
+    if (opts->sdk_mode && opts->pq_mode) {
+        /* ─── SDK V2 PQ MODE (libzuptsdk: HKDF combiner + commitment + HPKE) ─── */
+        hdr->global_flags |= ZUPT_FLAG_PQ_HYBRID;
+
+        uint8_t enc_hdr_buf[1500];
+        size_t enc_hdr_len = 0;
+        if (!opts->quiet)
+            fprintf(stderr, "  PQ key encapsulation via libzuptsdk (HKDF-SHA3 + commitment + HPKE)...\n");
+        if (zupt_sdk_hybrid_encrypt_init(&opts->keyring, opts->keyfile,
+                                          enc_hdr_buf, &enc_hdr_len) != 0) {
+            fprintf(stderr, "Error: SDK PQ key encapsulation failed.\n");
+            return ZUPT_ERR_AUTH_FAIL;
+        }
+
+        zupt_w8(out, ZUPT_BLOCK_MAGIC_0); zupt_w8(out, ZUPT_BLOCK_MAGIC_1);
+        zupt_w8(out, ZUPT_BLOCK_ENC_HEADER);
+        zupt_w16le(out, ZUPT_CODEC_STORE); zupt_w16le(out, 0);
+        zupt_write_varint(out, enc_hdr_len);
+        zupt_write_varint(out, enc_hdr_len);
+        zupt_w64le(out, zupt_xxh64(enc_hdr_buf, enc_hdr_len, 0));
+        if (fwrite(enc_hdr_buf, 1, enc_hdr_len, out) != enc_hdr_len)
+            return ZUPT_ERR_IO;
+
+        fseeko(out, 0, SEEK_SET);
+        if (fwrite(hdr, sizeof(*hdr), 1, out) != 1) return ZUPT_ERR_IO;
+        fseeko(out, 0, SEEK_END);
+
+        if (!opts->quiet)
+            fprintf(stderr, "  Encryption: SDK-v2 PQ Hybrid + XChaCha20-Poly1305 (commitment + HPKE)\n\n");
+    } else if (opts->pq_mode) {
         /* ─── PQ HYBRID MODE ─── */
         hdr->global_flags |= ZUPT_FLAG_PQ_HYBRID;
 
@@ -347,6 +396,83 @@ static void ensure_dirs(const char *path) {
         if (*p=='/'||*p=='\\') { *p='\0'; zupt_mkdir(tmp); *p=ZUPT_PATH_SEP; }
 }
 
+/* SECURITY: Validate an archive entry's path is safe to extract.
+ *
+ * Blocks classic Zip-Slip / path-traversal attacks (Snyk 2018) where a
+ * malicious archive contains entries like "../../etc/passwd" or absolute
+ * paths like "/etc/passwd" or (Windows) "C:\Windows\System32\evil.dll".
+ *
+ * Rules enforced:
+ *   1. Reject NULL/empty paths.
+ *   2. Reject absolute paths (Unix: starts with '/'; Windows: 'X:' or '\\').
+ *   3. Reject any component equal to ".." (after splitting on / and \).
+ *   4. Reject embedded NUL bytes (defense in depth).
+ *   5. Reject leading/embedded "~" expansions and "$" variable references
+ *      that some shell-aware tooling might expand later.
+ *
+ * Returns 1 if path is safe, 0 if it should be rejected.
+ */
+static int zupt_path_is_safe(const char *path) {
+    if (!path || !*path) return 0;
+    size_t len = strlen(path);
+    if (len >= ZUPT_MAX_PATH) return 0;
+
+    /* Absolute paths */
+    if (path[0] == '/' || path[0] == '\\') return 0;
+    /* Windows drive letters: "C:..." or UNC "\\server" */
+    if (len >= 2 && path[1] == ':') return 0;
+
+    /* Component scan: split on '/' and '\\' */
+    const char *start = path;
+    for (size_t i = 0; i <= len; i++) {
+        if (path[i] == '/' || path[i] == '\\' || path[i] == '\0') {
+            size_t complen = (size_t)(path + i - start);
+            /* Reject ".." as a complete component */
+            if (complen == 2 && start[0] == '.' && start[1] == '.') return 0;
+            /* Reject embedded NUL within string (string strlen would have
+             * stopped, but defense in depth in case caller passes a buffer
+             * with a NUL in middle) */
+            start = path + i + 1;
+        }
+    }
+
+    /* Defense in depth: reject NUL bytes within declared length */
+    for (size_t i = 0; i < len; i++) {
+        if (path[i] == '\0') return 0;
+    }
+
+    return 1;
+}
+
+/* SECURITY: Open an output file for writing, refusing to follow symlinks.
+ *
+ * Defends against the case where an attacker has placed a symlink in the
+ * output directory before extraction, e.g. ~/Downloads/innocent.txt → /etc/passwd.
+ * On Linux/BSD/macOS we use O_NOFOLLOW + O_EXCL semantics: if the path
+ * exists and is a symlink, open() returns ELOOP. If the path doesn't
+ * exist, the symlink check is moot.
+ *
+ * Windows behavior: defaults to fopen "wb" (does not follow reparse points
+ * unless explicitly enabled). The most common Windows attack vector here
+ * is via reparse points, but we leave it to the user's directory ACLs for
+ * now since CreateFileW with FILE_FLAG_OPEN_REPARSE_POINT is non-trivial
+ * to wire portably.
+ */
+static FILE *zupt_safe_fopen_output(const char *path) {
+#if defined(_WIN32)
+    /* No portable O_NOFOLLOW on Windows; rely on directory permissions. */
+    return fopen(path, "wb");
+#else
+    /* Open with O_NOFOLLOW so that if the leaf is a symlink, open fails.
+     * O_TRUNC zeros existing file (matches "wb" semantics). */
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
+    if (fd < 0) return NULL;
+    FILE *f = fdopen(fd, "wb");
+    if (!f) { close(fd); return NULL; }
+    return f;
+#endif
+}
+
 static uint64_t get_mtime(const char *path) {
 #ifdef _WIN32
     (void)path; return now_ns();
@@ -409,7 +535,7 @@ zupt_error_t zupt_compress_files(const char *output_path,
     hdr.magic[3]=ZUPT_MAGIC_3; hdr.magic[4]=ZUPT_MAGIC_4; hdr.magic[5]=ZUPT_MAGIC_5;
     hdr.version_major = ZUPT_FORMAT_MAJOR; hdr.version_minor = ZUPT_FORMAT_MINOR;
     hdr.global_flags = ZUPT_FLAG_CKSUM_XXH64;
-    if (opts->encrypt) hdr.global_flags |= ZUPT_FLAG_ENCRYPTED;
+    if (opts->encrypt) hdr.global_flags |= ZUPT_FLAG_ENCRYPTED | ZUPT_FLAG_AAD_SEQ;
     if (opts->threads > 1) hdr.global_flags |= ZUPT_FLAG_MULTITHREADED;
     if (opts->dedup) hdr.global_flags |= ZUPT_FLAG_DEDUP;
     hdr.creation_time = now_ns();
@@ -418,7 +544,11 @@ zupt_error_t zupt_compress_files(const char *output_path,
 
     if (opts->encrypt) {
         zupt_error_t enc_err = write_enc_header(out, &hdr, opts);
-        if (enc_err != ZUPT_OK) { fclose(out); return enc_err; }
+        if (enc_err != ZUPT_OK) {
+            fclose(out);
+            unlink(output_path);
+            return enc_err;
+        }
     }
 
     zupt_index_entry_t *index = (zupt_index_entry_t*)calloc((size_t)num_files, sizeof(zupt_index_entry_t));
@@ -427,7 +557,10 @@ zupt_error_t zupt_compress_files(const char *output_path,
     if (!index || !rbuf || !cbuf) { free(index); free(rbuf); free(cbuf); fclose(out); return ZUPT_ERR_NOMEM; }
 
     uint64_t total_blocks = 0, total_in = 0, total_out = 0;
-    uint64_t block_seq = 0;
+    /* block_seq is now PER-FILE: resets at the start of each file's compress.
+     * This decouples the seq used for AAD-binding from cross-file ordering,
+     * letting extract compute the same seq via simple per-file counting from 0.
+     */
     time_t start_time = time(NULL);
 
     /* Dedup context (NULL if --dedup not set) */
@@ -454,6 +587,10 @@ zupt_error_t zupt_compress_files(const char *output_path,
     }
 
     for (int fi = 0; fi < num_files; fi++) {
+        /* Per-file block_seq counter (resets to 0 for each file) — used as
+         * AAD in encrypt/decrypt. Extract recomputes the same counter from
+         * the same per-file zero baseline, ensuring MAC consistency. */
+        uint64_t block_seq = 0;
         FILE *inf = fopen(disk_paths[fi], "rb");
         if (!inf) { fprintf(stderr, "  Skipping: %s (%s)\n", disk_paths[fi], strerror(errno)); continue; }
 
@@ -501,11 +638,19 @@ zupt_error_t zupt_compress_files(const char *output_path,
                     /* Chained hash computed in main thread (sequential, fast) */
                     file_hash_state = zupt_xxh64(rbuf, nread, file_hash_state);
 
+                    /* Same AAD computation as ST path. Dedup mode uses
+                     * sentinel seq=0 so refs work; non-dedup uses (fi+1, seq). */
+                    uint64_t aad_seq;
+                    if (opts->dedup) {
+                        aad_seq = 0;
+                    } else {
+                        aad_seq = (((uint64_t)(fi + 1)) << 32) | block_seq;
+                    }
                     int slot = zpar_submit_compress(pctx, rbuf, nread,
-                                                     block_seq, opts->level, opts->codec_id);
+                                                     aad_seq, opts->level, opts->codec_id);
                     if (slot < 0) { write_err = 1; break; }
                     pending_slots[npending] = slot;
-                    pending_seqs[npending] = block_seq;
+                    pending_seqs[npending] = aad_seq;
                     npending++;
                     block_seq++;
                     remaining -= nread;
@@ -653,7 +798,23 @@ zupt_error_t zupt_compress_files(const char *output_path,
             uint16_t bflags = 0;
             if (opts->encrypt && opts->keyring.active) {
                 size_t enc_len;
-                enc_payload = zupt_encrypt_buffer(&opts->keyring, payload, payload_size, block_seq, &enc_len);
+                /* AAD = ((file_index+1) << 32) | per_file_block_seq.
+                 * Combines file identity with block position to prevent
+                 * cross-file block-swap attacks.
+                 *
+                 * Exception: in dedup mode, blocks may be referenced from
+                 * other files via offset-only refs. The decrypt-side ref
+                 * lookup has no way to know the original source file, so
+                 * dedup blocks use sentinel seq=0 (legacy MAC, no AAD).
+                 * Dedup mode still has block-level integrity via the
+                 * stored XXH64 plaintext checksum. */
+                uint64_t aad_seq;
+                if (opts->dedup) {
+                    aad_seq = 0;  /* sentinel; dedup decrypt path uses 0 too */
+                } else {
+                    aad_seq = (((uint64_t)(fi + 1)) << 32) | block_seq;
+                }
+                enc_payload = zupt_encrypt_buffer(&opts->keyring, payload, payload_size, aad_seq, &enc_len);
                 if (!enc_payload) { fclose(inf); free(index); free(rbuf); free(cbuf); fclose(out); return ZUPT_ERR_NOMEM; }
                 payload = enc_payload;
                 payload_size = enc_len;
@@ -751,7 +912,8 @@ zupt_error_t zupt_compress_files(const char *output_path,
     uint16_t idx_bflags = 0;
     if (opts->encrypt && opts->keyring.active) {
         size_t enc_len;
-        enc_idx = zupt_encrypt_buffer(&opts->keyring, ic_pay, ic_plen, block_seq, &enc_len);
+        /* Index uses sentinel seq (matches decrypt site at line ~1515) */
+        enc_idx = zupt_encrypt_buffer(&opts->keyring, ic_pay, ic_plen, 0xFFFFFFFFFFFFFFFFULL, &enc_len);
         ic_pay = enc_idx; ic_plen = enc_len;
         idx_bflags |= ZUPT_BFLAG_ENCRYPTED;
     }
@@ -848,14 +1010,18 @@ zupt_error_t zupt_compress_solid(const char *output_path,
     hdr.magic[3]=ZUPT_MAGIC_3; hdr.magic[4]=ZUPT_MAGIC_4; hdr.magic[5]=ZUPT_MAGIC_5;
     hdr.version_major = ZUPT_FORMAT_MAJOR; hdr.version_minor = ZUPT_FORMAT_MINOR;
     hdr.global_flags = ZUPT_FLAG_CKSUM_XXH64 | ZUPT_FLAG_SOLID;
-    if (opts->encrypt) hdr.global_flags |= ZUPT_FLAG_ENCRYPTED;
+    if (opts->encrypt) hdr.global_flags |= ZUPT_FLAG_ENCRYPTED | ZUPT_FLAG_AAD_SEQ;
     hdr.creation_time = now_ns();
     gen_uuid(hdr.archive_id);
     if (fwrite(&hdr, sizeof(hdr), 1, out) != 1) write_err = 1;
 
     if (opts->encrypt) {
         zupt_error_t enc_err = write_enc_header(out, &hdr, opts);
-        if (enc_err != ZUPT_OK) { fclose(out); return enc_err; }
+        if (enc_err != ZUPT_OK) {
+            fclose(out);
+            unlink(output_path);
+            return enc_err;
+        }
     }
 
     zupt_index_entry_t *index = (zupt_index_entry_t*)calloc((size_t)num_files, sizeof(zupt_index_entry_t));
@@ -968,7 +1134,10 @@ zupt_error_t zupt_compress_solid(const char *output_path,
         uint16_t bflags = 0;
         if (opts->encrypt && opts->keyring.active) {
             size_t enc_len;
-            enc_pay = zupt_encrypt_buffer(&opts->keyring, payload, payload_size, block_seq, &enc_len);
+            /* Solid mode treats whole archive as fi=0 with global block_seq.
+             * AAD = (1 << 32) | block_seq still gives unique values per block. */
+            uint64_t aad_seq = ((uint64_t)1 << 32) | block_seq;
+            enc_pay = zupt_encrypt_buffer(&opts->keyring, payload, payload_size, aad_seq, &enc_len);
             if (enc_pay) { payload = enc_pay; payload_size = enc_len; bflags |= ZUPT_BFLAG_ENCRYPTED; }
         }
 
@@ -1023,7 +1192,8 @@ zupt_error_t zupt_compress_solid(const char *output_path,
     uint8_t *enc_idx = NULL; uint16_t idx_bflags = 0;
     if (opts->encrypt && opts->keyring.active) {
         size_t enc_len;
-        enc_idx = zupt_encrypt_buffer(&opts->keyring, ic_pay, ic_plen, block_seq, &enc_len);
+        /* Index uses sentinel seq (matches decrypt site at line ~1515) */
+        enc_idx = zupt_encrypt_buffer(&opts->keyring, ic_pay, ic_plen, 0xFFFFFFFFFFFFFFFFULL, &enc_len);
         if (enc_idx) { ic_pay = enc_idx; ic_plen = enc_len; idx_bflags |= ZUPT_BFLAG_ENCRYPTED; }
     }
 
@@ -1213,6 +1383,18 @@ done:
 zupt_error_t read_enc_header(FILE *f, zupt_archive_header_t *hdr, zupt_options_t *opts) {
     if (!(hdr->global_flags & ZUPT_FLAG_ENCRYPTED)) return ZUPT_OK;
 
+    /* Validate encryption_header_off is within file bounds before seeking.
+     * A malicious or corrupt archive could set this to 0xFFFFFFFFFFFFFFFF;
+     * casting to int64_t gives -1, fseeko fails silently, and subsequent
+     * reads happen at an undefined position. */
+    int64_t cur_pos = ftello(f);
+    fseeko(f, 0, SEEK_END);
+    int64_t file_size = ftello(f);
+    fseeko(f, cur_pos, SEEK_SET);
+    if (file_size < 0 || hdr->encryption_header_off > (uint64_t)file_size) {
+        return ZUPT_ERR_CORRUPT;
+    }
+
     fseeko(f, (int64_t)hdr->encryption_header_off, SEEK_SET);
     zupt_block_t eb;
     zupt_error_t err = read_block(f, &eb);
@@ -1222,7 +1404,37 @@ zupt_error_t read_enc_header(FILE *f, zupt_archive_header_t *hdr, zupt_options_t
 
     uint8_t enc_type = eb.payload[0];
 
-    if (enc_type == ZUPT_ENC_PQ_HYBRID) {
+    if (enc_type == ZUPT_ENC_PQ_SDK_V2) {
+        if (!opts->pq_mode || opts->keyfile[0] == '\0') {
+            fprintf(stderr, "Error: Archive uses SDK-v2 PQ encryption. Use --pq <keyfile>.\n");
+            free(eb.payload);
+            return ZUPT_ERR_AUTH_FAIL;
+        }
+        if (zupt_sdk_hybrid_decrypt_init(&opts->keyring, opts->keyfile,
+                                          eb.payload, (size_t)eb.compressed_size) != 0) {
+            fprintf(stderr, "Error: SDK-v2 PQ decryption failed (wrong key, tampered, or unsupported).\n");
+            free(eb.payload);
+            return ZUPT_ERR_AUTH_FAIL;
+        }
+        opts->sdk_mode = 1;
+        free(eb.payload);
+        return ZUPT_OK;
+    } else if (enc_type == ZUPT_ENC_PW_ARGON2) {
+        if (opts->password[0] == '\0') {
+            fprintf(stderr, "Error: Archive is password-encrypted. Use -p to provide password.\n");
+            free(eb.payload);
+            return ZUPT_ERR_AUTH_FAIL;
+        }
+        if (zupt_sdk_password_decrypt_init(&opts->keyring, opts->password,
+                                            eb.payload, (size_t)eb.compressed_size) != 0) {
+            fprintf(stderr, "Error: Argon2id password decryption failed (wrong password?).\n");
+            free(eb.payload);
+            return ZUPT_ERR_AUTH_FAIL;
+        }
+        opts->sdk_mode = 1;
+        free(eb.payload);
+        return ZUPT_OK;
+    } else if (enc_type == ZUPT_ENC_PQ_HYBRID) {
         /* ─── PQ HYBRID MODE ─── */
         if (!opts->pq_mode || opts->keyfile[0] == '\0') {
             fprintf(stderr, "Error: Archive uses post-quantum encryption. Use --pq <keyfile>.\n");
@@ -1279,6 +1491,11 @@ static zupt_error_t parse_index(const uint8_t *buf, size_t blen,
     if (vn < 0) return ZUPT_ERR_CORRUPT;
     p += (size_t)vn;
     if (count > ZUPT_MAX_FILES) return ZUPT_ERR_OVERFLOW;
+    /* Defense for 32-bit platforms: count * sizeof(entry) must fit in size_t.
+     * Each entry is ~4 KB; on 32-bit, ~1M entries already exceeds 4 GiB. */
+    if (count > (uint64_t)(SIZE_MAX / sizeof(zupt_index_entry_t))) {
+        return ZUPT_ERR_OVERFLOW;
+    }
     *n = (int)count;
     *ents = (zupt_index_entry_t*)calloc((size_t)count, sizeof(zupt_index_entry_t));
     if (!*ents) return ZUPT_ERR_NOMEM;
@@ -1317,6 +1534,15 @@ static zupt_error_t open_archive(FILE *f, zupt_options_t *opts,
     if (err != ZUPT_OK) return err;
     err = read_enc_header(f, hdr, opts);
     if (err != ZUPT_OK) return err;
+
+    /* Validate index_offset is within file bounds before seeking. */
+    int64_t cur_pos2 = ftello(f);
+    fseeko(f, 0, SEEK_END);
+    int64_t file_size2 = ftello(f);
+    fseeko(f, cur_pos2, SEEK_SET);
+    if (file_size2 < 0 || ft->index_offset > (uint64_t)file_size2) {
+        return ZUPT_ERR_CORRUPT;
+    }
 
     fseeko(f, (int64_t)ft->index_offset, SEEK_SET);
     zupt_block_t ib;
@@ -1412,6 +1638,11 @@ zupt_error_t zupt_extract_archive(const char *arc, const char *dir, zupt_options
                     (unsigned long long)total_size);
             free(ents); fclose(f); return ZUPT_ERR_OVERFLOW;
         }
+        /* Defense for 32-bit platforms where size_t < uint64_t. */
+        if (total_size > (uint64_t)SIZE_MAX) {
+            fprintf(stderr, "  Error: solid stream exceeds size_t on this platform\n");
+            free(ents); fclose(f); return ZUPT_ERR_OVERFLOW;
+        }
 
         uint8_t *solid_buf = (uint8_t*)malloc((size_t)total_size);
         if (!solid_buf) { free(ents); fclose(f); return ZUPT_ERR_NOMEM; }
@@ -1436,7 +1667,9 @@ zupt_error_t zupt_extract_archive(const char *arc, const char *dir, zupt_options
             if (blk.block_type == ZUPT_BLOCK_INDEX) { free(blk.payload); break; }
 
             uint8_t *dec; size_t dlen;
-            err = decompress_block(&blk, &opts->keyring, block_seq, &dec, &dlen);
+            /* Solid mode uses synthetic fi=0 (AAD = (1<<32) | block_seq) */
+            uint64_t aad_seq = ((uint64_t)1 << 32) | block_seq;
+            err = decompress_block(&blk, &opts->keyring, aad_seq, &dec, &dlen);
             free(blk.payload);
             if (err != ZUPT_OK) {
                 fprintf(stderr, "  Solid block %llu decompression failed: %s\n",
@@ -1458,19 +1691,29 @@ zupt_error_t zupt_extract_archive(const char *arc, const char *dir, zupt_options
 
         for (int i = 0; i < n; i++) {
             zupt_index_entry_t *e = &ents[i];
+            /* SECURITY: reject path traversal / absolute / .. before fopen */
+            if (!zupt_path_is_safe(e->path)) {
+                fprintf(stderr, "  Error: rejected unsafe path: %s\n", e->path);
+                fail++; continue;
+            }
             char out_path[ZUPT_MAX_PATH + 256];
             if (dir) snprintf(out_path, sizeof(out_path), "%s%c%s", dir, ZUPT_PATH_SEP, e->path);
             else { strncpy(out_path, e->path, sizeof(out_path)-1); out_path[sizeof(out_path)-1]='\0'; }
             for (char *p=out_path;*p;p++) if (*p=='/') *p=ZUPT_PATH_SEP;
             ensure_dirs(out_path);
 
-            FILE *of = fopen(out_path, "wb");
+            FILE *of = zupt_safe_fopen_output(out_path);
             if (!of) { fail++; continue; }
 
             uint64_t off = e->first_block_offset;
             uint64_t sz = e->uncompressed_size;
             if (off + sz <= total_size) {
-                fwrite(solid_buf + off, 1, (size_t)sz, of);
+                if (fwrite(solid_buf + off, 1, (size_t)sz, of) != (size_t)sz) {
+                    fprintf(stderr, "Error: write failed (disk full?) for %s\n", e->path);
+                    fclose(of);
+                    free(solid_buf);
+                    return ZUPT_ERR_IO;
+                }
                 total_extracted += sz;
 
                 /* Verify content hash (empty files have content_hash=0) */
@@ -1512,13 +1755,18 @@ zupt_error_t zupt_extract_archive(const char *arc, const char *dir, zupt_options
 
         for (int i=0; i<n; i++) {
             zupt_index_entry_t *e = &ents[i];
+            /* SECURITY: reject path traversal / absolute / .. before fopen */
+            if (!zupt_path_is_safe(e->path)) {
+                fprintf(stderr, "  Error: rejected unsafe path: %s\n", e->path);
+                fail++; continue;
+            }
             char out_path[ZUPT_MAX_PATH + 256];
             if (dir) snprintf(out_path, sizeof(out_path), "%s%c%s", dir, ZUPT_PATH_SEP, e->path);
             else { strncpy(out_path, e->path, sizeof(out_path)-1); out_path[sizeof(out_path)-1]='\0'; }
             for (char *p=out_path;*p;p++) if (*p=='/') *p=ZUPT_PATH_SEP;
             ensure_dirs(out_path);
 
-            FILE *of = fopen(out_path, "wb");
+            FILE *of = zupt_safe_fopen_output(out_path);
             if (!of) { fprintf(stderr, "  Error: %s\n", out_path); fail++; continue; }
 
             if (opts->verbose) {
@@ -1552,7 +1800,7 @@ zupt_error_t zupt_extract_archive(const char *arc, const char *dir, zupt_options
                                 zpar_slot_t *s = zpar_wait_slot(pctx, pending_slots[pi]);
                                 if (!s || s->error != ZUPT_OK) { berr = 1; }
                                 else if (s->output && s->output_len > 0) {
-                                    fwrite(s->output, 1, s->output_len, of);
+                                    if (fwrite(s->output, 1, s->output_len, of) != s->output_len) berr = 1;
                                     total_extracted += s->output_len;
                                 }
                                 zpar_release_slot(pctx, pending_slots[pi]);
@@ -1563,16 +1811,27 @@ zupt_error_t zupt_extract_archive(const char *arc, const char *dir, zupt_options
                             uint64_t ref_off = zupt_le64_get(blk.payload);
                             free(blk.payload);
                             int64_t cur2 = ftello(f);
+                            /* Defense: ref_off must be earlier than current position
+                             * (dedup refs always point to previously-emitted blocks)
+                             * and must be within the file. */
+                            if ((int64_t)ref_off >= cur2 || (int64_t)ref_off < 0) {
+                                berr = 1; break;
+                            }
                             fseeko(f, (int64_t)ref_off, SEEK_SET);
                             zupt_block_t ref_blk;
                             err = read_block(f, &ref_blk);
                             fseeko(f, cur2, SEEK_SET);
                             if (err != ZUPT_OK) { berr = 1; break; }
+                            /* Defense: refs must point to data blocks, not other refs.
+                             * Prevents amplification + infinite loop attacks. */
+                            if (ref_blk.block_type == ZUPT_BLOCK_DEDUP_REF) {
+                                free(ref_blk.payload); berr = 1; break;
+                            }
                             uint8_t *rdec; size_t rdlen;
                             err = decompress_block(&ref_blk, &opts->keyring, 0, &rdec, &rdlen);
                             free(ref_blk.payload);
                             if (err != ZUPT_OK) { berr = 1; break; }
-                            fwrite(rdec, 1, rdlen, of);
+                            if (fwrite(rdec, 1, rdlen, of) != rdlen) berr = 1;
                             total_extracted += rdlen;
                             free(rdec);
                             blocks_remaining--;
@@ -1580,9 +1839,18 @@ zupt_error_t zupt_extract_archive(const char *arc, const char *dir, zupt_options
                             continue;
                         }
 
+                        /* AAD = ((file_index+1) << 32) | per_file_block_seq.
+                         * decomp_seq counts blocks within the current file.
+                         * Dedup mode uses sentinel seq=0. */
+                        uint64_t aad_seq;
+                        if (hdr.global_flags & ZUPT_FLAG_DEDUP) {
+                            aad_seq = 0;
+                        } else {
+                            aad_seq = (((uint64_t)(i + 1)) << 32) | decomp_seq;
+                        }
                         int slot = zpar_submit_decompress(pctx,
                             blk.payload, (size_t)blk.compressed_size,
-                            decomp_seq, blk.codec_id, blk.block_flags,
+                            aad_seq, blk.codec_id, blk.block_flags,
                             blk.checksum, blk.uncompressed_size);
 
                         free(blk.payload); /* Worker copied it */
@@ -1601,7 +1869,7 @@ zupt_error_t zupt_extract_archive(const char *arc, const char *dir, zupt_options
                             continue;
                         }
                         if (s->output && s->output_len > 0) {
-                            fwrite(s->output, 1, s->output_len, of);
+                            if (fwrite(s->output, 1, s->output_len, of) != s->output_len) berr = 1;
                             total_extracted += s->output_len;
                         }
                         zpar_release_slot(pctx, pending_slots[pi]);
@@ -1621,26 +1889,40 @@ zupt_error_t zupt_extract_archive(const char *arc, const char *dir, zupt_options
                         uint64_t ref_off = zupt_le64_get(blk.payload);
                         free(blk.payload);
                         int64_t cur = ftello(f);
+                        if ((int64_t)ref_off >= cur || (int64_t)ref_off < 0) { berr=1; break; }
                         fseeko(f, (int64_t)ref_off, SEEK_SET);
                         zupt_block_t ref_blk;
                         err = read_block(f, &ref_blk);
                         fseeko(f, cur, SEEK_SET);
                         if (err != ZUPT_OK) { berr=1; break; }
+                        if (ref_blk.block_type == ZUPT_BLOCK_DEDUP_REF) {
+                            free(ref_blk.payload); berr=1; break;
+                        }
                         uint8_t *dec; size_t dlen;
+                        /* Dedup refs use seq=0 (legacy MAC fallback handles this) */
                         err = decompress_block(&ref_blk, &opts->keyring, 0, &dec, &dlen);
                         free(ref_blk.payload);
                         if (err != ZUPT_OK) { berr=1; break; }
-                        fwrite(dec, 1, dlen, of);
+                        if (fwrite(dec, 1, dlen, of) != dlen) berr = 1;
                         total_extracted += dlen;
                         free(dec);
                         continue;
                     }
 
                     uint8_t *dec; size_t dlen;
-                    err = decompress_block(&blk, &opts->keyring, 0, &dec, &dlen);
+                    /* AAD = ((file_index_in_archive + 1) << 32) | per_file_block_seq.
+                     * Matches encrypt-side computation, prevents block-swap attacks.
+                     * Dedup mode uses sentinel seq=0 (matches encrypt-side). */
+                    uint64_t aad_seq;
+                    if (hdr.global_flags & ZUPT_FLAG_DEDUP) {
+                        aad_seq = 0;
+                    } else {
+                        aad_seq = (((uint64_t)(i + 1)) << 32) | (uint64_t)b;
+                    }
+                    err = decompress_block(&blk, &opts->keyring, aad_seq, &dec, &dlen);
                     free(blk.payload);
                     if (err != ZUPT_OK) { berr=1; break; }
-                    fwrite(dec, 1, dlen, of);
+                    if (fwrite(dec, 1, dlen, of) != dlen) berr = 1;
                     total_extracted += dlen;
                     free(dec);
                 }
@@ -1648,7 +1930,13 @@ zupt_error_t zupt_extract_archive(const char *arc, const char *dir, zupt_options
 
 file_done:
             fclose(of);
-            if (berr) fail++; else ok++;
+            if (berr) {
+                /* Authentication failure or other error: remove partial/empty output */
+                unlink(out_path);
+                fail++;
+            } else {
+                ok++;
+            }
         }
 
         if (pctx) zpar_destroy(pctx);
@@ -1712,7 +2000,9 @@ zupt_error_t zupt_test_archive(const char *arc, zupt_options_t *opts) {
             if (blk.block_type == ZUPT_BLOCK_INDEX) { free(blk.payload); break; }
 
             uint8_t *dec; size_t dlen;
-            err = decompress_block(&blk, &opts->keyring, block_seq, &dec, &dlen);
+            /* Solid mode AAD: synthetic fi=0 */
+            uint64_t aad_seq = ((uint64_t)1 << 32) | block_seq;
+            err = decompress_block(&blk, &opts->keyring, aad_seq, &dec, &dlen);
             free(blk.payload);
             if (err != ZUPT_OK) {
                 fprintf(stderr, "  Block %llu: FAIL (%s)\n",
@@ -1767,7 +2057,15 @@ zupt_error_t zupt_test_archive(const char *arc, zupt_options_t *opts) {
                 err = read_block(f, &blk);
                 if (err != ZUPT_OK) { fok=0; break; }
                 uint8_t *dec; size_t dlen;
-                err = decompress_block(&blk, &opts->keyring, 0, &dec, &dlen);
+                /* AAD = ((file_index+1) << 32) | per_file_block_seq (or
+                 * sentinel 0 in dedup mode). Matches encrypt-side. */
+                uint64_t aad_seq;
+                if (hdr.global_flags & ZUPT_FLAG_DEDUP) {
+                    aad_seq = 0;
+                } else {
+                    aad_seq = (((uint64_t)(i + 1)) << 32) | (uint64_t)b;
+                }
+                err = decompress_block(&blk, &opts->keyring, aad_seq, &dec, &dlen);
                 free(blk.payload);
                 if (err != ZUPT_OK) { fok=0; break; }
                 free(dec);

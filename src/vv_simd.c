@@ -1,7 +1,5 @@
-/*
- * SPDX-License-Identifier: GPL-3.0-or-later
- * Copyright (C) 2026 Cristian Cezar Moisés
- * Commercial licensing: sac@securityops.co
+/* SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (c) 2025-2026 Cristian Cezar Moisés
  *
  * VaptVupt — SIMD-accelerated copy routines
  *

@@ -1,13 +1,14 @@
-<img width="493" height="173" alt="logo" src="https://github.com/user-attachments/assets/164f5217-2362-4ebe-adf4-6c475b665f48"/>
+<!-- Logo: rehost on git.securityops.co/cristiancmoises/zupt or zupt.securityops.co; old GitHub user-attachments URL no longer in use -->
+<!-- <img width="493" height="173" alt="logo" src="https://zupt.securityops.co/assets/logo.png"/> -->
+
+# Zupt
 
 **Compress everything. Trust nothing. Encrypt always.**
 
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
-![Version](https://img.shields.io/badge/version-2.1.7-orange)
+![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)
+![Version](https://img.shields.io/badge/version-2.2.2-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
-![openSUSE](https://img.shields.io/badge/platform-openSUSE-73BA25?logo=opensuse&logoColor=white)
-![Commercial](https://img.shields.io/badge/commercial-sac%40securityops.co-darkgreen)
 
 Backup compression with hardware-adaptive codec selection, AES-256 authenticated encryption, post-quantum key encapsulation, and full-disk backup. Pure C11, zero dependencies, ~13,000 lines. Builds and runs on x86_64, aarch64, armhf, ppc64le, s390x, and riscv64.
 
@@ -37,20 +38,43 @@ curl -fsSL https://short.securityops.co/zupt | bash
 
 ### Build & Install
 ```
-git clone https://github.com/cristiancmoises/zupt.git && \
+git clone https://git.securityops.co/cristiancmoises/zupt.git && \
 cd zupt && \
 make && \
 sudo make install
 ```
 
-### openSUSE Packages
+### Pre-built packages
 
-The [openSUSE for Innovators](https://en.opensuse.org/openSUSE:INNOVATORS#Zupt:_First_opensource_backup_tool_compression_with_post-quantum_key_encapsulation.) initiative offers Zupt within the [Diraq](https://en.opensuse.org/User:Cabelo/DiraQ) solution.
+| Format | File | Distros |
+|---|---|---|
+| Debian/Ubuntu | `zupt_2.2.2_amd64.deb` | Debian 11+, Ubuntu 22.04+ |
+| RPM | `zupt-2.2.2-1.x86_64.rpm` | Fedora 38+, RHEL 9+, and other RPM-based distributions |
+| AppDir | `zupt-2.2.2-x86_64.AppDir.tar.gz` | Any glibc 2.28+ |
+| Source | `zupt-2.2.2-source.tar.gz` | Build from source |
 
-For 16.0:
 ```bash
-zypper addrepo https://download.opensuse.org/repositories/home:cabelo:innovators/16.0/home:cabelo:innovators.repo
-zypper refresh && zypper install zupt
+# Debian/Ubuntu
+sudo dpkg -i zupt_2.2.2_amd64.deb
+sudo apt-get install -f       # resolve any missing deps
+
+# Fedora/RHEL and other RPM-based distributions
+sudo rpm -i zupt-2.2.2-1.x86_64.rpm
+# or
+sudo dnf install ./zupt-2.2.2-1.x86_64.rpm
+
+# Portable (no install)
+tar xzf zupt-2.2.2-x86_64.AppDir.tar.gz
+./zupt-2.2.2-x86_64.AppDir/AppRun --help
+```
+
+### Building from SRPM (Fedora / RHEL / RPM-based distributions)
+
+```bash
+tar xzf zupt-2.2.2.srpm.tar.gz
+cd ~/rpmbuild  # or use rpmbuild --define "_topdir $(pwd)"
+rpmbuild -bb SPECS/zupt.spec
+sudo rpm -i RPMS/x86_64/zupt-2.2.2-1.*.rpm
 ```
 
 ### Basic usage
@@ -64,11 +88,17 @@ zupt compress -p "changeme" backup.zupt ~/Documents/
 # Extract
 zupt extract -o ~/restored/ backup.zupt
 
-# Post-quantum encrypted backup
+# Post-quantum encrypted backup (legacy XOR+SHA3 combiner — kept for compat)
 zupt keygen -o mykey.key
 zupt keygen --pub -o pub.key -k mykey.key
 zupt compress --pq pub.key backup.zupt ~/Documents/
 zupt extract --pq mykey.key -o ~/restored/ backup.zupt
+
+# Post-quantum encrypted backup (recommended: SDK v2 with HKDF combiner +
+# key commitment + HPKE binding + Argon2id. New archives should use this.)
+zupt keygen --sdk -o mykey.priv     # writes mykey.priv and mykey.priv.pub
+zupt compress --pq-sdk mykey.priv.pub backup.zupt ~/Documents/
+zupt extract  --pq-sdk mykey.priv backup.zupt
 ```
 
 ---
@@ -172,7 +202,7 @@ zupt keygen --pub -o pub.key -k mykey.key
 sudo zupt disk backup --pq pub.key backup.zupt /dev/nvme0n1p2
 
 # Clone with password encryption
-sudo zupt disk backup -p "changeme" backup.zupt /dev/sda1
+sudo zupt disk backup -p backup.zupt /dev/sda1
 
 # Maximum compression (level 9, extreme mode)
 sudo zupt disk backup -l 9 backup.zupt /dev/sda1
@@ -274,7 +304,7 @@ make install DESTDIR=/buildroot
 | Multi-architecture | **6 arches** | ✓ | ✓ | ✓ |
 | Zero dependencies | ✓ | ✓ | — | — |
 | Codebase | ~12K lines | ~10K | ~75K | ~100K+ |
-| License | **AGPL-3.0** (commercial available) | GPL | BSD | LGPL |
+| License | **AGPL+GPL** | GPL/zlib | BSD-3 | LGPL+unRAR |
 
 ---
 
@@ -283,14 +313,25 @@ make install DESTDIR=/buildroot
 ```
 Password mode:  Password → PBKDF2-SHA256 (600K iter) → enc_key + mac_key
 PQ hybrid mode: Public key → ML-KEM-768 Encaps + X25519 ECDH → enc_key + mac_key
+SDK v2 mode:    HKDF-SHA3 combiner with domain separation + key commitment + HPKE binding
 Per-block:      AES-256-CTR(enc_key, nonce ⊕ seq) + HMAC-SHA256(mac_key)
 Key protection: mlock() prevents swap, buffer canaries detect overflow
 Timing:         Always-decrypt mitigation (no timing oracle on MAC failure)
 AES dispatch:   AVX+AES-NI check with OSXSAVE/XCR0 (no SIGILL on any CPU)
+Path safety:    Zip Slip / symlink defenses (zupt_path_is_safe + O_NOFOLLOW)
 Verification:   5 Jasmin CT proofs, 19 ACSL contracts, 13 NIST/RFC test vectors
 ```
 
-See [SECURITY.md](SECURITY.md) for threat model. See [AUDIT.md](AUDIT.md) for audit checklist.
+**Audit history:** Three internal audit sprints conducted on the 2.2.x line.
+**14 bugs** found and fixed across the sprints — including one **HIGH-severity
+Zip Slip path traversal** caught in the formal audit pass. Cumulative test
+surface: **265 tests** (47 zupt + 169 SDK + 49 inherited) plus **751,000
+mutation-fuzz iterations** under ASAN/UBSAN, all passing. No external audit
+yet — see SECURITY.md for honest scope.
+
+See [SECURITY.md](SECURITY.md) for threat model. See [AUDIT.md](AUDIT.md) for
+audit history. See [FORMAL_AUDIT_PROMPT.md](FORMAL_AUDIT_PROMPT.md) for the
+methodology used in audit sprints.
 
 ---
 
@@ -372,7 +413,7 @@ All codecs are forward-compatible: archives created with any codec can be read b
 | v1.0 | Stable release — format frozen v1.4, security audit |
 | v1.1–v1.4 | X25519 fix, NIST vectors, CPUID detection, Jasmin source files fixed |
 | v1.5 | Jasmin CT assembly linked (MAC verify + ML-KEM select active) |
-| v1.5.5 | Man page install, V=1 verbose, LDFLAGS/PIE, rpmlint, multi-arch Makefile |
+| v1.5.5 | Build system improvements: man page install rules, verbose mode, multi-arch detection |
 | v2.0 | VaptVupt 1.1.0 codec, auto hardware detection, all 5 Jasmin wired, AVX SIGILL fix, copy_match/litlen fixes, ACSL, mlock, fuzzing, canaries, AES-NI pipeline, MT decompress, multi-arch (6 arches), --lzhp flag |
 | v2.1.0 | VaptVupt 1.4.0: cross-block dictionary carry, context decode prefetch, faster adaptive window (2.6× encode), integration API |
 | v2.1.1 | Termux/Android build fix, arch-safety guard, Keccak ROL64 UB fix, zero UBSan violations |
@@ -381,8 +422,6 @@ All codecs are forward-compatible: archives created with any codec can be read b
 | **v2.1.3** | **LZHP prediction encoding fix (data corruption on structured data), shared write_enc_header, SOLID flag removed from disk, 78 tests** |
 | **v2.1.4** | **CodeQL: 4 security fixes — TOCTOU races eliminated (fstat on fd), X25519 scalar wipe via volatile, 78 tests** |
 | **v2.1.5** | **Block-level deduplication (`--dedup`), XXH64 fingerprint index, DEDUP_REF block type, 81 tests** |
-| **v2.1.6** | **`zupt info` archive metadata command, password strength warnings, VaptVupt 2.40.0 (format_v2), GUI desktop application, 97 tests** |
-| **v2.1.7** | **Relicense MIT → AGPL-3.0-or-later. VaptVupt remains GPL-3.0-or-later (kept in sync with upstream); upgraded VaptVupt 2.40.0 → 2.46.1. Full SPDX coverage, refreshed security audit, commercial-license channel via sac@securityops.co** |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.
 
@@ -390,33 +429,28 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.
 
 ## License
 
-**Zupt is licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later).**
+Zupt is **dual-licensed**:
 
-The full license text is in [LICENSE](LICENSE), preceded by a formal preamble explaining the rationale. In short:
+- **AGPL-3.0-or-later** — most of the codebase (CLI, libzuptsdk, GUI, Jasmin source). See [`LICENSE`](LICENSE).
+- **GPL-3.0-or-later** — the VaptVupt LZ codec only (`src/vv_*.c`, `src/vaptvupt_api.c` and headers). VaptVupt is GPL so it can be considered for upstreaming into the Linux/BSD kernels.
+- **Commercial license** available for relief from AGPL/GPL terms. Contact `sac@securityops.co`.
 
-- **You can use Zupt freely** — for personal backups, in your business, on your servers, in air-gapped environments, anywhere. The AGPL imposes essentially no obligations on simple use.
-- **If you modify Zupt and run the modified version as a network service** (a backup-as-a-service product, a cloud archival backend, etc.), you must make the source code of your modifications available to the users of that service. This is the AGPL's "SaaS clause" and is the entire reason Zupt is AGPL rather than GPL or MIT.
-- **If you redistribute Zupt** (modified or not), the AGPL travels with it.
-
-The integrated **VaptVupt compression codec** (`src/vv_*.c`, `include/vaptvupt*.h`, `include/vv_*.h`) is licensed separately under **GPL-3.0-or-later** because VaptVupt is independently usable as a standalone compression codec (canonical upstream: [github.com/cristiancmoises/vaptvupt](https://github.com/cristiancmoises/vaptvupt)). GPL-3.0-or-later is two-way compatible with AGPL-3.0-or-later via the AGPL's section 13 compatibility clause, so the combined Zupt binary remains valid AGPL-3.0. See [LICENSE-VAPTVUPT](LICENSE-VAPTVUPT) for details.
-
-### Commercial Licensing
-
-If your intended use is incompatible with the AGPL — for example:
-
-- Embedding Zupt or VaptVupt into a closed-source product, appliance, or firmware
-- Operating Zupt as a hosted/SaaS backend without releasing your modifications
-- Redistributing Zupt as part of a proprietary commercial product
-- Requiring warranty, indemnification, or written terms
-
-**A commercial license is available.** Contact: **sac@securityops.co**
-
-The author retains full copyright ownership of all original Zupt and VaptVupt source code and is therefore able to grant alternative licensing terms.
+Every source file carries an explicit SPDX header. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for full attribution. Zupt contains **no third-party source code** — every line is original work.
 
 Security vulnerabilities: see [SECURITY.md](SECURITY.md).
+
+## Related projects
+
+All by Cristian Cezar Moisés, hosted on git.securityops.co:
+
+- [zupt](https://git.securityops.co/cristiancmoises/zupt) — this repo (CLI + GUI)
+- [zupt-android](https://git.securityops.co/cristiancmoises/zupt-android) — Android port
+- [zupt-web](https://git.securityops.co/cristiancmoises/zupt-web) — Web frontend
+- [libzuptsdk](https://git.securityops.co/cristiancmoises/libzuptsdk) — Standalone C SDK
+- [vaptvupt](https://git.securityops.co/cristiancmoises/vaptvupt) — Standalone LZ + tANS codec
 
 ## Support the Project
 [![Donate with Monero](https://img.shields.io/badge/Donate-Monero-FF6600?style=flat&logo=monero)](DONATIONS.md)
 
 ---
-© 2026 Cristian Cezar Moisés — [github.com/cristiancmoises](https://github.com/cristiancmoises)
+© 2026 Cristian Cezar Moisés — [git.securityops.co/cristiancmoises](https://git.securityops.co/cristiancmoises)

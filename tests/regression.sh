@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2025-2026 Cristian Cezar Moisés
 # ZUPT v2.0.0 — Comprehensive Regression Test Suite
 # Covers: normal, solid, encrypted, edge cases, VaptVupt codec
 # Run: sh tests/regression.sh

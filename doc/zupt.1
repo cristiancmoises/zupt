@@ -1,6 +1,6 @@
-.TH ZUPT 1 "2026-03-29" "Zupt 2.0.0" "User Commands"
+.TH ZUPT 1 "2026-04-27" "Zupt 2.2.2" "User Commands"
 .SH NAME
-zupt \- backup compression with encryption and post-quantum key encapsulation
+zupt \- backup-oriented compression utility with hybrid post-quantum encryption
 .SH SYNOPSIS
 .B zupt compress
 .RI [ OPTIONS ]
@@ -18,116 +18,351 @@ zupt \- backup compression with encryption and post-quantum key encapsulation
 .RI [ OPTIONS ]
 .I archive.zupt
 .br
+.B zupt info
+.I archive.zupt
+.br
 .B zupt bench
 .RI [ --compare ]
 .I files/dirs...
+.br
+.B zupt disk
+.B backup\fR | \fBrestore
+.RI [ OPTIONS ]
 .br
 .B zupt keygen
 .RI [ -o
 .IR file ]
 .RI [ --pub ]
+.RI [ --sdk ]
 .RI [ -k
 .IR privkey ]
 .br
 .B zupt version
 .br
 .B zupt help
+
 .SH DESCRIPTION
 .B zupt
-compresses and encrypts backup archives using the VaptVupt codec
-(LZ77 + tANS entropy coding with AVX2 SIMD decode), AES-256-CTR
-authenticated encryption (HMAC-SHA256), and optional ML-KEM-768 +
-X25519 post-quantum hybrid key encapsulation.
-.PP
-Pure C11, zero external dependencies, ~12,000 lines of code.
+is a backup-oriented compression utility with multi-threaded compression,
+integrity verification, password-based encryption, and hybrid post-quantum
+public-key encryption (ML-KEM-768 + X25519). Two PQ encryption modes are
+supported: a legacy combiner kept for backward compatibility, and a
+state-of-the-art mode backed by libzuptsdk (HKDF-SHA3 hybrid combiner with
+domain separation, key commitment, HPKE binding RFC 9180, anti-fault
+decapsulation, and Argon2id RFC 9106 password derivation).
+
+.SH COMMANDS
+.TP
+.B compress, c
+Create a compressed archive from one or more files or directories.
+.TP
+.B extract, x
+Extract files from an archive.
+.TP
+.B list, l
+List archive contents without extracting.
+.TP
+.B test, t
+Verify archive integrity (decompresses without writing files).
+.TP
+.B info
+Show archive metadata; works without password and without keys.
+.TP
+.B bench
+Compare compression levels 1\(en9 on the given input.
+.TP
+.B disk backup\fR / \fBrestore
+Full-disk backup/restore with sparse-region detection, progress
+reporting, and proper sync discipline (\fBO_SYNC\fR + \fBfsync\fR + \fBsync\fR).
+.TP
+.B keygen
+Generate or export hybrid PQ keypair. With
+.B --sdk
+flag, generates a libzuptsdk v2 keypair (private key file plus
+.IR file .pub
+public key file). Without
+.BR --sdk ,
+generates a legacy keypair compatible with
+.BR --pq .
+
+.SH GLOBAL OPTIONS
+.TP
+.BR -v ", " --verbose
+Verbose per-file output.
+.TP
+.BR -q ", " --quiet
+Suppress non-error output.
+.TP
+.BR -t ", " --threads " " \fIN\fR
+Thread count: 0 = auto, 1 = single, 2\(en64 = explicit.
+
 .SH COMPRESS OPTIONS
 .TP
-.BI \-l " LEVEL"
-Compression level 1\-9 (default: 7). Levels 1\-3 use VaptVupt Ultra-Fast
-mode, 4\-7 use Balanced, 8\-9 use Extreme.
+.BR -l ", " --level " " \fI1-9\fR
+Compression level. Default 7. 1\(en2 fast/small window;
+3\(en5 balanced; 6\(en7 high; 8\(en9 maximum (1MB window, deep search).
 .TP
-.BI \-t " N"
-Thread count. 0=auto-detect, 1=single-threaded, 2\-64=explicit.
+.BR -b ", " --block " " \fISIZE\fR
+Block size in bytes. Default 128KB.
 .TP
-.BI \-p " PASSWORD"
-Encrypt with AES-256-CTR + HMAC-SHA256. Password prompted if omitted.
-.TP
-.BI \-\-pq " KEYFILE"
-Post-quantum hybrid encryption using ML-KEM-768 + X25519.
-.TP
-.B \-s
+.BR -s ", " --store
 Store without compression.
 .TP
-.B \-f
-Use fast LZ codec (Zupt-LZ, 64KB window).
+.BR -f ", " --fast
+Use the fast LZ codec (less compression, higher throughput).
 .TP
-.B \-\-vv
-Use VaptVupt codec (default since v2.0).
+.BR --vv ", " --vaptvupt
+Use the VaptVupt codec (LZ77 + tANS entropy, SIMD decode).
 .TP
-.B \-\-solid
-Solid mode: concatenate all files before compression for better ratio.
+.B --lzhp
+Use Zupt-LZHP (LZ77 + Huffman, no SIMD required).
 .TP
-.B \-v
-Verbose output.
-.SH EXTRACT OPTIONS
+.BR -p ", " --password " " \fIPW\fR
+Encrypt with AES-256. If
+.I PW
+is empty, prompt the user.
 .TP
-.BI \-o " DIR"
-Output directory.
+.BR --pq " " \fIPUBKEY\fR
+Encrypt using legacy PQ combiner (XOR + SHA3-512). Kept for
+compatibility. New archives should prefer
+.BR --pq-sdk .
 .TP
-.BI \-p " PASSWORD"
+.BR --pq-sdk " " \fIPUBKEY\fR
+Encrypt using libzuptsdk v2 (recommended): HKDF-SHA3 hybrid combiner
+with domain separation, 32-byte key commitment, HPKE binding (RFC 9180),
+anti-fault decapsulation, AEAD via XChaCha20-Poly1305, password mode
+via Argon2id (RFC 9106). The
+.I PUBKEY
+file is the
+.IR file .pub
+produced by
+.BR "zupt keygen --sdk" .
+.TP
+.BR -D ", " --dedup
+Block-level deduplication. Identical blocks across files are stored once.
+.TP
+.B --solid
+Solid mode: concatenate files into a single stream before compression.
+
+.SH EXTRACT / LIST / TEST OPTIONS
+.TP
+.BR -o ", " --output " " \fIDIR\fR
+Output directory (extract only). Default: current directory.
+.TP
+.BR -p ", " --password " " \fIPW\fR
 Decryption password.
 .TP
-.BI \-\-pq " KEYFILE"
-Post-quantum decryption with private key.
+.BR --pq " " \fIPRIVKEY\fR
+Decrypt a legacy PQ archive.
 .TP
-.BI \-t " N"
-Thread count for parallel decompression.
-.SH CODECS
+.BR --pq-sdk " " \fIPRIVKEY\fR
+Decrypt an SDK v2 PQ archive.
+
+.SH KEYGEN OPTIONS
 .TP
-.B VaptVupt (0x0010)
-Default. LZ77 + tANS entropy + AVX2 SIMD. Three modes: Ultra-Fast,
-Balanced, Extreme.
+.BR -o " " \fIFILE\fR
+Output keyfile path (required).
 .TP
-.B Zupt-LZHP (0x000A)
-LZ77 + Huffman + byte prediction. Previous default (v1.x).
+.B --pub
+Export public key from an existing private key (used with
+.BR -k ).
 .TP
-.B Zupt-LZ (0x0008)
-Fast LZ77, 64KB window. Selected with \-f.
+.BR -k " " \fIPRIVKEY\fR
+Source private keyfile when exporting public key.
 .TP
-.B Store (0x0000)
-No compression. Selected with \-s.
-.SH ENCRYPTION
-Password mode uses PBKDF2-SHA256 (600,000 iterations) to derive AES-256
-encryption and HMAC-SHA256 authentication keys. Per-block nonce derived
-from base_nonce XOR block_sequence.
-.PP
-Post-quantum mode (\-\-pq) uses ML-KEM-768 + X25519 hybrid KEM per NIST
-FIPS 203. Secure if either algorithm is secure.
+.BR --sdk ", " --pq-sdk
+Generate an SDK v2 keypair. Writes
+.I FILE
+(private key) and
+.IR FILE .pub
+(public key) in one step. Use these keys with
+.BR --pq-sdk .
+
 .SH EXAMPLES
+.TP
+Compress without encryption:
+.B
+   zupt c backup.zupt ~/Documents/
+
+.TP
+Compress with password:
+.B
+   zupt c -l 9 -p 'my-pass' secure.zupt data/
+
+.TP
+Generate legacy keypair, encrypt, decrypt:
 .nf
-zupt compress backup.zupt ~/Documents/
-zupt compress \-l 9 \-p secret secure.zupt data/
-zupt extract \-o ~/restored/ backup.zupt
-zupt bench \-\-compare
-zupt keygen \-o mykey.key
-zupt compress \-\-pq pub.key backup.zupt ~/Documents/
+   zupt keygen -o mykey.key
+   zupt keygen --pub -o pub.key -k mykey.key
+   zupt c --pq pub.key backup.zupt ~/Documents/
+   zupt x --pq mykey.key backup.zupt -o ~/restored/
 .fi
+
+.TP
+Generate SDK v2 keypair, encrypt, decrypt (recommended):
+.nf
+   zupt keygen --sdk -o mykey.priv
+   # creates mykey.priv (private) and mykey.priv.pub (public)
+   zupt c --pq-sdk mykey.priv.pub backup.zupt ~/Documents/
+   zupt x --pq-sdk mykey.priv backup.zupt
+.fi
+
+.TP
+Full-disk backup with PQ encryption:
+.nf
+   zupt keygen --sdk -o disk.priv
+   zupt disk backup --pq-sdk disk.priv.pub /dev/sda backup.img.zupt
+.fi
+
 .SH FILES
 .TP
-.I *.zupt
-Zupt archive format (v1.4).
+.I /usr/bin/zupt
+The zupt binary.
 .TP
-.I *.zupt-key
-ML-KEM-768 + X25519 keypair file.
+.I /usr/lib/x86_64-linux-gnu/libzuptsdk.so.2
+The libzuptsdk shared library (Linux x86_64).
+.TP
+.I /usr/include/zuptsdk.h
+libzuptsdk public C API.
+.TP
+.I /usr/share/doc/zupt/
+Documentation, changelog, audit reports.
+
+.SH ENVIRONMENT
+.TP
+.B ZUPT_THREADS
+Default thread count when
+.B -t
+is not specified.
+.TP
+.B ZUPT_TMPDIR
+Temporary directory for intermediate files (default:
+.IR /tmp ).
+
 .SH EXIT STATUS
-0 on success, 1 on error.
+.TP
+.B 0
+Success.
+.TP
+.B 1
+General error (invalid arguments, file not found, etc.).
+.TP
+.B 2
+Authentication failure (wrong password, wrong key, tampered ciphertext).
+.TP
+.B 3
+I/O error.
+.TP
+.B 4
+Archive format error (corrupt, unsupported version, malformed header).
+
+.SH SECURITY
+.B zupt 2.2+
+recommends
+.B --pq-sdk
+for new archives. The legacy
+.B --pq
+mode uses an XOR+SHA3-512 hybrid combiner that has been superseded
+by HKDF-SHA3 with domain separation in the SDK path. Both modes
+remain supported for archive interoperability.
+
+For password-encrypted archives, prefer the SDK path: it uses
+Argon2id (RFC 9106) with OWASP-compliant minimum parameters
+(64 MiB memory, 3 iterations, 1 thread), versus PBKDF2-SHA256 in
+the legacy path.
+
+.B Path traversal protection.
+zupt 2.2.2+ rejects archive entries containing
+.IR ".." ,
+absolute paths
+.RI ( /foo
+or
+.IR C:\\foo ),
+or embedded NUL bytes. On POSIX systems, output files are opened with
+.B O_NOFOLLOW
+so that pre-existing symlinks at the extraction target are not followed
+(defense against TOCTOU attacks where an attacker plants a symlink in the
+output directory before extraction). On Windows, this defense relies on
+directory ACLs.
+
+.B Operational guidance for untrusted archives.
+Always extract into an empty dedicated directory, audit symlinks before
+extraction, and never run extraction as root.
+
+.SH BUGS
+Report at
+.UR https://git.securityops.co/cristiancmoises/zupt/issues
+.UE
+or by email to
+.MT zupt@riseup.net
+.ME .
+
 .SH AUTHOR
-Cristian Cezar Moisés <ethicalhacker@riseup.net>
-.SH LICENSE
-GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later).
-The integrated VaptVupt codec is licensed under GPL-3.0-or-later (canonical upstream: github.com/cristiancmoises/vaptvupt).
-For commercial licensing inquiries, contact: sac@securityops.co.
+Cristian Cezar Moisés
+.MT zupt@riseup.net
+.ME
+
 .SH SEE ALSO
-.BR gzip (1),
-.BR zstd (1),
-.BR lz4 (1)
+.BR zupt-gui (1),
+.BR tar (1),
+.BR gzip (1).
+
+.SH STANDARDS
+Zupt implements algorithms from FIPS 197 (AES), FIPS 202 (Keccak/SHA-3),
+FIPS 203 (ML-KEM), and follows RFC 5297 (AES-SIV), RFC 5869 (HKDF),
+RFC 7748 (X25519), RFC 8439 (ChaCha20-Poly1305), RFC 9106 (Argon2),
+and RFC 9180 (HPKE). Cryptographic primitive selection is aligned
+with Brazilian Instrução Normativa ITI nº 35/2026, which incorporated
+ML-KEM-768/1024 into the ICP-Brasil framework.
+
+.SH LICENSE
+.PP
+Zupt itself (CLI, GUI, libzuptsdk, Jasmin source) is licensed under the
+.B GNU Affero General Public License version 3 or later
+(AGPL-3.0-or-later). The bundled VaptVupt LZ codec
+.RB ( src/vv_*.c ", " src/vaptvupt_api.c )
+is licensed under the
+.B GNU General Public License version 3 or later
+(GPL-3.0-or-later). VaptVupt is GPL not AGPL so that, with sufficient
+maturity, it can be considered for upstreaming into the Linux or BSD
+kernels.
+.PP
+Commercial licenses (relief from copyleft terms) are available for both
+components. Contact
+.MT sac@securityops.co
+.ME .
+.PP
+See
+.B /usr/share/doc/zupt/LICENSE
+and
+.B /usr/share/doc/zupt/THIRD-PARTY-NOTICES.md
+for the full text and complete attribution.
+
+.SH PROJECT
+.PP
+Home page:
+.UR https://git.securityops.co/cristiancmoises/zupt
+.UE
+.PP
+Related projects (all by Cristian Cezar Moisés, hosted on
+git.securityops.co):
+.IP \(bu 2
+.B zupt-android
+\(em
+.UR https://git.securityops.co/cristiancmoises/zupt-android
+.UE
+.IP \(bu 2
+.B zupt-web
+\(em
+.UR https://git.securityops.co/cristiancmoises/zupt-web
+.UE
+.IP \(bu 2
+.B libzuptsdk
+\(em
+.UR https://git.securityops.co/cristiancmoises/libzuptsdk
+.UE
+.IP \(bu 2
+.B vaptvupt
+(standalone GPL codec) \(em
+.UR https://git.securityops.co/cristiancmoises/vaptvupt
+.UE

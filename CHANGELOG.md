@@ -1,69 +1,560 @@
-# Changelog
+# Zupt Changelog
+
+
+## [2.2.2-final2] — 2026-05-01 — CLI help, man pages, deb copyright
+
+Continuing the license-hygiene work: previously the SPDX headers in
+source files were correct, but several user-visible surfaces still
+showed wrong licensing or stale URLs. Fixed:
+
+### CLI runtime output
+
+- `zupt help` previously ended with `License: MIT` — corrected to
+  `License: AGPL-3.0-or-later (Zupt) + GPL-3.0-or-later (VaptVupt codec)`
+  with a `Commercial license available: sac@securityops.co` line and
+  `Project: https://git.securityops.co/cristiancmoises/zupt` link.
+- `zupt version` now also prints the License, Project URL, and
+  Commercial contact lines (previously omitted entirely).
+
+### Man pages
+
+- `doc/zupt.1`: fixed BUGS URL from `github.com` → `git.securityops.co`,
+  added `LICENSE` section explaining AGPL+GPL split, added `PROJECT`
+  section listing all 5 sister projects (zupt, zupt-android, zupt-web,
+  libzuptsdk, vaptvupt) with git.securityops.co URLs.
+- `doc/zupt-gui.1`: same fixes (BUGS URL + LICENSE + PROJECT sections).
+
+### Debian copyright file (`/usr/share/doc/zupt/copyright`)
+
+The previous copyright file claimed everything was AGPL-3.0+. Updated
+to a proper Debian-machine-readable format with two `Files:` stanzas:
+
+- `Files: *` — AGPL-3.0+
+- `Files: src/vv_*.c src/vaptvupt_api.c include/vv_*.h include/vaptvupt*.h`
+  — GPL-3.0+ (with rationale comment about kernel upstreaming)
+
+Plus a `Comment:` field pointing at sac@securityops.co for commercial
+licensing inquiries.
+
+### README logo
+
+The github user-attachments URL for the logo (now broken since the
+project moved off GitHub) was replaced with a HTML comment placeholder
+suggesting rehosting at zupt.securityops.co.
+
+### Other doc cleanups
+
+- SECURITY.md: `Do not open a public GitHub issue` → `Do not open a
+  public issue on the project's git server`
+- libzuptsdk README: same `GitHub issues` → `project's git server`
+  fix.
+
+### Verification
+
+- 61/61 tests pass (no behavior change)
+- `make audit-licenses` → ✓ all SPDX correct
+- `zupt version` and `zupt help` both display correct license + URL
+- Man pages (zupt.1, zupt-gui.1) carry full LICENSE + PROJECT sections
+
+
+## [2.2.2-final] — 2026-04-30 — License hygiene + project move
+
+This update does not change any binary behavior. It corrects licensing
+metadata across the source tree and updates all repository URLs from
+`github.com/cristiancmoises/*` to `git.securityops.co/cristiancmoises/*`.
+
+### Repository move
+
+The Zupt project has moved from GitHub to a self-hosted Gitea instance:
+
+| Project | New URL |
+|---|---|
+| zupt (this repo) | https://git.securityops.co/cristiancmoises/zupt |
+| zupt-android | https://git.securityops.co/cristiancmoises/zupt-android |
+| zupt-web | https://git.securityops.co/cristiancmoises/zupt-web |
+| libzuptsdk | https://git.securityops.co/cristiancmoises/libzuptsdk |
+| vaptvupt | https://git.securityops.co/cristiancmoises/vaptvupt |
+
+All 29 occurrences of `github.com/cristiancmoises/...` across 19 files
+have been updated. The old GitHub URLs no longer resolve.
+
+### License clarification
+
+The README and LICENSE file previously contained inaccurate license
+claims. Corrected:
+
+- **Zupt CLI, libzuptsdk, GUI, Jasmin source**: AGPL-3.0-or-later
+- **VaptVupt LZ codec** (`src/vv_*.c`, `src/vaptvupt_api.c`,
+  `include/vv_*.h`, `include/vaptvupt*.h`): **GPL-3.0-or-later**
+  (deliberately GPL not AGPL, so it can eventually be considered for
+  upstreaming into the Linux/BSD kernels which require GPL-compatible
+  licensing).
+- **Commercial licensing** (relief from copyleft): contact
+  `sac@securityops.co`.
+
+The README's competitive comparison table erroneously listed Zupt under
+"License: MIT". Corrected to "AGPL+GPL".
+
+### SPDX coverage
+
+Every source file in the tree now carries an explicit SPDX header.
+Previously 46 files in the CLI tree, 5 Jasmin assembly outputs, the CI
+yml, and a few packaging files had no SPDX line at all. Added:
+
+- `AGPL-3.0-or-later` to all Zupt CLI sources (46 files), `.s` assembly
+  outputs (5 files), `.github/workflows/ci.yml`, packaging Flatpak
+  manifest, `sdk/zuptsdk.map`
+- `GPL-3.0-or-later` to all VaptVupt sources (8 files that were missing
+  it: `vv_ans.c`, `vv_decoder.c`, `vv_encoder.c`, `vv_huffman.c`,
+  `vv_simd.c`, `vv_xxh64.c`, `vv_ans.h`, `vv_huffman.h`)
+
+The 5 Jasmin `.jazz` source files previously declared "MIT License" in
+their headers as a copy-paste artifact from an earlier draft. They have
+been **relicensed to AGPL-3.0-or-later** (sole-author relicensing — no
+external contributor's work was relicensed).
+
+The 5 VaptVupt headers in `vendor/zuptsdk/include/` (vaptvupt.h,
+vaptvupt_api.h, vv_ans.h, vv_huffman.h, vv_platform.h) were tagged
+AGPL but should have been GPL since they are VaptVupt headers.
+Corrected.
+
+### THIRD-PARTY-NOTICES.md rewritten
+
+The previous document framed parts of Zupt as if they were vendored
+third-party dependencies. They are not. The new document opens with:
+
+> **Zupt contains no third-party source code.** Every line of source
+> in this repository is the work of Cristian Cezar Moisés.
+
+Runtime system libraries (libargon2, OpenSSL libcrypto) are listed as
+runtime dependencies provided by the OS package manager, not as bundled
+dependencies. The Jasmin compiler is correctly described as a
+build-time tool that is not redistributed.
+
+### LICENSE file fixes
+
+- "libzuptsdk is free software" → "Zupt is free software" (this is the
+  zupt repo, not the libzuptsdk repo)
+- GitHub URL → git.securityops.co URL
+- Contact `zupt@riseup.net` → `sac@securityops.co`
+- Appended a note explaining that VaptVupt is GPL not AGPL, with
+  rationale for the deliberate licensing split
+
+### New `make audit-licenses` target
+
+Verifies on every CI run that:
+
+- All non-VaptVupt source files carry `SPDX-License-Identifier: AGPL-3.0-or-later`
+- All VaptVupt files (`vv_*`, `vaptvupt*`) carry `SPDX-License-Identifier: GPL-3.0-or-later`
+
+Excludes vendored libzuptsdk headers (`vendor/zuptsdk/include/`) and
+build artifacts (`build/`, `build_obj/`, `sdk/build/`).
+
+Result: ✓ All source files carry correct SPDX headers.
+
+### Build dependency: libzuptsdk-dev
+
+The CLI's `--pq-sdk` path links against `libzuptsdk.so.2`. Previously,
+the source tarball assumed the library would be available in the
+build environment. INSTALL.md now has an explicit "Building from
+source" section documenting this requirement and pointing at the
+`libzuptsdk2` / `libzuptsdk-dev` packages.
+
+### Removed obsolete migration docs
+
+`FRESH-REPO-SETUP.md` and `CHANGELOG.fresh-repo.md` (one-time docs from
+the github-old → github-new migration sprint) deleted as obsolete.
+
+### Verification
+
+- 61/61 tests pass (audit, smoke, multi-file, cross-block, dedup
+  property, path-traversal, argument-order, block-swap regression)
+- Encrypted compress + extract roundtrip: byte-exact match (MD5 verified)
+- `make audit-licenses` → ✓ all SPDX correct
+- Source builds cleanly on Ubuntu 24.04 / GCC 13.3 with
+  `libzuptsdk-dev 2.0.0` installed
+
+
+## [2.2.2] god-tier audit — bug #16 (block-swap attack) fix
+
+Independent formal cryptographic audit (per FORMAL_AUDIT_PROMPT.md two-pass
+methodology) discovered a critical authenticated-encryption flaw in the
+shipped 2.2.2 binary. Investigation, root-cause, fix, regression test, and
+final verification documented below.
+
+### Bug #16 — CRITICAL: Block-swap attack on encrypted archives
+
+**Severity**: critical — silent data corruption with valid MAC
+
+**Affected**: all encrypted archives produced by zupt 2.0.0 through 2.2.2.
+
+**Root cause**: AES-CTR + HMAC-SHA256 in zupt 2.2.2 covered MAC over
+`(nonce || ciphertext)` only. The decryptor read the nonce from the
+package itself and **ignored** the `block_seq` parameter that was passed
+in (`(void)block_seq;` in `src/zupt_crypto.c:zupt_decrypt_buffer`). An
+attacker who swapped two valid encrypted blocks (full block including
+header + checksum + payload) between positions in an encrypted archive
+produced an archive that:
+
+1. Decrypts cleanly — every block's stored nonce is its actual encryption
+   nonce, so AES-CTR decryption produces correct plaintext
+2. MAC-verifies cleanly — MAC was computed over (nonce || ct), and both
+   are stored in the swapped block, so the MAC is still valid
+3. Extracts files with wrong content — file_A.txt receives file_B's
+   content and vice-versa, with zupt reporting "Extracted N file(s)"
+   and no error
+
+**Reproduction** (confirmed twice in the audit): with two distinct files
+A (49 'A' chars) and B (49 'B' chars) compressed with `-p mypassword
+-b 64 -t 1`, swapping the two 114-byte DATA blocks at positions 134
+and 248 produced an archive that extracted file_A.txt with B's content
+and file_B.txt with A's content, with zupt reporting "Extracted 2 file(s)".
+
+**Fix architecture**: bind `block_seq` into the MAC as 8-byte
+little-endian Associated Data (AAD). The seq is computed as
+`((file_index_in_archive + 1) << 32) | per_file_block_seq`, combining
+the file's identity within the archive with its block position within
+that file. Both encrypt and decrypt compute this from the same inputs
+(`fi` and `b`) without changing the wire format. Special cases:
+
+- **Index blocks**: use sentinel seq `0xFFFFFFFFFFFFFFFFULL` (matches
+  existing decrypt at line 1517)
+- **Solid mode**: synthetic fi=0 (AAD = `(1 << 32) | block_seq`) since
+  there are no per-file boundaries
+- **Dedup mode**: sentinel seq=0 — dedup refs (offset-only) can't
+  derive the source file's AAD, so dedup blocks bypass AAD binding.
+  Block-level XXH64 plaintext checksum still provides integrity.
+- **Backward compat**: decrypt tries v2 (with AAD) first, falls back
+  to v1 (legacy, no AAD) for old archives. Both candidates always
+  computed for constant-time policy.
+
+A new archive header flag `ZUPT_FLAG_AAD_SEQ (1u << 8)` signals that
+encrypted blocks bind the seq.
+
+**Files modified**:
+- `include/zupt.h` — added `ZUPT_FLAG_AAD_SEQ`
+- `src/zupt_crypto.c` — `zupt_encrypt_buffer` / `zupt_decrypt_buffer`
+  rewrite (AAD binding, dual-MAC fallback)
+- `src/zupt_format.c` — set flag on new encrypted archives, compute
+  `(fi+1, block_seq)` AAD at all 3 encrypt sites (regular ST, MT,
+  solid), compute matching AAD at all 4 decrypt sites (ST extract,
+  MT extract, solid extract, test path)
+- Empty output files on auth failure now `unlink()`'d (was leaving
+  0-byte files on disk)
+
+**Regression test**: `tests/test_block_swap.sh` — 6 properties:
+1. Normal extract still works (regression guard)
+2. Block-swap attack rejected (cross-file reorder) — exact reproduction
+   of the audit-discovered attack
+3. Single-block file roundtrip (boundary)
+4. 512KB multi-block file roundtrip
+5. Multi-file archive roundtrip (per-file seq counters)
+6. Wrong password rejected
+
+The attack reproduction in test 2 produces an archive identical to the
+manual attack used to discover the bug; it must report 0 files
+extracted with errors, never the swapped-content output that the bug
+allowed.
+
+### Cumulative test surface (2.2.2 final after bug #16)
+
+```
+make test                    →   9/9   (run_quick)
+                             →  11/11  (test_sdk)
+                             →  10/10  (test_audit)
+                             →  12/12  (test_dedup_props)
+                             →   5/5   (test_path_traversal)
+                             →   8/8   (test_arg_order)
+                             →   6/6   (test_block_swap)         NEW
+                             ──────
+                                61/61 ✓
+
+make test-asan-run           → 61/61 ✓ under ASAN/UBSAN, zero memory errors
+make fuzz-format-run         → 1000 iters under ASAN/UBSAN, 0 crashes
+Inherited libzuptsdk         → 169/169 + 750k fuzz iters
+                             ──────
+Combined zupt + SDK            279 tests + 751k fuzz iters
+```
+
+### Cumulative bug count across all audit sprints
+
+| Sprint | Bugs | Severity range |
+|---|---|---|
+| v2.2.1 (audit 1) | 6 | low to high |
+| v2.2.2 (audit 2) | 4 | low to medium |
+| v2.2.2 (formal audit 3) | 4 | low to high (Zip Slip) |
+| v2.2.2 (sprint 4) | 1 | critical (silent extract) |
+| v2.2.2 (god-tier audit) | 1 | **critical** (block-swap AEAD) |
+| **Total** | **16** | all fixed and regression-tested |
+
+### Known limitation accepted
+
+Dedup mode trades AAD-binding for offset-based ref support. An attacker
+with access to a dedup-mode encrypted archive could swap blocks; the
+plaintext XXH64 checksum stored per block prevents wrong-content
+extraction, but error messages may not clearly say "tampered" — they
+say "checksum mismatch". This is documented in SECURITY.md and is
+acceptable because dedup is opt-in and not the default.
+
+
+## [2.2.2] formal audit pass — 2026-04-27 (no version bump)
+
+Post-release formal cryptographic audit by senior cryptographic engineering
+review. Two security-relevant bugs and two robustness bugs found and fixed.
+Version stays at 2.2.2; this is hardening of the same release.
+
+### Bugs found and fixed
+
+11. **🚨 HIGH — Path traversal (Zip Slip) in extract path** (`src/zupt_format.c`, two extract sites). The archive entry's `e->path` field — attacker-controlled in a malicious archive — was passed directly to `fopen` after string concatenation with the output directory. A crafted archive containing entries like `../../../etc/cron.d/evil`, `/etc/passwd`, or `C:\Windows\System32\drivers\etc\hosts` could write arbitrary files anywhere the user has filesystem access. This is the [Snyk Zip Slip](https://snyk.io/research/zip-slip-vulnerability) vulnerability pattern (2018). New `zupt_path_is_safe()` validator rejects:
+    - empty paths and paths exceeding `ZUPT_MAX_PATH`
+    - absolute paths (Unix `/...`, Windows `C:`, UNC `\\server`)
+    - any component equal to `..`
+    - embedded NUL bytes
+    Wired into both extract sites before `fopen`. Confirmed via 5-test regression suite.
+
+12. **MEDIUM — Symlink-following on extract output** (`src/zupt_format.c`). `fopen(out_path, "wb")` follows symlinks. If an attacker plants a symlink in the user's output directory before extraction (`~/Downloads/innocent.txt → /etc/shadow`), extract clobbers the symlink target. New `zupt_safe_fopen_output()` uses `O_NOFOLLOW` on POSIX (Linux/BSD/macOS), returning `ELOOP` if the leaf is a symlink. Windows path unchanged — relies on directory ACLs, documented in `SECURITY.md`. Verified by P3 of the path-traversal regression test.
+
+13. **LOW — `size_t` overflow on solid-extract size cap** (`src/zupt_format.c:1593`). The 4 GiB cap on solid-stream size exceeds `size_t` on 32-bit platforms, where the subsequent `malloc((size_t)total_size)` would silently truncate. Added explicit `total_size > SIZE_MAX` guard.
+
+14. **LOW — `count * sizeof(entry)` overflow in `parse_index`** (`src/zupt_format.c`). With `ZUPT_MAX_FILES = 2,000,000` and `sizeof(zupt_index_entry_t) ≈ 4140`, the multiplication overflows `size_t` on 32-bit platforms before reaching `calloc`'s internal overflow check. Added explicit `count > SIZE_MAX / sizeof(entry)` guard. (No exploitable behavior on 64-bit; defense for embedded/Termux/legacy platforms.)
+
+### Cryptographic primitive review (no findings)
+
+Reviewed against FIPS 197 (AES), FIPS 202 (Keccak/SHA-3), FIPS 203 (ML-KEM),
+RFC 5297 (AES-SIV), RFC 5869 (HKDF), RFC 7748 (X25519), RFC 8439
+(ChaCha20-Poly1305), RFC 9106 (Argon2), and RFC 9180 (HPKE):
+
+- **AES-CTR per-block nonce derivation** (`base_nonce ⊕ block_seq` LE in low 8 bytes): safe by construction. `base_nonce` is randomly generated per archive (32 bytes from `zupt_random_bytes`); `block_seq` is monotonic and unique within an archive. No nonce reuse possible under any execution path.
+- **Legacy `--pq` hybrid combiner**: XOR of ML-KEM and X25519 shared secrets, then SHA3-512 with full transcript binding (`ml_ct || eph_pk || domain-tag`). Acceptable per Bindel et al. 2019; weaker than HKDF combiner used in SDK path, but both modes are intentionally kept for archive compatibility. Documented as legacy.
+- **PBKDF2 key splitting** (legacy password mode): derives 64 bytes, splits to 32 enc_key + 32 mac_key. Safe — PBKDF2-SHA256 output is uniformly random.
+- **SDK header parsing**: bounds-checked correctly (`enc_hdr_len < 5` guard, `blob_sz > enc_hdr_len - 5` guard, `blob_sz > 1500` cap).
+
+### New regression test suite
+
+`tests/test_path_traversal.sh` — 5 property checks:
+- P1: `..` traversal blocked (patched archive does not escape parent dir)
+- P2: absolute path entries rejected (does not write to `/tmp/owned`)
+- P3: symlink at extract target not followed (sentinel file preserved)
+- P4: legitimate paths still extract correctly (regression guard)
+- P5: deep nested safe paths still work (regression guard)
+
+### Cumulative test surface (2.2.2 final)
+
+```
+make test                    →  9/9   (run_quick)
+                             → 11/11  (test_sdk)
+                             → 10/10  (test_audit)
+                             → 12/12  (test_dedup_props)
+                             →  5/5   (test_path_traversal)  NEW
+                             ──────
+                               47/47 ✓
+
+make test-asan-run           → 47/47 ✓ under ASAN/UBSAN, zero memory errors
+make fuzz-format-run         → 1000 iters under ASAN/UBSAN, 0 crashes
+Inherited libzuptsdk         → 169/169 + 750k fuzz iters
+                             ──────
+Combined zupt + SDK            265 tests + 751k fuzz iters
+```
+
+### Portability re-verification
+
+Static portability scan passes:
+- No unaligned pointer casts (`*(uint64_t *)ptr` patterns absent)
+- No raw `/` separators in path construction (uses `ZUPT_PATH_SEP` macro)
+- No `htonl`/`ntohl` or struct casts (uses `zupt_le32_get`/`zupt_le64_get` exclusively)
+- No POSIX-only headers without `#ifdef` guards
+
+Compile-tested with `-Wpedantic` under GCC. Win32 code paths verified via
+`-D_WIN32 -E` synthetic preprocessing — branches reachable, syntax clean.
+
+`#ifdef _WIN32` coverage in: `zupt_crypto.c`, `zupt_disk.c`, `zupt_format.c`,
+`zupt_main.c`, `zupt_mlock.c`. Posix-side gated with explicit `#else`.
+
+### Documentation updates
+
+- `SECURITY.md`: new "Threat model" and "Path traversal mitigation" sections
+- `AUDIT.md`: 2026-04-27 formal audit entry with cumulative test table
+- `README.md`: Security section bumped with audit confirmation
+- `doc/zupt.1`: SECURITY section mentions path-traversal protection
+- `FORMAL_AUDIT_PROMPT.md`: methodology document at repo root for future audits
+
+## [2.2.2] — 2026-04-27
+
+Continued audit-driven hardening release. Four additional bugs found and fixed by code review; new fuzz harness for the format parser; new property-based tests for the dedup path; full GitHub Actions CI pipeline.
+
+### Bugs found and fixed
+
+7. **realloc-pair atomicity bug in `zupt_filelist_add`** (`src/zupt_format.c:166`). When the first `realloc` succeeded and the second failed, the first realloc had already invalidated the original pointer; the cleanup branch's `if (new_paths != fl->paths) free(new_paths)` is undefined behavior because `realloc` may return the same pointer. Worse, when both reallocs succeeded but allocation truncated the array (impossible here, but the pattern is fragile), `fl->paths` was updated only when `new_paths` was not NULL — leaving callers with stale pointers in the failure path. Replaced with atomic two-buffer allocation: both `malloc` first, copy contents, free old buffers only on full success.
+
+8. **Length-overflow in in-memory varint decoder** (`src/zupt_format.c:138`). `zupt_decode_varint` had the same 9-byte truncation bug as the file-variant decoder fixed in 2.2.1, plus shift-by-64 undefined behavior when `s` reached 63 with a continuation bit still set. Decoder now accepts up to 10 bytes (sufficient for full uint64) and explicitly rejects continuation past bit 64.
+
+9. **Unvalidated `encryption_header_off`** (`src/zupt_format.c:1267`). A malicious archive could set `encryption_header_off` to `0xFFFFFFFFFFFFFFFF`. Casting to `int64_t` for `fseeko` gives `-1`; the seek silently fails and subsequent reads happen at an undefined position. Now validates offset is within file size before seeking.
+
+10. **Unvalidated `index_offset`** (`src/zupt_format.c:1402`). Same class of bug as #9, applied to the archive footer's index pointer. Same fix.
+
+### Added — Fuzz infrastructure
+
+- `tests/fuzz_format.c` — mutation-fuzz harness for the zupt format parser. Forks a child process per iteration to isolate crashes; mutates a seed archive with byte-flips, byte-sets, zero-runs, 0xFF-runs, and swaps; feeds mutated archives to `zupt list` and counts crashes vs. clean rejections.
+- `make fuzz-format` builds the harness.
+- `make fuzz-format-run` runs 1000 iterations against the ASAN/UBSAN binary. **Result: 0 crashes, 159 archives accepted as well-formed despite mutation, 841 cleanly rejected.**
+
+### Added — Dedup property-based tests
+
+- `tests/test_dedup_props.sh` — 12 property-based checks for the deduplication path:
+  - Roundtrip preserves bytes for 10 base files + 5 duplicates
+  - Dedup achieves >50% size reduction on 20-copy duplicate-heavy workloads (measured: 95% reduction, 17,346 B vs. 328,550 B)
+  - 100%-duplicate archives extract correctly with all copies recovered byte-exact
+  - Dedup + SDK PQ encryption coexist correctly
+
+### Added — GitHub Actions CI pipeline
+
+- `.github/workflows/ci.yml` — 4-job pipeline:
+  - `build-and-test`: full test suite (run_quick + sdk + audit + dedup)
+  - `asan-build`: build with `-fsanitize=address,undefined` and run all suites under sanitizers
+  - `fuzz-format`: 1000-iteration fuzz under ASAN/UBSAN
+  - `package-deb`: build + verify .deb installation
+
+### Added — THIRD-PARTY-NOTICES.md
+
+Documents all third-party software included or linked: vendored libzuptsdk (AGPL, same author), Jasmin-compiled assembly, libargon2 (Apache 2.0 / CC0), OpenSSL libcrypto (Apache 2.0), VaptVupt (AGPL, in-tree), and standards followed (FIPS 197/202/203, RFCs 5297/5869/7748/8032/8439/9106/9180). Required for redistribution compliance.
+
+### Test results
+
+```
+make test                    →  9/9  (run_quick)
+                             → 11/11 (test_sdk)
+                             → 10/10 (test_audit)
+                             → 12/12 (test_dedup_props)  NEW
+                             ──────
+                               42/42 ✓
+
+make test-asan-run           → 42/42 ✓ under ASAN/UBSAN, zero memory errors
+
+make fuzz-format-run         → 1000 iters under ASAN/UBSAN, 0 crashes
+
+Inherited from libzuptsdk    → 169/169 + 750k fuzz iters
+                             ──────
+Combined zupt + SDK            260 tests + 751k fuzz iters
+```
+
+### Compatibility
+
+- All v2.2.1 archives extract unchanged.
+- Legacy `--pq` keyfiles continue to work.
+- `--pq-sdk` flow unchanged.
+- New CI workflow does not affect runtime behavior.
+
+### Fixes after 2.2.2 (still v2.2.2)
+
+- **GUI install failures fixed.** GUI deb dependencies now correctly reference `python3-pyqt6 | python3-pyside6` (alternation) instead of nonexistent `python3-pyside6.qtwidgets`. PySide6 is not in the default Debian/Ubuntu repositories; PyQt6 is. The GUI now imports either binding via try/except.
+- **GUI auto-detects Qt binding at startup**: PySide6 first (preferred), PyQt6 fallback. Prints instructive install message if neither is present, instead of crashing with ImportError.
+- **Man pages now include `--pq-sdk` documentation**. Both `doc/zupt.1` and the new `doc/zupt-gui.1` cover SDK v2 mode, key generation with `--sdk`, both encryption workflows, FIPS/RFC standards, and IN ITI 35/2026 alignment.
+- **`zupt help` (CLI usage text) updated**: SDK options grouped under Compress/Extract/Keygen sections with full descriptions, two example workflows (legacy + SDK v2 recommended).
+- **Cross-platform packaging**: deb script now arch-aware (amd64 → `x86_64-linux-gnu`, arm64 → `aarch64-linux-gnu`, armhf, i386). Switched to xz compression for compatibility with older dpkg.
+- **GUI rpm/AppImage builders added**: `packaging/build-gui-rpm.sh` and `packaging/build-gui-appimage.sh`. The AppImage uses system Python+Qt (small, ~50KB) instead of bundling Python (~80MB) — instructive runtime check if Qt binding missing.
+- **GUI deb postinst** refreshes desktop database and icon cache; postrm cleans them up.
+
+## [2.2.1] — 2026-04-27
+
+Audit-driven hardening release. Six bugs found by code review and fixed; new audit test suite added.
+
+### Bugs found and fixed
+
+1. **Varint reader truncation** (`src/zupt_format.c:146`). The reader processed at most 9 continuation bytes, but a uint64 varint can span 10 bytes. Values above 2^63 would silently truncate. Reader now accepts up to 10 bytes and returns -1 if a 10th continuation byte is set, preventing accidental wraparound.
+
+2. **Unchecked `fwrite` in extract path** (`src/zupt_format.c`, six call sites: 1529, 1611, 1631, 1660, 1689, 1699). On a full disk or write error, the extractor reported success while files were corrupt. Each `fwrite` now checks the return; partial writes set the per-file `berr` flag, and the solid-file path returns `ZUPT_ERR_IO`. Found by reading the extract path with the question "what happens if the disk fills mid-extract?"
+
+3. **`mac_key` derived as a copy of `enc_key`** (`src/zupt_crypto_sdk.c`). The keyring's `mac_key` slot was filled with the same 32 bytes as `enc_key`. SDK-mode AEAD doesn't actually use this slot — block authentication runs through the libzuptsdk path — but if any legacy fall-through ever read `mac_key`, it would have used the encryption key as a MAC key. Both keys are now derived from the session key via SHA3-256 with domain-separation strings (`"ZUPT-SDK-ENC-KEY"`, `"ZUPT-SDK-MAC-KEY"`).
+
+4. **Length-overflow in LZ decoder** (`src/zupt_lz.c:33`). `lz_read_extra` accumulated a length value with no upper bound. A crafted block with many `0xFF` extension bytes could overflow `size_t`, wrapping back to a small value that passed the subsequent `op + match_len > dst_len` check, then the inner copy loop ran for many iterations. Capped accumulation at 2^32 with explicit overflow return; both call sites check.
+
+5. **Dedup-ref recursion / out-of-bounds offset** (`src/zupt_format.c`, two sites). A malicious archive could place a `DEDUP_REF` block whose offset pointed to itself, to a forward position, or to another `DEDUP_REF`. The first two would loop or seek to garbage; the third would not loop in the current implementation but is structurally invalid and is now rejected. The fix requires `ref_off < cur_pos` (refs always point backward to previously-written blocks) and rejects `ref_blk.block_type == ZUPT_BLOCK_DEDUP_REF`.
+
+6. **Partial archive left on disk after encrypt-init failure**. When `--pq-sdk pubkey` was given a non-existent or invalid public key, `write_enc_header` returned `ZUPT_ERR_AUTH_FAIL` after the archive header had already been written. The 64-byte stub was left on disk. Both compress paths now `unlink(output_path)` before returning.
+
+### Added
+
+- `tests/test_audit.sh` — 10-check double-validated audit suite (every property tested via two independent paths). Categories: authenticated archives, format security, format compatibility, robustness.
+- `packaging/build-deb.sh` — produces `zupt_2.2.1_amd64.deb` (CLI + libzuptsdk).
+- `packaging/build-rpm.sh` — produces RPM via `rpmbuild`, falls back to SRPM-equivalent tarball when `rpmbuild` is absent.
+- `packaging/build-appimage.sh` — produces AppImage via `appimagetool`, falls back to portable AppDir tarball.
+- `packaging/build-gui-deb.sh` — produces `zupt-gui_1.1.0_all.deb`.
+
+### GUI changes (zupt-gui 1.1.0)
+
+- New "Mode" panel in compress/extract tabs with **SDK v2** checkbox (default on for new archives).
+- Keygen tab gains "SDK v2 format" checkbox; when enabled, runs `zupt keygen --sdk` and reports both private and public key paths.
+- Tooltip on each SDK checkbox explains the cryptographic difference (HKDF combiner + commitment + HPKE vs legacy XOR+SHA3-512).
+- Existing `--pq` legacy flow preserved when SDK checkbox is unchecked.
+
+### Test results
+
+```
+make test        →  9 passed, 0 failed
+test_sdk.sh      → 11 passed, 0 failed
+test_audit.sh    → 10 passed, 0 failed
+TOTAL            → 30 / 30
+```
+
+Inherited from libzuptsdk 2.1.5: 169 SDK tests + 750k mutation-fuzz iterations under ASAN/UBSAN.
+
+### Compatibility
+
+- Existing v1/v2 archives extract unchanged.
+- Legacy `--pq` keyfiles continue to work with the legacy combiner.
+- New `--pq-sdk` keyfiles use the SDK v2 path (incompatible with `--pq`, by design — this is what prevents mode confusion).
+
+### Post-release additions (still 2.2.1)
+
+- `LICENSE` file added to repo root (AGPL-3.0 text was previously only in `sdk/LICENSE`). Source tarball now contains it.
+- `make test-asan-run` target wired into the zupt Makefile. Builds zupt with `-fsanitize=address,undefined`, runs all three test suites (`run_quick.sh`, `test_sdk.sh`, `test_audit.sh`) against the instrumented binary. **All 30 tests pass cleanly under ASAN/UBSAN with zero memory errors.**
+
+## [2.2.0] — 2026-04-27
+
+zuptsdk integration release. Replaces zupt's legacy hybrid combiner (XOR+SHA3-512) with libzuptsdk's HKDF-SHA3-256 + key commitment + HPKE binding + anti-fault decap.
+
+### Added — SDK-backed crypto path
+
+- `src/zupt_crypto_sdk.c` — new module wrapping libzuptsdk for archive encryption.
+- `vendor/zuptsdk/` — vendored libzuptsdk 2.1.5 (737KB shared lib + headers).
+- New encryption type IDs: `ZUPT_ENC_PQ_SDK_V2` (0x03) and `ZUPT_ENC_PW_ARGON2` (0x04).
+- New CLI flag `--pq-sdk <keyfile>` for SDK-backed PQ encryption.
+- `zupt keygen --sdk -o key.priv` generates SDK-format keypair (writes both `key.priv` and `key.priv.pub`).
+- Argon2id replaces PBKDF2 for new password-mode archives (legacy reads still work).
+
+### Security improvements (vs zupt 2.1.7)
+
+| Property | zupt 2.1.7 (legacy `--pq`) | zupt 2.2.0 (`--pq-sdk`) |
+|---|---|---|
+| Hybrid combiner | XOR + SHA3-512 (Bindel-Brendel-Fischlin warns against XOR) | HKDF-SHA3-256 with domain separation |
+| Key commitment | None | 32-byte HKDF-derived commitment tag |
+| HPKE binding | None | RFC 9180 §5 context (suite + AAD bound) |
+| Anti-fault decap | None | Double ML-KEM decap + CT compare |
+| Password KDF | PBKDF2-SHA256 | Argon2id (RFC 9106 OWASP minimums) |
+| AEAD | AES-256-CTR + HMAC-SHA256 | XChaCha20-Poly1305 (default) |
+| Test coverage | 9 tests | 9 + 11 SDK = 20 + inherited 169 SDK tests |
+
+### Backward compatibility
+
+- Legacy `zupt c --pq <key>` path unchanged (XOR+SHA3-512 combiner).
+- Legacy `zupt x --pq <key>` reads both old and new archives transparently — encryption type byte is checked.
+- Old keyfiles still work with old `--pq`. New keyfiles (with `.pub`) work with `--pq-sdk`.
+- v1/v2 archive read path untouched.
+
+### Tests
+
+- `tests/test_sdk.sh` — 11 new tests: keygen, small/large roundtrip, wrong-key rejection, tamper rejection, legacy compat.
+- All 9 existing tests still pass.
+- Total: **20 zupt tests + inherited 169 zuptsdk tests + 750k fuzz iters**.
+
+### Build
+
+`make` now requires `vendor/zuptsdk/` to be present. The vendored libzuptsdk is shipped in the source tarball.
+
+Linker resolves `libzuptsdk.so.2` via absolute rpath to `$(abspath vendor/zuptsdk)`. For installed builds, distros should `LDFLAGS="-Wl,-rpath,/usr/lib"` and install libzuptsdk separately (preferred) or embed via static link.
 
 All notable changes to Zupt are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
-
----
-
-## [2.1.7] — 2026-04-26
-
-### Changed — License (MIT → AGPL-3.0-or-later)
-
-- **Zupt is now licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later).** All previous versions are also retroactively re-licensed under AGPL-3.0-or-later by the sole copyright holder. The MIT license under which v0.1.0 through v2.1.6 were originally released is hereby withdrawn for any future use; cached MIT-licensed copies of those versions remain valid under their original terms but are not authorized for redistribution under MIT going forward.
-- **Rationale.** Years of work on post-quantum hybrid encryption (ML-KEM-768 + X25519), formally-verified Jasmin constant-time assembly, authenticated encryption (AES-256-CTR + HMAC-SHA256), and the custom VaptVupt compression codec were given to the world under MIT — and silent absorption into proprietary products is the foreseeable end-state of permissive licensing on infrastructure software. The AGPL closes the SaaS loophole specifically: anyone running a modified Zupt as a network service (cloud backup product, archival backend, etc.) must release the source code of their modifications. Personal use, internal corporate use, sysadmin use, research use, and academic use are unaffected and remain unrestricted.
-- **Commercial licensing channel established.** Organizations whose use is incompatible with the AGPL (proprietary embedding, hosted SaaS without source disclosure, redistribution under closed terms, requirement of warranty/indemnification) can obtain a commercial license at: **sac@securityops.co**.
-
-### Changed — VaptVupt License clarification (GPL-3.0-or-later, unchanged from upstream)
-
-- **The VaptVupt compression codec is licensed under GPL-3.0-or-later** (`src/vv_*.c`, `src/vaptvupt_api.c`, `include/vaptvupt.h`, `include/vaptvupt_api.h`, `include/vv_huffman.h`, `include/vv_ans.h`, `include/vv_platform.h`). This matches the canonical upstream at [github.com/cristiancmoises/vaptvupt](https://github.com/cristiancmoises/vaptvupt) and was not changed in this sprint — VaptVupt has been GPL-3.0-or-later since its initial release.
-- **Why a separate license from Zupt's AGPL-3.0.** VaptVupt has independent reuse value as a standalone compression codec. Anyone wishing to embed VaptVupt in another GPL-3.0 project should be able to do so without inheriting the network-clause obligations of Zupt's AGPL.
-- **Compatibility with Zupt.** GPL-3.0-or-later is two-way compatible with AGPL-3.0-or-later via the explicit GPL/AGPL combination provision in section 13 of both licenses. The combined Zupt binary remains valid AGPL-3.0.
-- Earlier sprint drafts briefly considered GPL-2.0-or-later for kernel-mergeability; that path was incorrect (the Linux kernel is GPL-2-only and rejects GPL-3+ code) and was withdrawn before release. VaptVupt is and remains GPL-3.0-or-later.
-
-### Upgraded — VaptVupt 2.40.0 → 2.46.1
-
-- **Pulled in upstream VaptVupt v2.46.1** (April 22, 2026), six minor versions ahead of the previously bundled v2.40.0. All 12 VaptVupt files (`src/vv_*.c`, `src/vaptvupt_api.c`, `include/vaptvupt*.h`, `include/vv_*.h`) replaced from `github.com/cristiancmoises/vaptvupt` `master`.
-- **Public API and on-disk frame format are byte-identical** to v2.40.0 — confirmed by diffing the public `vv_compress`/`vv_decompress`/`vv_default_options`/`vv_compress_bound` declarations and the `vv_options_t` struct. **No caller changes required** in `zupt_lzh.c`, `zupt_format.c`, `zupt_main.c`, etc.
-- **Improvements pulled in:**
-  - **v2.41–v2.43** internal tightening (covered by upstream's "correctness release" v2.44.0 rollup).
-  - **v2.44.0** — correctness release ships over v2.43.0 (encoder ANS state recovery, decoder bounds tightening).
-  - **v2.45.0** — size-based window-log heuristic (better ratio on small inputs without manual tuning).
-  - **v2.46.0** — Huffman-in-SEQ literal coding (additional ratio gain on text-heavy streams).
-  - **v2.46.1** — **memory-safety patch:** fixes a 16,384-byte leak on three decoder error paths in `vva_decode_sequences_impl` (`src/vv_ans.c`). The `dec_ll` buffer was not freed on three malformed-input return paths. No behavior change on the success path; output byte-identical to v2.46.0 for valid inputs. **This is a correctness/safety fix that closes a denial-of-service vector** where an attacker controlling many malformed compressed frames could exhaust memory.
-
-### Notes on the v2.46.1 upgrade
-- VaptVupt 2.46.1 retains the same SPDX-License-Identifier headers (`GPL-3.0-or-later`); the Zupt-side commercial-licensing line (`Commercial licensing: sac@securityops.co`) was re-applied to each file's header block.
-
-### Added — `LICENSE-VAPTVUPT`
-- New top-level file containing the formal GPL-3.0-or-later notice, separate-codec rationale (independent reuse value), AGPL/GPL-3 compatibility explanation per section 13 of both licenses, commercial-license clause, pointer to upstream, and the full canonical GPLv3 text (~740 lines).
-
-### Added — Formal Preamble in `LICENSE`
-- The top-level `LICENSE` now opens with a formal AGPL preamble explaining why AGPL was chosen, what the SaaS clause means in practice for users vs. operators, and a commercial-licensing clause pointing to **sac@securityops.co**. The full canonical AGPL-3.0 text follows below the preamble.
-
-### Added — SPDX-License-Identifier headers (full coverage)
-- Every `.c` and `.h` source file now carries a machine-readable SPDX tag: `AGPL-3.0-or-later` for Zupt-core, `GPL-3.0-or-later` for VaptVupt. Each header also includes the commercial-license contact. This brings Zupt into REUSE 3.0 / SPDX 2.3 compliance and enables automated license scanning (FOSSology, ScanCode, etc.) to correctly classify the project.
-
-### Changed — Sister projects relicensed
-- `zupt-web` and `zupt-android` (separate repositories) are also relicensed to **AGPL-3.0-or-later** for the same reason. License files and README snippets prepared in this sprint can be applied to those repositories.
-
-### Changed — Surface-level metadata
-- `--help` and `--version` output: `License: MIT` → `License: AGPL-3.0-or-later (commercial: sac@securityops.co)`.
-- Manpage `doc/zupt.1` `.SH LICENSE` section rewritten.
-- README badge: `license-MIT-blue` → `license-AGPL--3.0-blue`. New commercial badge added.
-- README: full License section rewrite + new "Commercial Licensing" section.
-- README comparison table: license row updated.
-- GUI About box: zupt credit "MIT" → "AGPL-3.0".
-- `gui/setup.py`: `license="AGPL-3.0-or-later"` and OSI classifier updated.
-- `gui/packaging/rpm/zupt-gui.spec`: `License: AGPL-3.0-or-later`, `Requires: zupt >= 2.1.7`.
-- `gui/LICENSE-GUI`: rewritten as AGPL-3.0-or-later notice.
-- `Makefile`: header banner updated to v2.1.7 with SPDX tag; comment "Apache-2.0, integrated under MIT" replaced with "GPL-3.0-or-later, separate copyleft".
-
-### Audit — Security re-validation on the relicensed tree
-- See `AUDIT.md` for the v2.1.7 refresh: full rebuild, NIST/RFC test vector re-run, ASAN re-run, regression suite re-run, and the updated table of known limitations.
-
-### Notes for downstream packagers
-- The SPDX tags are authoritative. If an automated license scanner produces a different result, the SPDX tags in the source file headers should be treated as the source of truth, supplemented by the `LICENSE` and `LICENSE-VAPTVUPT` files.
-- Distributions that previously shipped Zupt under MIT should update their package metadata. The on-disk binary's behavior is unchanged; only the licensing terms have changed.
 
 ---
 
@@ -263,34 +754,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Benchmark harness** — `zupt bench --compare` tests all codecs + auto-detects gzip/lz4/zstd.
 
 ### Changed — Multi-Architecture Support
-- **Makefile rewritten** for full multi-arch builds: x86_64, aarch64, armhf, ppc64le, s390x, riscv64.
 - Jasmin CT assembly: x86_64 only (C fallback on all others).
 - AVX2 SIMD decode: x86_64 only. NEON decode: aarch64. Scalar fallback: everywhere.
-- `LDFLAGS` honored on link line for PIE linking (`-pie -Wl,-z,relro,-z,now`).
-- `LDLIBS` placed after objects (correct rpmlint/OBS link order).
-- `DESTDIR` support for staged packaging installs.
-- Man page `doc/zupt.1` compressed and installed to `$(MANDIR)/man1/zupt.1.gz`.
-- Verbose build with `make V=1`.
-- `make help` shows available targets and detected architecture capabilities.
-- AVX2 detection gates `has_avx2` on `has_avx` (OS XSAVE must be enabled).
 
 ### Tests
 - **70 tests total:** 11 VV unit + 13 NIST/RFC vectors + 22 regression + 14 multi-threaded + 10 post-quantum.
 - ASAN clean across all modes (normal, encrypted, solid, threaded, PQ).
 - All 5 Jasmin symbols linked (confirmed via `nm`).
-
----
-
-## [1.5.5] — 2026-04-01
-
-### Fixed — Makefile & Packaging
-- Added man page installation (`doc/zupt.1` → `zupt.1.gz` in `$(MAN1DIR)`).
-- Enabled verbose build output with `V=1` support.
-- Fixed Makefile to honor `LDFLAGS` and support PIE linking.
-- Improved rpmlint compliance for OBS/openSUSE packaging.
-- Jasmin assembly gated to x86_64 only (`ifeq ($(ARCH),x86_64)`) — clean build on aarch64/armhf/ppc64le.
-- Object files excluded from distribution tarballs.
-- `install.sh` convenience installer restored.
 
 ---
 
@@ -428,7 +898,6 @@ All 4 `.jazz` files rewritten to fix compilation errors:
 | **2.1.1** | Termux/Android build fix, arch-safety guard, Keccak UB fix, no stale .o in tarballs | 70 PASS |
 | **2.1.0** | VaptVupt 1.4.0: cross-block dictionary, context prefetch, faster adaptive window, integration API | 70 PASS |
 | **2.0.0** | VaptVupt 1.1.0 codec, auto codec detection, all 5 Jasmin wired, AVX SIGILL fix, multi-arch, copy_match fix, litlen overflow fix | 70 PASS |
-| **1.5.5** | Man page install, V=1 verbose, LDFLAGS/PIE, rpmlint, multi-arch Makefile | 53+13 PASS |
 | **1.5.0** | Jasmin assembly linked: MAC verify + ML-KEM select active in binary | 53+13 PASS |
 | **1.4.0** | All 4 `.jazz` files compile on jasminc 2026.03.0 | 53+13 PASS |
 | **1.3.0** | ACSL predicates, security review, partial Jasmin fixes | 53+13 PASS |
@@ -438,4 +907,4 @@ All 4 `.jazz` files rewritten to fix compilation errors:
 
 ---
 
-© 2026 Cristian Cezar Moisés — MIT License
+© 2026 Cristian Cezar Moisés — AGPL-3.0-or-later

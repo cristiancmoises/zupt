@@ -1,9 +1,7 @@
 /*
- * ZUPT - LZ77 Compression Engine v2 (Zupt-LZ codec 0x0008)
- *
  * SPDX-License-Identifier: AGPL-3.0-or-later
- * Copyright (C) 2026 Cristian Cezar Moisés
- * Commercial licensing: sac@securityops.co
+ * Copyright (c) 2025-2026 Cristian Cezar Moisés
+ * ZUPT - LZ77 Compression Engine v2 (Zupt-LZ codec 0x0008)
  *
  * Improvements over v0.1:
  *   - 18-bit hash table (256K entries) for better match distribution
@@ -36,7 +34,16 @@ static inline size_t lz_write_extra(uint8_t *dst, size_t cap, size_t len) {
 
 static inline size_t lz_read_extra(const uint8_t *s, size_t slen, size_t *pos, size_t init) {
     size_t t = init;
-    while (*pos < slen) { uint8_t b = s[(*pos)++]; t += b; if (b < 255) break; }
+    while (*pos < slen) {
+        uint8_t b = s[(*pos)++];
+        /* Cap accumulation at 2^32 to prevent size_t overflow on 64-bit
+         * systems and to bound match/literal length to a sane maximum.
+         * Real archives never exceed 16 MiB block sizes; 2^32 is a
+         * generous safety ceiling. */
+        if (t > (size_t)0xFFFFFFFFu - 255) return (size_t)-1;
+        t += b;
+        if (b < 255) break;
+    }
     return t;
 }
 
@@ -199,7 +206,10 @@ size_t zupt_lz_decompress(const uint8_t *src, size_t src_len,
         size_t lit_len = (token >> 4) & 0xF;
         size_t match_code = token & 0xF;
 
-        if (lit_len == 15) lit_len = lz_read_extra(src, src_len, &ip, 15);
+        if (lit_len == 15) {
+            lit_len = lz_read_extra(src, src_len, &ip, 15);
+            if (lit_len == (size_t)-1) return 0;
+        }
 
         if (lit_len > 0) {
             if (ip + lit_len > src_len || op + lit_len > dst_len) return 0;
@@ -215,8 +225,10 @@ size_t zupt_lz_decompress(const uint8_t *src, size_t src_len,
         if (offset == 0 || offset > op) return 0;
 
         size_t match_len = match_code + LZ_MIN_MATCH;
-        if (match_code == 15)
+        if (match_code == 15) {
             match_len = lz_read_extra(src, src_len, &ip, 15 + LZ_MIN_MATCH);
+            if (match_len == (size_t)-1) return 0;
+        }
 
         if (op + match_len > dst_len) return 0;
         size_t ref = op - offset;

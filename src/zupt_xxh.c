@@ -1,11 +1,7 @@
 /*
- * ZUPT - XXH64 Hash (based on xxHash by Yann Collet, BSD-2)
- *
  * SPDX-License-Identifier: AGPL-3.0-or-later
- * Copyright (C) 2026 Cristian Cezar Moisés
- * Commercial licensing: sac@securityops.co
- *
- * Original xxHash © Yann Collet, BSD-2-Clause — compatible with AGPL.
+ * Copyright (c) 2025-2026 Cristian Cezar Moisés
+ * ZUPT - XXH64 Hash (based on xxHash by Yann Collet, BSD-2)
  */
 #include "zupt.h"
 #include <string.h>

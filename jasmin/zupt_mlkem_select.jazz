@@ -1,5 +1,6 @@
 /* Zupt — ML-KEM Constant-Time Select (Jasmin)
- * Copyright (c) 2026 Cristian Cezar Moisés — MIT License
+ * Copyright (c) 2026 Cristian Cezar Moisés
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * CT-REQUIRED: FO implicit rejection must not leak via timing.
  * Operates in u64 chunks: 4 × 8 = 32 bytes, no byte access.

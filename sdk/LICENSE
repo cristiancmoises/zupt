@@ -1,0 +1,56 @@
+                    GNU AFFERO GENERAL PUBLIC LICENSE
+                       Version 3, 19 November 2007
+
+ Copyright (C) 2026 Cristian Cezar Moisés <zupt@riseup.net>
+
+ libzuptsdk is free software: you can redistribute it and/or modify
+ it under the terms of the GNU Affero General Public License as
+ published by the Free Software Foundation, either version 3 of the
+ License, or (at your option) any later version.
+
+ libzuptsdk is distributed in the hope that it will be useful, but
+ WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ Affero General Public License for more details.
+
+ You should have received a copy of the GNU Affero General Public
+ License along with this program.  If not, see:
+
+     https://www.gnu.org/licenses/agpl-3.0.txt
+     https://www.gnu.org/licenses/agpl-3.0.html
+
+ SPDX-License-Identifier: AGPL-3.0-or-later
+
+ ─────────────────────────────────────────────────────────────────────
+
+ ABOUT THIS LICENSE
+
+ The GNU Affero General Public License v3 (AGPLv3) is a copyleft
+ license designed for software that may be run as a network service.
+ It is identical to the GNU General Public License v3, with one
+ additional requirement (Section 13): if you modify libzuptsdk and
+ make the modified version available to users over a computer network,
+ you must offer those users access to the corresponding modified
+ source code.
+
+ This protects libzuptsdk against being adopted by SaaS providers as
+ a private fork without contributing back, while keeping it freely
+ usable by individuals, small businesses, and the broader open-source
+ community.
+
+ If you write a separate program that is distributed alongside
+ libzuptsdk (for example, statically linking it into your own
+ application), the AGPL requires you to license that combined work
+ under the AGPL as well — which means you must publish the source.
+ If this is not acceptable for your use case, please contact the
+ author for commercial licensing options:
+
+     zupt@riseup.net
+     https://github.com/cristiancmoises/zupt
+
+ ─────────────────────────────────────────────────────────────────────
+
+ The full text of the GNU Affero General Public License version 3
+ should accompany this distribution as a separate file (or you may
+ download it from the URLs above). It is approximately 35 KB / 619
+ lines of plain text.

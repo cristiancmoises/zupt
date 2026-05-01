@@ -1,9 +1,7 @@
 /*
- * ZUPT 0.4 - Byte Prediction Preprocessor
- *
  * SPDX-License-Identifier: AGPL-3.0-or-later
- * Copyright (C) 2026 Cristian Cezar Moisés
- * Commercial licensing: sac@securityops.co
+ * Copyright (c) 2025-2026 Cristian Cezar Moisés
+ * ZUPT 0.4 - Byte Prediction Preprocessor
  *
  * This is the highest-ROI compression improvement: a reversible transform
  * that captures order-1 (256-context) byte-pair correlations.

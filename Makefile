@@ -1,25 +1,27 @@
-# Zupt v2.1.7 — Makefile with VaptVupt codec + Jasmin integration
+# Zupt — backup compression with hybrid post-quantum encryption
+# Build system. Pure GNU make, no autotools, no cmake required.
 #
-# SPDX-License-Identifier: AGPL-3.0-or-later
-# Copyright (C) 2026 Cristian Cezar Moisés
-# Commercial licensing: sac@securityops.co
+# Targets:
+#   make                Build the zupt binary (uses CC, CFLAGS, LDFLAGS env)
+#   make V=1            Verbose: show every command line
+#   make install        Install to /usr/local (override with PREFIX=/usr)
+#   make test           Run the full test suite (55 tests across 6 suites)
+#   make test-asan      Build and run with AddressSanitizer + UBSan
+#   make clean          Remove build artifacts
 #
-# Multi-architecture: builds on x86_64, aarch64, armhf, ppc64le, s390x, riscv64.
-# Tested on: Linux, macOS, Windows (MSYS2), Termux (Android aarch64).
-# Jasmin CT crypto:    x86_64 only (C fallback on all other architectures).
-# AVX2 SIMD decode:    x86_64 only (NEON on aarch64, scalar elsewhere).
+# Build profiles (all controllable via standard env vars):
+#   CC=clang make                          Use Clang instead of GCC
+#   CFLAGS="-O3 -march=native" make        Optimize for current host
+#   make PREFIX=/usr DESTDIR=/tmp/stage    Staged install for packagers
 #
-# Packaging:
-#   make                     Build with defaults
-#   make V=1                 Verbose build output
-#   make install DESTDIR=/   Staged install for packaging
-#   make CFLAGS="..." LDFLAGS="..." Override for distro policy (PIE, hardening)
+# Architectures supported (auto-detected from $(uname -m)):
+#   x86_64    — full speed: Jasmin constant-time crypto, AVX2 SIMD decode
+#   aarch64   — full speed: C crypto, NEON SIMD decode
+#   armhf, ppc64le, s390x, riscv64 — C crypto, scalar decode
 #
-# rpmlint / OBS compliance:
-#   - LDFLAGS honored on link line (before objects for PIE)
-#   - LDLIBS after objects (correct link order)
-#   - DESTDIR support for staged installs
-#   - Man page compressed and installed to $(MANDIR)/man1
+# Operating systems supported:
+#   Linux (glibc 2.28+), macOS 10.15+, Windows (MSYS2/MinGW), Termux Android,
+#   FreeBSD, OpenBSD (with system make compatibility shims).
 
 CC        ?= cc
 CFLAGS    ?= -Wall -Wextra -O2 -std=c11
@@ -52,11 +54,19 @@ endif
 # --- Zupt core sources ---
 ZUPT_SOURCES = src/zupt_main.c src/zupt_format.c src/zupt_lz.c src/zupt_lzh.c \
                src/zupt_xxh.c src/zupt_sha256.c src/zupt_aes256.c src/zupt_crypto.c \
+               src/zupt_crypto_sdk.c \
                src/zupt_predict.c src/zupt_parallel.c src/zupt_keccak.c \
                src/zupt_x25519.c src/zupt_mlkem.c src/zupt_cpuid.c src/zupt_mlock.c \
                src/zupt_filetype.c src/zupt_disk.c src/zupt_dedup.c
 
-# --- VAPTVUPT: VaptVupt codec sources (GPL-3.0-or-later, separate copyleft) ---
+# --- libzuptsdk linkage (vendored) ---
+ZUPTSDK_DIR ?= vendor/zuptsdk
+ZUPTSDK_ABS := $(abspath $(ZUPTSDK_DIR))
+CFLAGS  += -I$(ZUPTSDK_DIR)/include
+LDFLAGS += -L$(ZUPTSDK_DIR) -Wl,-rpath,$(ZUPTSDK_ABS) -Wl,-rpath,'$$ORIGIN/$(ZUPTSDK_DIR)'
+LDLIBS  += -lzuptsdk
+
+# --- VAPTVUPT: VaptVupt codec sources (Apache-2.0, integrated under MIT) ---
 VV_SOURCES = src/vv_encoder.c src/vv_decoder.c src/vv_ans.c \
              src/vv_huffman.c src/vv_simd.c src/vv_xxh64.c src/vaptvupt_api.c
 
@@ -154,9 +164,49 @@ endif
 # BUILD RULES
 # ═══════════════════════════════════════════════════════════════════
 
-.PHONY: all clean install uninstall test test-all test-asan test-vectors test-vv fuzz-build help
+.PHONY: all clean install uninstall test test-all test-asan test-asan-run test-vectors test-vv fuzz-build fuzz-format fuzz-format-run help audit-licenses
 
 all: $(TARGET)
+
+# ═══════════════════════════════════════════════════════════════════
+# audit-licenses — verify every source file carries the correct SPDX
+# header. AGPL-3.0-or-later for all Zupt code, GPL-3.0-or-later for
+# VaptVupt files (vv_* and vaptvupt*) — see THIRD-PARTY-NOTICES.md
+# for the rationale.
+# ═══════════════════════════════════════════════════════════════════
+audit-licenses:
+	@MISSING=0; WRONG=0; \
+	for f in $$(find . -type f \( -name '*.c' -o -name '*.h' -o -name '*.hpp' \
+	             -o -name '*.py' -o -name '*.sh' -o -name '*.yml' \
+	             -o -name '*.jazz' -o -name '*.s' -o -name 'Makefile' \
+	             -o -name '*.map' \) \
+	             -not -path './build/*' \
+	             -not -path './build_obj/*' \
+	             -not -path './sdk/build/*' \
+	             -not -path './vendor/zuptsdk/include/*'); do \
+	    BASE=$$(basename "$$f"); \
+	    case "$$BASE" in \
+	        vv_*|vaptvupt*) \
+	            EXPECTED="SPDX-License-Identifier: GPL-3.0-or-later" ;; \
+	        *) \
+	            EXPECTED="SPDX-License-Identifier: AGPL-3.0-or-later" ;; \
+	    esac; \
+	    if ! grep -q "SPDX-License-Identifier" "$$f"; then \
+	        echo "  ✗ $$f (missing SPDX)"; \
+	        MISSING=$$((MISSING+1)); \
+	    elif ! grep -q "$$EXPECTED" "$$f"; then \
+	        echo "  ✗ $$f (wrong SPDX, expected: $$EXPECTED)"; \
+	        WRONG=$$((WRONG+1)); \
+	    fi; \
+	done; \
+	if [ $$MISSING -eq 0 ] && [ $$WRONG -eq 0 ]; then \
+	    echo "  ✓ All source files carry correct SPDX headers"; \
+	    echo "    (AGPL-3.0-or-later for Zupt, GPL-3.0-or-later for VaptVupt)"; \
+	else \
+	    echo ""; \
+	    echo "  $$MISSING missing, $$WRONG with wrong SPDX. Aborting."; \
+	    exit 1; \
+	fi
 
 # Jasmin pre-compiled assembly (x86_64 only)
 jasmin/%.o: jasmin/%.s
@@ -174,7 +224,9 @@ $(VV_PLAIN_OBJS): src/%.o: src/%.c $(HEADERS)
 $(ZUPT_OBJS): src/%.o: src/%.c $(HEADERS)
 	$(Q)$(CC) $(CFLAGS) -c -o $@ $<
 
-# Link: LDFLAGS before objects (for PIE), LDLIBS after (for -lm -lpthread)
+# Final link step. Order matters: CFLAGS before LDFLAGS, then objects,
+# then LDLIBS — keeps GCC/Clang happy when LDFLAGS contains -pie or
+# similar position-sensitive flags.
 $(TARGET): $(ALL_OBJS) $(JAZZ_O)
 	$(Q)$(CC) $(CFLAGS) $(LDFLAGS) $(ALL_OBJS) $(JAZZ_O) -o $(TARGET) $(LDLIBS)
 	@echo "Build complete: ./$(TARGET) [$(ARCH)]"
@@ -216,6 +268,12 @@ clean:
 
 test: $(TARGET)
 	$(Q)sh tests/run_quick.sh
+	$(Q)bash tests/test_sdk.sh
+	$(Q)bash tests/test_audit.sh
+	$(Q)bash tests/test_dedup_props.sh
+	$(Q)bash tests/test_path_traversal.sh
+	$(Q)bash tests/test_arg_order.sh
+	$(Q)bash tests/test_block_swap.sh
 
 test-all: $(TARGET) test-vectors test-vv
 	@echo "==============================================="
@@ -246,11 +304,53 @@ test-vv: tests/test_vaptvupt.c $(HEADERS)
 	$(Q)./test_vaptvupt
 
 test-asan: $(SOURCES) $(HEADERS) $(JAZZ_O)
-	$(Q)$(CC) -Wall -Wextra -std=c11 -Iinclude -Isrc \
+	$(Q)$(CC) -Wall -Wextra -std=c11 -Iinclude -Isrc -I$(ZUPTSDK_DIR)/include \
 	    -fsanitize=address,undefined -g -O1 \
-	    $(VV_SIMD_FLAGS) $(LDFLAGS) \
-	    $(SOURCES) $(JAZZ_O) -o zupt_asan $(LDLIBS)
+	    $(VV_SIMD_FLAGS) -L$(ZUPTSDK_DIR) -Wl,-rpath,$(ZUPTSDK_ABS) \
+	    $(SOURCES) $(JAZZ_O) -o zupt_asan -lzuptsdk $(LDLIBS)
 	@echo "ASAN build: ./zupt_asan"
+
+# Build the format-parser fuzz harness. Runs against ./zupt_asan to catch
+# memory errors AND crashes in mutation-fuzz of the listing/extract path.
+fuzz-format: tests/fuzz_format
+
+tests/fuzz_format: tests/fuzz_format.c
+	$(Q)$(CC) -std=c11 -O2 -Wall tests/fuzz_format.c -o tests/fuzz_format
+	@echo "Format fuzz harness: ./tests/fuzz_format"
+
+# Run 5000 iterations of mutation fuzz against the ASAN binary.
+# Any crash or sanitizer error fails CI.
+fuzz-format-run: tests/fuzz_format test-asan $(TARGET)
+	@echo "Building seed archive..."
+	@echo "fuzz seed file" > /tmp/_zupt_fuzz_input.txt
+	@./zupt c /tmp/_zupt_fuzz_seed.zupt /tmp/_zupt_fuzz_input.txt > /dev/null 2>&1
+	@ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 \
+	    ./tests/fuzz_format 1000 ./zupt_asan /tmp/_zupt_fuzz_seed.zupt
+	@rm -f /tmp/_zupt_fuzz_input.txt /tmp/_zupt_fuzz_seed.zupt
+	@echo "  Format fuzz: 1000 iters under ASAN/UBSAN — no crashes."
+
+# Runs the test suites against the ASAN-instrumented binary.
+# Catches use-after-free, OOB, leaks, signed-overflow that aren't visible
+# in the optimized release build.
+test-asan-run: test-asan
+	@echo "Running test suites under ASAN/UBSAN..."
+	@ZUPT_BIN_OVERRIDE=$$(realpath ./zupt_asan); \
+	  cp $$ZUPT_BIN_OVERRIDE zupt.bak 2>/dev/null; \
+	  ln -sf zupt_asan zupt_asan_run; \
+	  mv zupt zupt.real; \
+	  ln -sf zupt_asan zupt; \
+	  ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 sh tests/run_quick.sh; \
+	  rc1=$$?; \
+	  ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 bash tests/test_sdk.sh; \
+	  rc2=$$?; \
+	  ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 bash tests/test_audit.sh; \
+	  rc3=$$?; \
+	  rm zupt zupt_asan_run; mv zupt.real zupt; \
+	  if [ $$rc1 -eq 0 ] && [ $$rc2 -eq 0 ] && [ $$rc3 -eq 0 ]; then \
+	    echo ""; echo "  ASAN/UBSAN: all tests pass cleanly."; \
+	  else \
+	    echo ""; echo "  ASAN/UBSAN: failures detected (run codes $$rc1 $$rc2 $$rc3)."; exit 1; \
+	  fi
 
 # AFL++ fuzzing harnesses (requires afl-clang-fast)
 fuzz-build:
@@ -270,7 +370,7 @@ fuzz-build:
 	@echo "  afl-fuzz -i corpus_vv -o findings_vv -- ./fuzz_vv_decompress"
 
 help:
-	@echo "Zupt v2.1.7 build targets:"
+	@echo "Zupt v2.0.0 build targets:"
 	@echo "  make              Build zupt binary"
 	@echo "  make V=1          Build with verbose output"
 	@echo "  make test         Quick test"
@@ -286,3 +386,8 @@ help:
 	@echo "  x86_64:   Jasmin CT crypto + AVX2 SIMD decode"
 	@echo "  aarch64:  C crypto fallback + NEON SIMD decode"
 	@echo "  other:    C crypto fallback + scalar decode"
+
+# ─────────────────────────────────────────────────────────────────────
+#  SDK targets — see sdk/Makefile.sdk
+# ─────────────────────────────────────────────────────────────────────
+include sdk/Makefile.sdk

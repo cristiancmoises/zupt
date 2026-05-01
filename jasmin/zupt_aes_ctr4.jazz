@@ -1,5 +1,6 @@
 /* Zupt — AES-256-CTR 4-Block Pipeline via AES-NI (Jasmin)
- * Copyright (c) 2026 Cristian Cezar Moisés — MIT License
+ * Copyright (c) 2026 Cristian Cezar Moisés
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * CT-REQUIRED: AES-NI has no data-dependent timing.
  *

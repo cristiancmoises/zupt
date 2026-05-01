@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2025-2026 Cristian Cezar Moisés
 set +e
 ZUPT="./zupt"
 T="/tmp/zupt_mt_$$"

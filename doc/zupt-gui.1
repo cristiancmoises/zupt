@@ -1,0 +1,109 @@
+.TH ZUPT-GUI 1 "2026-04-27" "zupt-gui 1.1.1" "User Commands"
+.SH NAME
+zupt-gui \- graphical interface for the Zupt post-quantum backup utility
+.SH SYNOPSIS
+.B zupt-gui
+.RI [ ARCHIVE ]
+.SH DESCRIPTION
+.B zupt-gui
+is a graphical frontend for
+.BR zupt (1).
+It provides tabs for compression, extraction, key management, and
+full-disk backup. Both PQ encryption modes are exposed:
+.B legacy --pq
+and
+.B SDK v2 --pq-sdk
+(HKDF combiner, key commitment, HPKE binding, Argon2id).
+
+If
+.I ARCHIVE
+is given on the command line, the GUI opens directly on the
+extract tab with that archive preloaded.
+
+.B zupt-gui
+uses Qt 6. It works with either of the following Python Qt bindings,
+auto-detected at startup in this order:
+.IP \(bu 2
+PySide6 (Qt for Python)
+.IP \(bu 2
+PyQt6
+.PP
+If neither is installed, the GUI prints an instructive error and exits.
+
+.SH TABS
+.TP
+.B Compress
+Select files or directories, choose codec, level, password and/or PQ
+key. The
+.B Mode
+panel controls whether the SDK v2 path or the legacy path is used.
+.TP
+.B Extract
+Open a .zupt archive, select output directory, provide password
+and/or PQ private key.
+.TP
+.B Keygen
+Generate ML-KEM-768 + X25519 keypair. The
+.B SDK v2 format
+checkbox controls whether the keypair is generated via
+.B zupt keygen --sdk
+(producing
+.IR file
+and
+.IR file.pub
+in one step) or via the legacy
+.BR "zupt keygen" .
+.TP
+.B Disk
+Full-disk backup and restore. Enumerates block devices with
+human-readable sizes. Same encryption mode controls as Compress.
+
+.SH FILES
+.TP
+.I /usr/bin/zupt-gui
+Wrapper script that invokes the Python entry point.
+.TP
+.I /usr/lib/zupt-gui/zupt_gui.py
+Main Python source.
+.TP
+.I /usr/share/applications/zupt-gui.desktop
+Desktop entry for menu integration.
+.TP
+.I /usr/share/icons/hicolor/256x256/apps/zupt-gui.png
+Application icon.
+
+.SH ENVIRONMENT
+.TP
+.B ZUPT_BINARY
+Override the path to the
+.B zupt
+binary (default: search
+.IR PATH ).
+
+.SH BUGS
+Report at
+.UR https://git.securityops.co/cristiancmoises/zupt/issues
+.UE .
+
+.SH AUTHOR
+Cristian Cezar Moisés
+.MT zupt@riseup.net
+.ME
+
+.SH SEE ALSO
+.BR zupt (1).
+
+.SH LICENSE
+.PP
+zupt-gui is licensed under the
+.B GNU Affero General Public License version 3 or later
+(AGPL-3.0-or-later). Commercial license available for relief from
+copyleft terms; contact
+.MT sac@securityops.co
+.ME .
+
+.SH PROJECT
+.PP
+Home page:
+.UR https://git.securityops.co/cristiancmoises/zupt
+.UE

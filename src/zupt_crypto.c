@@ -344,10 +344,27 @@ uint8_t *zupt_encrypt_buffer(const zupt_keyring_t *kr,
     /* Encrypt */
     zupt_aes256_ctr(kr->enc_key, nonce, plain, pkg + 16, plen);
 
-    /* MAC over nonce + ciphertext */
+    /* MAC over nonce + ciphertext + block_seq (AAD).
+     *
+     * Binding block_seq into the MAC prevents block-swap (reordering)
+     * attacks: an attacker who swaps two valid encrypted blocks would
+     * have to forge a MAC that includes the new position. v2.2.2+
+     * archives all use this binding (signaled by ZUPT_FLAG_AAD_SEQ).
+     */
+    uint8_t aad_seq[8];
+    for (int i = 0; i < 8; i++) aad_seq[i] = (uint8_t)(block_seq >> (i * 8));
+
+    /* Compute MAC by feeding nonce || ciphertext || aad_seq into HMAC.
+     * Single-call interface forces a concat into a temp buffer. */
+    uint8_t *mac_input = (uint8_t *)malloc(16 + plen + 8);
+    if (!mac_input) { free(pkg); return NULL; }
+    memcpy(mac_input, pkg, 16 + plen);
+    memcpy(mac_input + 16 + plen, aad_seq, 8);
     zupt_hmac_sha256(kr->mac_key, ZUPT_HMAC_SIZE,
-                     pkg, 16 + plen,
+                     mac_input, 16 + plen + 8,
                      pkg + 16 + plen);
+    zupt_secure_wipe(mac_input, 16 + plen + 8);
+    free(mac_input);
 
     return pkg;
 }
@@ -368,35 +385,64 @@ uint8_t *zupt_encrypt_buffer(const zupt_keyring_t *kr,
 uint8_t *zupt_decrypt_buffer(const zupt_keyring_t *kr,
                               const uint8_t *pkg, size_t pkglen,
                               uint64_t block_seq, size_t *olen) {
-    (void)block_seq;
     if (pkglen < ZUPT_NONCE_SIZE + ZUPT_HMAC_SIZE) return NULL;
 
     size_t clen = pkglen - ZUPT_NONCE_SIZE - ZUPT_HMAC_SIZE;
     *olen = clen;
 
-    /* Verify HMAC — constant-time comparison via XOR accumulation */
-    uint8_t expected_mac[32];
+    /* Verify HMAC.
+     *
+     * v2.2.2+ archives bind block_seq into the MAC as AAD (anti-block-swap).
+     * Older archives don't include the AAD. We try the AAD-bound MAC first;
+     * if it fails, fall back to legacy MAC for backward compat. Both
+     * computations are always performed (constant-time policy: don't reveal
+     * via timing which path matched).
+     */
+    uint8_t expected_mac_v2[32];
+    uint8_t expected_mac_v1[32];
+
+    /* v2: AAD = 8-byte block_seq LE */
+    {
+        uint8_t aad_seq[8];
+        for (int i = 0; i < 8; i++) aad_seq[i] = (uint8_t)(block_seq >> (i * 8));
+        uint8_t *mac_input = (uint8_t *)malloc(ZUPT_NONCE_SIZE + clen + 8);
+        if (!mac_input) return NULL;
+        memcpy(mac_input, pkg, ZUPT_NONCE_SIZE + clen);
+        memcpy(mac_input + ZUPT_NONCE_SIZE + clen, aad_seq, 8);
+        zupt_hmac_sha256(kr->mac_key, ZUPT_HMAC_SIZE,
+                         mac_input, ZUPT_NONCE_SIZE + clen + 8,
+                         expected_mac_v2);
+        zupt_secure_wipe(mac_input, ZUPT_NONCE_SIZE + clen + 8);
+        free(mac_input);
+    }
+
+    /* v1 legacy: no AAD */
     zupt_hmac_sha256(kr->mac_key, ZUPT_HMAC_SIZE,
                      pkg, ZUPT_NONCE_SIZE + clen,
-                     expected_mac);
+                     expected_mac_v1);
 
     const uint8_t *stored_mac = pkg + ZUPT_NONCE_SIZE + clen;
+
+    /* Constant-time comparison against both candidates */
 #ifdef ZUPT_USE_JASMIN
-    /* JASMIN-VERIFIED: CT MAC comparison — 4×u64 XOR accumulation.
-     * Proven constant-time by Jasmin type system. */
-    uint64_t diff = zupt_mac_verify_ct(expected_mac, stored_mac);
+    uint64_t diff_v2 = zupt_mac_verify_ct(expected_mac_v2, stored_mac);
+    uint64_t diff_v1 = zupt_mac_verify_ct(expected_mac_v1, stored_mac);
 #else
-    /* CT-REQUIRED: XOR accumulation fallback */
-    uint64_t diff = 0;
-    for (int i = 0; i < 32; i++)
-        diff |= (uint64_t)(expected_mac[i] ^ stored_mac[i]);
+    uint64_t diff_v2 = 0, diff_v1 = 0;
+    for (int i = 0; i < 32; i++) {
+        diff_v2 |= (uint64_t)(expected_mac_v2[i] ^ stored_mac[i]);
+        diff_v1 |= (uint64_t)(expected_mac_v1[i] ^ stored_mac[i]);
+    }
 #endif
 
-    zupt_secure_wipe(expected_mac, 32);
+    /* Authentication succeeds iff at least one candidate matches.
+     * AND-with-zero pattern keeps comparison constant-time. */
+    uint64_t diff = diff_v2 & diff_v1;
 
-    /* CT-REQUIRED: Always decrypt even on MAC failure to prevent timing oracle.
-     * An attacker observing that decrypt is skipped on MAC failure could use
-     * the timing difference to distinguish valid from invalid MACs. */
+    zupt_secure_wipe(expected_mac_v2, 32);
+    zupt_secure_wipe(expected_mac_v1, 32);
+
+    /* CT-REQUIRED: Always decrypt even on MAC failure to prevent timing oracle. */
     uint8_t *plain = (uint8_t *)malloc(clen);
     if (!plain) return NULL;
 

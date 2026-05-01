@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2025-2026 Cristian Cezar Moisés
 set +e
 Z="./zupt"; T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/d"; echo "hello" > "$T/d/a.txt"

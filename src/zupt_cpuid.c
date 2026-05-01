@@ -1,7 +1,8 @@
 /*
- * Zupt — CPU Feature Detection
  * SPDX-License-Identifier: AGPL-3.0-or-later
- * Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-or-later (commercial: sac@securityops.co)
+ * Copyright (c) 2025-2026 Cristian Cezar Moisés
+ * Zupt — CPU Feature Detection
+ * Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-or-later
  *
  * Detects AES-NI, PCLMUL, AVX2, SSE4.1 at runtime.
  * Used to dispatch AES-256-CTR to hardware path when available.

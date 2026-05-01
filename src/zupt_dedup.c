@@ -1,7 +1,8 @@
 /*
- * Zupt v2.1.5 — Block-Level Deduplication
  * SPDX-License-Identifier: AGPL-3.0-or-later
- * Copyright (c) 2026 Cristian Cezar Moises — AGPL-3.0-or-later (commercial: sac@securityops.co)
+ * Copyright (c) 2025-2026 Cristian Cezar Moisés
+ * Zupt v2.1.5 — Block-Level Deduplication
+ * Copyright (c) 2026 Cristian Cezar Moises — AGPL-3.0-or-later
  *
  * Eliminates redundant data blocks before compression using XXH64
  * fingerprinting with full content verification on match.

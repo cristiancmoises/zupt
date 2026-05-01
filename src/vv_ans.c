@@ -1,7 +1,5 @@
-/*
- * SPDX-License-Identifier: GPL-3.0-or-later
- * Copyright (C) 2026 Cristian Cezar Moisés
- * Commercial licensing: sac@securityops.co
+/* SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (c) 2025-2026 Cristian Cezar Moisés
  *
  * VaptVupt — tANS v2 (sparse header + 4-way interleaved decode)
  *
@@ -19,7 +17,6 @@
 
 #include "vv_ans.h"
 #include "vv_platform.h"
-#include "vv_huffman.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -1236,48 +1233,18 @@ static const uint8_t of_extra[VVA_OF_CODES] = {
 
 /* Encode match length → (code, extra_value, extra_bits).
  * Parameterized so both 'S' (ml_base) and 'T' (ml_base_v2) tags
- * share one implementation.
- *
- * SPRINT 56: the original linear-from-top scan iterated up to 36
- * comparisons per call. Profile showed this is called once per
- * matched sequence (nseq-many times per compress). Replacing with
- * a hybrid lookup:
- *   1. Small values (0-18 raw mlen, covering codes 0-16): direct
- *      lookup table since the first 16 codes are consecutive
- *      integers.
- *   2. Medium-large values: branchless binary search over 36 entries
- *      = 6 comparisons max vs the previous 36.
- *
- * Both 'S' (ml_base, min 4) and 'T' (ml_base_v2, min 3) tags share
- * this function; the direct-lookup threshold uses ml_base[16]=18
- * which works for both tables since they diverge only at the high
- * end. */
+ * share one implementation. */
 static void ml_encode_with(uint32_t mlen, const uint32_t *base_tab,
                             uint8_t *code, uint32_t *extra, int *nbits) {
-    /* Fast path: small mlen covers the majority of binary matches.
-     * ml_base[c] for c=0..15 is consecutive integers:
-     *   v1 ml_base[0..15] = 4,5,...,19 (covers up to 19)
-     *   v2 ml_base[0..15] = 3,4,...,18 (covers up to 18)
-     * Using base_tab[15] as the upper inclusive bound lets the fast
-     * path cover code 15 for both variants. */
-    if (mlen <= base_tab[15]) {
-        uint32_t c = (mlen >= base_tab[0]) ? (mlen - base_tab[0]) : 0;
-        *code = (uint8_t)c;
-        *extra = 0;       /* codes 0-15 all have ml_extra[c] = 0 */
-        *nbits = 0;
-        return;
+    for (int c = VVA_ML_CODES - 1; c >= 0; c--) {
+        if (mlen >= base_tab[c]) {
+            *code = (uint8_t)c;
+            *extra = mlen - base_tab[c];
+            *nbits = ml_extra[c];
+            return;
+        }
     }
-
-    /* Binary search over codes 16..35 for larger values. */
-    int lo = 16, hi = VVA_ML_CODES - 1;
-    while (lo < hi) {
-        int mid = (lo + hi + 1) >> 1;
-        if (mlen >= base_tab[mid]) lo = mid;
-        else hi = mid - 1;
-    }
-    *code = (uint8_t)lo;
-    *extra = mlen - base_tab[lo];
-    *nbits = ml_extra[lo];
+    *code = 0; *extra = 0; *nbits = 0;
 }
 /* (ml_encode legacy wrapper removed — all callers migrated to
  * ml_encode_with for explicit table selection.) */
@@ -1320,27 +1287,15 @@ static const uint8_t ll_extra[VVA_LL_CODES] = {
 };
 
 static void ll_encode(uint32_t litlen, uint8_t *code, uint32_t *extra, int *nbits) {
-    /* SPRINT 56: same optimization as ml_encode_with. Small litlens
-     * (0-15) are direct-lookup since ll_base[c]=c for c=0..15.
-     * Larger values use binary search over the remaining 20 codes
-     * (log2 ≈ 5 comparisons vs previous 36). */
-    if (litlen <= 15u) {
-        *code = (uint8_t)litlen;
-        *extra = 0;       /* codes 0-15 all have ll_extra[c] = 0 */
-        *nbits = 0;
-        return;
+    for (int c = VVA_LL_CODES - 1; c >= 0; c--) {
+        if (litlen >= ll_base[c]) {
+            *code = (uint8_t)c;
+            *extra = litlen - ll_base[c];
+            *nbits = ll_extra[c];
+            return;
+        }
     }
-
-    /* Binary search over codes 16..35 */
-    int lo = 16, hi = VVA_LL_CODES - 1;
-    while (lo < hi) {
-        int mid = (lo + hi + 1) >> 1;
-        if (litlen >= ll_base[mid]) lo = mid;
-        else hi = mid - 1;
-    }
-    *code = (uint8_t)lo;
-    *extra = litlen - ll_base[lo];
-    *nbits = ll_extra[lo];
+    *code = 0; *extra = 0; *nbits = 0;
 }
 
 static uint32_t ll_decode(uint8_t code, uint32_t extra) {
@@ -1381,25 +1336,6 @@ static size_t parse_sequences(const uint8_t *tokens, size_t tok_len,
     const uint8_t *tp = tokens, *tp_end = tokens + tok_len;
     size_t nseq = 0, nlits = 0;
 
-    /* SPRINT 63: maximum litlen representable by the LL ANS coder is
-     * 65535 (ll_base[35]=61440 + max 4095 extra bits). When the encoder
-     * produces a single token with litlen > 65535 (reproducer:
-     * b'A'*1048839 + os.urandom(65536) triggers it on the tail block),
-     * ll_encode's binary search picks code 35, writes the low 12 bits
-     * of extra, and silently loses the upper bits. Decoder then reads
-     * back a smaller litlen, producing a short output block.
-     *
-     * Fix: if a parsed token's ll exceeds LL_MAX, split into multiple
-     * seq entries: as many (LL_MAX, matchlen=0) zero-match sequences
-     * as needed to absorb the overflow, followed by the final sequence
-     * carrying the remaining (ll' ≤ LL_MAX) and the original match.
-     *
-     * Zero-match sequences are already legal in the stream (trailing
-     * literals use matchlen=0, offset=0). Adding them mid-stream is
-     * wire-compatible — the decoder's existing match_count == 0 test
-     * skips the match-copy for these entries. */
-    enum { LL_MAX = 65535 };
-
     while (tp < tp_end && nseq < seq_cap) {
         uint8_t token = *tp++;
         size_t ll = token >> 4;
@@ -1419,18 +1355,6 @@ static size_t parse_sequences(const uint8_t *tokens, size_t tok_len,
         if (tp + ll > tp_end || nlits + ll > lit_cap) return 0;
         memcpy(lit_buf + nlits, tp, ll);
         tp += ll;
-
-        /* SPRINT 63: split oversize literal runs */
-        while (ll > LL_MAX) {
-            if (nseq >= seq_cap) return 0;
-            seqs[nseq].litlen = (uint32_t)LL_MAX;
-            seqs[nseq].lit_offset = (uint32_t)nlits;
-            seqs[nseq].matchlen = 0;
-            seqs[nseq].offset = 0;
-            nlits += LL_MAX;
-            nseq++;
-            ll -= LL_MAX;
-        }
 
         seqs[nseq].litlen = (uint32_t)ll;
         seqs[nseq].lit_offset = (uint32_t)nlits;
@@ -1510,72 +1434,26 @@ static vva_error_t vva_encode_sequences_impl(const uint8_t *tokens, size_t tok_l
     if (!lit_enc) { free(base_scratch); return VVA_ERR_NOMEM; }
 
     size_t lit_enc_len = 0;
-    uint8_t lit_fmt = 0; /* 0=raw, 1=ANS4, 2=ANS1, 3=Huffman (Sprint 71) */
+    uint8_t lit_fmt = 0; /* 0=raw, 1=ANS4, 2=ANS1 */
     if (total_lits > 0) {
-        /* SPRINT 71 (v2.46): Huffman as a competitive literal coder
-         * inside the SEQ stream.
-         *
-         * Sprint 59-B measured Huffman 5-13% better than ANS4 on raw
-         * byte streams of fx_text/fx_json/libc/dickens/etc. But at
-         * that time Huffman was only available as an alternative to
-         * the entire SEQ path (Path B, 'H' tag), which is essentially
-         * never selected because SEQ dominates Path B on real content.
-         *
-         * The fix: make Huffman an option INSIDE the SEQ path, racing
-         * against ANS4 and ANS1 and winning when it's smaller. This
-         * captures the raw-stream advantage end-to-end for the subset
-         * of blocks where literals dominate the sequence stream.
-         *
-         * Race all three coders, pick smallest. Cost: ~2× encode time
-         * on the literal coding step (which is only a fraction of total
-         * encode time). Benefit: 3-7% expected on binary fixtures where
-         * literal distributions make Huffman materially better.
-         *
-         * Decoder support: lit_fmt=3 dispatches to vvh_decode. Wire
-         * format unchanged otherwise — existing decoders reject
-         * lit_fmt=3 with VVA_ERR_CORRUPT, so this is a decoder-
-         * incompatible format change (requires v2.46.0+ decoder). */
-        size_t ans4_len = 0, ans1_len = 0, huf_len = 0;
-        uint8_t *ans4_buf = (uint8_t *)malloc(lit_cap);
-        uint8_t *ans1_buf = (uint8_t *)malloc(lit_cap);
-        uint8_t *huf_buf  = (uint8_t *)malloc(lit_cap);
-        int ans4_ok = 0, ans1_ok = 0, huf_ok = 0;
-        if (ans4_buf) {
-            ans4_ok = (vva_encode4(lit_buf, total_lits, ans4_buf, lit_cap, &ans4_len) == VVA_OK);
+        vva_error_t lit_err = vva_encode4(lit_buf, total_lits,
+                                           lit_enc, lit_cap, &lit_enc_len);
+        if (lit_err == VVA_OK) {
+            lit_fmt = 1;
+        } else {
+            lit_err = vva_encode(lit_buf, total_lits,
+                                  lit_enc, lit_cap, &lit_enc_len);
+            if (lit_err == VVA_OK) {
+                lit_fmt = 2;
+            } else {
+                /* Store raw */
+                if (total_lits <= lit_cap) {
+                    memcpy(lit_enc, lit_buf, total_lits);
+                    lit_enc_len = total_lits;
+                    lit_fmt = 0;
+                }
+            }
         }
-        if (ans1_buf) {
-            ans1_ok = (vva_encode(lit_buf, total_lits, ans1_buf, lit_cap, &ans1_len) == VVA_OK);
-        }
-        if (huf_buf) {
-            huf_ok = (vvh_encode(lit_buf, total_lits, huf_buf, lit_cap, &huf_len) == VVH_OK);
-        }
-
-        /* Pick the smallest of the three. Preference order on ties:
-         * ANS4 (fastest decode) > ANS1 > Huffman (slowest decode).
-         * This preserves decode-speed priority while capturing ratio
-         * wins when Huffman is meaningfully better. */
-        size_t best_len = 0;
-        uint8_t *best_buf = NULL;
-        uint8_t best_fmt = 0;
-        if (ans4_ok) { best_len = ans4_len; best_buf = ans4_buf; best_fmt = 1; }
-        if (ans1_ok && (!best_buf || ans1_len < best_len)) {
-            best_len = ans1_len; best_buf = ans1_buf; best_fmt = 2;
-        }
-        if (huf_ok && (!best_buf || huf_len < best_len)) {
-            best_len = huf_len; best_buf = huf_buf; best_fmt = 3;
-        }
-
-        if (best_buf && best_len <= lit_cap) {
-            memcpy(lit_enc, best_buf, best_len);
-            lit_enc_len = best_len;
-            lit_fmt = best_fmt;
-        } else if (total_lits <= lit_cap) {
-            /* All three failed — fall back to raw literals */
-            memcpy(lit_enc, lit_buf, total_lits);
-            lit_enc_len = total_lits;
-            lit_fmt = 0;
-        }
-        free(ans4_buf); free(ans1_buf); free(huf_buf);
     }
 
     /* ─── Count ML, OF, and LL code frequencies ─── */
@@ -1591,43 +1469,18 @@ static vva_error_t vva_encode_sequences_impl(const uint8_t *tokens, size_t tok_l
      *   [seq_of_code: nseq × uint8_t]  (padded to 4-byte align)
      *   [seq_of_extra: nseq × uint32_t]
      *   [seq_of_nbits: nseq × int]
-     *   [seq_ml_code: nseq × uint8_t]  (SPRINT 54)
-     *   [seq_ml_extra: nseq × uint32_t]
-     *   [seq_ml_nbits: nseq × int]
-     *   [seq_ll_code: nseq × uint8_t]
-     *   [seq_ll_extra: nseq × uint32_t]
-     *   [seq_ll_nbits: nseq × int]
-     *
-     * SPRINT 54: also memoize ML and LL codes from the forward pass.
-     * Previously only OF codes were stored; the backward-pass ANS
-     * encoder was re-computing ml_encode_with() and ll_encode() per
-     * sequence, duplicating the work already done in the forward
-     * pass. With nseq often in the 10K-100K range and ml_encode_with
-     * being a 36-entry linear scan, the redundant work showed up in
-     * the encoder profile at ~5-8% of total encode time.
-     *
-     * Net cost: 1 extra malloc region (~14 × nseq bytes), 0 extra
-     * malloc calls. Net saving: the backward pass becomes lookups
-     * instead of re-computation. */
+     * Saves 2 malloc/free pairs per vva_encode_sequences call. */
     size_t codes_sz = (nseq * sizeof(uint8_t) + 3) & ~(size_t)3;
     size_t extra_sz = nseq * sizeof(uint32_t);
     size_t nbits_sz = nseq * sizeof(int);
-    /* 3 streams × (codes + extra + nbits) */
-    uint8_t *seq_scratch = (uint8_t *)malloc(3 * (codes_sz + extra_sz + nbits_sz));
+    uint8_t *seq_scratch = (uint8_t *)malloc(codes_sz + extra_sz + nbits_sz);
     if (!seq_scratch) {
         free(base_scratch); free(lit_enc);
         return VVA_ERR_NOMEM;
     }
-    size_t stream_sz = codes_sz + extra_sz + nbits_sz;
     uint8_t  *seq_of_code  = seq_scratch;
     uint32_t *seq_of_extra = (uint32_t *)(seq_scratch + codes_sz);
     int      *seq_of_nbits = (int *)(seq_scratch + codes_sz + extra_sz);
-    uint8_t  *seq_ml_code  = seq_scratch + stream_sz;
-    uint32_t *seq_ml_extra = (uint32_t *)(seq_scratch + stream_sz + codes_sz);
-    int      *seq_ml_nbits = (int *)(seq_scratch + stream_sz + codes_sz + extra_sz);
-    uint8_t  *seq_ll_code  = seq_scratch + 2 * stream_sz;
-    uint32_t *seq_ll_extra = (uint32_t *)(seq_scratch + 2 * stream_sz + codes_sz);
-    int      *seq_ll_nbits = (int *)(seq_scratch + 2 * stream_sz + codes_sz + extra_sz);
 
     size_t match_count = 0;
     uint32_t enc_rep[3] = {0, 0, 0}; /* Rep-match tracking during forward pass */
@@ -1636,10 +1489,6 @@ static vva_error_t vva_encode_sequences_impl(const uint8_t *tokens, size_t tok_l
             uint8_t mc; uint32_t mx; int mn;
             ml_encode_with(seqs[i].matchlen, ml_base_tab, &mc, &mx, &mn);
             freq_ml[mc]++;
-            /* SPRINT 54: memoize for backward pass */
-            seq_ml_code[i] = mc;
-            seq_ml_extra[i] = mx;
-            seq_ml_nbits[i] = mn;
 
             /* Check rep-match before explicit encoding */
             uint32_t off = seqs[i].offset;
@@ -1669,10 +1518,6 @@ static vva_error_t vva_encode_sequences_impl(const uint8_t *tokens, size_t tok_l
             seq_of_code[i] = 0;
             seq_of_extra[i] = 0;
             seq_of_nbits[i] = 0;
-            /* SPRINT 54: ml_code unused when matchlen==0, but zero for safety */
-            seq_ml_code[i] = 0;
-            seq_ml_extra[i] = 0;
-            seq_ml_nbits[i] = 0;
         }
 
         /* Count litlen frequency for ALL sequences (including last) */
@@ -1680,10 +1525,6 @@ static vva_error_t vva_encode_sequences_impl(const uint8_t *tokens, size_t tok_l
             uint8_t lc; uint32_t lx; int ln;
             ll_encode(seqs[i].litlen, &lc, &lx, &ln);
             freq_ll[lc]++;
-            /* SPRINT 54: memoize LL codes too */
-            seq_ll_code[i] = lc;
-            seq_ll_extra[i] = lx;
-            seq_ll_nbits[i] = ln;
         }
     }
 
@@ -1695,15 +1536,8 @@ static vva_error_t vva_encode_sequences_impl(const uint8_t *tokens, size_t tok_l
 
     /* PERF: header buffers live on the stack — each is bounded at 600 B
      * (fits any NSYM=256 table header) and they were heap-allocated on
-     * every call before. Saves 3 malloc/free pairs per call.
-     *
-     * Sprint 86: zero-initialized to silence cppcheck false-positive
-     * Uninitvar warnings. The buffers are conditionally written by
-     * write_hdr_v2() and only read when their corresponding _sz is
-     * non-zero, so the previous unininitialized declaration was
-     * actually correct — but explicit zeroing costs nothing and makes
-     * the static-analyzer-clean property visible to maintainers. */
-    uint8_t  ml_hdr_buf[600] = {0}, of_hdr_buf[600] = {0}, ll_hdr_buf[600] = {0};
+     * every call before. Saves 3 malloc/free pairs per call. */
+    uint8_t  ml_hdr_buf[600], of_hdr_buf[600], ll_hdr_buf[600];
     size_t ml_hdr_sz = 0, of_hdr_sz = 0, ll_hdr_sz = 0;
     uint8_t *seq_bs = NULL;
     size_t seq_bs_len = 0;
@@ -1795,24 +1629,17 @@ static vva_error_t vva_encode_sequences_impl(const uint8_t *tokens, size_t tok_l
         /* Process sequences in reverse for ANS LIFO.
          * Decoder reads per-sequence: LL, OF, ML (forward).
          * Backward encode order (reversed of decode): ML, OF, LL.
-         * After bitstream reversal: LL appears first → decoded first.
-         *
-         * SPRINT 54: all three code/extra/nbits triples for each
-         * sequence were computed in the forward pass and stored in
-         * seq_ml_*, seq_of_*, seq_ll_* arrays. Re-use them here
-         * instead of recomputing ml_encode_with() and ll_encode().
-         * Eliminates ~5-8% of encode time (the forward+backward
-         * duplicate work). */
+         * After bitstream reversal: LL appears first → decoded first. */
         for (size_t ii = nseq; ii > 0; ii--) {
-            size_t idx = ii - 1;
-            if (seqs[idx].matchlen > 0) {
-                uint8_t mc = seq_ml_code[idx];
-                uint32_t mx = seq_ml_extra[idx];
-                int mn = seq_ml_nbits[idx];
+            if (seqs[ii - 1].matchlen > 0) {
+                uint8_t mc;
+                uint32_t mx;
+                int mn;
+                ml_encode_with(seqs[ii - 1].matchlen, ml_base_tab, &mc, &mx, &mn);
 
-                uint8_t oc = seq_of_code[idx];
-                uint32_t ox = seq_of_extra[idx];
-                int on = seq_of_nbits[idx];
+                uint8_t oc = seq_of_code[ii - 1];
+                uint32_t ox = seq_of_extra[ii - 1];
+                int on = seq_of_nbits[ii - 1];
 
                 /* ML extra bits (raw) */
                 if (mn > 0) {
@@ -1857,11 +1684,10 @@ static vva_error_t vva_encode_sequences_impl(const uint8_t *tokens, size_t tok_l
                 }
             }
 
-            /* LL encoded LAST per sequence (decoded FIRST after reversal) */
+            /* LL encoded LAST per sequence (so it's decoded FIRST after reversal) */
             {
-                uint8_t lc = seq_ll_code[idx];
-                uint32_t lx = seq_ll_extra[idx];
-                int ln = seq_ll_nbits[idx];
+                uint8_t lc; uint32_t lx; int ln;
+                ll_encode(seqs[ii - 1].litlen, &lc, &lx, &ln);
 
                 if (ln > 0) {
                     pairs[npairs].val = (uint32_t)lx;
@@ -2029,12 +1855,6 @@ static vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
             /* ANS single-stream */
             lerr = vva_decode(p, lit_enc_len, lit_buf, total_lits,
                                total_lits, &lit_consumed);
-        } else if (lit_fmt == 3) {
-            /* SPRINT 71 (v2.46): Huffman-coded literals within SEQ. */
-            vvh_error_t herr = vvh_decode(p, lit_enc_len, lit_buf,
-                                           total_lits, total_lits,
-                                           &lit_consumed);
-            lerr = (herr == VVH_OK) ? VVA_OK : VVA_ERR_CORRUPT;
         } else {
             /* Raw literals (lit_fmt == 0) */
             if (lit_enc_len >= total_lits) {
@@ -2230,21 +2050,7 @@ static vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
         }
         seqs_decoded++;
 
-        /* SPRINT 63/64: continue the loop even when all matches are
-         * consumed, as long as literals remain. Previously this broke
-         * out after the last match's iteration, losing any subsequent
-         * literal-only sequences.
-         *
-         * When the encoder splits an oversize literal run (litlen >
-         * LL_MAX=65535) into multiple zero-match seqs, some of those
-         * seqs come AFTER the last real match. The old break dropped
-         * them silently, producing short output.
-         *
-         * Fix: break only when both literals AND matches are fully
-         * consumed. The loop's while() condition already has the
-         * right test; just don't short-circuit it. */
-        if (matches_decoded >= match_count && lit_pos >= total_lits) break;
-        if (matches_decoded >= match_count) continue;
+        if (matches_decoded >= match_count) break;
 
         /* ── Decode OF: state, then offset (rep or explicit) ──
          * No explicit fill — ans_br_read fills when it runs out. */
@@ -2282,15 +2088,15 @@ static vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
          * op_safe_end = op_end - SAFEZONE_MAX_MATCH, and matchlen is
          * always ≤ SAFEZONE_MAX_MATCH by wire format. */
         if (VV_UNLIKELY(offset == 0 || offset > SAFEZONE_MAX_OFFSET)) {
-            free(dec_ml); free(dec_of); free(dec_ll); free(lit_buf);
+            free(dec_ml); free(dec_of); free(lit_buf);
             return VVA_ERR_CORRUPT;
         }
         if (VV_UNLIKELY(!in_safe_zone && offset > (uint32_t)(op - dst_base))) {
-            free(dec_ml); free(dec_of); free(dec_ll); free(lit_buf);
+            free(dec_ml); free(dec_of); free(lit_buf);
             return VVA_ERR_CORRUPT;
         }
         if (VV_UNLIKELY(!in_safe_zone && op + matchlen > op_end)) {
-            free(dec_ml); free(dec_of); free(dec_ll); free(lit_buf);
+            free(dec_ml); free(dec_of); free(lit_buf);
             return VVA_ERR_OVERFLOW;
         }
 

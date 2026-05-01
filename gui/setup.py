@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2025-2026 Cristian Cezar Moisés
 from setuptools import setup, find_packages
 
 setup(
     name="zupt-gui",
-    version="1.0.0",
+    version="1.1.1",
     description="Zupt GUI — Cross-Platform Post-Quantum Backup Utility",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     author="Cristian Cezar Moisés",
-    url="https://github.com/cristiancmoises/zupt",
+    url="https://git.securityops.co/cristiancmoises/zupt",
     license="AGPL-3.0-or-later",
     packages=find_packages(where="src"),
     package_dir={"": "src"},

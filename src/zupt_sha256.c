@@ -1,10 +1,7 @@
 /*
- * ZUPT - SHA-256 (FIPS 180-4)
- *
  * SPDX-License-Identifier: AGPL-3.0-or-later
- * Copyright (C) 2026 Cristian Cezar Moisés
- * Commercial licensing: sac@securityops.co
- *
+ * Copyright (c) 2025-2026 Cristian Cezar Moisés
+ * ZUPT - SHA-256 (FIPS 180-4)
  * Pure C implementation, no dependencies.
  * FRAMA-C: ACSL-annotated (v2.0.0)
  */

@@ -1,5 +1,6 @@
 /* Zupt — X25519 Constant-Time Conditional Swap (Jasmin)
- * Copyright (c) 2026 Cristian Cezar Moisés — MIT License
+ * Copyright (c) 2026 Cristian Cezar Moisés
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * CT-REQUIRED: fe_cswap must not leak cond via timing.
  * This is the only CT-critical field operation in X25519.

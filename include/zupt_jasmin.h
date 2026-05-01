@@ -1,7 +1,8 @@
 /*
- * Zupt — Jasmin Verified Crypto Declarations
  * SPDX-License-Identifier: AGPL-3.0-or-later
- * Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-or-later (commercial: sac@securityops.co)
+ * Copyright (c) 2025-2026 Cristian Cezar Moisés
+ * Zupt — Jasmin Verified Crypto Declarations
+ * Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-or-later
  *
  * Extern declarations for Jasmin-compiled assembly functions.
  * These replace C fallbacks when built with -DZUPT_USE_JASMIN.

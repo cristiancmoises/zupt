@@ -1,7 +1,8 @@
 /*
- * Zupt v2.0.0 — AFL++ Fuzzing Harness: Archive Decompression
  * SPDX-License-Identifier: AGPL-3.0-or-later
- * Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-or-later (commercial: sac@securityops.co)
+ * Copyright (c) 2025-2026 Cristian Cezar Moisés
+ * Zupt v2.0.0 — AFL++ Fuzzing Harness: Archive Decompression
+ * Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-or-later
  *
  * Reads a fuzzed .zupt archive from stdin, attempts to extract it.
  * Catches crashes, buffer overflows, and undefined behavior.
