@@ -119,7 +119,7 @@ The GUI calls the zupt CLI binary — all cryptography runs in native C, not Pyt
 
 ## Credits
 
-- **zupt** v2.2.2 — Cristian Cezar Moisés ([github](https://git.securityops.co/cristiancmoises/zupt))
+- **zupt** v2.2.3 — Cristian Cezar Moisés ([github](https://git.securityops.co/cristiancmoises/zupt))
 
 ## License
 

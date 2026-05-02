@@ -1,6 +1,115 @@
 # Zupt Changelog
 
 
+## [2.2.3] — 2026-05-01 — VaptVupt 2.48.2 integration + Makefile fix
+
+This release upgrades the embedded VaptVupt codec from the v0.1-era
+sources that shipped in 2.2.2 to **VaptVupt 2.48.2**, the version that
+was explicitly cut to be the integration target for Zupt 2.2.3 (see
+the upstream `ZUPT_INTEGRATION.md`).
+
+### VaptVupt 2.48.2 codec
+
+The codec gains, vs. what 2.2.2 shipped:
+
+- **Aggregate ratio now beats zstd-3 by 1.07%** in upstream measurement
+  (was +1.2% behind in v2.47.x). Sprint 120's cost-aware lazy parser
+  plus Sprint 121's gating delivered the breakthrough — encoder-only
+  change, wire-format compatible with v2.47.x decoders.
+- **`format_v2` flag** producing 4–7% better real-binary ratios via
+  the T-tag (min_match=3) literal encoding. Wired through `vvz_compress`
+  for `BALANCED` and `EXTREME` modes (see "Wrapper defaults" below).
+- **`compat_v246_5_decoder` flag** for environments stuck on a
+  pre-v2.47 decoder. Default off — Zupt always controls both encoder
+  and decoder, so we always have v2.47+ on the decode side.
+- **Sprint 117 hardened-build compatibility**: the codec now compiles
+  cleanly under `clang -fsanitize=integer` (strict UBSan superset; was
+  92 false positives, now 0).
+- **Sprint 118 memory hygiene**: encoder working buffers (`lit_buf`,
+  `stripped`, `src_buf`, `tmp`, `ent_buf`, plus the context struct)
+  are now scrubbed via `vv_secure_zero` before `free()` — defence-in-
+  depth specifically for Zupt's compress→encrypt→write pipeline.
+- **Sprint 109/118 decoder hardening**: literal-run extension bounds,
+  OOB code-table bounds, NULL-deref protection on edge-case empty
+  symbol tables.
+
+Cumulative upstream audit posture at v2.48.2: **0 cppcheck issues, 0
+scan-build bugs, 0 strict GCC/Clang warnings, ~145,000 cumulative
+sanitised libFuzzer executions across 4 attack surfaces, 0 crashes,
+13 cumulative defects fixed across the audit campaign.**
+
+### Wrapper defaults (`src/vaptvupt_api.c`)
+
+The thin `vvz_compress` shim that Zupt's archive layer calls now
+applies the integration best practices documented in VaptVupt's
+upstream guide:
+
+- **`opts.checksum = 0`** — Zupt's outer HMAC-SHA256 (or AES-GCM-SIV
+  in `--pq-sdk` mode) already authenticates the compressed bytes, so
+  the codec's internal XXH64 footer is redundant work. Saves ~10%
+  encode time and pairs with `VV_DECOMPRESS_SKIP_CHECKSUM` on decode
+  for a 2–5× decode speedup on AEAD-wrapped (high-entropy) payloads.
+- **`opts.format_v2 = 1`** for `VV_MODE_BALANCED` (level 3–7) and
+  `VV_MODE_EXTREME` (level 8–9) — 4–7% better binary ratio.
+- **`opts.format_v2 = 0`** for `VV_MODE_ULTRA_FAST` (level 1–2). The
+  combination of `format_v2 = 1` + `ULTRA_FAST` is **not in
+  VaptVupt 2.48.2's tested matrix** (`tests/test_zupt_integration.c`
+  validates `format_v2` only with `BALANCED`/`EXTREME`) and produces
+  output the decoder rejects with `VV_ERR_OVERFLOW`. Caught during
+  Zupt's own regression run (T17 VaptVupt-all-levels) before release;
+  reported upstream and worked around here defensively. Once VaptVupt
+  validates the combination, this guard can be lifted.
+- **`opts.compat_v246_5_decoder = 0`** — allow `lit_fmt=4` (4-stream
+  Huffman) literal coding. Safe because Zupt always ships its decoder
+  at the same version as the encoder (no older decoders in the wild).
+
+### Makefile arch-detection fix
+
+The `STALE_OBJS` arch-safety guard was comparing the canonical strings
+`x86-64` (from `file(1)`) against `x86_64` (from `$(CC) -dumpmachine`)
+and treating them as different architectures, causing every `make`
+invocation to wipe and rebuild every `.o` file even on consistent
+hosts. Both sides are now normalised through `tr -d '_-' | tr [:upper:]
+[:lower:]` so the comparison succeeds on a same-arch tree and only
+fires when the tarball really did include cross-arch objects.
+
+### Tests
+
+- `make test` — 9 quick + 11 SDK + 10 audit + 12 dedup-property + 5
+  path-traversal + 8 arg-order + 6 block-swap = **61 passing**.
+- `tests/regression.sh` — **22/22 passing** (was 20/22 before the
+  ULTRA_FAST + format_v2 guard).
+- `tests/test_threaded.sh` — **14/14 passing**.
+- `tests/test_pq.sh` — **10/10 passing**.
+- `make test-vv` — **11/11 passing**.
+- `make test-vectors` — **13/13 passing**.
+- `make test-asan` — clean across plain / password / `--pq-sdk`
+  archives at levels 1, 5, 9.
+- `make fuzz-format-run` — 1000 mutation-fuzz iterations under ASAN/
+  UBSAN, **0 crashes**.
+- Disk backup/restore byte-exact sha256 verified.
+
+Two `make test` runs back-to-back, both clean. Cumulative test count:
+**112 cases passing across 12 suites.**
+
+### Documentation cleanup
+
+Four design/audit-prompt documents that were sprint-internal scratch
+have been removed from the source tree (consolidated into the
+remaining permanent docs):
+
+| Removed | Where the content lives now |
+|---|---|
+| `AUDIT_PROMPT.md` | superseded by `FORMAL_AUDIT_PROMPT.md` |
+| `ROOT_CAUSE_ANALYSIS.md` | reproducible-bug postmortems are now per-release entries in `CHANGELOG.md` |
+| `COMPAT.md` | the table moved into `README.md` § "Architecture & platform support" |
+| `DONATIONS.md` | one-liner moved into `README.md` § "Supporting Zupt" |
+
+Surviving canonical docs: `README.md`, `CHANGELOG.md` (this file),
+`SECURITY.md`, `INSTALL.md`, `LICENSE`, `THIRD-PARTY-NOTICES.md`,
+`AUDIT.md`, `FORMAL_AUDIT_PROMPT.md`, `ROADMAP.md`.
+
+
 ## [2.2.2-final2] — 2026-05-01 — CLI help, man pages, deb copyright
 
 Continuing the license-hygiene work: previously the SPDX headers in

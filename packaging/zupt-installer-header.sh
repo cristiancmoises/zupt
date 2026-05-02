@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
 # ╔════════════════════════════════════════════════════════════════════╗
-# ║   ZUPT 2.2.2 + ZUPT-GUI 1.1.1 — UNIVERSAL LINUX INSTALLER          ║
+# ║   ZUPT 2.2.3 + ZUPT-GUI 1.1.1 — UNIVERSAL LINUX INSTALLER          ║
 # ║                                                                    ║
 # ║   One script, all distributions. Self-extracting. No internet      ║
 # ║   needed for the package install (only for Qt6 dependency).        ║
@@ -15,7 +15,7 @@
 # ╚════════════════════════════════════════════════════════════════════╝
 set -e
 
-VERSION="2.2.2"
+VERSION="2.2.3"
 GUI_VERSION="1.1.1"
 EXTRACT_DIR=""
 
@@ -253,7 +253,7 @@ do_uninstall() {
         rpm -e zupt-gui 2>/dev/null || true
         rpm -e zupt 2>/dev/null || true
     fi
-    rm -rf /opt/zupt-2.2.2-x86_64.AppDir /opt/zupt-gui.AppDir 2>/dev/null
+    rm -rf /opt/zupt-2.2.3-x86_64.AppDir /opt/zupt-gui.AppDir 2>/dev/null
     rm -f /usr/local/bin/zupt /usr/local/bin/zupt-gui 2>/dev/null
     rm -f /usr/share/applications/zupt-gui.desktop 2>/dev/null
     ok "Uninstall complete"

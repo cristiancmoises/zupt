@@ -189,6 +189,12 @@ typedef struct {
     int       format_v2;     /* 1 = produce 'T' tag blocks (min_match=3) for
                               *     better real-binary ratio. Requires decoder
                               *     v2.33.0+. Default 0 for back-compat. */
+    int       compat_v246_5_decoder;
+                             /* 1 = suppress lit_fmt=4 (4-stream Huffman) in
+                              *     SEQ block encode race. Required when
+                              *     output must be readable by v2.46.5 or
+                              *     older decoders. Default 0 (lit_fmt=4
+                              *     enabled, requires v2.47+ decoder). */
 } vv_options_t;
 
 static inline void vv_default_options(vv_options_t *o) {
@@ -197,6 +203,7 @@ static inline void vv_default_options(vv_options_t *o) {
     o->checksum = 1;
     o->verbose = 0;
     o->format_v2 = 0;
+    o->compat_v246_5_decoder = 0;
 }
 
 /* ═══════════════════════════════════════════════════════════════

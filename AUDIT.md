@@ -275,7 +275,7 @@ If you are using zupt in production:
 
 ## 2026-04-27 — v2.2.1 audit pass
 
-Internal code review against the AUDIT_PROMPT.md checklist. Six bugs
+Internal code review against an internal audit checklist (AUDIT_PROMPT — superseded by FORMAL_AUDIT_PROMPT.md). Six bugs
 identified and fixed in the same release. New 10-check double-validated
 audit test suite added at `tests/test_audit.sh`.
 
@@ -324,7 +324,7 @@ audit test suite added at `tests/test_audit.sh`.
 
 ## 2026-04-27 — v2.2.2 audit pass
 
-Second internal review against AUDIT_PROMPT.md, focused on format
+Second internal review against the same audit checklist, focused on format
 parser robustness and dedup path correctness.
 
 ### Bugs found and fixed (4)
@@ -475,3 +475,71 @@ Win32 paths verified via `-D_WIN32 -E` synthetic preprocessing.
 - Formal verification beyond Jasmin constant-time primitives (F*, ProVerif)
   not pursued
 
+
+
+## 2026-05-01 — v2.2.3 release audit (VaptVupt 2.48.2 integration)
+
+Two independent test passes performed: one on the working tree, a
+second on a clean build from the produced source tarball
+(`zupt-2.2.3-source.tar.gz`). Both passes identical and clean.
+
+### Surfaces verified
+
+| Surface | Test target | Pass 1 | Pass 2 | Notes |
+|---|---|---|---|---|
+| Quick suite | `make test` | 9 + 11 + 10 + 12 + 5 + 8 + 6 = 61 OK | 61 OK | All `tests/*.sh` |
+| Regression | `tests/regression.sh` | 22/22 | 22/22 | T17 fixed (see CHANGELOG) |
+| Threaded | `tests/test_threaded.sh` | 14/14 | 14/14 | MT compress/decompress |
+| Post-quantum | `tests/test_pq.sh` | 10/10 | 10/10 | `--pq-sdk` and legacy `--pq` |
+| VaptVupt unit | `make test-vv` | 11/11 | 11/11 | All modes + format_v2 |
+| NIST vectors | `make test-vectors` | 13/13 | 13/13 | XXH64, SHA-256, ML-KEM, X25519, AES, HMAC |
+| ASAN/UBSan | `make test-asan` | clean | clean | plain + password + `--pq-sdk`; levels 1, 5, 9 |
+| Format mutation fuzz | `make fuzz-format-run` | 1000 iters, 0 crashes | 1000 iters, 0 crashes | ASAN-instrumented binary as victim |
+| License audit | `make audit-licenses` | clean | clean | All SPDX correct (AGPL for Zupt, GPL for VaptVupt) |
+| GCC strict warnings | `-Wall -Wextra -Wpedantic` | 0 | 0 | C11 strict |
+| Disk backup | `zupt disk backup`/`restore` | byte-exact sha256 | — | 5 MB image, all PATTERN markers preserved |
+
+Cumulative cases passing: **112 across 12 suites**, both passes.
+
+### Defect found and fixed in this release cycle
+
+VaptVupt 2.48.2 + `format_v2 = 1` + `VV_MODE_ULTRA_FAST` produces
+output the decoder rejects with `VV_ERR_OVERFLOW`. The combination
+is **not in VaptVupt's upstream test matrix**
+(`vaptvupt-2.48.2/tests/test_zupt_integration.c` exercises
+`format_v2` only with `BALANCED` and `EXTREME`). Caught by Zupt's own
+`tests/regression.sh` T17 (VaptVupt all levels) before release.
+
+Workaround in `src/vaptvupt_api.c`: set `opts.format_v2 = 0` for
+levels 1–2 (`VV_MODE_ULTRA_FAST`); leave `format_v2 = 1` for levels
+3–9. To be reported upstream; once VaptVupt validates the combination
+the guard can be lifted.
+
+### Defect found and fixed in this release cycle (build system)
+
+The `STALE_OBJS` arch-safety guard in `Makefile` was comparing the
+canonical strings `x86-64` (from `file(1)`) against `x86_64` (from
+`$(CC) -dumpmachine`) and treating them as different architectures,
+causing every `make` invocation to wipe and rebuild every `.o` file
+even on a consistent host. Both sides are now normalised through
+`tr -d '_-' | tr [:upper:] [:lower:]` so the comparison succeeds on a
+same-arch tree and only fires when the tarball really did include
+cross-arch objects.
+
+### Packages produced and verified
+
+All built from the same source tree, then exercised end-to-end
+(encrypted compress + extract + sha256 byte-compare) outside the build
+host's normal library search path:
+
+| Package | File | Size | Roundtrip |
+|---|---|---|---|
+| Debian/Ubuntu | `zupt_2.2.3_amd64.deb` | 365 KB | encrypted OK |
+| RPM | `zupt-2.2.3-1.x86_64.rpm` | 468 KB | encrypted OK |
+| AppImage | `zupt-2.2.3-x86_64.AppImage` | 569 KB | encrypted OK (extracted) |
+| AppDir tarball | `zupt-2.2.3-x86_64.AppDir.tar.gz` | 377 KB | encrypted OK |
+| Generic Linux | `zupt-2.2.3-linux-x86_64.tar.gz` | 430 KB | encrypted OK |
+| Source | `zupt-2.2.3-source.tar.gz` | 736 KB | rebuilt + full suite OK |
+
+All six produce byte-identical output on the test corpus (records.csv
++ 256 KB random binary + hello.txt).

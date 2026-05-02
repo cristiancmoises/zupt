@@ -13,7 +13,7 @@ This is intentionally minimal but produces a valid RPM that:
 """
 import struct, os, sys, hashlib, gzip, io, time, subprocess
 
-VERSION = os.environ.get('VERSION', '2.2.1')
+VERSION = os.environ.get('VERSION', '2.2.3')
 RELEASE = '1'
 ARCH = 'x86_64'
 NAME = 'zupt'
@@ -184,7 +184,7 @@ def make_cpio(file_list, source_root, payload_size_out):
 
 def main():
     # Files to include (source_path inside our deb tree)
-    deb_root = '/tmp/zupt_2.2.1_amd64'
+    deb_root = f'/tmp/zupt_{VERSION}_amd64'
     files = []  # (arc_path, source_path, mode, is_dir, link_target)
 
     for root, dirs, fnames in os.walk(deb_root):

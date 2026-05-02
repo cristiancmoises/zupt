@@ -1,6 +1,5 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-or-later
- * Copyright (c) 2026 Cristian Cezar Moisés
  *
  * VaptVupt — Canonical Huffman Codec
  *
@@ -112,6 +111,51 @@ vvh_error_t vvh_encode(const uint8_t *src, size_t src_len,
 vvh_error_t vvh_decode(const uint8_t *src, size_t src_len,
                        uint8_t *dst, size_t dst_cap,
                        size_t num_literals, size_t *src_consumed);
+
+/*
+ * 4-stream interleaved Huffman encode (Sprint 103, Phase A).
+ *
+ * Encodes src into 4 round-robin bitstreams sharing a single Huffman
+ * code table. The output format is:
+ *
+ *   [code-length header (existing format)]
+ *   [3B stream1_size] [3B stream2_size] [3B stream3_size]
+ *   [stream0_bitstream] [stream1_bitstream]
+ *   [stream2_bitstream] [stream3_bitstream]
+ *
+ * Activation guard: requires src_len >= 1024. Below this threshold,
+ * single-stream vvh_encode wins on overhead and this function returns
+ * VVH_ERR_OVERFLOW.
+ *
+ * NOTE (Phase A): Production decoder support arrives in Phase B.
+ * This sprint adds only the encoder + a test-only inverse decoder
+ * (in tests/test_huffman4.c) for round-trip verification.
+ *
+ * Returns VVH_OK on success.
+ * Returns VVH_ERR_OVERFLOW if src_len < 1024, dst too small, or output
+ * not smaller than input.
+ */
+vvh_error_t vvh_encode4(const uint8_t *src, size_t src_len,
+                        uint8_t *dst, size_t dst_cap, size_t *dst_len);
+
+/*
+ * 4-stream interleaved Huffman decode (Sprint 104, Phase B).
+ *
+ * Inverse of vvh_encode4. Decodes the 4-stream wire format produced
+ * by vvh_encode4. Runs 4 independent decoders in parallel using a
+ * single shared decode table.
+ *
+ * src[0..src_len-1]   — compressed data (header + stream-sizes + 4 streams)
+ * dst[0..dst_cap-1]   — output buffer for decoded literals
+ * num_literals        — expected number of decoded symbols
+ * *src_consumed       — on success, bytes consumed from src
+ *
+ * Returns VVH_OK on success, VVH_ERR_CORRUPT on malformed input,
+ * VVH_ERR_OVERFLOW if dst is too small, VVH_ERR_NOMEM on alloc failure.
+ */
+vvh_error_t vvh_decode4(const uint8_t *src, size_t src_len,
+                        uint8_t *dst, size_t dst_cap,
+                        size_t num_literals, size_t *src_consumed);
 
 /*
  * Upper bound on compressed size for src_len literal bytes.

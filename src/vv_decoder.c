@@ -1,5 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later
- * Copyright (c) 2025-2026 Cristian Cezar Moisés
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * VaptVupt — Decoder v2 (Sprint 1)
  *
@@ -144,6 +144,14 @@ decode_block_tokens_impl(
         if (VV_UNLIKELY(ll == 15))
             ll += (uint32_t)read_ext_len(&ip, ip_end);
 
+        /* Sprint 109 fix: corrupt ll extension can yield a huge ll
+         * that exceeds remaining input or output. Found by libFuzzer
+         * + ASan: heap-buffer-overflow READ at memcpy(op,ip,ll) when
+         * ll > ip_end - ip. Cheap bounds check after ll has its final
+         * value (post-extension-length read if any). */
+        if (VV_UNLIKELY((size_t)(ip_end - ip) < ll || (size_t)(op_end - op) < ll))
+            return -1;
+
         if (VV_LIKELY(ll <= 14 && ip + ll + 2 <= ip_end)) {
             uint16_t off_raw;
             memcpy(&off_raw, ip + ll, 2);
@@ -194,6 +202,14 @@ decode_block_tokens_impl(
 
         if (VV_UNLIKELY(ll == 15))
             ll += (uint32_t)read_ext_len(&ip, ip_end);
+
+        /* Sprint 109 fix: corrupt ll extension can yield a huge ll
+         * that exceeds remaining input or output. Found by libFuzzer
+         * + ASan: heap-buffer-overflow READ at memcpy(op,ip,ll) when
+         * ll > ip_end - ip. Cheap bounds check after ll has its final
+         * value (post-extension-length read if any). */
+        if (VV_UNLIKELY((size_t)(ip_end - ip) < ll || (size_t)(op_end - op) < ll))
+            return -1;
 
         if (VV_LIKELY(ll <= 14 && ip + ll + 2 <= ip_end)) {
             uint16_t off_raw;

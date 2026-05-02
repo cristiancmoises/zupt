@@ -8,7 +8,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ZUPT_CLI_DEB="$SCRIPT_DIR/zupt_2.2.2_amd64.deb"
+ZUPT_CLI_DEB="$SCRIPT_DIR/zupt_2.2.3_amd64.deb"
 ZUPT_GUI_DEB="$SCRIPT_DIR/zupt-gui_1.1.1_all.deb"
 
 print_step() { echo ""; echo "═══ $* ═══"; }
@@ -74,7 +74,7 @@ fi
 echo "✓ Python 3 + Qt6 binding installed"
 
 # 2. Install zupt CLI
-print_step "Step 2/3: Installing zupt CLI 2.2.2"
+print_step "Step 2/3: Installing zupt CLI 2.2.3"
 case "$DISTRO" in
     debian|ubuntu|linuxmint|pop)
         if [ ! -f "$ZUPT_CLI_DEB" ]; then
@@ -84,7 +84,7 @@ case "$DISTRO" in
         dpkg -i "$ZUPT_CLI_DEB" || apt-get -f install -y
         ;;
     fedora|rhel|centos|rocky|almalinux|opensuse*|suse)
-        ZUPT_CLI_RPM="$SCRIPT_DIR/zupt-2.2.2-1.x86_64.rpm"
+        ZUPT_CLI_RPM="$SCRIPT_DIR/zupt-2.2.3-1.x86_64.rpm"
         if [ -f "$ZUPT_CLI_RPM" ]; then
             rpm -Uvh --force "$ZUPT_CLI_RPM"
         else
@@ -93,10 +93,10 @@ case "$DISTRO" in
         ;;
     *)
         # Fallback: tarball install
-        ZUPT_CLI_TAR="$SCRIPT_DIR/zupt-2.2.2-linux-x86_64.tar.gz"
+        ZUPT_CLI_TAR="$SCRIPT_DIR/zupt-2.2.3-linux-x86_64.tar.gz"
         if [ -f "$ZUPT_CLI_TAR" ]; then
             tar -xzf "$ZUPT_CLI_TAR" -C /opt/
-            ln -sf /opt/zupt-2.2.2-linux-x86_64/zupt /usr/local/bin/zupt
+            ln -sf /opt/zupt-2.2.3-linux-x86_64/zupt /usr/local/bin/zupt
         else
             print_err "No suitable installer for $DISTRO"
         fi
@@ -136,4 +136,4 @@ echo "  zupt help        # CLI help"
 echo "  zupt-gui         # Graphical interface"
 echo ""
 echo "If you encounter issues, check that your zupt version is correct:"
-echo "  zupt version     # should show 2.2.2"
+echo "  zupt version     # should show 2.2.3"

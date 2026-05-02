@@ -1,5 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later
- * Copyright (c) 2025-2026 Cristian Cezar Moisés
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * VaptVupt — SIMD-accelerated copy routines
  *
@@ -19,7 +19,7 @@
  * SCALAR FALLBACK (always compiled)
  * ═══════════════════════════════════════════════════════════════ */
 
-static void copy_fast_scalar(uint8_t *dst, const uint8_t *src, size_t n) {
+static void __attribute__((unused)) copy_fast_scalar(uint8_t *dst, const uint8_t *src, size_t n) {
     memcpy(dst, src, n);
 }
 
@@ -181,38 +181,62 @@ static copy_fast_fn  g_copy_fast  = NULL;
 static copy_match_fn g_copy_match = NULL;
 
 static void vv_init_simd(void) {
-    if (g_copy_fast) return;  /* Already initialized */
+    /* SPRINT 98 audit: thread-safe lazy init using GCC/Clang atomic
+     * builtins. The previous implementation had a benign-but-UB data
+     * race: two threads could both observe NULL and both write to
+     * g_copy_fast/g_copy_match. The writes were idempotent (always
+     * the same CPU-feature pointer), so it never caused incorrect
+     * behavior on x86, but per C11 it was UB. On weakly-ordered
+     * architectures (ARM, POWER) the race could become observable.
+     *
+     * Atomic loads with ACQUIRE pair with atomic stores with RELEASE
+     * to give a proper happens-before relationship. Multiple threads
+     * may still race into the body, but each store is atomic and any
+     * subsequent reader sees a consistent value. */
+    if (__atomic_load_n(&g_copy_fast, __ATOMIC_ACQUIRE) &&
+        __atomic_load_n(&g_copy_match, __ATOMIC_ACQUIRE)) return;
+
+    copy_fast_fn  fast;
+    copy_match_fn match;
 
 #if defined(__x86_64__) || defined(_M_X64)
 #ifdef __AVX2__
     if (vv_has_avx2()) {
-        g_copy_fast  = copy_fast_avx2;
-        g_copy_match = copy_match_avx2;
-        return;
+        fast  = copy_fast_avx2;
+        match = copy_match_avx2;
+    } else
+#endif
+    {
+        /* SSE2 is baseline on all x86-64 — no runtime check needed */
+        fast  = copy_fast_sse2;
+        match = copy_match_sse2;
     }
-#endif
-    /* SSE2 is baseline on all x86-64 — no runtime check needed */
-    g_copy_fast  = copy_fast_sse2;
-    g_copy_match = copy_match_sse2;
-    return;
-#endif
-
-#if defined(__aarch64__) && defined(__ARM_NEON)
-    g_copy_fast  = copy_fast_neon;
-    g_copy_match = copy_match_neon;
-    return;
+#elif defined(__aarch64__) && defined(__ARM_NEON)
+    fast  = copy_fast_neon;
+    match = copy_match_neon;
+#else
+    fast  = copy_fast_scalar;
+    match = copy_match_scalar;
 #endif
 
-    g_copy_fast  = copy_fast_scalar;
-    g_copy_match = copy_match_scalar;
+    __atomic_store_n(&g_copy_fast,  fast,  __ATOMIC_RELEASE);
+    __atomic_store_n(&g_copy_match, match, __ATOMIC_RELEASE);
 }
 
 void vv_copy_fast(uint8_t *dst, const uint8_t *src, size_t n) {
-    if (!g_copy_fast) vv_init_simd();
-    g_copy_fast(dst, src, n);
+    copy_fast_fn fn = __atomic_load_n(&g_copy_fast, __ATOMIC_ACQUIRE);
+    if (!fn) {
+        vv_init_simd();
+        fn = __atomic_load_n(&g_copy_fast, __ATOMIC_ACQUIRE);
+    }
+    fn(dst, src, n);
 }
 
 void vv_copy_match(uint8_t *dst, uint32_t offset, size_t length) {
-    if (!g_copy_match) vv_init_simd();
-    g_copy_match(dst, offset, length);
+    copy_match_fn fn = __atomic_load_n(&g_copy_match, __ATOMIC_ACQUIRE);
+    if (!fn) {
+        vv_init_simd();
+        fn = __atomic_load_n(&g_copy_match, __ATOMIC_ACQUIRE);
+    }
+    fn(dst, offset, length);
 }

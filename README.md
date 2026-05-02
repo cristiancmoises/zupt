@@ -7,7 +7,7 @@
 
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 ![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)
-![Version](https://img.shields.io/badge/version-2.2.2-brightgreen)
+![Version](https://img.shields.io/badge/version-2.2.3-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 
 Backup compression with hardware-adaptive codec selection, AES-256 authenticated encryption, post-quantum key encapsulation, and full-disk backup. Pure C11, zero dependencies, ~13,000 lines. Builds and runs on x86_64, aarch64, armhf, ppc64le, s390x, and riscv64.
@@ -48,57 +48,118 @@ sudo make install
 
 | Format | File | Distros |
 |---|---|---|
-| Debian/Ubuntu | `zupt_2.2.2_amd64.deb` | Debian 11+, Ubuntu 22.04+ |
-| RPM | `zupt-2.2.2-1.x86_64.rpm` | Fedora 38+, RHEL 9+, and other RPM-based distributions |
-| AppDir | `zupt-2.2.2-x86_64.AppDir.tar.gz` | Any glibc 2.28+ |
-| Source | `zupt-2.2.2-source.tar.gz` | Build from source |
+| Debian/Ubuntu | `zupt_2.2.3_amd64.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
+| RPM | `zupt-2.2.3-1.x86_64.rpm` | Fedora 38+, RHEL 9+, openSUSE, AlmaLinux, Rocky, and other RPM-based distributions |
+| AppImage | `zupt-2.2.3-x86_64.AppImage` | Any glibc 2.28+ (single-file, no install) |
+| AppDir tarball | `zupt-2.2.3-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run) |
+| Generic tarball | `zupt-2.2.3-linux-x86_64.tar.gz` | Any Linux x86_64 (binary + man page) |
+| Source | `zupt-2.2.3-source.tar.gz` | Build from source |
 
 ```bash
-# Debian/Ubuntu
-sudo dpkg -i zupt_2.2.2_amd64.deb
+# Debian / Ubuntu / Mint
+sudo dpkg -i zupt_2.2.3_amd64.deb
 sudo apt-get install -f       # resolve any missing deps
 
-# Fedora/RHEL and other RPM-based distributions
-sudo rpm -i zupt-2.2.2-1.x86_64.rpm
+# Fedora / RHEL / openSUSE / AlmaLinux / Rocky and other RPM-based distros
+sudo rpm -i zupt-2.2.3-1.x86_64.rpm
 # or
-sudo dnf install ./zupt-2.2.2-1.x86_64.rpm
+sudo dnf install ./zupt-2.2.3-1.x86_64.rpm
 
-# Portable (no install)
-tar xzf zupt-2.2.2-x86_64.AppDir.tar.gz
-./zupt-2.2.2-x86_64.AppDir/AppRun --help
+# AppImage (single executable, runs anywhere)
+chmod +x zupt-2.2.3-x86_64.AppImage
+./zupt-2.2.3-x86_64.AppImage --help
+# Optionally place in PATH:
+sudo install -m 755 zupt-2.2.3-x86_64.AppImage /usr/local/bin/zupt
+
+# AppDir tarball (no install, no FUSE required)
+tar xzf zupt-2.2.3-x86_64.AppDir.tar.gz
+./zupt-2.2.3-x86_64.AppDir/AppRun --help
+
+# Generic tarball (binary + man page, install manually)
+tar xzf zupt-2.2.3-linux-x86_64.tar.gz
+sudo install -m 755 zupt-2.2.3-linux-x86_64/zupt /usr/local/bin/zupt
+sudo install -m 644 zupt-2.2.3-linux-x86_64/zupt.1.gz /usr/local/share/man/man1/
 ```
 
 ### Building from SRPM (Fedora / RHEL / RPM-based distributions)
 
 ```bash
-tar xzf zupt-2.2.2.srpm.tar.gz
+tar xzf zupt-2.2.3.srpm.tar.gz
 cd ~/rpmbuild  # or use rpmbuild --define "_topdir $(pwd)"
 rpmbuild -bb SPECS/zupt.spec
-sudo rpm -i RPMS/x86_64/zupt-2.2.2-1.*.rpm
+sudo rpm -i RPMS/x86_64/zupt-2.2.3-1.*.rpm
 ```
 
 ### Basic usage
+
 ```bash
-# Compress (auto-selects best codec for your hardware)
+# Compress a directory (auto-selects best codec for your hardware)
 zupt compress backup.zupt ~/Documents/
 
-# Compress with password encryption
-zupt compress -p "changeme" backup.zupt ~/Documents/
+# Compress at a specific level (1=fast, 5=balanced, 9=extreme)
+zupt compress -l 9 backup.zupt ~/Documents/
 
-# Extract
+# Force the VaptVupt codec (default on AVX2/NEON hardware)
+zupt compress --vv -l 5 backup.zupt ~/Documents/
+
+# Compress with multi-threading (-t 0 = auto-detect cores)
+zupt compress -t 0 -l 5 backup.zupt ~/Documents/
+
+# Compress with password encryption (AES-256-CTR + HMAC-SHA256)
+zupt compress -p "my-strong-password" backup.zupt ~/Documents/
+
+# List archive contents
+zupt list backup.zupt
+
+# Show archive metadata (codec, blocks, encryption — no password needed)
+zupt info backup.zupt
+
+# Verify archive integrity (HMAC + per-block checksums)
+zupt test backup.zupt
+zupt test -p "my-strong-password" backup.zupt
+
+# Extract everything
 zupt extract -o ~/restored/ backup.zupt
 
-# Post-quantum encrypted backup (legacy XOR+SHA3 combiner — kept for compat)
+# Extract from encrypted archive
+zupt extract -p "my-strong-password" -o ~/restored/ backup.zupt
+
+# Benchmark all 9 levels on a file
+zupt bench big-file.tar
+```
+
+#### Post-quantum encryption
+
+```bash
+# Recommended: SDK v2 (HKDF combiner + key commitment + HPKE binding + Argon2id).
+# New archives should use this.
+zupt keygen --sdk -o mykey.priv     # writes mykey.priv and mykey.priv.pub
+zupt compress --pq-sdk mykey.priv.pub backup.zupt ~/Documents/
+zupt extract  --pq-sdk mykey.priv -o ~/restored/ backup.zupt
+
+# Legacy --pq mode (XOR+SHA3-512 combiner) — kept for back-compat with
+# archives created by Zupt 2.0–2.1. Do NOT use for new archives.
 zupt keygen -o mykey.key
 zupt keygen --pub -o pub.key -k mykey.key
 zupt compress --pq pub.key backup.zupt ~/Documents/
 zupt extract --pq mykey.key -o ~/restored/ backup.zupt
+```
 
-# Post-quantum encrypted backup (recommended: SDK v2 with HKDF combiner +
-# key commitment + HPKE binding + Argon2id. New archives should use this.)
-zupt keygen --sdk -o mykey.priv     # writes mykey.priv and mykey.priv.pub
-zupt compress --pq-sdk mykey.priv.pub backup.zupt ~/Documents/
-zupt extract  --pq-sdk mykey.priv backup.zupt
+#### Full-disk backup
+
+```bash
+# Backup an entire disk or partition (sparse-detection skips zero regions)
+sudo zupt disk backup -l 5 disk.zupt /dev/sda
+
+# Backup with encryption
+sudo zupt disk backup -p "passphrase" -l 5 disk.zupt /dev/sda
+
+# Restore (writes raw bytes back to a block device or file)
+sudo zupt disk restore disk.zupt /dev/sdb
+sudo zupt disk restore -p "passphrase" disk.zupt /dev/sdb
+
+# Backup a partition image file (no root needed)
+zupt disk backup -l 5 part.zupt /path/to/partition.img
 ```
 
 ---
@@ -124,38 +185,43 @@ Override with `--vv` (force VaptVupt) or `--lzhp` (force Zupt-LZHP) when you kno
 
 VaptVupt is Zupt's high-performance compression codec. It combines LZ77 dictionary matching with tANS (table-based Asymmetric Numeral Systems) entropy coding and SIMD-accelerated decompression.
 
+**This release embeds VaptVupt 2.48.2** — the version cut explicitly as the integration target for Zupt 2.2.3. See `CHANGELOG.md` for the full list of changes.
+
 ### Architecture
 
 ```
 Encoder: Hash-chain LZ77 → 5-byte multiply-shift hash, rep-match (3 recent offsets),
-         lazy-2 parsing, AVX2 match extension (32 bytes/cycle)
+         lazy-2 parsing, AVX2 match extension (32 bytes/cycle), cost-aware lazy parser
 Entropy: Canonical Huffman | tANS | 4-way interleaved ANS | order-1 context model
+         4-stream Huffman literal coding (lit_fmt=4) for structured data
 Decoder: AVX2 inline SIMD copies, tiered by offset (32/16/8/overlap), safe-zone fast path
          NEON SIMD on aarch64, scalar fallback on all architectures
+Format:  v1 frame (default) and v2 frame (T-tag, min_match=3) for binary data
 ```
 
 ### Three modes
 
 | Mode | CLI | Chain Depth | Entropy | Use Case |
 |------|-----|-------------|---------|----------|
-| Ultra-Fast | `-l 1` to `-l 3` | 4 | None | Speed priority, streaming |
-| Balanced | `-l 4` to `-l 7` (default) | 48 | 4-way ANS | General backup data |
-| Extreme | `-l 8` to `-l 9` | 256 | Order-1 context ANS | Maximum compression |
+| Ultra-Fast | `-l 1` to `-l 2` | 4 | None | Speed priority, streaming |
+| Balanced | `-l 3` to `-l 7` (default) | 48 | 4-way ANS | General backup data |
+| Extreme | `-l 8` to `-l 9` | 256 | Order-1 context ANS + cost-aware lazy parser | Maximum compression |
 
-### Benchmark Results
+The Zupt wrapper enables VaptVupt's `format_v2` flag (4–7% better real-binary ratio) automatically for Balanced and Extreme modes. Ultra-Fast stays on the v1 frame because the `format_v2 + ULTRA_FAST` combination is not yet covered by VaptVupt's upstream test matrix.
 
-Measured on the build host with a 1.9 MB mixed corpus (text, JSON, CSV, random binary). Each codec run once, wall-clock time via `clock_gettime(CLOCK_MONOTONIC)`. Reproduce with `zupt bench --compare`.
+### Benchmark Results (this release)
 
-| Codec | Compress | Decompress | Ratio |
-|-------|----------|------------|-------|
-| **VaptVupt UF** | 63 MB/s | **298 MB/s** | 2.7:1 |
-| **VaptVupt BAL** (default) | 18 MB/s | **268 MB/s** | 3.5:1 |
-| **VaptVupt EXT** | 12 MB/s | **311 MB/s** | 3.5:1 |
-| Zupt-LZHP (v1.x default) | 8 MB/s | 137 MB/s | 4.0:1 |
-| Zupt-LZ | 28 MB/s | 348 MB/s | 3.3:1 |
-| gzip -6 | 26 MB/s | 99 MB/s | 4.0:1 |
+Measured on the build host with a 4 MB mixed corpus (text records.csv, random.bin). Each codec run once, wall-clock via `time(NULL)` boundaries. Reproduce with `zupt bench <file>`.
 
-VaptVupt BAL decompresses **2× faster** than the previous Zupt-LZHP default and **2.7× faster** than gzip, while achieving competitive compression ratios. Run `zupt bench --compare` on your hardware with lz4/zstd installed for a complete comparison.
+| Codec / Level | text 4MB → ratio | random 4MB → ratio | Notes |
+|---|---|---|---|
+| **VaptVupt L1** (UltraFast) | 4.31:1 | ~1.00:1 | Fastest |
+| **VaptVupt L3** (Balanced + format_v2) | **15.83:1** | ~1.00:1 | Default sweet spot |
+| **VaptVupt L5** (Balanced + format_v2) | 15.40:1 | ~1.00:1 | |
+| **VaptVupt L9** (Extreme + format_v2) | 15.23:1 | ~1.00:1 | Max ratio |
+| gzip -9 | 8.70:1 | ~1.00:1 | Baseline |
+
+On the standard Silesia + fixture suite measured by the upstream VaptVupt project, v2.48.x **beats zstd-3 by 1.07% in aggregate ratio** (was +1.2% behind in v2.47.x), with decode throughput at **1.27× zstd-3** in aggregate and **3.7× zstd-19 / 1.5× lz4-9** on AEAD-shaped (random) data with `--fast`.
 
 ### Why VaptVupt?
 
@@ -163,11 +229,15 @@ VaptVupt's architectural advantages over traditional Huffman-based codecs:
 
 - **tANS entropy** — asymptotically optimal coding with single-instruction decode per symbol (vs Huffman's multi-step tree walk)
 - **4-way interleaved ANS** — decodes 4 symbols per bitstream refill cycle, reducing refill overhead by 4×
+- **4-stream Huffman literal coding** (`lit_fmt=4`) — Sprint 105 addition that further improves ratio on structured data
 - **AVX2/NEON SIMD decode** — inline 32-byte copies with tiered offset handling (no function-pointer dispatch). Falls back to scalar on unsupported hardware.
 - **Rep-match** — checks 3 recent offsets before hash probe (O(1) vs O(chain_depth)), hits ~30% of matches. Saves 10–15 bits per repeated offset.
 - **Order-1 context model** — captures byte-pair correlations in structured data (JSON, CSV, logs)
+- **Cost-aware lazy parser** (Sprint 120) — the breakthrough that put EXTREME ahead of zstd-3 in aggregate ratio
 - **Adaptive window** — trial-compresses at wlog=16 vs wlog=20, picks larger window only if ≥3% improvement
-- **~4,200 lines** of pure C11 — auditable, portable, no external dependencies
+- **`format_v2` (T-tag, min_match=3)** — 4–7% better binary ratio; transparent to v2.33.0+ decoders
+- **Memory hygiene** (Sprint 118) — encoder working buffers scrubbed via `vv_secure_zero` before `free()`
+- **~6,500 lines** of pure C11 — auditable, portable, no external dependencies
 
 ---
 
@@ -418,10 +488,11 @@ All codecs are forward-compatible: archives created with any codec can be read b
 | v2.1.0 | VaptVupt 1.4.0: cross-block dictionary carry, context decode prefetch, faster adaptive window (2.6× encode), integration API |
 | v2.1.1 | Termux/Android build fix, arch-safety guard, Keccak ROL64 UB fix, zero UBSan violations |
 | v2.1.2 | Full-disk backup/restore (`zupt disk`), sparse detection, all encryption modes, progress bar |
-| v2.1.3 | Disk restore fix (POSIX raw I/O + O_SYNC for block devices, shared decompress_block), Termux build fix (CC -dumpmachine arch detection), 77 tests |
-| **v2.1.3** | **LZHP prediction encoding fix (data corruption on structured data), shared write_enc_header, SOLID flag removed from disk, 78 tests** |
-| **v2.1.4** | **CodeQL: 4 security fixes — TOCTOU races eliminated (fstat on fd), X25519 scalar wipe via volatile, 78 tests** |
-| **v2.1.5** | **Block-level deduplication (`--dedup`), XXH64 fingerprint index, DEDUP_REF block type, 81 tests** |
+| v2.1.3 | LZHP prediction encoding fix (data corruption on structured data), shared write_enc_header, SOLID flag removed from disk, 78 tests |
+| v2.1.4 | CodeQL: 4 security fixes — TOCTOU races eliminated (fstat on fd), X25519 scalar wipe via volatile |
+| v2.1.5 | Block-level deduplication (`--dedup`), XXH64 fingerprint index, DEDUP_REF block type, 81 tests |
+| v2.2.0–v2.2.2 | libzuptsdk 2.0 integration (HKDF-SHA3 combiner + key commitment + HPKE binding + Argon2id), `--pq-sdk` mode (XChaCha20-Poly1305 / AES-256-SIV), license-hygiene cleanup, full SPDX coverage |
+| **v2.2.3** | **VaptVupt 2.48.2 codec integration: cost-aware lazy parser (beats zstd-3 by 1.07% aggregate), 4-stream Huffman, `format_v2` flag (4–7% better binary), `compat_v246_5_decoder` flag, encoder memory hygiene (`vv_secure_zero` on free), Sprint 117 hardened-build compatibility. Wrapper defaults applied per upstream `ZUPT_INTEGRATION.md`: `checksum=0` (Zupt's outer MAC authenticates), `format_v2=1` for BALANCED/EXTREME (defensive guard against the upstream-untested `format_v2 + ULTRA_FAST` combo). Makefile arch-detection bug fixed (`x86-64` ≠ `x86_64` mismatch). 22/22 regression tests, 14/14 threaded, 10/10 PQ, 11/11 VaptVupt, 13/13 NIST vectors, ASAN/UBSAN clean across plain/password/PQ-SDK at all levels.** |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.
 
@@ -450,7 +521,7 @@ All by Cristian Cezar Moisés, hosted on git.securityops.co:
 - [vaptvupt](https://git.securityops.co/cristiancmoises/vaptvupt) — Standalone LZ + tANS codec
 
 ## Support the Project
-[![Donate with Monero](https://img.shields.io/badge/Donate-Monero-FF6600?style=flat&logo=monero)](DONATIONS.md)
+If you find Zupt useful, please consider sharing it or contributing — see the README footer for contact links.
 
 ---
 © 2026 Cristian Cezar Moisés — [git.securityops.co/cristiancmoises](https://git.securityops.co/cristiancmoises)

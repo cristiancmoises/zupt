@@ -143,12 +143,13 @@ ALL_OBJS      = $(ZUPT_OBJS) $(VV_SIMD_OBJS) $(VV_PLAIN_OBJS)
 STALE_OBJS := $(wildcard src/*.o jasmin/*.o)
 ifneq ($(STALE_OBJS),)
   FIRST_OBJ := $(firstword $(STALE_OBJS))
-  OBJ_ARCH := $(shell file $(FIRST_OBJ) 2>/dev/null | grep -oiE 'x86.64|aarch64|arm|powerpc|s390|riscv' | head -1)
+  # Normalise to a canonical token (no '-' / '_' so x86-64 == x86_64).
+  OBJ_ARCH := $(shell file $(FIRST_OBJ) 2>/dev/null | grep -oiE 'x86.64|aarch64|arm|powerpc|s390|riscv' | head -1 | tr -d '_-' | tr '[:upper:]' '[:lower:]')
   HOST_TRIPLE := $(shell $(CC) -dumpmachine 2>/dev/null)
-  HOST_ARCH_CC := $(shell echo "$(HOST_TRIPLE)" | grep -oiE 'x86.64|aarch64|arm|powerpc|s390|riscv' | head -1)
+  HOST_ARCH_CC := $(shell echo "$(HOST_TRIPLE)" | grep -oiE 'x86.64|aarch64|arm|powerpc|s390|riscv' | head -1 | tr -d '_-' | tr '[:upper:]' '[:lower:]')
   # Fallback: try uname -m if CC -dumpmachine fails
   ifeq ($(HOST_ARCH_CC),)
-    HOST_ARCH_CC := $(shell uname -m 2>/dev/null | grep -oiE 'x86.64|aarch64|arm|powerpc|s390|riscv' | head -1)
+    HOST_ARCH_CC := $(shell uname -m 2>/dev/null | grep -oiE 'x86.64|aarch64|arm|powerpc|s390|riscv' | head -1 | tr -d '_-' | tr '[:upper:]' '[:lower:]')
   endif
   ifneq ($(OBJ_ARCH),)
     ifneq ($(HOST_ARCH_CC),)

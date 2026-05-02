@@ -32,7 +32,7 @@ BuildArch:      noarch
 BuildRequires:  python3 >= 3.9
 Requires:       python3 >= 3.9
 Requires:       (python3-qt6 or python3-pyside6 or python3-pyqt6)
-Requires:       zupt >= 2.2.2
+Requires:       zupt >= 2.2.3
 
 %description
 PySide6/PyQt6 frontend for Zupt. Supports compression, extraction, key

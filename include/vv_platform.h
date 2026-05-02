@@ -114,4 +114,26 @@ static inline void vv_store64(void *p, uint64_t v) { memcpy(p, &v, 8); }
   #define VV_HAS_NEON 0
 #endif
 
+/* Sprint 117: explicit no_sanitize annotation for hardened builds.
+ *
+ * Several hot paths use intentional unsigned modular arithmetic:
+ *   - Knuth multiplicative hashes in the LZ matcher
+ *   - xxh64 round mixers (multiplication, left-shift)
+ *   - Post-decrement loop guards (uint32_t depth-- > 0)
+ *
+ * C11 §6.2.5p9 defines unsigned overflow as wraparound, so these are
+ * NOT undefined behavior — but `-fsanitize=integer` and the related
+ * `-fsanitize=shift-base` flags warn anyway, breaking hardened-build
+ * deployments. Apply this attribute to the affected functions to
+ * silence the false positives without disabling the checks globally.
+ *
+ * The annotation is clang-only (gcc has no equivalent and does not
+ * accept -fsanitize=integer in the first place). */
+#if defined(__clang__) && (__clang_major__ >= 4)
+#  define VV_NO_SANITIZE_INTEGER \
+     __attribute__((no_sanitize("unsigned-integer-overflow", "shift", "shift-base", "shift-exponent")))
+#else
+#  define VV_NO_SANITIZE_INTEGER
+#endif
+
 #endif /* VV_PLATFORM_H */

@@ -129,7 +129,7 @@ These functions are compiled from Jasmin source to x86-64 assembly. The Jasmin c
 | Deniability | Archive header identifies format | `.zupt` magic bytes visible; ENCRYPTED flag in header |
 | Weak passwords | PBKDF2 adds ~20 bits of work factor | Use `--pq` mode for critical data |
 | Traffic analysis | Archive size reveals data volume | Outside Zupt's scope |
-| File permission/ownership | Not stored in archive | Document in COMPAT.md |
+| File permission/ownership | Not stored in archive | Documented in README.md (Architecture & platform support) |
 
 ### Quantum Threat Analysis
 

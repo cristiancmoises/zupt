@@ -95,7 +95,7 @@ Version: $VERSION
 Section: utils
 Priority: optional
 Architecture: $ARCH
-Depends: python3 (>= 3.9), python3-pyqt6 | python3-pyside6, zupt (>= 2.2.2)
+Depends: python3 (>= 3.9), python3-pyqt6 | python3-pyside6, zupt (>= 2.2.3)
 Maintainer: Cristian Cezar Moisés <zupt@riseup.net>
 Installed-Size: $INSTALLED_SIZE
 Homepage: https://git.securityops.co/cristiancmoises/zupt
@@ -147,7 +147,7 @@ if ! command -v zupt >/dev/null 2>&1; then
 ──────────────────────────────────────────────────────────────────────
 zupt-gui needs the 'zupt' CLI to function. Install it:
 
-  Debian/Ubuntu/Mint:   sudo dpkg -i zupt_2.2.2_amd64.deb
+  Debian/Ubuntu/Mint:   sudo dpkg -i zupt_2.2.3_amd64.deb
                         (followed by: sudo apt --fix-broken install)
 ──────────────────────────────────────────────────────────────────────
 

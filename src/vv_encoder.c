@@ -1,5 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later
- * Copyright (c) 2025-2026 Cristian Cezar Moisés
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * VaptVupt — Encoder v2 (Sprint 1)
  *
@@ -29,6 +29,53 @@
 #endif
 
 /* ═══════════════════════════════════════════════════════════════
+ * SECURE MEMORY ZERO (Sprint 117 — defense in depth)
+ *
+ * Compiler-resistant memset that the optimizer cannot eliminate
+ * even when followed by free(). Used to scrub plaintext-derived
+ * working buffers (literals, stripped tokens, ANS scratch) before
+ * release back to the heap allocator. Without this, plaintext
+ * fragments persist in the heap free-list and may be observable
+ * through later allocations or memory disclosure.
+ *
+ * Implementation strategy:
+ *   - Prefer `explicit_bzero` (BSD/glibc 2.25+, guaranteed-secure)
+ *   - Fall back to `memset_explicit` (C23)
+ *   - Last resort: volatile-pointer memset (compiler cannot
+ *     prove the writes are dead)
+ * ═══════════════════════════════════════════════════════════════ */
+
+#if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 25))
+#  define VV_HAS_EXPLICIT_BZERO 1
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#  define VV_HAS_EXPLICIT_BZERO 1
+#else
+#  define VV_HAS_EXPLICIT_BZERO 0
+#endif
+
+#if VV_HAS_EXPLICIT_BZERO
+/* Forward-declare so we don't have to enable _DEFAULT_SOURCE globally
+ * (which would conflict with the strict _POSIX_C_SOURCE=199309L the
+ * project sets). The symbol is in libc on supported platforms. */
+extern void explicit_bzero(void *s, size_t n);
+#endif
+
+static inline void vv_secure_zero(void *buf, size_t len) {
+    if (!buf || !len) return;
+#if VV_HAS_EXPLICIT_BZERO
+    explicit_bzero(buf, len);
+#else
+    /* Volatile pointer prevents the compiler from concluding the
+     * memset is dead and eliminating it. The volatile read of `p`
+     * each iteration forces the writes to be observable. */
+    volatile unsigned char *p = (volatile unsigned char *)buf;
+    while (len--) *p++ = 0;
+#endif
+}
+
+/* Sprint 117: VV_NO_SANITIZE_INTEGER is provided by include/vv_platform.h. */
+
+/* ═══════════════════════════════════════════════════════════════
  * VARINT WRITER
  * ═══════════════════════════════════════════════════════════════ */
 
@@ -46,7 +93,7 @@ static inline size_t write_varint(uint8_t *dst, size_t val) {
  * widening to an 8-byte load that over-reads the buffer.
  * ═══════════════════════════════════════════════════════════════ */
 
-static inline uint32_t hash5(const uint8_t *p) {
+static inline VV_NO_SANITIZE_INTEGER uint32_t hash5(const uint8_t *p) {
     uint32_t lo;
     memcpy(&lo, p, 4);
     uint64_t v = (uint64_t)lo | ((uint64_t)p[4] << 32);
@@ -55,14 +102,14 @@ static inline uint32_t hash5(const uint8_t *p) {
 }
 
 /* 4-byte hash for positions near end of buffer */
-static inline uint32_t hash4(const uint8_t *p) {
+static inline VV_NO_SANITIZE_INTEGER uint32_t hash4(const uint8_t *p) {
     uint32_t v;
     memcpy(&v, p, 4);
     return (v * 2654435761u) >> (32 - VV_HC_BITS);
 }
 
 /* Safe hash: picks 5-byte or 4-byte depending on remaining bytes */
-static inline uint32_t hash_safe(const uint8_t *p, int32_t remain) {
+static inline VV_NO_SANITIZE_INTEGER uint32_t hash_safe(const uint8_t *p, int32_t remain) {
     return (remain >= 5) ? hash5(p) : hash4(p);
 }
 
@@ -76,6 +123,31 @@ static inline uint32_t hash_safe(const uint8_t *p, int32_t remain) {
 static inline int32_t extend_match(const uint8_t *a, const uint8_t *b,
                                     int32_t max_len) {
     int32_t len = 0;
+
+    /* SPRINT 55: 8-byte fast-path check first. On binary content,
+     * most matches extend 0-12 bytes past the initial 4-byte compare
+     * (chain_match_ex already verified 4 bytes before calling). The
+     * AVX2 loop's 32-byte minimum overshoots for these common short
+     * matches, wasting a load and movemask on bytes we don't need.
+     *
+     * Check 8 bytes via scalar xor-ctz first: this resolves the
+     * common case in 2-3 uops. On binary fixtures (bash, libc.so.6,
+     * python3 extreme+format-v2), measurement shows ~60-75% of
+     * extend_match calls return len ≤ 8.
+     *
+     * Falls through to AVX2 when the 8-byte window fully matches
+     * and max_len is ≥ 32, so long-match ratio is preserved. */
+    if (max_len >= 8) {
+        uint64_t va, vb;
+        memcpy(&va, a, 8);
+        memcpy(&vb, b, 8);
+        uint64_t xor_ab = va ^ vb;
+        if (xor_ab) {
+            /* Little-endian: byte at position k differs iff bit k*8 set */
+            return __builtin_ctzll(xor_ab) >> 3;
+        }
+        len = 8;
+    }
 #if VV_ENC_AVX2
     while (len + 32 <= max_len) {
         __m256i va = _mm256_loadu_si256((const __m256i *)(a + len));
@@ -98,7 +170,7 @@ static inline int32_t extend_match(const uint8_t *a, const uint8_t *b,
 #define VV_HC4_BITS  16
 #define VV_HC4_SIZE  (1u << VV_HC4_BITS)
 
-static inline uint32_t hash4_short(const uint8_t *p) {
+static inline VV_NO_SANITIZE_INTEGER uint32_t hash4_short(const uint8_t *p) {
     uint32_t v;
     memcpy(&v, p, 4);
     return (v * 2654435761u) >> (32 - VV_HC4_BITS);
@@ -120,7 +192,7 @@ static inline uint32_t hash4_short(const uint8_t *p) {
 #define VV_HC3_BITS  14
 #define VV_HC3_SIZE  (1u << VV_HC3_BITS)
 
-static inline uint32_t hash3_short(const uint8_t *p) {
+static inline VV_NO_SANITIZE_INTEGER uint32_t hash3_short(const uint8_t *p) {
     uint32_t v = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16);
     return (v * 2654435761u) >> (32 - VV_HC3_BITS);
 }
@@ -143,16 +215,40 @@ typedef struct {
                             * extra bits only reaches 65534). */
 } matcher_t;
 
-static void matcher_init(matcher_t *m, uint32_t window_log, uint32_t depth) {
+/* SPRINT 93 audit: returns 1 on success, 0 on allocation failure.
+ * Callers MUST check the return value — on failure m is left in a
+ * partially-initialized state with all pointers either valid or NULL,
+ * safe to pass to matcher_free for cleanup.
+ *
+ * Prior to Sprint 93 this function was void-returning with unchecked
+ * mallocs. If allocation failed, the immediately-following memset on
+ * the NULL pointer would crash. Sprint 92 audit identified this as a
+ * real defect. The fix tolerates allocator failure cleanly. */
+static void matcher_free(matcher_t *m); /* fwd decl for cleanup-on-failure */
+static int matcher_init(matcher_t *m, uint32_t window_log, uint32_t depth) {
     uint32_t wsz = 1u << window_log;
+    /* Initialize ALL pointers to NULL first so matcher_free is safe to
+     * call on partial-failure paths. */
+    m->table = NULL;
+    m->chain = NULL;
+    m->table4 = NULL;
+    m->hash4_chain = NULL;
+    m->table3 = NULL;
+    m->hash3_chain = NULL;
+
     m->table = (int32_t *)malloc(VV_HC_SIZE * sizeof(int32_t));
     m->chain = (int32_t *)malloc(wsz * sizeof(int32_t));
     m->table4 = (int32_t *)malloc(VV_HC4_SIZE * sizeof(int32_t));
     m->hash4_chain = (int32_t *)malloc(wsz * sizeof(int32_t));
+    if (!m->table || !m->chain || !m->table4 || !m->hash4_chain) {
+        matcher_free(m);
+        /* Re-NULL after free so caller's matcher_free is also safe */
+        m->table = m->chain = m->table4 = m->hash4_chain = NULL;
+        m->table3 = m->hash3_chain = NULL;
+        return 0;
+    }
     /* hash3 tables allocated lazily only when use_hash3 is enabled.
      * On v1 path (the default), they stay NULL and cost nothing. */
-    m->table3 = NULL;
-    m->hash3_chain = NULL;
     /* PERF: only the table arrays need to be cleared. chain/hash4_chain
      * are only read via table entries (which are now -1), so stale
      * data in them is unreachable. See matcher_reset for rationale. */
@@ -165,6 +261,7 @@ static void matcher_init(matcher_t *m, uint32_t window_log, uint32_t depth) {
     m->use_hash4 = 0;  /* Disabled by default — enabled adaptively for binary */
     m->use_hash3 = 0;  /* Disabled by default — enabled for format v2 */
     m->max_match = VV_MAX_MATCH;  /* v1 default, see matcher_set_format_v2 */
+    return 1;
 }
 
 /* Apply format v2 matcher constraints. Must be called whenever the
@@ -296,9 +393,10 @@ static inline int32_t try_rep_match(const matcher_t *m, const uint8_t *data,
 /* ─── Hash chain match: uses 5-byte hash, searches up to chain_depth.
  * If use_hash4 is nonzero AND hash5 finds nothing, fall back to hash4
  * chain for binary/struct coverage. ─── */
-static int32_t chain_match_ex(const matcher_t *m, const uint8_t *data,
-                               int32_t pos, int32_t end, int32_t *best_off,
-                               int use_hash4) {
+static VV_NO_SANITIZE_INTEGER int32_t
+chain_match_ex(const matcher_t *m, const uint8_t *data,
+               int32_t pos, int32_t end, int32_t *best_off,
+               int use_hash4) {
     /* Early exit: we need at least 3 bytes for hash3 probe, 4 for
      * hash4/hash5. Use the looser bound if hash3 is enabled. */
     int32_t min_bytes = m->use_hash3 ? 3 : 4;
@@ -319,27 +417,58 @@ static int32_t chain_match_ex(const matcher_t *m, const uint8_t *data,
     memcpy(&pos4, data + pos, 4);
 
     /* Primary hash5 chain traversal.
-     * PERF: prefetch the next chain slot 2 iterations ahead. Chain
-     * entries are random-access through m->chain[ref & mask] and
-     * typically miss L1 on binary-like data. A speculative L1 prefetch
-     * issued 2 links ahead gives the CPU enough time to hide the
-     * DRAM latency behind the match-compare work. */
+     *
+     * SPRINT 55: 4-way software-pipelined chain walk. Chain traversal
+     * is a linked list — each next_ref depends on the previous chain
+     * load. This serializes iterations at memory-latency speed (~10
+     * ns per cache miss on binary data with poor hash5 locality).
+     *
+     * By walking the chain 4 links ahead and prefetching ALL of the
+     * candidate data arrays AND the next chain slots speculatively,
+     * we keep 4+ outstanding memory operations in flight per core.
+     * The CPU's out-of-order engine then overlaps the 4 L1 fills,
+     * effectively quadrupling match-test throughput on cache-miss-
+     * bound workloads (bash, libc, python3).
+     *
+     * Measured effect: +8-15% encode on binary, ~neutral on text
+     * (text already has good locality — fewer cache misses to hide).
+     *
+     * Safety: the prefetch is speculative ONLY. The actual chain walk
+     * still respects the ref validity check before any load. A
+     * prefetched ref that turns out to be out-of-range or cycles
+     * back just results in a harmless L1 pollution — no OOB read, no
+     * data-flow dependency on the prefetched value.
+     */
     uint32_t h = hash_safe(data + pos, end - pos);
     int32_t ref = m->table[h];
     uint32_t depth = m->chain_depth;
+    uint32_t chain_mask = m->chain_mask;
+    int32_t *chain_arr = m->chain;
 
-    /* Seed the pipeline: prefetch the source side of next candidate */
+    /* Pipeline priming: look 4 chain entries ahead. If chain is
+     * short, the prefetches become no-ops (chain entries below limit
+     * just return -1 or an expired position). */
     if (ref >= limit && ref < pos) {
         __builtin_prefetch(data + ref, 0, 0);
+        int32_t r1 = chain_arr[ref & chain_mask];
+        if (r1 >= limit && r1 < pos) {
+            __builtin_prefetch(data + r1, 0, 0);
+            __builtin_prefetch(&chain_arr[r1 & chain_mask], 0, 0);
+            int32_t r2 = chain_arr[r1 & chain_mask];
+            if (r2 >= limit && r2 < pos) {
+                __builtin_prefetch(data + r2, 0, 0);
+                __builtin_prefetch(&chain_arr[r2 & chain_mask], 0, 0);
+            }
+        }
     }
 
     while (ref >= 0 && ref >= limit && ref < pos && depth-- > 0) {
-        int32_t next_ref = m->chain[ref & m->chain_mask];
-        /* Prefetch: next chain traversal's candidate data bytes */
+        int32_t next_ref = chain_arr[ref & chain_mask];
+        /* Prefetch the link 2-3 iterations ahead so the linked-list
+         * chain of loads can overlap with match-compare work */
         if (next_ref >= limit && next_ref < pos) {
             __builtin_prefetch(data + next_ref, 0, 0);
-            /* Also prefetch the chain entry after next, for 2-ahead cover */
-            __builtin_prefetch(&m->chain[next_ref & m->chain_mask], 0, 0);
+            __builtin_prefetch(&chain_arr[next_ref & chain_mask], 0, 0);
         }
 
         uint32_t b;
@@ -567,7 +696,37 @@ static size_t compress_block(const uint8_t *src, size_t start_pos, size_t block_
         }
 
         /* ─── Step 3: Lazy evaluation (balanced + extreme) ─── */
-        if (mode >= VV_MODE_BALANCED && mlen >= min_match &&
+        /* Sprint 121: gate lazy probing on `mlen < 8`. Counterintuitive
+         * but empirically validated: the cost-aware lazy decision
+         * (added Sprint 120) makes WORSE choices when the current match
+         * is already moderately long.
+         *
+         * Why: cost-aware lazy compares per-byte costs of competing
+         * matches. When mlen ≥ 8, the current match's per-byte cost is
+         * already low (≈1.5–3 bits/byte for typical offsets). A lazy
+         * probe at pos+1 finding a slightly longer match at a different
+         * offset triggers a shift, paying 1 literal but only marginally
+         * improving per-byte cost. The literal cost dominates the small
+         * per-byte gain, AND the cost-model approximation accumulates
+         * error that biases toward shifting.
+         *
+         * Empirical sweep on the 8-fixture suite (aggregate Δ vs zstd-3):
+         *   no gate (lazy always):  −0.130%   (v2.48.0 / Sprint 120)
+         *   mlen < 16:              −0.252%
+         *   mlen < 12:              −0.386%
+         *   mlen <  9:              −0.776%
+         *   mlen <  8:              −1.070%   (THIS)
+         *   mlen <  7:              −1.282%
+         *   mlen <  6:              −1.860%
+         *   mlen <  5:              −2.044%   (best aggregate, but
+         *                                       fx_json regresses 8.5pp)
+         *   no lazy (mlen < 4):     −0.921%
+         *
+         * The mlen<5 setting wins aggregate but breaks fx_json from
+         * −2.49% to +6.04% — unacceptable per-fixture regression.
+         * mlen<8 is the safe optimum: improves every fixture vs v2.48.0
+         * with no regressions. */
+        if (mode >= VV_MODE_BALANCED && mlen >= min_match && mlen < 8 &&
             pos + 1 < end - min_match) {
             /* Check pos+1 */
             matcher_insert(m, src, pos, end);
@@ -577,54 +736,81 @@ static size_t compress_block(const uint8_t *src, size_t start_pos, size_t block_
             /* Also check rep at pos+1 */
             int32_t nri = -1;
             int32_t nrl = try_rep_match(m, src, pos + 1, end, &nri);
-            if (nrl > nlen) { nlen = nrl; noff = (int32_t)m->rep[nri]; }
+            if (nrl > nlen && nri >= 0) { nlen = nrl; noff = (int32_t)m->rep[nri]; }
 
-            /* standard */int32_t lazy_gain = 2;
-            if (nlen > mlen + lazy_gain) {
-                /* pos+1 is significantly better: emit literal, shift */
-                pos++;
-                mlen = nlen; moff = noff;
+            /* SPRINT 119: cost-aware lazy decision (closes the +1.2%
+             * ratio gap to zstd-3 — see CHANGELOG.md, Sprint 120).
+             *
+             * Old code used `nlen > mlen + 2` which ignores offset cost.
+             * This made vv prefer shorter matches at far offsets over
+             * longer matches at near offsets. zstd-3 produces ~11% fewer
+             * sequences on dickens (1.22M vs 1.37M) by accounting for
+             * offset cost when choosing between competing matches.
+             *
+             * Cost model:
+             *   match_bits(off, len) ≈ 10 + log2(off) + ml_extra(len)
+             *     - 10 covers ML/OF/LL ANS code values (avg ~3 bits each)
+             *     - log2(off) is the OF extra-bit cost (info-theoretic min)
+             *     - ml_extra is small for short matches (0 for len ≤ 19)
+             *   literal_bits ≈ 6 (4-stream Huffman avg on text)
+             *
+             * Decide on B (shift) over A (emit current match) when:
+             *   (literal_bits + match_bits(noff, nlen)) / (nlen + 1)
+             *     < match_bits(moff, mlen) / mlen
+             *
+             * Rep matches have offset cost ≈ 1 bit (rep code, no extras),
+             * so they're heavily favored regardless of length. */
+            if (nlen >= min_match) {
+                /* Approx log2(off) — clamp to 1 for rep candidates and
+                 * to >= 1 generally to avoid div-by-zero quirks. */
+                int log2_moff = 0; uint32_t mo = (uint32_t)moff;
+                while (mo > 1) { mo >>= 1; log2_moff++; }
+                int log2_noff = 0; uint32_t no = (uint32_t)noff;
+                while (no > 1) { no >>= 1; log2_noff++; }
 
-                /* Lazy-2 disabled in v2.24.0.
+                /* Rep matches use 0 extra bits but do consume an OF code
+                 * slot. Approximate them as cost 2 bits regardless of
+                 * the actual offset value.
                  *
-                 * Previously, after a lazy-1 shift to pos+1, this block
-                 * would try another shift to pos+2 if n2len > mlen + 1.
-                 * That was a classic "greedy past the peak" bug:
-                 *
-                 * Empirical results on 50KB English-text corpus:
-                 *   balanced:              11,279 bytes
-                 *   extreme + lazy-2 (+1): 12,157 bytes  (+8% vs balanced)
-                 *   extreme + lazy-2 (+2): 12,157 bytes  (threshold didn't matter)
-                 *   extreme + lazy-2 (+4): 11,860 bytes  (still worse)
-                 *   extreme, lazy-2 off:   10,718 bytes  (5% better!)
-                 *
-                 * On 4 text corpora tested, lazy-2 cost an aggregate
-                 * 2,463 bytes vs disabled. On 2 JSON corpora, it saved
-                 * 213 bytes. Net-bytes-across-inputs: disabled wins by
-                 * ~10×. Disabling produces the strictly correct
-                 * "extreme >= balanced ratio" contract on all tested
-                 * inputs except JSON, where the regression is tiny
-                 * (<5%) and offset-encoding-cost-aware parsing would
-                 * be the proper fix (future work).
-                 *
-                 * Root cause: lazy-2's break-even model doesn't
-                 * account for the offset-extra-bits encoding cost of
-                 * the shifted-to match. On text, deeper chain search
-                 * finds long matches at far offsets whose extra-bits
-                 * cost exceeds the gain from the extra match length. */
-                (void)lazy_gain;  /* still used in lazy-1 above */
-                if (0) {
-                    /* dead code — reference for future cost-aware work */
-                    matcher_insert(m, src, pos, end);
-                    int32_t n2off = 0;
-                    int32_t n2len = chain_match(m, src, pos + 1, end, &n2off);
-                    int32_t n2ri = -1;
-                    int32_t n2rl = try_rep_match(m, src, pos + 1, end, &n2ri);
-                    if (n2rl > n2len) { n2len = n2rl; n2off = (int32_t)m->rep[n2ri]; }
-                    if (n2len > mlen + lazy_gain) {
-                        pos++;
-                        mlen = n2len; moff = n2off;
-                    }
+                 * Sprint 121: per-mode constant. Extreme mode (deep
+                 * chain search) optimizes at +14; balanced mode
+                 * (shallow chain) optimizes at +18 because the lazy
+                 * candidates from a depth-24 search are noisier and
+                 * benefit from less aggressive shifting. */
+                int cost_const = (mode >= VV_MODE_EXTREME) ? 14 : 18;
+                int moff_bits = (rep_idx >= 0) ? 2 : (cost_const + log2_moff);
+                int noff_bits = (nri >= 0)     ? 2 : (cost_const + log2_noff);
+
+                /* Cross-multiply to avoid floating-point in hot path:
+                 *   (literal_bits + noff_bits) * mlen < moff_bits * (nlen + 1) */
+                int literal_bits = 6;
+                int lhs = (literal_bits + noff_bits) * mlen;
+                int rhs = moff_bits * (nlen + 1);
+                if (lhs < rhs) {
+                    pos++;
+                    mlen = nlen; moff = noff;
+                    rep_idx = nri;  /* may have shifted from explicit→rep or vice versa */
+
+                    /* SPRINT 121: cost-aware lazy-2 was tested and rejected.
+                     * Measured Δ vs lazy-1-only (gate mlen<8 in both cases):
+                     *   fx_text:    neutral
+                     *   fx_json:    −0.003% (negligible)
+                     *   fx_source:  +0.022%
+                     *   bash:       −0.052%
+                     *   dickens:    +0.912%   ← significant regression
+                     *   xml:        +0.086%
+                     *   sao:        +0.874%   ← significant regression
+                     *   x-ray:      +0.361%
+                     *   AGGREGATE:  +0.601% (worse)
+                     *
+                     * The shift cascade dominates: after a successful
+                     * lazy-1 shift, a second probe at the new pos+1
+                     * tends to find marginally-longer matches and
+                     * shifts again, eating literals faster than the
+                     * cost model accounts for. The cost-model error
+                     * compounds with each shift.
+                     *
+                     * Lazy-1 captures the available benefit cleanly. */
                 }
             }
         }
@@ -771,7 +957,8 @@ static size_t emit_block(const uint8_t *src, size_t block_start, size_t braw,
                          uint8_t *tmp, size_t tcap,
                          uint8_t *lit_buf, size_t lit_cap,
                          uint8_t *stripped, uint8_t *ent_buf, size_t ent_cap,
-                         uint8_t *dst, size_t dst_cap, int min_match) {
+                         uint8_t *dst, size_t dst_cap, int min_match,
+                         int compat_v246_5) {
     uint8_t *op = dst;
 
     size_t csz = compress_block(src, block_start, braw, tmp, tcap, m, mode, min_match);
@@ -797,9 +984,11 @@ static size_t emit_block(const uint8_t *src, size_t block_start, size_t braw,
          * contain 3-byte matches that v1 encode_sequences cannot
          * represent correctly. */
         int use_v2 = (min_match < (int)VV_MIN_MATCH);
+        /* Sprint 105 Phase C: thread compat flag through to SEQ encoder. */
+        int dis_huf4 = compat_v246_5;
         vva_error_t serr = use_v2
-            ? vva_encode_sequences_v2(tmp, csz, ent_buf, ent_cap, &seq_len, off_bytes)
-            : vva_encode_sequences(tmp, csz, ent_buf, ent_cap, &seq_len, off_bytes);
+            ? vva_encode_sequences_v2_compat(tmp, csz, ent_buf, ent_cap, &seq_len, off_bytes, dis_huf4)
+            : vva_encode_sequences_compat(tmp, csz, ent_buf, ent_cap, &seq_len, off_bytes, dis_huf4);
         if (serr == VVA_OK) {
             seq_block_sz = 4 + 3 + 1 + seq_len;
             seq_valid = 1;
@@ -837,7 +1026,36 @@ static size_t emit_block(const uint8_t *src, size_t block_start, size_t braw,
             lit_count = extract_literals(tmp, csz, lit_buf, lit_cap,
                                          stripped, &stripped_len, off_bytes);
             if (lit_count > 0) {
-                if (mode >= VV_MODE_BALANCED && lit_count >= 4096) {
+                /* SPRINT 53: skip the expensive CTX (order-1 context)
+                 * path when sequence coding is already winning by a
+                 * big margin. Profile data across 7 fixtures (text,
+                 * json, source, 4 ELF binaries) showed CTX wins 0/16
+                 * attempts — the CTX coder has never actually beaten
+                 * SEQ on these workloads, but burned 20% of encode
+                 * time building per-context ANS tables that were
+                 * always discarded.
+                 *
+                 * Heuristic: skip CTX when seq_block_sz already does
+                 * better than 2:1 compression (seq_block_sz < braw/2).
+                 * Path A (SEQ) essentially never loses to Path B (CTX)
+                 * when the LZ matcher found strong matches. CTX only
+                 * matters for low-redundancy data where SEQ produces
+                 * close-to-raw output — exactly the case where
+                 * seq_block_sz ≥ braw/2.
+                 *
+                 * Falls back to ANS4 / ANS as literal coders in the
+                 * unchanged code below. These are ~10× cheaper than
+                 * CTX to build. Net encode-time savings measured in
+                 * SPRINT 53 CHANGELOG entry.
+                 *
+                 * Security/correctness: this is purely an encoder
+                 * heuristic. Decoder is unchanged. Output wire format
+                 * still meets spec. Worst case on a pathological
+                 * input where CTX would have won: we produce slightly
+                 * larger output via ANS4 or ANS. Ratio gate guards
+                 * against any real regression. */
+                int skip_ctx = seq_valid && seq_block_sz < (braw * 4 / 5);
+                if (!skip_ctx && mode >= VV_MODE_BALANCED && lit_count >= 4096) {
                     vva_error_t aerr = vva_encode_ctx(lit_buf, lit_count,
                                                        ent_buf2, ent_cap2, &ent_len);
                     if (aerr == VVA_OK) ent_tag = VV_ENTROPY_CTX;
@@ -934,9 +1152,20 @@ size_t vv_compress_bound(size_t src_len) {
 int64_t vv_compress(const uint8_t *src, size_t src_len,
                     uint8_t *dst, size_t dst_cap,
                     const vv_options_t *opts) {
-    if (!src || !dst || !opts) return VV_ERR_PARAM;
+    /* SPRINT 95 audit: accept NULL opts (fall back to defaults) for
+     * consistency with vv_cstream_create. Also accept src_len=0
+     * (an empty frame is a valid thing to produce — some streaming
+     * protocols rely on it as a flush marker). */
+    if (!dst) return VV_ERR_PARAM;
+    if (src_len > 0 && !src) return VV_ERR_PARAM;
     if (dst_cap < sizeof(vv_frame_header_t) + sizeof(vv_frame_footer_t) + 16)
         return VV_ERR_OVERFLOW;
+
+    vv_options_t local_opts;
+    if (!opts) {
+        vv_default_options(&local_opts);
+        opts = &local_opts;
+    }
 
     uint8_t wlog = opts->window_log;
     uint32_t depth;
@@ -967,13 +1196,21 @@ int64_t vv_compress(const uint8_t *src, size_t src_len,
         size_t trial_cap = trial_len + trial_len / 255 + 1024;
         uint8_t *trial_buf = (uint8_t *)malloc(trial_cap);
         if (trial_buf) {
-            matcher_t m16; matcher_init(&m16, 16, 4);
-            size_t sz16 = compress_block(src, 0, trial_len, trial_buf, trial_cap, &m16, VV_MODE_ULTRA_FAST, VV_MIN_MATCH);
-            matcher_free(&m16);
+            matcher_t m16;
+            size_t sz16 = 0, sz20 = 0;
+            /* SPRINT 93 audit: matcher_init can fail; if it does, skip
+             * the trial (this path is a perf-tuning probe — falling
+             * back to default wlog is safe). */
+            if (matcher_init(&m16, 16, 4)) {
+                sz16 = compress_block(src, 0, trial_len, trial_buf, trial_cap, &m16, VV_MODE_ULTRA_FAST, VV_MIN_MATCH);
+                matcher_free(&m16);
+            }
 
-            matcher_t m20; matcher_init(&m20, 20, 4);
-            size_t sz20 = compress_block(src, 0, trial_len, trial_buf, trial_cap, &m20, VV_MODE_ULTRA_FAST, VV_MIN_MATCH);
-            matcher_free(&m20);
+            matcher_t m20;
+            if (matcher_init(&m20, 20, 4)) {
+                sz20 = compress_block(src, 0, trial_len, trial_buf, trial_cap, &m20, VV_MODE_ULTRA_FAST, VV_MIN_MATCH);
+                matcher_free(&m20);
+            }
 
             free(trial_buf);
             if (sz20 > 0 && sz16 > 0 && sz20 < (sz16 * 97 / 100)) wlog = 20;
@@ -981,6 +1218,15 @@ int64_t vv_compress(const uint8_t *src, size_t src_len,
             size_t best_sz = (sz20 > 0 && sz20 < sz16) ? sz20 : sz16;
             if (best_sz > 0 && best_sz * 2 > trial_len) enable_hash4 = 1;
         }
+    }
+
+    /* SPRINT 67: size-based wlog override. The trial above often
+     * misses wins that only become visible past the 128 KB trial
+     * boundary (long-range refs in multi-MB files). Override to
+     * wlog=18 for files ≥ 3 MB when the trial left wlog at 16. */
+    if (opts->window_log == 0 && opts->mode >= VV_MODE_BALANCED &&
+        wlog == 16 && src_len >= 3145728) {
+        wlog = 18;
     }
 
     /* Frame header */
@@ -997,7 +1243,10 @@ int64_t vv_compress(const uint8_t *src, size_t src_len,
 
     /* Matcher */
     matcher_t m;
-    matcher_init(&m, wlog, depth);
+    /* SPRINT 93 audit: handle allocation failure cleanly */
+    if (!matcher_init(&m, wlog, depth)) {
+        return VV_ERR_NOMEM;
+    }
     m.use_hash4 = (uint8_t)enable_hash4; /* From fused adaptive-window trial */
     /* Format v2 cap applies to EVERY match emitted from this matcher,
      * not just those produced via hash3. Set unconditionally when
@@ -1065,7 +1314,8 @@ int64_t vv_compress(const uint8_t *src, size_t src_len,
         size_t written = emit_block(src, block_start, braw, last, &m, opts->mode, wlog,
                                     tmp, tcap, lit_buf, lit_cap,
                                     stripped, ent_buf, ent_cap,
-                                    op, dst_cap - (size_t)(op - dst), min_match);
+                                    op, dst_cap - (size_t)(op - dst), min_match,
+                                    opts->compat_v246_5_decoder);
         if (written == 0) {
             free(lit_buf); free(stripped); free(ent_buf);
             free(tmp); matcher_free(&m);
@@ -1075,6 +1325,12 @@ int64_t vv_compress(const uint8_t *src, size_t src_len,
         ip += braw; remaining -= braw;
     }
 
+    /* Sprint 117: scrub plaintext-derived working buffers before free
+     * to prevent heap-residue leak (defense in depth). */
+    vv_secure_zero(tmp, tcap);
+    if (lit_buf)  vv_secure_zero(lit_buf, lit_cap);
+    if (stripped) vv_secure_zero(stripped, tcap);
+    if (ent_buf)  vv_secure_zero(ent_buf, ent_cap);
     free(lit_buf); free(stripped); free(ent_buf);
     free(tmp);
 
@@ -1154,16 +1410,26 @@ vv_cstream_t *vv_cstream_create(const vv_options_t *opts) {
     default: depth = 24;
     }
 
-    matcher_init(&ctx->m, wlog, depth);
+    /* SPRINT 93 audit: matcher_init can fail; cstream returns NULL
+     * on any allocation error per public API contract. */
+    if (!matcher_init(&ctx->m, wlog, depth)) {
+        free(ctx);
+        return NULL;
+    }
     /* Format v2 matchlen cap applies to every match — set whenever
-     * streaming opts has format_v2 on, not just when hash3 fires. */
-    if (opts->format_v2) {
+     * streaming opts has format_v2 on, not just when hash3 fires.
+     *
+     * Sprint 89 audit: read from ctx->opts (populated above with either
+     * the caller's opts or default values) rather than the raw opts
+     * pointer, which can be NULL when caller wants defaults. The prior
+     * code dereferenced NULL when called as vv_cstream_create(NULL). */
+    if (ctx->opts.format_v2) {
         matcher_set_format_v2(&ctx->m);
     }
     /* SPRINT 45: enable hash3 for format v2 streaming. Must free
      * ctx before returning NULL — callers use NULL-check semantics
      * here, not error codes. */
-    if (opts->format_v2) {
+    if (ctx->opts.format_v2) {
         if (!matcher_enable_hash3(&ctx->m)) {
             matcher_free(&ctx->m);
             free(ctx);
@@ -1198,9 +1464,20 @@ vv_cstream_t *vv_cstream_create(const vv_options_t *opts) {
 
 void vv_cstream_destroy(vv_cstream_t *ctx) {
     if (!ctx) return;
+    /* Sprint 117: zero plaintext-derived working buffers before free.
+     * lit_buf and stripped contain literal bytes from the input; src_buf
+     * holds raw input. tmp/ent_buf may contain compressed-but-not-yet-
+     * encrypted output. All are scrubbed to prevent heap-residue leak. */
+    if (ctx->tmp)      vv_secure_zero(ctx->tmp, ctx->tcap);
+    if (ctx->lit_buf)  vv_secure_zero(ctx->lit_buf, ctx->lit_cap);
+    if (ctx->stripped) vv_secure_zero(ctx->stripped, ctx->lit_cap);
+    if (ctx->ent_buf)  vv_secure_zero(ctx->ent_buf, ctx->ent_cap);
+    if (ctx->src_buf)  vv_secure_zero(ctx->src_buf, ctx->src_cap);
     free(ctx->tmp); free(ctx->lit_buf); free(ctx->stripped); free(ctx->ent_buf);
     free(ctx->src_buf);
     matcher_free(&ctx->m);
+    /* Scrub the context itself in case it held sensitive options */
+    vv_secure_zero(ctx, sizeof(*ctx));
     free(ctx);
 }
 
@@ -1337,7 +1614,8 @@ int vv_cstream_compress_chunk(vv_cstream_t *ctx,
                                      ctx->tmp, ctx->tcap,
                                      ctx->lit_buf, ctx->lit_cap,
                                      ctx->stripped, ctx->ent_buf, ctx->ent_cap,
-                                     op, cap_left, stream_min_match);
+                                     op, cap_left, stream_min_match,
+                                     ctx->opts.compat_v246_5_decoder);
         if (block_sz == 0) return VV_ERR_OVERFLOW;
         op += block_sz; cap_left -= block_sz;
     }
@@ -1349,7 +1627,8 @@ int vv_cstream_compress_chunk(vv_cstream_t *ctx,
         ff.checksum = vv_xxh64_finalize(&ctx->cks);
         ff.footer_magic = 0x56564E44u;
         memcpy(op, &ff, sizeof(ff));
-        op += sizeof(ff); cap_left -= sizeof(ff);
+        op += sizeof(ff);
+        /* cap_left no longer read — function returns immediately below */
     }
 
     *written = (size_t)(op - dst);
@@ -1388,7 +1667,12 @@ typedef struct {
 typedef struct {
     mt_task_t *tasks;
     size_t ntasks;
-    volatile size_t next_task;
+    /* SPRINT 98 audit: removed redundant `volatile`. next_task is
+     * protected by the mutex below, which provides full memory
+     * ordering. `volatile` was misleading — it doesn't provide
+     * synchronization, only prevents compiler reordering, and the
+     * mutex already prevents both. */
+    size_t next_task;
     pthread_mutex_t mutex;
 } mt_pool_t;
 
@@ -1411,7 +1695,15 @@ int64_t vv_compress_mt(const uint8_t *src, size_t src_len,
                        const vv_options_t *opts,
                        unsigned int nthreads,
                        size_t chunk_size) {
-    if (!src || !dst || !opts) return VV_ERR_PARAM;
+    /* SPRINT 95 audit: same as vv_compress — accept NULL opts and
+     * src_len=0 for API consistency. */
+    if (!dst) return VV_ERR_PARAM;
+    if (src_len > 0 && !src) return VV_ERR_PARAM;
+    vv_options_t local_opts;
+    if (!opts) {
+        vv_default_options(&local_opts);
+        opts = &local_opts;
+    }
     if (chunk_size == 0) chunk_size = 4 * 1024 * 1024;  /* 4 MB default */
     if (chunk_size < VV_MAX_BLOCK_SIZE) chunk_size = VV_MAX_BLOCK_SIZE;
 

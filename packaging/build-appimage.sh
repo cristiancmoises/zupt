@@ -5,7 +5,7 @@
 set -e
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-2.2.2}"
+VERSION="${VERSION:-2.2.3}"
 ARCH="${ARCH:-x86_64}"
 NAME="zupt-$VERSION-$ARCH"
 OUT="/tmp/${NAME}.AppDir"
@@ -45,9 +45,12 @@ cp "$OUT/zupt.png" "$OUT/usr/share/icons/hicolor/256x256/apps/zupt.png"
 if command -v appimagetool >/dev/null 2>&1; then
     ARCH=$ARCH appimagetool "$OUT" "/tmp/${NAME}.AppImage"
     echo "Built: /tmp/${NAME}.AppImage"
-else
-    cd /tmp
-    tar -czf "${NAME}.AppDir.tar.gz" "$(basename "$OUT")"
-    echo "appimagetool not present; built AppDir tarball: /tmp/${NAME}.AppDir.tar.gz"
-    echo "Users can run: tar xzf ${NAME}.AppDir.tar.gz && ./${NAME}.AppDir/AppRun"
 fi
+
+# Always produce the AppDir tarball as well -- some environments (no FUSE,
+# strict execve policies, etc.) cannot run the .AppImage directly. The
+# tarball is the universal fallback: extract and run AppRun.
+cd /tmp
+tar -czf "${NAME}.AppDir.tar.gz" "$(basename "$OUT")"
+echo "Built: /tmp/${NAME}.AppDir.tar.gz"
+echo "Users can run: tar xzf ${NAME}.AppDir.tar.gz && ./${NAME}.AppDir/AppRun"
