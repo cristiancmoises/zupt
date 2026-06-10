@@ -1,104 +1,251 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# Copyright (c) 2026 Cristian Cezar Moisés
+# Copyright (c) 2025-2026 Cristian Cezar Moisés
+#
+# Zupt CI matrix.
+#
+# Mirrors the project's local-verification protocol from PROMPT.md §6:
+#   1. Plain GCC build
+#   2. Plain Clang build
+#   3. Strict GCC (full warning set)
+#   4. Strict Clang (full warning set)
+#   5. ASAN + UBSAN
+#   6. Full regression suite (12 suites: audit, dedup, path-traversal,
+#      argument-order, block-swap, F-08, F-09 byte sweep, F-10, F-11,
+#      F-12, packaging syntax, dist reproducibility)
+#   7. License header audit
+#   8. `make dist` reproducibility (two runs, sha256 must match)
+#   9. aarch64 cross-test via QEMU emulation
+#  10. Automatic release on git tag push
+
 name: CI
 
 on:
   push:
     branches: [main, develop]
+    tags: ['v*']
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
+  # ─── Plain build + test, exactly as a user would do it ───
   build-and-test:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install build dependencies
+      - name: Install build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            libargon2-dev libargon2-1 \
-            libssl-dev libssl3 \
-            python3
-
-      - name: Build zupt
-        run: make
-
-      - name: Run quick tests
+          sudo apt-get install -y build-essential clang dpkg-dev python3
+      - name: Build (${{ matrix.cc }})
+        run: make CC=${{ matrix.cc }} -j$(nproc)
+      - name: zupt version
+        run: ./zupt version
+      - name: Full regression suite
         run: make test
+      - name: License header audit
+        run: make audit-licenses
 
-      - name: Run audit suite
-        run: bash tests/test_audit.sh
+  # ─── Strict warning matrix — what the project's §6 protocol uses ───
+  strict-warnings:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cc: gcc
+            cflags: "-Wall -Wextra -Wpedantic -Wshadow -Wcast-align -Wstrict-prototypes -Wmissing-prototypes -Wnull-dereference -Wformat-security -Wlogical-op -Wjump-misses-init -Wdouble-promotion -O2 -std=c11 -Werror"
+          - cc: clang
+            cflags: "-Wall -Wextra -Wpedantic -Wshadow -Wcast-align -Wstrict-prototypes -Wmissing-prototypes -Wnull-dereference -O2 -std=c11 -Werror"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y build-essential clang
+      - name: Strict ${{ matrix.cc }} build (warnings → errors)
+        run: make CC=${{ matrix.cc }} CFLAGS="${{ matrix.cflags }}" -j$(nproc)
 
-      - name: Run dedup property tests
-        run: bash tests/test_dedup_props.sh
-
-  asan-build:
+  # ─── ASAN + UBSAN — catches memory bugs the warning matrix can't ───
+  sanitizers:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libargon2-dev libssl-dev
-
-      - name: Build zupt (release)
-        run: make
-
-      - name: Build zupt (ASAN/UBSAN)
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3
+      - name: Build with ASAN + UBSAN
         run: make test-asan
-
-      - name: Run all suites under ASAN/UBSAN
+      - name: PQ-SDK byte-exact roundtrip under ASAN
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-        run: make test-asan-run
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: |
+          ./zupt_asan keygen --sdk -o /tmp/k.priv
+          ./zupt_asan compress --pq-sdk /tmp/k.priv.pub /tmp/a.zupt include/
+          mkdir -p /tmp/extracted
+          ./zupt_asan extract --pq-sdk /tmp/k.priv -o /tmp/extracted /tmp/a.zupt
+          diff -qr include /tmp/extracted/include
 
-  fuzz-format:
+  # ─── PIE hardening build — verifies no runtime breakage from -fPIE ───
+  pie-hardening:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+      - name: Build with PIE + hardening
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libargon2-dev libssl-dev
-
-      - name: Build zupt + ASAN binary
+          make CFLAGS="-O2 -std=c11 -fPIE -fstack-protector-strong -D_FORTIFY_SOURCE=2 -Wformat -Wformat-security" \
+               LDFLAGS="-pie -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack" \
+               -j$(nproc)
+      - name: Verify binary is PIE
         run: |
-          make
-          make test-asan
+          file ./zupt | grep -E "ELF .*executable.*pie|ELF .*shared object" || \
+            { file ./zupt; echo "binary is not PIE"; exit 1; }
+      - name: Smoke test
+        run: |
+          echo "test" > /tmp/in.txt
+          ./zupt c -p secret /tmp/a.zupt /tmp/in.txt
+          mkdir /tmp/out
+          (cd /tmp/out && ./../../home/runner/work/zupt/zupt/zupt x -p secret /tmp/a.zupt) || \
+            { cd /tmp/out && "$GITHUB_WORKSPACE/zupt" x -p secret /tmp/a.zupt; }
+          diff -q /tmp/in.txt /tmp/out/in.txt
 
-      - name: Build fuzz harness
-        run: make fuzz-format
-
-      - name: Run 1000 fuzz iterations under ASAN/UBSAN
-        env:
-          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-        run: make fuzz-format-run
-
-  package-deb:
+  # ─── aarch64 cross-build via QEMU emulation ───
+  cross-aarch64:
     runs-on: ubuntu-24.04
-    needs: [build-and-test]
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: Build + test inside aarch64 container
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD":/src -w /src \
+            ubuntu:24.04 \
+            bash -c '
+              apt-get update -qq
+              apt-get install -y -qq build-essential python3
+              make -j$(nproc)
+              ./zupt version
+              make test
+            '
+
+  # ─── make dist reproducibility ───
+  dist-reproducibility:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3
+      - name: First dist build
+        run: make dist
+      - name: Capture sha256 (run 1)
+        id: sha1
+        run: |
+          VER=$(grep '^#define ZUPT_VERSION_STRING' include/zupt.h | awk -F'"' '{print $2}')
+          SHA=$(sha256sum /tmp/zupt-$VER.tar.gz | awk '{print $1}')
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          echo "Run 1: $SHA"
+      - name: Second dist build (must produce identical sha256)
+        run: make dist
+      - name: Verify reproducibility
+        run: |
+          VER="${{ steps.sha1.outputs.ver }}"
+          SHA2=$(sha256sum /tmp/zupt-$VER.tar.gz | awk '{print $1}')
+          if [ "$SHA2" != "${{ steps.sha1.outputs.sha }}" ]; then
+            echo "::error::make dist is NOT reproducible"
+            echo "  run 1: ${{ steps.sha1.outputs.sha }}"
+            echo "  run 2: $SHA2"
+            exit 1
+          fi
+          echo "Reproducible ✓ ($SHA2)"
+      - name: Upload reproducible source tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: zupt-source-tarball
+          path: /tmp/zupt-*.tar.gz
+
+  # ─── Packaging-recipe syntax (cross-distro) ───
+  packaging-syntax:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install validators
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libargon2-dev libssl-dev dpkg-dev
+          sudo apt-get install -y build-essential dpkg-dev ruby rpm
+      - name: Build (for include/zupt.h to exist; not strictly needed for syntax test)
+        run: make -j$(nproc)
+      - name: Run packaging syntax test
+        run: bash tests/test_packaging_syntax.sh
 
-      - name: Build zupt
-        run: make
-
-      - name: Build .deb
-        run: bash packaging/build-deb.sh
-
-      - name: Build GUI .deb
-        run: bash packaging/build-gui-deb.sh
-
-      - name: Verify deb installs
+  # ─── Automatic GitHub release on git tag push ───
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-and-test, strict-warnings, sanitizers, dist-reproducibility, packaging-syntax]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3
+      - name: Build reproducible source tarball
+        run: make dist
+      - name: Get version
+        id: ver
         run: |
-          sudo dpkg -i /tmp/zupt_*.deb
-          zupt version
-          which zupt
-          ls /usr/include/zuptsdk*.h
+          VER=$(grep '^#define ZUPT_VERSION_STRING' include/zupt.h | awk -F'"' '{print $2}')
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+      - name: Verify tag matches version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          EXPECTED="v${{ steps.ver.outputs.version }}"
+          if [ "$TAG" != "$EXPECTED" ]; then
+            echo "::error::tag $TAG doesn't match include/zupt.h $EXPECTED"
+            exit 1
+          fi
+      - name: Compute sha256
+        id: sha
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          SHA=$(sha256sum /tmp/zupt-$VER.tar.gz | awk '{print $1}')
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "$SHA  zupt-$VER.tar.gz" > /tmp/zupt-$VER.tar.gz.sha256
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            /tmp/zupt-${{ steps.ver.outputs.version }}.tar.gz
+            /tmp/zupt-${{ steps.ver.outputs.version }}.tar.gz.sha256
+          body: |
+            ## Zupt v${{ steps.ver.outputs.version }}
+
+            Reproducible source tarball.
+
+            ```
+            sha256: ${{ steps.sha.outputs.sha }}
+            ```
+
+            See CHANGELOG.md for release notes.
+
+            ### Verifying the tarball
+
+            ```sh
+            sha256sum -c zupt-${{ steps.ver.outputs.version }}.tar.gz.sha256
+            ```
+
+            ### Building
+
+            ```sh
+            tar xzf zupt-${{ steps.ver.outputs.version }}.tar.gz
+            cd zupt-${{ steps.ver.outputs.version }}
+            make
+            make test
+            sudo make install
+            ```

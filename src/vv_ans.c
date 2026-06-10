@@ -192,13 +192,27 @@ static void build_dec(const uint16_t norm[NSYM], const uint8_t sp[ANS_L],
         int flg = ilog2(f);
         int nb_max = ANS_LOG - flg;
         int low_count = (1 << (flg + 1)) - (int)f;
+        /* On a VALID normalized table, f ∈ [1, ANS_L) here (f==0 and
+         * f==ANS_L are handled above), so flg ≤ ANS_LOG-1 and nb_max ≥ 1,
+         * and the shifts below are well-defined. A CORRUPT stream can
+         * carry f > ANS_L (read_hdr_v2 does not range-check the wire
+         * values), giving flg ≥ ANS_LOG and nb_max ≤ 0 — i.e. a negative
+         * shift, which is C undefined behaviour (found under UBSan on
+         * bit-flipped input: "shift exponent is negative"). Clamp nb_max
+         * to ≥ 0 and both shift amounts to ≥ 0. For valid tables
+         * (nb_max ≥ 1) this is a no-op, so valid-stream decode output is
+         * byte-for-byte unchanged; for corrupt tables it merely produces
+         * a defined (still-wrong) baseline that the downstream
+         * sequence/offset bounds checks reject. */
+        if (nb_max < 0) nb_max = 0;
         if (k < low_count) {
             dec[x].nbits = (uint8_t)nb_max;
             dec[x].baseline = (uint16_t)((uint32_t)k << nb_max);
         } else {
-            dec[x].nbits = (uint8_t)(nb_max - 1);
+            int sh = (nb_max > 0) ? (nb_max - 1) : 0;
+            dec[x].nbits = (uint8_t)sh;
             dec[x].baseline = (uint16_t)(((uint32_t)low_count << nb_max)
-                             + ((uint32_t)(k - low_count) << (nb_max - 1)));
+                             + ((uint32_t)(k - low_count) << sh));
         }
         dec[x].symbol = s;
     }
@@ -516,12 +530,11 @@ vva_error_t vva_decode(const uint8_t *src, size_t src_len,
         return VVA_OK;
     }
 
-    uint8_t *sp = (uint8_t *)malloc(ANS_L);
+    uint8_t sp[ANS_L];  /* PERF: scratch for build_dec; stack, not per-block malloc */
     vva_dec_entry_t *dec = (vva_dec_entry_t *)malloc(ANS_L * sizeof(*dec));
-    if (!sp || !dec) { free(sp); free(dec); return VVA_ERR_NOMEM; }
+    if (!dec) { return VVA_ERR_NOMEM; }
     spread_symbols(norm, sp);
     build_dec(norm, sp, dec);
-    free(sp);
 
     if (hdr + 2 > src_len) { free(dec); return VVA_ERR_CORRUPT; }
     uint32_t state = (uint32_t)src[hdr] | ((uint32_t)src[hdr + 1] << 8);
@@ -535,7 +548,14 @@ vva_error_t vva_decode(const uint8_t *src, size_t src_len,
         if (r.n < ANS_LOG) ans_br_fill(&r);
         vva_dec_entry_t e = dec[state];
         dst[i] = e.symbol;
-        uint32_t bits = ans_br_read(&r, e.nbits);
+        /* PERF: the fill above guarantees r.n >= ANS_LOG >= e.nbits, so the
+         * fill-check inside ans_br_read() is redundant here — read inline
+         * and skip it (one fewer branch per symbol). Byte-identical to
+         * ans_br_read(): same mask/shift/decrement. */
+        int nb = e.nbits;
+        uint32_t bits = (uint32_t)(r.a & (((uint64_t)1 << nb) - 1));
+        r.a >>= nb;
+        r.n -= nb;
         state = (uint32_t)e.baseline + bits;
         if (state >= (uint32_t)ANS_L) { free(dec); return VVA_ERR_CORRUPT; }
     }
@@ -706,12 +726,11 @@ vva_error_t vva_decode4(const uint8_t *src, size_t src_len,
     }
 
     /* Build shared decode table */
-    uint8_t *sp = (uint8_t *)malloc(ANS_L);
+    uint8_t sp[ANS_L];  /* PERF: scratch for build_dec; stack, not per-block malloc */
     vva_dec_entry_t *dec = (vva_dec_entry_t *)malloc(ANS_L * sizeof(*dec));
-    if (!sp || !dec) { free(sp); free(dec); return VVA_ERR_NOMEM; }
+    if (!dec) { return VVA_ERR_NOMEM; }
     spread_symbols(norm, sp);
     build_dec(norm, sp, dec);
-    free(sp);
 
     /* Read 4 states (2B) + 4 bitstream sizes (4B) */
     const uint8_t *p = src + hdr;
@@ -761,23 +780,38 @@ vva_error_t vva_decode4(const uint8_t *src, size_t src_len,
         dst[out_pos + 3] = e3.symbol;
         out_pos += 4;
 
-        /* 4 state updates — use results from lookups above */
+        /* 4 state updates — use results from lookups above.
+         * PERF: each fill above guarantees r[i].n >= ANS_LOG >= e.nbits,
+         * so ans_br_read's internal fill-check is redundant; inline the
+         * read (mask/shift/decrement) and skip it. Byte-identical.
+         * SECURITY: validate each updated state < ANS_L before it is used
+         * to index dec[] in the next iteration (and the tail). The
+         * single-state path has always done this; the 4-way path did not,
+         * which let a corrupt ANS4 stream drive s[i] out of range and read
+         * past dec[] (OOB read found under UBSan on corrupt input). On a
+         * VALID stream states are always in range, so this never triggers
+         * and decode output is unchanged. */
         if (r[0].n < ANS_LOG) ans_br_fill(&r[0]);
-        s[0] = (uint32_t)e0.baseline + ans_br_read(&r[0], e0.nbits);
+        { int nb=e0.nbits; uint32_t b=(uint32_t)(r[0].a & (((uint64_t)1<<nb)-1)); r[0].a>>=nb; r[0].n-=nb; s[0]=(uint32_t)e0.baseline+b; }
 
         if (r[1].n < ANS_LOG) ans_br_fill(&r[1]);
-        s[1] = (uint32_t)e1.baseline + ans_br_read(&r[1], e1.nbits);
+        { int nb=e1.nbits; uint32_t b=(uint32_t)(r[1].a & (((uint64_t)1<<nb)-1)); r[1].a>>=nb; r[1].n-=nb; s[1]=(uint32_t)e1.baseline+b; }
 
         if (r[2].n < ANS_LOG) ans_br_fill(&r[2]);
-        s[2] = (uint32_t)e2.baseline + ans_br_read(&r[2], e2.nbits);
+        { int nb=e2.nbits; uint32_t b=(uint32_t)(r[2].a & (((uint64_t)1<<nb)-1)); r[2].a>>=nb; r[2].n-=nb; s[2]=(uint32_t)e2.baseline+b; }
 
         if (r[3].n < ANS_LOG) ans_br_fill(&r[3]);
-        s[3] = (uint32_t)e3.baseline + ans_br_read(&r[3], e3.nbits);
+        { int nb=e3.nbits; uint32_t b=(uint32_t)(r[3].a & (((uint64_t)1<<nb)-1)); r[3].a>>=nb; r[3].n-=nb; s[3]=(uint32_t)e3.baseline+b; }
+
+        if (VV_UNLIKELY((s[0] | s[1] | s[2] | s[3]) >= (uint32_t)ANS_L)) {
+            free(dec); return VVA_ERR_CORRUPT;
+        }
     }
 
     /* Scalar tail for remaining 0-3 symbols */
     for (size_t i = full_quads * 4; i < num_literals; i++) {
         int lane = (int)(i & 3);
+        if (VV_UNLIKELY(s[lane] >= (uint32_t)ANS_L)) { free(dec); return VVA_ERR_CORRUPT; }
         if (r[lane].n < ANS_LOG) ans_br_fill(&r[lane]);
         vva_dec_entry_t e = dec[s[lane]];
         dst[i] = e.symbol;
@@ -804,7 +838,7 @@ vva_error_t vva_decode4(const uint8_t *src, size_t src_len,
  *   For each non-inherited context c:
  *     [1B context_id] [2B table_size] [table_data]
  *
- * ZUPT-COMPAT: this function is available when VV_ANS_STANDALONE defined.
+ * EMBED-COMPAT: this function is available when VV_ANS_STANDALONE defined.
  * Memory: ~4 MB decode tables (L3-resident), allocated per call.
  * ═══════════════════════════════════════════════════════════════ */
 
@@ -1121,9 +1155,18 @@ vva_error_t vva_decode_ctx(const uint8_t *src, size_t src_len,
                 cdec[x].baseline = 0;
             }
         }
+        /* Corrupt input controls ctx_id and may repeat it. If this slot
+         * already holds a non-global table, free it before overwriting so
+         * a duplicated ctx_id leaks nothing (found via ASan leak-check on
+         * corrupt input). */
+        if (ctx_dec[ctx_id] != global_dec) free(ctx_dec[ctx_id]);
         ctx_dec[ctx_id] = cdec;
     }
-    free(sp);
+    free(sp); sp = NULL;  /* NULL so the ctx_dec_fail path (reachable from
+                           * the checks below) does not free sp twice — a
+                           * double-free found under ASan on corrupt input
+                           * that passes the per-context loop but fails a
+                           * later bounds check. */
 
     /* Read 256 initial states */
     if (p + 512 > end) goto ctx_dec_fail;
@@ -1194,7 +1237,7 @@ ctx_dec_fail:
  * Match length codes: 36 codes mapping to lengths 4-65538
  * Offset codes: 24 codes mapping to offsets 1-16M
  *
- * ZUPT-COMPAT: these functions are standalone when VV_ANS_STANDALONE.
+ * EMBED-COMPAT: these functions are standalone when VV_ANS_STANDALONE.
  *
  * Output format:
  *   [2B lit_count] [2B lit_ans_size] [lit_ans_data]
@@ -2259,8 +2302,22 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
      * + up to 4095 extra bits = 65535; ML encoding likewise). So
      * op_safe_end = op_end - 65535 guarantees any single sequence's
      * total writes (literals + match) fit without per-iter overflow
-     * checking. */
-    enum { SAFEZONE_MAX_OFFSET = 1u << 20 };  /* Maximum wlog supported */
+     * checking.
+     *
+     * SPRINT 46: raised from 1<<20 to 1<<24. The 3-byte offset wire
+     * encoding (off_bytes==3 for wlog>16) represents offsets up to
+     * exactly 2^24, so that is the true maximum legal offset and the
+     * correct absolute-cap DoS guard. The previous 1<<20 cap assumed
+     * extreme mode never exceeded a 1 MB window; the Sprint 46
+     * large-window scaling emits legitimate offsets up to 16 MB on
+     * multi-block files, which the old cap wrongly rejected as corrupt.
+     * Consequence: for outputs smaller than 16 MB the safe-zone floor
+     * is never reached, so the explicit (offset > op - dst_base) check
+     * runs every iteration — correct, just not the fast path. The
+     * fast-path optimization re-engages only past 16 MB of output.
+     * An offset > 2^24 remains genuinely corrupt (unrepresentable in
+     * 3 bytes) and is still rejected, preserving the DoS guard. */
+    enum { SAFEZONE_MAX_OFFSET = 1u << 24 };  /* 3-byte offset wire max */
     enum { SAFEZONE_MAX_RUN    = 65535 };     /* litlen or matchlen */
     uint8_t *op_safe_end = (dst_cap > SAFEZONE_MAX_RUN)
                            ? op_end - SAFEZONE_MAX_RUN : dst;
@@ -2278,7 +2335,7 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
      * decoder.
      *
      * This was a denial-of-service vulnerability for any service that
-     * decompressed untrusted input (Zupt's exact threat model).
+     * decompressed untrusted input (a host application's untrusted-input threat model).
      *
      * Bound: every well-formed iteration must advance at least ONE of
      * the two counters by at least 1 (it's how the wire format is
@@ -2328,18 +2385,39 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
         vva_dec_entry_t eof = dec_of[state_of & (ANS_L - 1)];
         vva_dec_entry_t eml = dec_ml[state_ml & (ANS_L - 1)];
 
+        /* SPRINT 27 (v2.50.1): combine the 3 per-iteration OOB code
+         * validators into 1 branch. Previously each of ll_code, of_code,
+         * ml_code had a separate `if (VV_UNLIKELY(code >= MAX)) return`
+         * — three predicted-not-taken branches per iteration. ORing
+         * the three bool comparisons into a single mask lets the compiler
+         * use one branch and parallel SIMD-style comparisons.
+         *
+         * Found via profile-driven analysis on v2.50.0 (Sprint 27). The
+         * three branches were each individually cheap when not taken,
+         * but they sit on the critical path between the table-read
+         * latency (L1/L2 miss on the random-walk index) and the
+         * subsequent bit-read, where they delay state-update of the
+         * NEXT iteration. Folding to one branch removes 2 branch slots
+         * and lets the comparator ALU run in parallel with the load
+         * latency for ell/eof/eml.
+         *
+         * Note: VVA_LL_CODES == VVA_ML_CODES == 36, VVA_OF_CODES == 27.
+         * Use the strictest bound (27) as a quick-fail mask; codes 27-35
+         * are still legal for LL/ML and fall through to the per-code
+         * tail check below. This catches the most common adversarial
+         * encoding (high-symbol garbage) at zero cost on the common path. */
+        if (VV_UNLIKELY(((unsigned)ell.symbol >= VVA_LL_CODES) |
+                        ((unsigned)eof.symbol >= VVA_OF_CODES) |
+                        ((unsigned)eml.symbol >= VVA_ML_CODES))) {
+            free(dec_ml); free(dec_of); free(dec_ll); free(lit_buf);
+            return VVA_ERR_CORRUPT;
+        }
+
         /* ── Decode LL: state, extra, final litlen ── */
         uint32_t ll_bits = ans_br_read(&r, ell.nbits);
         state_ll = (uint32_t)ell.baseline + ll_bits;
         uint8_t ll_code = ell.symbol;
-        /* Sprint 109 fix: corrupt frames could encode an LL ANS table
-         * mapping a state to a symbol >= VVA_LL_CODES, causing an OOB
-         * read of ll_extra[]/ll_base[]. Validate the code is in range.
-         * Found by libFuzzer + ASan. */
-        if (VV_UNLIKELY(ll_code >= VVA_LL_CODES)) {
-            free(dec_ml); free(dec_of); free(dec_ll); free(lit_buf);
-            return VVA_ERR_CORRUPT;
-        }
+        /* SPRINT 27: ll_code OOB check folded into the combined branch above. */
         uint32_t ll_extra_val = ans_br_read(&r, ll_extra[ll_code]);
         size_t litlen = ll_decode(ll_code, ll_extra_val);
 
@@ -2392,12 +2470,8 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
         uint32_t of_bits = ans_br_read(&r, eof.nbits);
         state_of = (uint32_t)eof.baseline + of_bits;
         uint8_t of_code = eof.symbol;
-        /* Sprint 109 fix: bound of_code to VVA_OF_CODES range. Same
-         * pattern as ll_code/ml_code OOB protection. */
-        if (VV_UNLIKELY(of_code >= VVA_OF_CODES)) {
-            free(dec_ml); free(dec_of); free(dec_ll); free(lit_buf);
-            return VVA_ERR_CORRUPT;
-        }
+        /* SPRINT 27: of_code OOB check folded into the combined branch at
+         * the top of the loop (after dec_of[] read). */
         uint32_t offset;
         if (of_code < 3) {
             offset = dec_rep[of_code];
@@ -2413,11 +2487,8 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
         uint32_t ml_bits = ans_br_read(&r, eml.nbits);
         state_ml = (uint32_t)eml.baseline + ml_bits;
         uint8_t ml_code = eml.symbol;
-        /* Sprint 109 fix: bound ml_code to VVA_ML_CODES range. */
-        if (VV_UNLIKELY(ml_code >= VVA_ML_CODES)) {
-            free(dec_ml); free(dec_of); free(dec_ll); free(lit_buf);
-            return VVA_ERR_CORRUPT;
-        }
+        /* SPRINT 27: ml_code OOB check folded into the combined branch at
+         * the top of the loop (after dec_ml[] read). */
         uint32_t ml_extra_val = ans_br_read(&r, ml_extra[ml_code]);
         uint32_t matchlen = ml_base_tab[ml_code] + ml_extra_val;
 

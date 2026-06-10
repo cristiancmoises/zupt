@@ -431,7 +431,7 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
     /* Path (varint length + bytes) */
     size_t path_len = strlen(source_path);
     if (path_len > ZUPT_MAX_PATH - 1) path_len = ZUPT_MAX_PATH - 1;
-    idx_pos += zupt_encode_varint(idx_buf + idx_pos, path_len);
+    idx_pos += (size_t)zupt_encode_varint(idx_buf + idx_pos, path_len);
     memcpy(idx_buf + idx_pos, source_path, path_len);
     idx_pos += path_len;
 
@@ -479,6 +479,22 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
     ft.footer_magic[2] = 'N'; ft.footer_magic[3] = 'D';
     ft.footer_version = 1;
     fwrite(&ft, sizeof(ft), 1, out);
+
+    /* F-08 of v2.3.0: archive-integrity-trailer.
+     *
+     * Disk-image archives always pass through opts->keyring just like file
+     * archives — the disk path uses the same write_enc_header/keyring setup
+     * earlier in this function. opts->encrypt distinguishes encrypted vs
+     * plaintext disk images. */
+    {
+        extern int zupt_format_ait_write(FILE *f, const zupt_archive_header_t *hdr,
+                                         const zupt_footer_t *ft,
+                                         const zupt_keyring_t *kr_or_null);
+        const zupt_keyring_t *kr = opts->encrypt ? &opts->keyring : NULL;
+        if (zupt_format_ait_write(out, &hdr, &ft, kr) != 0) {
+            fprintf(stderr, "Error: failed to write archive-integrity-trailer\n");
+        }
+    }
 
     /* Get final archive size before closing */
     uint64_t out_bytes = (uint64_t)ftello(out);
@@ -600,17 +616,67 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
     /* ─── Read footer to get total block count ─── */
     int64_t after_enc_pos = ftello(f);  /* Save position after enc header */
 
-    fseeko(f, -(int64_t)sizeof(zupt_footer_t), SEEK_END);
+    /* F-08 of v2.3.0: footer may be at EOF-32 (v1.4) or EOF-64 (v1.5, with
+     * a 32-byte AIT trailing). Try v1.5 first; fall back to v1.4. */
     zupt_footer_t ft;
-    if (fread(&ft, sizeof(ft), 1, f) != 1) {
-        fclose(f);
-        return ZUPT_ERR_CORRUPT;
+    uint8_t ait_buf[ZUPT_AIT_SIZE];
+    int has_ait = 0;
+
+    fseeko(f, 0, SEEK_END);
+    int64_t restore_file_size = ftello(f);
+    if (restore_file_size >= (int64_t)(sizeof(ft) + ZUPT_AIT_SIZE)) {
+        fseeko(f, -(int64_t)(sizeof(ft) + ZUPT_AIT_SIZE), SEEK_END);
+        zupt_footer_t cand;
+        if (fread(&cand, sizeof(cand), 1, f) == 1 &&
+            cand.footer_magic[0] == 'Z' && cand.footer_magic[1] == 'E' &&
+            cand.footer_magic[2] == 'N' && cand.footer_magic[3] == 'D' &&
+            fread(ait_buf, sizeof(ait_buf), 1, f) == 1) {
+            ft = cand;
+            has_ait = 1;
+        }
     }
-    if (ft.footer_magic[0] != 'Z' || ft.footer_magic[1] != 'E' ||
-        ft.footer_magic[2] != 'N' || ft.footer_magic[3] != 'D') {
-        fclose(f);
-        fprintf(stderr, "Error: Invalid footer magic\n");
-        return ZUPT_ERR_BAD_MAGIC;
+    if (!has_ait) {
+        fseeko(f, -(int64_t)sizeof(zupt_footer_t), SEEK_END);
+        if (fread(&ft, sizeof(ft), 1, f) != 1) {
+            fclose(f);
+            return ZUPT_ERR_CORRUPT;
+        }
+        if (ft.footer_magic[0] != 'Z' || ft.footer_magic[1] != 'E' ||
+            ft.footer_magic[2] != 'N' || ft.footer_magic[3] != 'D') {
+            fclose(f);
+            fprintf(stderr, "Error: Invalid footer magic\n");
+            return ZUPT_ERR_BAD_MAGIC;
+        }
+    }
+
+    /* F-08: verify the archive-integrity-trailer if present. For v1.4 disk
+     * archives we emit the same downgrade warning as zupt extract does. */
+    if (has_ait) {
+        extern zupt_error_t zupt_format_ait_verify_extern(
+            const zupt_archive_header_t *hdr, const zupt_footer_t *ft,
+            const uint8_t ait[ZUPT_AIT_SIZE], const zupt_keyring_t *kr_or_null);
+        int is_encrypted = (hdr.global_flags & ZUPT_FLAG_ENCRYPTED) != 0;
+        const zupt_keyring_t *kr = is_encrypted ? &opts->keyring : NULL;
+        zupt_error_t aerr = zupt_format_ait_verify_extern(&hdr, &ft, ait_buf, kr);
+        if (aerr != ZUPT_OK) {
+            fclose(f);
+            /* F-11 of v2.4.2: same collapse-wrong-key-with-tamper logic as
+             * open_archive in src/zupt_format.c. */
+            if (is_encrypted) {
+                if (opts->verbose) {
+                    fprintf(stderr, "Error: archive-integrity-trailer (top-MAC) verification failed.\n"
+                                    "       This means EITHER wrong password/key OR a tampered\n"
+                                    "       header or footer.\n");
+                }
+                fprintf(stderr, "Error: Authentication failed (wrong key, wrong password, or tampered archive).\n");
+            } else {
+                fprintf(stderr, "Error: archive-integrity-trailer (XXH64) verification failed.\n"
+                                "       The disk image header or footer has been corrupted or tampered with.\n");
+            }
+            return aerr;
+        }
+    } else if (hdr.global_flags & ZUPT_FLAG_ENCRYPTED) {
+        fprintf(stderr, "Warning: legacy v1.4 disk image without top-MAC (F-08).\n");
     }
 
     /* ─── Seek back to first data block ─── */

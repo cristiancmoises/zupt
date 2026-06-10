@@ -1,0 +1,51 @@
+# Build outputs
+/vaptvupt
+/zupt
+*.o
+*.a
+*.so
+*.so.*
+*.dylib
+# ...but keep vendored prebuilt libraries (shipped, no in-tree source)
+!vendor/**/*.so
+!vendor/**/*.so.*
+*.exe
+*.obj
+*.lib
+
+# Coverage / profiling
+*.gcda
+*.gcno
+*.gcov
+*.profraw
+
+# CMake / out-of-tree build dirs
+/build/
+/cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+
+# Distribution tarballs and packages (published as release assets, not committed)
+/*.tar.gz
+/*.tar.xz
+/*.zip
+/*.deb
+/*.rpm
+/*.AppImage
+*.AppDir/
+SHA256SUMS.txt
+
+# Test/scratch binaries
+/test_*
+!/tests/test_*.c
+!/tests/test_*.sh
+
+# Editor / OS noise
+*.swp
+*~
+.DS_Store
+.idea/
+.vscode/
+
+# AI assistant scratch
+.claude/

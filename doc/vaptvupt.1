@@ -1,0 +1,616 @@
+.\" Manpage for vaptvupt (formerly zupt; INPI Brasil trademark rename in v3.0.0)
+.\" SPDX-License-Identifier: AGPL-3.0-or-later
+.\" Copyright (c) 2025-2026 Cristian Cezar Moisés
+.TH VAPTVUPT 1 "May 2026" "vaptvupt 4.0.0" "User Commands"
+
+.SH NAME
+vaptvupt \- post-quantum backup compression utility (formerly zupt)
+
+.SH SYNOPSIS
+.B vaptvupt compress
+.RI [ options ]
+.I out.zupt
+.I files...
+.br
+.B vaptvupt extract
+.RI [ options ]
+.I archive.zupt
+.br
+.B vaptvupt list
+.RI [ options ]
+.I archive.zupt
+.br
+.B vaptvupt test
+.RI [ options ]
+.I archive.zupt
+.br
+.B vaptvupt info
+.I archive.zupt
+.br
+.B vaptvupt bench
+.I files/dirs...
+.br
+.B vaptvupt disk backup
+.RI [ options ]
+.I out.zupt
+.I device
+.br
+.B vaptvupt disk restore
+.RI [ options ]
+.I archive.zupt
+.I device
+.br
+.B vaptvupt keygen
+.RI [ options ]
+.br
+.B vaptvupt version
+.br
+.B vaptvupt help
+
+.PP
+The legacy command name
+.B zupt
+is preserved as an alias for backward compatibility; both invocations
+behave identically.
+
+.SH DESCRIPTION
+.B vaptvupt
+compresses and encrypts files, directories, and whole block devices
+into self-contained, authenticated archives with the
+.B .zupt
+extension. It targets long-lived backup storage where:
+
+.RS
+.IP \(bu 2
+the archive is written once and restored under time pressure many years later;
+.IP \(bu 2
+the encryption envelope must remain secure against a future cryptographically-relevant quantum computer (ML-KEM-768);
+.IP \(bu 2
+every byte of the archive — header, footer, per-block metadata, comments — is authenticated, and a single bit-flip is rejected at restore time.
+.RE
+
+.PP
+The compression layer is the
+.B VaptVupt LZ + ANS
+codec (version 2.53.3), which prioritises decode speed and ratio over
+encode speed. Aggregate decode throughput on this build is 1.27\(mu
+zstd\-3; encode throughput is 0.2\(mu\(en0.5\(mu zstd\-3 depending on
+content. See
+.B PERFORMANCE
+below.
+
+.PP
+The on-disk format is v1.6 and has been wire-compatible since release
+v2.3.1. The product was renamed from
+.B Zupt
+to
+.B VaptVupt
+in v3.0.0 because of a prior INPI Brasil trademark registration of the
+name "Zupt" for unrelated software. The
+.B .zupt
+file extension and the
+.B ZUPT
+header magic bytes are unchanged: archives produced by any v2.x release
+extract cleanly under v3.0.0 and vice versa.
+
+.SH COMMANDS
+
+.TP
+.B compress
+Create an archive. Default codec is VaptVupt (level 7). Compression
+is multi-threaded; one worker per detected CPU by default.
+
+.TP
+.B extract
+Decompress an archive into the current directory (or
+.BR -o " " \fIdir\fR ).
+Refuses to write outside the destination directory (path-traversal
+defence). Files are written with their original permissions and
+mtime preserved.
+
+.TP
+.B list
+Print archive metadata: per-file path, size, mtime, mode, compressed
+size, codec. With
+.B --verbose
+also prints per-block sizes and HMAC tags (first 8 bytes).
+
+.TP
+.B test
+Decompress all blocks in memory and verify HMAC tags + archive
+integrity trailer. Does not write any files. Use to validate an
+archive without restoring it. Exit code is non-zero on any failure.
+
+.TP
+.B info
+Print archive header metadata without requiring the decryption key.
+Reports: format version, codec, encryption type (none / PBKDF2 /
+Argon2id / ML-KEM-768+X25519), KDF iteration count, file count,
+creation timestamp, archive UUID, AIT presence. Safe to run on an
+untrusted archive.
+
+.TP
+.B bench
+Compare compression levels 1\(en9 on the supplied files; reports
+ratio and encode/decode throughput per level. Useful when picking
+the right
+.B -l
+for a given workload.
+
+.TP
+.B disk backup
+Read a block device and write a sparse-aware archive. Detects
+all-zero regions and records them as runs rather than compressing
+them.
+
+.TP
+.B disk restore
+Inverse of
+.BR "disk backup" .
+Writes the archive's contents back to a block device. Verifies
+target device size before writing; refuses if the target is smaller
+than the archived size. With
+.B --sync
+issues
+.BR fsync (2)
+after each block.
+
+.TP
+.B keygen
+Generate a key file for keyfile-mode encryption. With
+.B --sdk
+generates an ML-KEM-768 + X25519 hybrid keypair suitable for
+.B --pq-sdk
+mode. With
+.B --box
+generates a libpqvaptvupt sealed-box keypair (writes \fIfile\fR and
+\fIfile\fR.pub) for
+.B --pq-box
+mode. With
+.B --pub
+extracts the public key from an existing private key.
+
+.SH GLOBAL OPTIONS
+
+.TP
+.BR -v ", " --verbose
+Print per-file and per-block details during compress/extract/list/test.
+
+.TP
+.BR -q ", " --quiet
+Suppress non-error output.
+
+.TP
+.BR -j " " \fIN\fR ", " --jobs " " \fIN\fR
+Worker thread count for parallel compression. Default: number of
+online CPUs.
+
+.SH COMPRESS OPTIONS
+
+.TP
+.BR -l " " \fI1..9\fR ", " --level " " \fI1..9\fR
+Compression level. 1\(en2 = ultra-fast (~80 MB/s encode on typical
+hardware, lower ratio). 3\(en7 = balanced (default 7). 8\(en9 =
+extreme (optimal parsing, ~5\(en10\(mu slower encode, best ratio).
+
+.TP
+.B --codec \fIid\fR
+Force a specific codec by id. Accepted values:
+.BR store " (0x0000), "
+.BR zupt-lz " (0x0008), "
+.BR zupt-lzh " (0x0009), "
+.BR zupt-lzhp " (0x000A), "
+.BR vaptvupt " (0x0010 — default), "
+.BR auto " (0xFFFF — pick at runtime)."
+
+.TP
+.BR -p " " \fIpassword\fR
+Enable password-based encryption (Argon2id KDF by default since v2.4.1).
+Reading the password from a flag exposes it in
+.BR ps (1)
+output; prefer
+.B --pass-file
+or interactive prompt.
+
+.TP
+.B --pass-file \fIpath\fR
+Read password from the first line of the file. The file's permission
+bits should be 0600.
+
+.TP
+.B --pass-fd \fIN\fR
+Read password from file descriptor N.
+
+.TP
+.B --kdf \fIalgo\fR
+Choose key-derivation function for password mode:
+.BR argon2id " (default since v2.4.1; memory-hard) or "
+.BR pbkdf2 " (SHA-256, 600 000 iter; needed for compatibility with v2.4.0 and earlier readers)."
+
+.TP
+.B --keyfile \fIpath\fR
+Use a 32-byte raw key file (generated with
+.BR "vaptvupt keygen" ).
+
+.TP
+.B --pq-box \fIpub\fR
+Enable post-quantum sealed-box encryption via the vendored libpqvaptvupt
+(v4.0.0+, envelope type 0x05). ML-KEM-768 + X25519 shared secrets are
+combined through HKDF-SHA256 with a domain-separating info string
+("pqvv-seal-v1"); the box carries AES-256-CTR + HMAC-SHA256
+Encrypt-then-MAC. The
+.I pub
+argument is the recipient's public-key file from
+.B keygen --box
+(magic-tagged; public and secret key files are not interchangeable).
+On extraction, pass the secret key:
+.B --pq-box
+\fIpriv\fR.
+.TP
+.B --pq-sdk \fIpub\fR
+Enable post-quantum hybrid encryption. Uses ML-KEM-768 + X25519 with
+HKDF combiner, HPKE binding, and key commitment. The
+.I pub
+argument is the recipient's public-key file generated by
+.BR "vaptvupt keygen --sdk" .
+
+.TP
+.B -c \fItext\fR ", " --comment " " \fItext\fR
+Embed an encrypted UTF-8 comment in the archive (up to 4096 bytes).
+The comment is bound to the archive's frame-preface AAD; tampering
+is detected at extract time.
+
+.TP
+.B --comment-file \fIpath\fR
+Read the comment from a file rather than the command line.
+
+.TP
+.B -b \fIsize\fR ", " --block-size " " \fIsize\fR
+Compression block size. Default 4 MiB. Smaller blocks improve
+random-access decode but lose some ratio.
+
+.SH EXTRACT, LIST, TEST OPTIONS
+
+.TP
+.BR -o " " \fIdir\fR ", " --output " " \fIdir\fR
+Extract into
+.IR dir
+(created if it doesn't exist). Default: current directory.
+
+.TP
+.B --no-mtime
+Do not restore archived modification times; use current time instead.
+
+.TP
+.B --strip-components \fIN\fR
+Strip
+.I N
+leading path components from each entry, like
+.BR tar 's
+flag of the same name.
+
+.SH POST-QUANTUM ENCRYPTION
+
+.B vaptvupt
+implements a hybrid KEM as specified in FIPS 203 (ML-KEM) combined
+with X25519 (RFC 7748). The session key is derived as:
+
+.RS
+.nf
+ss_pq    = ML-KEM-768.decaps(sk_pq, ct_pq)
+ss_ec    = X25519(sk_ec, pk_ec_peer)
+session  = HKDF-SHA256(ss_pq || ss_ec,
+                       info  = "vaptvupt-pq-sdk-v1",
+                       salt  = archive_uuid)
+.fi
+.RE
+
+The hybrid combiner means the session key is at least as strong as
+the strongest of {ML-KEM-768, X25519}: an attacker must break both
+to recover the key.
+
+.PP
+.B Key commitment:
+the ciphertext is bound to the exact public key it was encrypted to
+via an HPKE-style derivation. An attacker cannot present a different
+public key that decrypts to the same plaintext (this defeats the
+"partitioning" attack class).
+
+.PP
+.B Implementation notes:
+the ML-KEM-768 implementation is vendored from a clean reference and
+verified against the FIPS 203 KAT vectors. The X25519 implementation
+uses 4\(mu64-bit field arithmetic with Jasmin-verified constant-time
+field operations on x86_64. On other architectures the same routines
+run in pure C, also constant-time by construction.
+
+.SH SECURITY
+
+.SS Threat model
+
+What
+.B vaptvupt
+.B protects against:
+
+.RS
+.IP \(bu 2
+Confidentiality of archived data at rest (AES-256-CTR with HMAC-SHA256 EtM, or AEAD via libzuptsdk on the
+.B --pq-sdk
+path).
+.IP \(bu 2
+End-to-end byte-level tamper detection on encrypted archives. The F-09 byte-sweep regression (1827 positions on a representative archive, 2000 trials, every run) shows zero silent-accept positions.
+.IP \(bu 2
+Wrong-password and tampered-archive indistinguishability at the user-visible message layer (F-11). The default error wording is identical for both cases; only
+.B --verbose
+prints the distinguishing detail. This closes the "verbal probe-oracle" attack class where the error string leaked which check failed first.
+.IP \(bu 2
+Post-quantum forward secrecy on archives encrypted with
+.B --pq-sdk
+(assuming ML-KEM-768 holds against future quantum attack).
+.IP \(bu 2
+Archive-header and footer authentication via a 32-byte HMAC-SHA256 trailer (F-08). Tampering with the file count, comment offset, or timestamp is detected at archive open time.
+.IP \(bu 2
+Path-traversal at extract time. Entries with absolute paths or
+.B ..
+components are refused or stripped.
+.RE
+
+What it does
+.B NOT
+protect against:
+
+.RS
+.IP \(bu 2
+Compromise of the endpoint that creates or restores the archive. If the host is compromised, the password, key file, or plaintext is accessible.
+.IP \(bu 2
+Compromise of the key file or password. Key custody is the user's responsibility.
+.IP \(bu 2
+A weak password. Argon2id with default parameters needs ~256 MiB and ~1 s to derive a key on commodity hardware; a 4-character password is still trivially crackable.
+.IP \(bu 2
+Metadata leakage. File names, sizes, and modification times are encrypted, but the archive's total size and the count of compressed blocks are visible to an observer.
+.IP \(bu 2
+Side channels on the compression layer (CRIME/BREACH-style). If the same archive contains both attacker-controlled and secret data and the attacker can observe the compressed size, length-based oracles may be possible.
+.IP \(bu 2
+Denial-of-service via malformed input on the decoder. The decoder rejects malformed input cleanly (no crashes in the fuzz harness), but a very large compressed input can still consume CPU and memory proportional to its size.
+.RE
+
+.SS Cryptographic primitives
+
+.TS
+tab(|);
+l l.
+SHA-256         | FIPS 180-4
+SHA-3 / SHAKE   | FIPS 202
+ML-KEM-768      | FIPS 203
+AES-256-CTR     | NIST SP 800-38A
+HMAC-SHA256     | RFC 2104 / FIPS 198-1
+X25519          | RFC 7748
+HKDF-SHA256     | RFC 5869
+PBKDF2-SHA256   | RFC 8018
+Argon2id        | RFC 9106
+XXH64           | non-cryptographic; used only inside the AEAD envelope
+.TE
+
+.SS Constant-time guarantees
+
+All secret-dependent comparisons and table lookups in the cryptographic
+core are constant-time. On x86_64 the hot paths (HMAC equality compare,
+ML-KEM Fujisaki-Okamoto implicit rejection) are implemented in Jasmin
+and assembled with
+.BR jasminc (1).
+On other architectures the same routines run in portable C; the
+constant-time property is preserved by source-level construction.
+
+.SH FILES
+
+.TP
+.I ~/.config/vaptvupt/
+Per-user configuration directory (reserved; not used in v3.0.0).
+
+.TP
+.I /etc/vaptvupt/
+System-wide configuration directory (reserved; not used in v3.0.0).
+
+.TP
+.I /usr/share/bash-completion/completions/vaptvupt
+Bash completion (and the symlinked legacy
+.IR /usr/share/bash-completion/completions/zupt ).
+
+.TP
+.I /usr/share/zsh/site-functions/_vaptvupt
+zsh completion.
+
+.TP
+.I /usr/share/fish/vendor_completions.d/vaptvupt.fish
+fish completion.
+
+.SH ENVIRONMENT
+
+.TP
+.B VAPTVUPT_BIN
+Override the binary path used by the GUI front-end. Legacy
+.B ZUPT_BIN
+is also honoured.
+
+.TP
+.B VAPTVUPT_DEBUG
+If set to any non-empty value, the GUI front-end prints its binary-discovery log to stderr.
+
+.SH EXIT STATUS
+
+.TP
+.B 0
+Success.
+
+.TP
+.B 1
+General error (bad arguments, file not found, etc.).
+
+.TP
+.B 2
+Authentication failed. Wrong password, wrong key file, or the archive has been tampered with. Use
+.B --verbose
+to see the distinguishing detail (subject to F-11's threat model: detailed messages may leak which failure cause fired first).
+
+.TP
+.B 3
+Archive-format error (wrong magic bytes, unsupported format version, corrupted header).
+
+.TP
+.B 4
+I/O error (disk full, permission denied, network failure).
+
+.TP
+.B 5
+Compressed-data integrity error (per-block HMAC mismatch detected mid-stream).
+
+.SH PERFORMANCE
+
+Numbers below are from the v3.0.0 release benchmark (May 2026), run
+on an Intel Xeon @ 2.8 GHz with the codec compiled with the
+distribution's default optimisation level.
+
+.TS
+tab(|);
+l l l l l.
+\fBFixture\fR     | \fBTool\fR    | \fBRatio\fR   | \fBEnc MB/s\fR | \fBDec MB/s\fR
+text 8 MB       | vv-9         | 34.6%         | 5.4         | 219
+text 8 MB       | gzip-9       | 30.9%         | 6.2         | 137
+text 8 MB       | zstd-3       | 31.6%         | 137         | 427
+text 8 MB       | zstd-19      | 25.5%         | 1.6         | 384
+source 670 KB   | vv-9         | 25.1%         | 11.4        | 128
+source 670 KB   | gzip-9       | 23.2%         | 10.0        | 107
+source 670 KB   | zstd-3       | 24.1%         | 91          | 160
+binary 2.4 MB   | vv-9         | 44.7%         | 7.7         | 153
+binary 2.4 MB   | gzip-9       | 52.0%         | 12.6        | 109
+binary 2.4 MB   | zstd-3       | 77.3%         | 164         | 382
+binary 2.4 MB   | zstd-19      | 48.0%         | 5.8         | 229
+random 5 MB     | vv-9         | 100.0%        | 11.1        | 477
+random 5 MB     | zstd-3       | 100.0%        | 397         | 681
+.TE
+
+.PP
+Honest reading of these numbers:
+
+.RS
+.IP \(bu 2
+On binary-structured data (game saves, mmap'd structures, struct arrays),
+.B vaptvupt
+beats zstd-3 by a wide margin on ratio (44.7% vs 77.3%) at the cost of being ~20\(mu slower to encode. For write-once / restore-often workloads this is the right trade.
+.IP \(bu 2
+On text and source, zstd-19 beats
+.B vaptvupt
+on ratio. The fundamental codec difference is that zstd's reference encoder has had years of compiler-engineering attention that
+.B vaptvupt
+has not.
+.IP \(bu 2
+Encode throughput is
+.BR vaptvupt 's
+weak axis. If encode latency matters more than ratio, use
+.B -l 1
+or
+.BR -l 2 .
+.IP \(bu 2
+On random / already-compressed data, all codecs hit the incompressibility wall; comparing encode/decode throughput in that regime is mostly measuring memcpy speed plus framing overhead.
+.RE
+
+.SH EXAMPLES
+
+.PP
+Compress with default settings (Argon2id password, VaptVupt level 7, multi-threaded):
+
+.RS
+.nf
+$ vaptvupt compress -p secret backup.zupt ~/Documents
+.fi
+.RE
+
+Compress with post-quantum hybrid encryption to a published public key:
+
+.RS
+.nf
+$ vaptvupt keygen --sdk -o ~/.config/vaptvupt-mykey
+$ vaptvupt keygen --sdk --pub -o mykey.pub -k ~/.config/vaptvupt-mykey
+$ vaptvupt compress --pq-sdk mykey.pub backup.zupt ~/Documents
+.fi
+.RE
+
+Backup a block device, sparse-aware:
+
+.RS
+.nf
+$ sudo vaptvupt disk backup -p secret system.zupt /dev/nvme0n1p2
+.fi
+.RE
+
+Verify an archive without restoring:
+
+.RS
+.nf
+$ vaptvupt test -p secret backup.zupt
+.fi
+.RE
+
+Print archive metadata without supplying a password:
+
+.RS
+.nf
+$ vaptvupt info backup.zupt
+.fi
+.RE
+
+Compare compression levels:
+
+.RS
+.nf
+$ vaptvupt bench ~/Downloads/big-dataset.bin
+.fi
+.RE
+
+Run the GUI from a desktop session where /usr/bin isn't on PATH (the bug fixed in v3.0.0):
+
+.RS
+.nf
+$ VAPTVUPT_DEBUG=1 vaptvupt-gui 2> /tmp/discovery.log
+.fi
+.RE
+
+.SH STANDARDS
+
+ISO C11; POSIX.1-2017 for I/O and threading. The cryptographic
+primitives implement the specifications listed in
+.BR SECURITY
+above. The on-disk archive format is documented in
+.B FORMAT.md
+in the source distribution.
+
+.SH AUTHORS
+Cristian Cezar Moisés <zupt@riseup.net> — primary author and maintainer.
+
+.SH BUGS
+Report bugs at https://git.securityops.co/cristiancmoises/zupt/issues
+or by email to <zupt@riseup.net>.
+
+.SH LICENSE
+AGPL-3.0-or-later for the application; GPL-3.0-or-later for the
+embedded VaptVupt codec. Dual-licensed: a commercial licence is
+available from <sac@securityops.co>.
+
+.SH SEE ALSO
+.BR vaptvupt-gui (1),
+.BR zstd (1),
+.BR gzip (1),
+.BR xz (1),
+.BR tar (1),
+.BR cryptsetup (8),
+.BR jasminc (1).
+.PP
+Project home: https://git.securityops.co/cristiancmoises/zupt
+.br
+Threat model: see
+.B THREAT_MODEL.md
+in the source distribution.
+.br
+Archive format spec: see
+.B FORMAT.md
+in the source distribution.

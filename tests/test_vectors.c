@@ -5,6 +5,7 @@
  * Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-or-later
  *
  * Tests: SHA-256 (FIPS 180-4), HMAC-SHA256 (RFC 4231),
+ *        AES-256-CTR (NIST SP 800-38A F.5.5/F.5.6),
  *        X25519 (RFC 7748 §6.1), ML-KEM-768 roundtrip,
  *        SHA3-256 (FIPS 202), SHAKE-128 (FIPS 202).
  *
@@ -113,6 +114,43 @@ int main(void) {
         check("SHAKE-128('', 16B)", out, exp, 16);
     }
 
+    /* ═══ AES-256-CTR (NIST SP 800-38A §F.5.5/F.5.6) ═══
+     *
+     * The bulk cipher. Validates zupt_aes256_ctr against the standard on
+     * whichever path the build selects: the Jasmin AES-NI assembly
+     * (zupt_aes256_ctr4 + zupt_aes256_blk) on x86_64 with -DZUPT_USE_JASMIN,
+     * or the C T-table fallback otherwise. CTR is symmetric, so the same
+     * vector checks both encrypt and decrypt.
+     *
+     * Note on the counter: SP 800-38A increments the full 128-bit block,
+     * while zupt increments the low 64 bits (top 64 fixed). The two agree
+     * for the standard's 4-block example because the IV's low byte is 0xff
+     * and the carries stay within the low 8 bytes — so this is an exact
+     * KAT, not an approximation. */
+    printf("\n-- AES-256-CTR (NIST SP 800-38A F.5.5) --\n");
+    {
+        uint8_t key[32], iv[16], pt[64], ct[64], out[64], back[64];
+        hex2bin("603deb1015ca71be2b73aef0857d7781"
+                "1f352c073b6108d72d9810a30914dff4", key, 32);
+        hex2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff", iv, 16);
+        hex2bin("6bc1bee22e409f96e93d7e117393172a", pt + 0,  16);
+        hex2bin("ae2d8a571e03ac9c9eb76fac45af8e51", pt + 16, 16);
+        hex2bin("30c81c46a35ce411e5fbc1191a0a52ef", pt + 32, 16);
+        hex2bin("f69f2445df4f9b17ad2b417be66c3710", pt + 48, 16);
+        hex2bin("601ec313775789a5b7a7f504bbf3d228", ct + 0,  16);
+        hex2bin("f443e3ca4d62b59aca84e990cacaf5c5", ct + 16, 16);
+        hex2bin("2b0930daa23de94ce87017ba2d84988d", ct + 32, 16);
+        hex2bin("dfc9c58db67aada613c2dd08457941a6", ct + 48, 16);
+
+        /* Encrypt: PT -> CT must match the published vector. */
+        zupt_aes256_ctr(key, iv, pt, out, 64);
+        check("AES-256-CTR encrypt (F.5.5, 4 blocks)", out, ct, 64);
+
+        /* Decrypt: CT -> PT (CTR is symmetric). */
+        zupt_aes256_ctr(key, iv, ct, back, 64);
+        check("AES-256-CTR decrypt (F.5.6, 4 blocks)", back, pt, 64);
+    }
+
     /* ═══ X25519 (RFC 7748 §6.1) ═══ */
     printf("\n-- X25519 (RFC 7748 §6.1) --\n");
     {
@@ -166,6 +204,15 @@ int main(void) {
         /* xxh64("", seed=0) = 0xef46db3751d8e999 */
         if (h == UINT64_C(0xef46db3751d8e999)) { printf("  OK:   XXH64('')\n"); pass++; }
         else { printf("  FAIL: XXH64('') = %016llx\n", (unsigned long long)h); fail++; }
+    }
+
+    /* ═══ ML-KEM-768 internal self-test (F-04, Zupt 2.2.4) ═══ */
+    printf("\n-- ML-KEM-768 internal self-test --\n");
+    {
+        /* zupt_mlkem768_selftest() returns 0 on success, -1 on failure. */
+        int rc = zupt_mlkem768_selftest();
+        if (rc == 0) { printf("  OK:   ML-KEM-768 NTT/CBD self-test\n"); pass++; }
+        else         { printf("  FAIL: ML-KEM-768 NTT/CBD self-test\n"); fail++; }
     }
 
     printf("\n================================\n");

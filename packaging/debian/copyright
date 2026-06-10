@@ -1,0 +1,49 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: zupt
+Upstream-Contact: Cristian Cezar Moisés <sac@securityops.co>
+Source: https://git.securityops.co/cristiancmoises/zupt
+
+Files: *
+Copyright: 2025-2026 Cristian Cezar Moisés
+License: AGPL-3.0-or-later
+
+Files: src/vv_*.c include/vaptvupt*.h include/vv_*.h vendor/zuptsdk/include/vv_*.h vendor/zuptsdk/include/vaptvupt*.h
+Copyright: 2025-2026 Cristian Cezar Moisés (VaptVupt codec)
+License: GPL-3.0-or-later
+
+Files: vendor/zuptsdk/*
+Copyright: 2025-2026 Cristian Cezar Moisés (libzuptsdk)
+License: GPL-3.0-or-later
+
+Files: debian/*
+Copyright: 2025-2026 Cristian Cezar Moisés <sac@securityops.co>
+License: AGPL-3.0-or-later
+
+License: AGPL-3.0-or-later
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU Affero General Public License as
+ published by the Free Software Foundation, either version 3 of the
+ License, or (at your option) any later version.
+ .
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU Affero General Public License for more details.
+ .
+ On Debian systems, the full text of the GNU Affero General Public
+ License version 3 can be found in the file
+ `/usr/share/common-licenses/AGPL-3'.
+
+License: GPL-3.0-or-later
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
+ .
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ .
+ On Debian systems, the full text of the GNU General Public License
+ version 3 can be found in the file `/usr/share/common-licenses/GPL-3'.

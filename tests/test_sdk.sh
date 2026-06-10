@@ -48,11 +48,14 @@ cd ..
 "$ZUPT_BIN" x --pq-sdk other.priv small.zupt > /dev/null 2>&1
 chk_neg "SDK wrong key rejected"
 
-# Tamper detected
+# Tamper detected.
+# F-02 (Zupt 2.2.4): use a deterministic body-region offset, not
+# len-50 which occasionally landed in the unauthenticated index
+# region. See docs/FINDINGS-2.x.md F-02 for the full analysis.
 cp small.zupt tampered.zupt
 python3 -c "
 b = bytearray(open('tampered.zupt','rb').read())
-b[len(b)-50] ^= 1
+b[200] ^= 1
 open('tampered.zupt','wb').write(bytes(b))
 "
 "$ZUPT_BIN" x --pq-sdk key.priv tampered.zupt > /dev/null 2>&1

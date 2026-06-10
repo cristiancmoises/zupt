@@ -1,9 +1,1092 @@
-# Security Audit — Zupt v2.0.0
+# Security Audit — VaptVupt v4.0.0
 
-**Date:** March 29, 2026
+**Date:** 2026-05-20
 **Author:** Cristian Cezar Moisés
 **Audit type:** Self-audit with formal verification (Jasmin CT proofs, ACSL contracts) and NIST/RFC test vectors
 **Status:** No independent third-party audit performed
+
+History:
+- v2.0.0 — 2026-03-29 — initial audit baseline.
+- v2.2.4 — 2026-05-19 — five findings (F-01..F-05) closed.
+- v2.2.5 — 2026-05-19 — F-06 (high) and F-07 closed.
+- v2.3.0 — 2026-05-20 — F-08 closed via AIT (format v1.4 → v1.5).
+- v2.3.1 — 2026-05-20 — F-09 closed via preface-AAD MAC (format v1.5 → v1.6).
+  Exhaustive byte sweep on PQ-SDK archive: **0/1827 undetected**.
+- v2.4.0 — 2026-05-20 — Methodology release. §3.5 byte-sweep mandate added.
+- v2.4.1 — 2026-05-20 — F-10: KDF default flipped to Argon2id.
+- v2.4.2 — 2026-05-20 — F-11 closed: verbal probe-oracle eliminated.
+- v2.4.3 — 2026-05-20 — F-12: encrypted archive comments. Byte sweep on
+  1878-byte PQ-SDK+comment archive: **0/1878 undetected**.
+- v2.4.4 — 2026-05-20 — Distribution packaging + reproducible `make dist`.
+- v2.4.5 — 2026-05-20 — Packaging completion: RPM, Nix flake, DISTRIBUTION.md.
+- v2.4.6 — 2026-05-20 — CI rewrite + THREAT_MODEL.md.
+- v2.4.7 — 2026-05-20 — Manpage refresh and shell completions (bash, zsh,
+  fish). Also corrected three stale banner strings that claimed PBKDF2 was
+  the default KDF despite the v2.4.1 flip to Argon2id (user-visible text
+  only; no behavioural change). No source changes that affect security
+  posture; audit posture unchanged from v2.4.3.
+- v2.4.8 — 2026-05-24 — Distro-friendly release. New `make check` target
+  (curated 10-suite, 91-assertion subset) for OBS / Debian / RPM `%check`
+  sections. openSUSE OBS files rewritten for cabelo
+  (`home:cabelo:innovators/zupt`): license corrected MIT → AGPL-3.0-or-later,
+  version bumped 1.5.5 → 2.4.8, changelog history preserved. No source
+  changes; audit posture unchanged from v2.3.1.
+
+- v3.0.0 — 2026-05-25 — MAJOR: Zupt → VaptVupt INPI Brasil trademark rename.
+  Codec upgrade to VaptVupt LZ + ANS 2.48.5 (two libFuzzer-found fixes:
+  csz==0 OOB-READ in vv_dstream_decompress_chunk; UBSan-safe pointer
+  arithmetic in vv_copy_match). GUI binary-discovery bug fixed with
+  liveness-checking _find_vaptvupt + discovery log. Enhanced manpage
+  (597 lines). Wire format unchanged at v1.6. Bidirectional v2.x ↔ v3.0.0
+  archive compatibility verified. F-09 byte sweep still 0/1827 silent
+  accepts; F-06 HMAC fuzz still 0/2000. No new findings, no findings
+  reopened. Security posture unchanged.
+  (curated 10-suite, 91-assertion subset) for OBS / Debian / RPM `%check`
+  sections. openSUSE OBS files rewritten for cabelo
+  (`home:cabelo:innovators/zupt`): license corrected MIT → AGPL-3.0-or-later,
+  version bumped 1.5.5 → 2.4.8, changelog history preserved. No source
+  changes; audit posture unchanged from v2.3.1.
+
+- v3.0.1 — 2026-05-26 — GUI license cleanup (removed MIT credit line;
+  gui/LICENSE-GUI rewritten AGPL-3.0-or-later with historical
+  correction note). GUI version-string parsing bug fix (the
+  v3.0.0 `replace("zupt ", "")` parser matched the wrong substring
+  inside the new rename parenthetical, causing garbled window
+  titles; fixed with anchored `_VERSION_RE`). New regression test
+  tests/test_gui_branding.sh (11 assertions) wired into make check
+  and make test. No source crypto changes; audit posture unchanged
+  from v3.0.0 (which itself preserved the v2.3.1 baseline).
+  Codec upgrade to VaptVupt LZ + ANS 2.48.5 (two libFuzzer-found fixes:
+  csz==0 OOB-READ in vv_dstream_decompress_chunk; UBSan-safe pointer
+  arithmetic in vv_copy_match). GUI binary-discovery bug fixed with
+  liveness-checking _find_vaptvupt + discovery log. Enhanced manpage
+  (597 lines). Wire format unchanged at v1.6. Bidirectional v2.x ↔ v3.0.0
+  archive compatibility verified. F-09 byte sweep still 0/1827 silent
+  accepts; F-06 HMAC fuzz still 0/2000. No new findings, no findings
+  reopened. Security posture unchanged.
+  (curated 10-suite, 91-assertion subset) for OBS / Debian / RPM `%check`
+  sections. openSUSE OBS files rewritten for cabelo
+  (`home:cabelo:innovators/zupt`): license corrected MIT → AGPL-3.0-or-later,
+  version bumped 1.5.5 → 2.4.8, changelog history preserved. No source
+  changes; audit posture unchanged from v2.3.1.
+
+- v3.0.2 — 2026-05-26 — F-13 closed: usage() string literal in
+  src/zupt_main.c exceeded C99's 4095-char ISO limit (was 4121).
+  Refactored to 5 fprintf sections; -Woverlength-strings added to
+  default CFLAGS so future regressions fail the build. Help text
+  drift cleanup (stale "zupt" examples → "vaptvupt", stale "LZ77 +
+  Huffman" → "VaptVupt LZ + ANS 2.48.5", license attribution).
+  New regression test tests/test_help_consistency.sh (10 assertions
+  including the F-13 byte-level guard). No source crypto changes;
+  audit posture unchanged from v3.0.1.
+  gui/LICENSE-GUI rewritten AGPL-3.0-or-later with historical
+  correction note). GUI version-string parsing bug fix (the
+  v3.0.0 `replace("zupt ", "")` parser matched the wrong substring
+  inside the new rename parenthetical, causing garbled window
+  titles; fixed with anchored `_VERSION_RE`). New regression test
+  tests/test_gui_branding.sh (11 assertions) wired into make check
+  and make test. No source crypto changes; audit posture unchanged
+  from v3.0.0 (which itself preserved the v2.3.1 baseline).
+  Codec upgrade to VaptVupt LZ + ANS 2.48.5 (two libFuzzer-found fixes:
+  csz==0 OOB-READ in vv_dstream_decompress_chunk; UBSan-safe pointer
+  arithmetic in vv_copy_match). GUI binary-discovery bug fixed with
+  liveness-checking _find_vaptvupt + discovery log. Enhanced manpage
+  (597 lines). Wire format unchanged at v1.6. Bidirectional v2.x ↔ v3.0.0
+  archive compatibility verified. F-09 byte sweep still 0/1827 silent
+  accepts; F-06 HMAC fuzz still 0/2000. No new findings, no findings
+  reopened. Security posture unchanged.
+  (curated 10-suite, 91-assertion subset) for OBS / Debian / RPM `%check`
+  sections. openSUSE OBS files rewritten for cabelo
+  (`home:cabelo:innovators/zupt`): license corrected MIT → AGPL-3.0-or-later,
+  version bumped 1.5.5 → 2.4.8, changelog history preserved. No source
+  changes; audit posture unchanged from v2.3.1.
+
+- v3.0.3 — 2026-05-26 — Static-analysis cleanup. cppcheck
+  knownConditionTrueFalse findings closed in varint decoders
+  (dead `&& (x&0x80)` AND-branch after preceding terminator-byte
+  early-return). -Wconversion / -Wsign-conversion findings closed
+  with explicit casts at two sites. Our 9-file non-vendored C now
+  compiles clean under the union of strict GCC warnings including
+  -Wconversion -Wsign-conversion -Werror. New regression test
+  tests/test_static_analysis.sh (7 assertions) wired into make
+  check and make test. Behaviour byte-identical; F-09 byte sweep
+  still 0/1827 silent accepts. No source crypto changes.
+  src/zupt_main.c exceeded C99's 4095-char ISO limit (was 4121).
+  Refactored to 5 fprintf sections; -Woverlength-strings added to
+  default CFLAGS so future regressions fail the build. Help text
+  drift cleanup (stale "zupt" examples → "vaptvupt", stale "LZ77 +
+  Huffman" → "VaptVupt LZ + ANS 2.48.5", license attribution).
+  New regression test tests/test_help_consistency.sh (10 assertions
+  including the F-13 byte-level guard). No source crypto changes;
+  audit posture unchanged from v3.0.1.
+  gui/LICENSE-GUI rewritten AGPL-3.0-or-later with historical
+  correction note). GUI version-string parsing bug fix (the
+  v3.0.0 `replace("zupt ", "")` parser matched the wrong substring
+  inside the new rename parenthetical, causing garbled window
+  titles; fixed with anchored `_VERSION_RE`). New regression test
+  tests/test_gui_branding.sh (11 assertions) wired into make check
+  and make test. No source crypto changes; audit posture unchanged
+  from v3.0.0 (which itself preserved the v2.3.1 baseline).
+  Codec upgrade to VaptVupt LZ + ANS 2.48.5 (two libFuzzer-found fixes:
+  csz==0 OOB-READ in vv_dstream_decompress_chunk; UBSan-safe pointer
+  arithmetic in vv_copy_match). GUI binary-discovery bug fixed with
+  liveness-checking _find_vaptvupt + discovery log. Enhanced manpage
+  (597 lines). Wire format unchanged at v1.6. Bidirectional v2.x ↔ v3.0.0
+  archive compatibility verified. F-09 byte sweep still 0/1827 silent
+  accepts; F-06 HMAC fuzz still 0/2000. No new findings, no findings
+  reopened. Security posture unchanged.
+  (curated 10-suite, 91-assertion subset) for OBS / Debian / RPM `%check`
+  sections. openSUSE OBS files rewritten for cabelo
+  (`home:cabelo:innovators/zupt`): license corrected MIT → AGPL-3.0-or-later,
+  version bumped 1.5.5 → 2.4.8, changelog history preserved. No source
+  changes; audit posture unchanged from v2.3.1.
+
+- v3.1.0 — 2026-05-31 — VaptVupt codec 2.48.5 -> 2.53.3 (API
+  byte-identical; 3 .c files changed). Inherits 6 upstream
+  corrupt-input decoder memory-safety fixes (v2.52.4 + v2.53.2).
+  F-14 closed: ASAN found a heap-buffer-overflow WRITE of size 32
+  in OUR decode wrapper — decode buffers were malloc(uncompressed
+  _size) with no slack, but the codec AVX2 over-copy needs >=32 B
+  slack (documented contract in vaptvupt.h). Old codec never
+  reached it; new wider AVX2 hot path does. Fixed with shared
+  ZUPT_VV_DECODE_SLACK (64 B) guard on both single-threaded
+  (zupt_format.c) and parallel (zupt_parallel.c) decode paths.
+  Verified: ASAN 24/24 single-threaded + 15/15 multi-threaded;
+  bit-flip fuzz 300 trials 0 crashes / 300 clean rejects. F-09
+  byte sweep still 0/1827. vv_decoder.c scalar build made
+  -Werror clean for aarch64/Termux. New test tests/test_vv_decode
+  _slack.sh. Wire format unchanged (v1.6); 3.0.3 archives extract
+  byte-exact.
+  knownConditionTrueFalse findings closed in varint decoders
+  (dead `&& (x&0x80)` AND-branch after preceding terminator-byte
+  early-return). -Wconversion / -Wsign-conversion findings closed
+  with explicit casts at two sites. Our 9-file non-vendored C now
+  compiles clean under the union of strict GCC warnings including
+  -Wconversion -Wsign-conversion -Werror. New regression test
+  tests/test_static_analysis.sh (7 assertions) wired into make
+  check and make test. Behaviour byte-identical; F-09 byte sweep
+  still 0/1827 silent accepts. No source crypto changes.
+  src/zupt_main.c exceeded C99's 4095-char ISO limit (was 4121).
+  Refactored to 5 fprintf sections; -Woverlength-strings added to
+  default CFLAGS so future regressions fail the build. Help text
+  drift cleanup (stale "zupt" examples → "vaptvupt", stale "LZ77 +
+  Huffman" → "VaptVupt LZ + ANS 2.48.5", license attribution).
+  New regression test tests/test_help_consistency.sh (10 assertions
+  including the F-13 byte-level guard). No source crypto changes;
+  audit posture unchanged from v3.0.1.
+  gui/LICENSE-GUI rewritten AGPL-3.0-or-later with historical
+  correction note). GUI version-string parsing bug fix (the
+  v3.0.0 `replace("zupt ", "")` parser matched the wrong substring
+  inside the new rename parenthetical, causing garbled window
+  titles; fixed with anchored `_VERSION_RE`). New regression test
+  tests/test_gui_branding.sh (11 assertions) wired into make check
+  and make test. No source crypto changes; audit posture unchanged
+  from v3.0.0 (which itself preserved the v2.3.1 baseline).
+  Codec upgrade to VaptVupt LZ + ANS 2.48.5 (two libFuzzer-found fixes:
+  csz==0 OOB-READ in vv_dstream_decompress_chunk; UBSan-safe pointer
+  arithmetic in vv_copy_match). GUI binary-discovery bug fixed with
+  liveness-checking _find_vaptvupt + discovery log. Enhanced manpage
+  (597 lines). Wire format unchanged at v1.6. Bidirectional v2.x ↔ v3.0.0
+  archive compatibility verified. F-09 byte sweep still 0/1827 silent
+  accepts; F-06 HMAC fuzz still 0/2000. No new findings, no findings
+  reopened. Security posture unchanged.
+  (curated 10-suite, 91-assertion subset) for OBS / Debian / RPM `%check`
+  sections. openSUSE OBS files rewritten for cabelo
+  (`home:cabelo:innovators/zupt`): license corrected MIT → AGPL-3.0-or-later,
+  version bumped 1.5.5 → 2.4.8, changelog history preserved. No source
+  changes; audit posture unchanged from v2.3.1.
+
+- v3.2.0 — 2026-06-01 — SHA-256 hardware acceleration (Intel
+  SHA-NI). New SHA256RNDS2/MSG1/MSG2 compression path with CPUID
+  runtime dispatch (has_shani, CPUID.07H:EBX[29]). Accelerates the
+  Encrypt-then-MAC second pass (HMAC-SHA256) and PBKDF2.
+  Security-relevant property: SHA-NI is constant-time by
+  construction (no data-dependent memory access or branches),
+  strengthening the side-channel posture of HMAC verification over
+  attacker-influenced ciphertext vs the scalar software path. No
+  cryptographic-correctness change: same SHA-256, same HMAC, same
+  Encrypt-then-MAC, same wire bytes (format v1.6 unchanged). NIST
+  FIPS 180-4 vectors pass on both paths; the 64 SHA-NI round
+  constants are verified bit-identical to the scalar K[] table.
+  Speedup ([ESTIMATED] 3-8x) NOT measured in this release — the
+  build host lacks SHA-NI; figure to be confirmed on SHA-NI
+  hardware. Scalar fallback unchanged and remains the path on
+  non-SHA-NI CPUs (incl. aarch64). F-09 byte sweep still 0/1827.
+  byte-identical; 3 .c files changed). Inherits 6 upstream
+  corrupt-input decoder memory-safety fixes (v2.52.4 + v2.53.2).
+  F-14 closed: ASAN found a heap-buffer-overflow WRITE of size 32
+  in OUR decode wrapper — decode buffers were malloc(uncompressed
+  _size) with no slack, but the codec AVX2 over-copy needs >=32 B
+  slack (documented contract in vaptvupt.h). Old codec never
+  reached it; new wider AVX2 hot path does. Fixed with shared
+  ZUPT_VV_DECODE_SLACK (64 B) guard on both single-threaded
+  (zupt_format.c) and parallel (zupt_parallel.c) decode paths.
+  Verified: ASAN 24/24 single-threaded + 15/15 multi-threaded;
+  bit-flip fuzz 300 trials 0 crashes / 300 clean rejects. F-09
+  byte sweep still 0/1827. vv_decoder.c scalar build made
+  -Werror clean for aarch64/Termux. New test tests/test_vv_decode
+  _slack.sh. Wire format unchanged (v1.6); 3.0.3 archives extract
+  byte-exact.
+  knownConditionTrueFalse findings closed in varint decoders
+  (dead `&& (x&0x80)` AND-branch after preceding terminator-byte
+  early-return). -Wconversion / -Wsign-conversion findings closed
+  with explicit casts at two sites. Our 9-file non-vendored C now
+  compiles clean under the union of strict GCC warnings including
+  -Wconversion -Wsign-conversion -Werror. New regression test
+  tests/test_static_analysis.sh (7 assertions) wired into make
+  check and make test. Behaviour byte-identical; F-09 byte sweep
+  still 0/1827 silent accepts. No source crypto changes.
+  src/zupt_main.c exceeded C99's 4095-char ISO limit (was 4121).
+  Refactored to 5 fprintf sections; -Woverlength-strings added to
+  default CFLAGS so future regressions fail the build. Help text
+  drift cleanup (stale "zupt" examples → "vaptvupt", stale "LZ77 +
+  Huffman" → "VaptVupt LZ + ANS 2.48.5", license attribution).
+  New regression test tests/test_help_consistency.sh (10 assertions
+  including the F-13 byte-level guard). No source crypto changes;
+  audit posture unchanged from v3.0.1.
+  gui/LICENSE-GUI rewritten AGPL-3.0-or-later with historical
+  correction note). GUI version-string parsing bug fix (the
+  v3.0.0 `replace("zupt ", "")` parser matched the wrong substring
+  inside the new rename parenthetical, causing garbled window
+  titles; fixed with anchored `_VERSION_RE`). New regression test
+  tests/test_gui_branding.sh (11 assertions) wired into make check
+  and make test. No source crypto changes; audit posture unchanged
+  from v3.0.0 (which itself preserved the v2.3.1 baseline).
+  Codec upgrade to VaptVupt LZ + ANS 2.48.5 (two libFuzzer-found fixes:
+  csz==0 OOB-READ in vv_dstream_decompress_chunk; UBSan-safe pointer
+  arithmetic in vv_copy_match). GUI binary-discovery bug fixed with
+  liveness-checking _find_vaptvupt + discovery log. Enhanced manpage
+  (597 lines). Wire format unchanged at v1.6. Bidirectional v2.x ↔ v3.0.0
+  archive compatibility verified. F-09 byte sweep still 0/1827 silent
+  accepts; F-06 HMAC fuzz still 0/2000. No new findings, no findings
+  reopened. Security posture unchanged.
+  (curated 10-suite, 91-assertion subset) for OBS / Debian / RPM `%check`
+  sections. openSUSE OBS files rewritten for cabelo
+  (`home:cabelo:innovators/zupt`): license corrected MIT → AGPL-3.0-or-later,
+  version bumped 1.5.5 → 2.4.8, changelog history preserved. No source
+  changes; audit posture unchanged from v2.3.1.
+
+- v3.3.0 — 2026-06-01 — Incremental HMAC-SHA256 for the per-block
+  Encrypt-then-MAC hot path. ipad/opad key prefix folded once per
+  keyring; MAC streamed (aad || nonce || ciphertext || seq) instead
+  of concatenated into a malloc'd buffer. SECURITY-RELEVANT:
+  identical authentication semantics — the MAC is byte-for-byte the
+  same (RFC 2104 + SHA-256 Merkle-Damgard associativity), proven by
+  RFC 4231 vectors, a new equivalence test, and byte-exact
+  decryption of 3.2.x archives. Constant-time tag compares unchanged
+  (byte-OR accumulator / Jasmin zupt_mac_verify_ct). F-09 byte sweep
+  0/1827; F-06 1-bit HMAC fuzz 0/2000. Reduces secret-data heap
+  footprint: the old path copied the full ciphertext into a second
+  malloc'd buffer per block — now removed. No cryptographic-
+  correctness change, no wire-format change (v1.6). ASan clean on
+  both KDF paths.
+  SHA-NI). New SHA256RNDS2/MSG1/MSG2 compression path with CPUID
+  runtime dispatch (has_shani, CPUID.07H:EBX[29]). Accelerates the
+  Encrypt-then-MAC second pass (HMAC-SHA256) and PBKDF2.
+  Security-relevant property: SHA-NI is constant-time by
+  construction (no data-dependent memory access or branches),
+  strengthening the side-channel posture of HMAC verification over
+  attacker-influenced ciphertext vs the scalar software path. No
+  cryptographic-correctness change: same SHA-256, same HMAC, same
+  Encrypt-then-MAC, same wire bytes (format v1.6 unchanged). NIST
+  FIPS 180-4 vectors pass on both paths; the 64 SHA-NI round
+  constants are verified bit-identical to the scalar K[] table.
+  Speedup ([ESTIMATED] 3-8x) NOT measured in this release — the
+  build host lacks SHA-NI; figure to be confirmed on SHA-NI
+  hardware. Scalar fallback unchanged and remains the path on
+  non-SHA-NI CPUs (incl. aarch64). F-09 byte sweep still 0/1827.
+  byte-identical; 3 .c files changed). Inherits 6 upstream
+  corrupt-input decoder memory-safety fixes (v2.52.4 + v2.53.2).
+  F-14 closed: ASAN found a heap-buffer-overflow WRITE of size 32
+  in OUR decode wrapper — decode buffers were malloc(uncompressed
+  _size) with no slack, but the codec AVX2 over-copy needs >=32 B
+  slack (documented contract in vaptvupt.h). Old codec never
+  reached it; new wider AVX2 hot path does. Fixed with shared
+  ZUPT_VV_DECODE_SLACK (64 B) guard on both single-threaded
+  (zupt_format.c) and parallel (zupt_parallel.c) decode paths.
+  Verified: ASAN 24/24 single-threaded + 15/15 multi-threaded;
+  bit-flip fuzz 300 trials 0 crashes / 300 clean rejects. F-09
+  byte sweep still 0/1827. vv_decoder.c scalar build made
+  -Werror clean for aarch64/Termux. New test tests/test_vv_decode
+  _slack.sh. Wire format unchanged (v1.6); 3.0.3 archives extract
+  byte-exact.
+  knownConditionTrueFalse findings closed in varint decoders
+  (dead `&& (x&0x80)` AND-branch after preceding terminator-byte
+  early-return). -Wconversion / -Wsign-conversion findings closed
+  with explicit casts at two sites. Our 9-file non-vendored C now
+  compiles clean under the union of strict GCC warnings including
+  -Wconversion -Wsign-conversion -Werror. New regression test
+  tests/test_static_analysis.sh (7 assertions) wired into make
+  check and make test. Behaviour byte-identical; F-09 byte sweep
+  still 0/1827 silent accepts. No source crypto changes.
+  src/zupt_main.c exceeded C99's 4095-char ISO limit (was 4121).
+  Refactored to 5 fprintf sections; -Woverlength-strings added to
+  default CFLAGS so future regressions fail the build. Help text
+  drift cleanup (stale "zupt" examples → "vaptvupt", stale "LZ77 +
+  Huffman" → "VaptVupt LZ + ANS 2.48.5", license attribution).
+  New regression test tests/test_help_consistency.sh (10 assertions
+  including the F-13 byte-level guard). No source crypto changes;
+  audit posture unchanged from v3.0.1.
+  gui/LICENSE-GUI rewritten AGPL-3.0-or-later with historical
+  correction note). GUI version-string parsing bug fix (the
+  v3.0.0 `replace("zupt ", "")` parser matched the wrong substring
+  inside the new rename parenthetical, causing garbled window
+  titles; fixed with anchored `_VERSION_RE`). New regression test
+  tests/test_gui_branding.sh (11 assertions) wired into make check
+  and make test. No source crypto changes; audit posture unchanged
+  from v3.0.0 (which itself preserved the v2.3.1 baseline).
+  Codec upgrade to VaptVupt LZ + ANS 2.48.5 (two libFuzzer-found fixes:
+  csz==0 OOB-READ in vv_dstream_decompress_chunk; UBSan-safe pointer
+  arithmetic in vv_copy_match). GUI binary-discovery bug fixed with
+  liveness-checking _find_vaptvupt + discovery log. Enhanced manpage
+  (597 lines). Wire format unchanged at v1.6. Bidirectional v2.x ↔ v3.0.0
+  archive compatibility verified. F-09 byte sweep still 0/1827 silent
+  accepts; F-06 HMAC fuzz still 0/2000. No new findings, no findings
+  reopened. Security posture unchanged.
+  (curated 10-suite, 91-assertion subset) for OBS / Debian / RPM `%check`
+  sections. openSUSE OBS files rewritten for cabelo
+  (`home:cabelo:innovators/zupt`): license corrected MIT → AGPL-3.0-or-later,
+  version bumped 1.5.5 → 2.4.8, changelog history preserved. No source
+  changes; audit posture unchanged from v2.3.1.
+
+- v3.4.0 — 2026-06-01 — F-15: Argon2id KDF parameter transparency.
+  The 0x04 Argon2id enc-header recorded only [type|salt|nonce] and
+  nothing about the KDF cost (the PBKDF2 header records its iteration
+  count). New archives append a one-byte KDF profile descriptor at
+  offset 33 (ZUPT_ARGON2_PROFILE_MODERATE), making the header self-
+  describing so a reader always knows which Argon2id cost produced
+  the archive — eliminating a silent-undecryptability risk if the
+  preset ever changes. The descriptor is covered by the F-08 archive-
+  integrity trailer (tamper-evident; a flipped byte fails decryption,
+  verified). Additive + back-compatible: legacy 33-byte archives
+  decrypt byte-exact; 33B and 34B headers derive identical keys;
+  unknown profiles are refused fail-closed (no wrong-key guessing).
+  Build-time SDK-drift guard: the F-15 test asserts the KDF is
+  deterministic and meets a coarse memory-hard cost floor (>=20 ms),
+  failing the build if libzuptsdk is swapped for a weak/stub Argon2id.
+  No cryptographic-correctness change, no wire-format change (v1.6).
+  F-09 byte sweep 0/1827; F-06 1-bit HMAC fuzz 0/2000. Note: the
+  explicit RFC 9106 zsdk_argon2id() is header-declared but NOT
+  exported by the vendored libzuptsdk.so, so the cost is recorded in-
+  band rather than re-parameterised; revisit if the SDK exports it.
+  Encrypt-then-MAC hot path. ipad/opad key prefix folded once per
+  keyring; MAC streamed (aad || nonce || ciphertext || seq) instead
+  of concatenated into a malloc'd buffer. SECURITY-RELEVANT:
+  identical authentication semantics — the MAC is byte-for-byte the
+  same (RFC 2104 + SHA-256 Merkle-Damgard associativity), proven by
+  RFC 4231 vectors, a new equivalence test, and byte-exact
+  decryption of 3.2.x archives. Constant-time tag compares unchanged
+  (byte-OR accumulator / Jasmin zupt_mac_verify_ct). F-09 byte sweep
+  0/1827; F-06 1-bit HMAC fuzz 0/2000. Reduces secret-data heap
+  footprint: the old path copied the full ciphertext into a second
+  malloc'd buffer per block — now removed. No cryptographic-
+  correctness change, no wire-format change (v1.6). ASan clean on
+  both KDF paths.
+  SHA-NI). New SHA256RNDS2/MSG1/MSG2 compression path with CPUID
+  runtime dispatch (has_shani, CPUID.07H:EBX[29]). Accelerates the
+  Encrypt-then-MAC second pass (HMAC-SHA256) and PBKDF2.
+  Security-relevant property: SHA-NI is constant-time by
+  construction (no data-dependent memory access or branches),
+  strengthening the side-channel posture of HMAC verification over
+  attacker-influenced ciphertext vs the scalar software path. No
+  cryptographic-correctness change: same SHA-256, same HMAC, same
+  Encrypt-then-MAC, same wire bytes (format v1.6 unchanged). NIST
+  FIPS 180-4 vectors pass on both paths; the 64 SHA-NI round
+  constants are verified bit-identical to the scalar K[] table.
+  Speedup ([ESTIMATED] 3-8x) NOT measured in this release — the
+  build host lacks SHA-NI; figure to be confirmed on SHA-NI
+  hardware. Scalar fallback unchanged and remains the path on
+  non-SHA-NI CPUs (incl. aarch64). F-09 byte sweep still 0/1827.
+  byte-identical; 3 .c files changed). Inherits 6 upstream
+  corrupt-input decoder memory-safety fixes (v2.52.4 + v2.53.2).
+  F-14 closed: ASAN found a heap-buffer-overflow WRITE of size 32
+  in OUR decode wrapper — decode buffers were malloc(uncompressed
+  _size) with no slack, but the codec AVX2 over-copy needs >=32 B
+  slack (documented contract in vaptvupt.h). Old codec never
+  reached it; new wider AVX2 hot path does. Fixed with shared
+  ZUPT_VV_DECODE_SLACK (64 B) guard on both single-threaded
+  (zupt_format.c) and parallel (zupt_parallel.c) decode paths.
+  Verified: ASAN 24/24 single-threaded + 15/15 multi-threaded;
+  bit-flip fuzz 300 trials 0 crashes / 300 clean rejects. F-09
+  byte sweep still 0/1827. vv_decoder.c scalar build made
+  -Werror clean for aarch64/Termux. New test tests/test_vv_decode
+  _slack.sh. Wire format unchanged (v1.6); 3.0.3 archives extract
+  byte-exact.
+  knownConditionTrueFalse findings closed in varint decoders
+  (dead `&& (x&0x80)` AND-branch after preceding terminator-byte
+  early-return). -Wconversion / -Wsign-conversion findings closed
+  with explicit casts at two sites. Our 9-file non-vendored C now
+  compiles clean under the union of strict GCC warnings including
+  -Wconversion -Wsign-conversion -Werror. New regression test
+  tests/test_static_analysis.sh (7 assertions) wired into make
+  check and make test. Behaviour byte-identical; F-09 byte sweep
+  still 0/1827 silent accepts. No source crypto changes.
+  src/zupt_main.c exceeded C99's 4095-char ISO limit (was 4121).
+  Refactored to 5 fprintf sections; -Woverlength-strings added to
+  default CFLAGS so future regressions fail the build. Help text
+  drift cleanup (stale "zupt" examples → "vaptvupt", stale "LZ77 +
+  Huffman" → "VaptVupt LZ + ANS 2.48.5", license attribution).
+  New regression test tests/test_help_consistency.sh (10 assertions
+  including the F-13 byte-level guard). No source crypto changes;
+  audit posture unchanged from v3.0.1.
+  gui/LICENSE-GUI rewritten AGPL-3.0-or-later with historical
+  correction note). GUI version-string parsing bug fix (the
+  v3.0.0 `replace("zupt ", "")` parser matched the wrong substring
+  inside the new rename parenthetical, causing garbled window
+  titles; fixed with anchored `_VERSION_RE`). New regression test
+  tests/test_gui_branding.sh (11 assertions) wired into make check
+  and make test. No source crypto changes; audit posture unchanged
+  from v3.0.0 (which itself preserved the v2.3.1 baseline).
+  Codec upgrade to VaptVupt LZ + ANS 2.48.5 (two libFuzzer-found fixes:
+  csz==0 OOB-READ in vv_dstream_decompress_chunk; UBSan-safe pointer
+  arithmetic in vv_copy_match). GUI binary-discovery bug fixed with
+  liveness-checking _find_vaptvupt + discovery log. Enhanced manpage
+  (597 lines). Wire format unchanged at v1.6. Bidirectional v2.x ↔ v3.0.0
+  archive compatibility verified. F-09 byte sweep still 0/1827 silent
+  accepts; F-06 HMAC fuzz still 0/2000. No new findings, no findings
+  reopened. Security posture unchanged.
+  (curated 10-suite, 91-assertion subset) for OBS / Debian / RPM `%check`
+  sections. openSUSE OBS files rewritten for cabelo
+  (`home:cabelo:innovators/zupt`): license corrected MIT → AGPL-3.0-or-later,
+  version bumped 1.5.5 → 2.4.8, changelog history preserved. No source
+  changes; audit posture unchanged from v2.3.1.
+
+- v3.5.0 — 2026-06-01 — Measured constant-time MAC comparison
+  (dudect-style). The MAC tag compare — the most timing-sensitive
+  operation, where a leak is a forgery oracle — was carried as three
+  duplicated inline byte-OR loops marked CT-REQUIRED but never
+  measured. Consolidated into one audited primitive zupt_ct_memeq
+  (volatile OR-accumulate, no early exit, branch-free fold), used by
+  the v1.6 strict decrypt path and the F-08 archive-integrity-trailer
+  check. New dudect-style timing test (tests/test_ct_timing.c):
+  Welch t-test over fixed-equal vs random-differing tag classes,
+  built at -O2 so it exercises the shipped code (incl. that the
+  volatile sink survives the optimiser). Verdict is environment-
+  relative: a leaky-memcmp positive control must show a clear leak in
+  the same environment, and zupt_ct_memeq must show <=20% of that
+  signal (measured ~1%; median of 5 runs; INCONCLUSIVE rather than
+  vacuous-pass if the host is too coarse). A reintroduced early-
+  return/branch pushes the ratio toward 1.0 and fails. This turns an
+  asserted CT property into a measured one + CI regression guard.
+  The formally-verified Jasmin zupt_mac_verify_ct path (v1.4/v1.5
+  legacy compare) and the F-06 two-candidate fold are unchanged. No
+  cryptographic-correctness change, no wire-format change (v1.6).
+  F-09 byte sweep 0/1827; F-06 1-bit HMAC fuzz 0/2000.
+  The 0x04 Argon2id enc-header recorded only [type|salt|nonce] and
+  nothing about the KDF cost (the PBKDF2 header records its iteration
+  count). New archives append a one-byte KDF profile descriptor at
+  offset 33 (ZUPT_ARGON2_PROFILE_MODERATE), making the header self-
+  describing so a reader always knows which Argon2id cost produced
+  the archive — eliminating a silent-undecryptability risk if the
+  preset ever changes. The descriptor is covered by the F-08 archive-
+  integrity trailer (tamper-evident; a flipped byte fails decryption,
+  verified). Additive + back-compatible: legacy 33-byte archives
+  decrypt byte-exact; 33B and 34B headers derive identical keys;
+  unknown profiles are refused fail-closed (no wrong-key guessing).
+  Build-time SDK-drift guard: the F-15 test asserts the KDF is
+  deterministic and meets a coarse memory-hard cost floor (>=20 ms),
+  failing the build if libzuptsdk is swapped for a weak/stub Argon2id.
+  No cryptographic-correctness change, no wire-format change (v1.6).
+  F-09 byte sweep 0/1827; F-06 1-bit HMAC fuzz 0/2000. Note: the
+  explicit RFC 9106 zsdk_argon2id() is header-declared but NOT
+  exported by the vendored libzuptsdk.so, so the cost is recorded in-
+  band rather than re-parameterised; revisit if the SDK exports it.
+  Encrypt-then-MAC hot path. ipad/opad key prefix folded once per
+  keyring; MAC streamed (aad || nonce || ciphertext || seq) instead
+  of concatenated into a malloc'd buffer. SECURITY-RELEVANT:
+  identical authentication semantics — the MAC is byte-for-byte the
+  same (RFC 2104 + SHA-256 Merkle-Damgard associativity), proven by
+  RFC 4231 vectors, a new equivalence test, and byte-exact
+  decryption of 3.2.x archives. Constant-time tag compares unchanged
+  (byte-OR accumulator / Jasmin zupt_mac_verify_ct). F-09 byte sweep
+  0/1827; F-06 1-bit HMAC fuzz 0/2000. Reduces secret-data heap
+  footprint: the old path copied the full ciphertext into a second
+  malloc'd buffer per block — now removed. No cryptographic-
+  correctness change, no wire-format change (v1.6). ASan clean on
+  both KDF paths.
+  SHA-NI). New SHA256RNDS2/MSG1/MSG2 compression path with CPUID
+  runtime dispatch (has_shani, CPUID.07H:EBX[29]). Accelerates the
+  Encrypt-then-MAC second pass (HMAC-SHA256) and PBKDF2.
+  Security-relevant property: SHA-NI is constant-time by
+  construction (no data-dependent memory access or branches),
+  strengthening the side-channel posture of HMAC verification over
+  attacker-influenced ciphertext vs the scalar software path. No
+  cryptographic-correctness change: same SHA-256, same HMAC, same
+  Encrypt-then-MAC, same wire bytes (format v1.6 unchanged). NIST
+  FIPS 180-4 vectors pass on both paths; the 64 SHA-NI round
+  constants are verified bit-identical to the scalar K[] table.
+  Speedup ([ESTIMATED] 3-8x) NOT measured in this release — the
+  build host lacks SHA-NI; figure to be confirmed on SHA-NI
+  hardware. Scalar fallback unchanged and remains the path on
+  non-SHA-NI CPUs (incl. aarch64). F-09 byte sweep still 0/1827.
+  byte-identical; 3 .c files changed). Inherits 6 upstream
+  corrupt-input decoder memory-safety fixes (v2.52.4 + v2.53.2).
+  F-14 closed: ASAN found a heap-buffer-overflow WRITE of size 32
+  in OUR decode wrapper — decode buffers were malloc(uncompressed
+  _size) with no slack, but the codec AVX2 over-copy needs >=32 B
+  slack (documented contract in vaptvupt.h). Old codec never
+  reached it; new wider AVX2 hot path does. Fixed with shared
+  ZUPT_VV_DECODE_SLACK (64 B) guard on both single-threaded
+  (zupt_format.c) and parallel (zupt_parallel.c) decode paths.
+  Verified: ASAN 24/24 single-threaded + 15/15 multi-threaded;
+  bit-flip fuzz 300 trials 0 crashes / 300 clean rejects. F-09
+  byte sweep still 0/1827. vv_decoder.c scalar build made
+  -Werror clean for aarch64/Termux. New test tests/test_vv_decode
+  _slack.sh. Wire format unchanged (v1.6); 3.0.3 archives extract
+  byte-exact.
+  knownConditionTrueFalse findings closed in varint decoders
+  (dead `&& (x&0x80)` AND-branch after preceding terminator-byte
+  early-return). -Wconversion / -Wsign-conversion findings closed
+  with explicit casts at two sites. Our 9-file non-vendored C now
+  compiles clean under the union of strict GCC warnings including
+  -Wconversion -Wsign-conversion -Werror. New regression test
+  tests/test_static_analysis.sh (7 assertions) wired into make
+  check and make test. Behaviour byte-identical; F-09 byte sweep
+  still 0/1827 silent accepts. No source crypto changes.
+  src/zupt_main.c exceeded C99's 4095-char ISO limit (was 4121).
+  Refactored to 5 fprintf sections; -Woverlength-strings added to
+  default CFLAGS so future regressions fail the build. Help text
+  drift cleanup (stale "zupt" examples → "vaptvupt", stale "LZ77 +
+  Huffman" → "VaptVupt LZ + ANS 2.48.5", license attribution).
+  New regression test tests/test_help_consistency.sh (10 assertions
+  including the F-13 byte-level guard). No source crypto changes;
+  audit posture unchanged from v3.0.1.
+  gui/LICENSE-GUI rewritten AGPL-3.0-or-later with historical
+  correction note). GUI version-string parsing bug fix (the
+  v3.0.0 `replace("zupt ", "")` parser matched the wrong substring
+  inside the new rename parenthetical, causing garbled window
+  titles; fixed with anchored `_VERSION_RE`). New regression test
+  tests/test_gui_branding.sh (11 assertions) wired into make check
+  and make test. No source crypto changes; audit posture unchanged
+  from v3.0.0 (which itself preserved the v2.3.1 baseline).
+  Codec upgrade to VaptVupt LZ + ANS 2.48.5 (two libFuzzer-found fixes:
+  csz==0 OOB-READ in vv_dstream_decompress_chunk; UBSan-safe pointer
+  arithmetic in vv_copy_match). GUI binary-discovery bug fixed with
+  liveness-checking _find_vaptvupt + discovery log. Enhanced manpage
+  (597 lines). Wire format unchanged at v1.6. Bidirectional v2.x ↔ v3.0.0
+  archive compatibility verified. F-09 byte sweep still 0/1827 silent
+  accepts; F-06 HMAC fuzz still 0/2000. No new findings, no findings
+  reopened. Security posture unchanged.
+  (curated 10-suite, 91-assertion subset) for OBS / Debian / RPM `%check`
+  sections. openSUSE OBS files rewritten for cabelo
+  (`home:cabelo:innovators/zupt`): license corrected MIT → AGPL-3.0-or-later,
+  version bumped 1.5.5 → 2.4.8, changelog history preserved. No source
+  changes; audit posture unchanged from v2.3.1.
+
+- v3.6.0 — 2026-06-01 — NIST SP 800-38A AES-256-CTR known-answer
+  vectors + ML-KEM self-test fixes. AES-256-CTR — the bulk cipher —
+  previously had only indirect roundtrip coverage; added the
+  canonical SP 800-38A F.5.5 (encrypt) and F.5.6 (decrypt) vectors,
+  validating zupt_aes256_ctr against the standard on both the Jasmin
+  AES-NI path (zupt_aes256_ctr4 + zupt_aes256_blk) and the C T-table
+  fallback. Both match exactly, confirming the Jasmin single-block
+  AES is correct vs the standard (retires the stale stack-offset
+  concern for zupt_aes256_blk). Also fixed two ML-KEM-768 self-test
+  bugs: (1) an inverted result check in test_vectors that printed OK
+  when the self-test returned failure — it had been passing
+  vacuously; (2) the NTT roundtrip self-test asserted a false
+  ntt∘inv_ntt == identity (this pqcrystals/Kyber Montgomery
+  convention recovers each coefficient scaled by R^-1 mod q = 169),
+  now rewritten to assert the true consistent-linear-scaling
+  invariant, which still catches genuine NTT bugs and no longer
+  emits a misleading stderr "NTT roundtrip FAILED". ML-KEM
+  correctness end-to-end was never affected — the K-PKE, KEM, and
+  FIPS 203 roundtrip vectors and implicit-rejection all pass. No
+  source-crypto behaviour change, no wire-format change (v1.6).
+  test_vectors now 16 passed / 0 failed (was 14, one vacuous). F-09
+  byte sweep 0/1827; F-06 1-bit HMAC fuzz 0/2000.
+  (dudect-style). The MAC tag compare — the most timing-sensitive
+  operation, where a leak is a forgery oracle — was carried as three
+  duplicated inline byte-OR loops marked CT-REQUIRED but never
+  measured. Consolidated into one audited primitive zupt_ct_memeq
+  (volatile OR-accumulate, no early exit, branch-free fold), used by
+  the v1.6 strict decrypt path and the F-08 archive-integrity-trailer
+  check. New dudect-style timing test (tests/test_ct_timing.c):
+  Welch t-test over fixed-equal vs random-differing tag classes,
+  built at -O2 so it exercises the shipped code (incl. that the
+  volatile sink survives the optimiser). Verdict is environment-
+  relative: a leaky-memcmp positive control must show a clear leak in
+  the same environment, and zupt_ct_memeq must show <=20% of that
+  signal (measured ~1%; median of 5 runs; INCONCLUSIVE rather than
+  vacuous-pass if the host is too coarse). A reintroduced early-
+  return/branch pushes the ratio toward 1.0 and fails. This turns an
+  asserted CT property into a measured one + CI regression guard.
+  The formally-verified Jasmin zupt_mac_verify_ct path (v1.4/v1.5
+  legacy compare) and the F-06 two-candidate fold are unchanged. No
+  cryptographic-correctness change, no wire-format change (v1.6).
+  F-09 byte sweep 0/1827; F-06 1-bit HMAC fuzz 0/2000.
+  The 0x04 Argon2id enc-header recorded only [type|salt|nonce] and
+  nothing about the KDF cost (the PBKDF2 header records its iteration
+  count). New archives append a one-byte KDF profile descriptor at
+  offset 33 (ZUPT_ARGON2_PROFILE_MODERATE), making the header self-
+  describing so a reader always knows which Argon2id cost produced
+  the archive — eliminating a silent-undecryptability risk if the
+  preset ever changes. The descriptor is covered by the F-08 archive-
+  integrity trailer (tamper-evident; a flipped byte fails decryption,
+  verified). Additive + back-compatible: legacy 33-byte archives
+  decrypt byte-exact; 33B and 34B headers derive identical keys;
+  unknown profiles are refused fail-closed (no wrong-key guessing).
+  Build-time SDK-drift guard: the F-15 test asserts the KDF is
+  deterministic and meets a coarse memory-hard cost floor (>=20 ms),
+  failing the build if libzuptsdk is swapped for a weak/stub Argon2id.
+  No cryptographic-correctness change, no wire-format change (v1.6).
+  F-09 byte sweep 0/1827; F-06 1-bit HMAC fuzz 0/2000. Note: the
+  explicit RFC 9106 zsdk_argon2id() is header-declared but NOT
+  exported by the vendored libzuptsdk.so, so the cost is recorded in-
+  band rather than re-parameterised; revisit if the SDK exports it.
+  Encrypt-then-MAC hot path. ipad/opad key prefix folded once per
+  keyring; MAC streamed (aad || nonce || ciphertext || seq) instead
+  of concatenated into a malloc'd buffer. SECURITY-RELEVANT:
+  identical authentication semantics — the MAC is byte-for-byte the
+  same (RFC 2104 + SHA-256 Merkle-Damgard associativity), proven by
+  RFC 4231 vectors, a new equivalence test, and byte-exact
+  decryption of 3.2.x archives. Constant-time tag compares unchanged
+  (byte-OR accumulator / Jasmin zupt_mac_verify_ct). F-09 byte sweep
+  0/1827; F-06 1-bit HMAC fuzz 0/2000. Reduces secret-data heap
+  footprint: the old path copied the full ciphertext into a second
+  malloc'd buffer per block — now removed. No cryptographic-
+  correctness change, no wire-format change (v1.6). ASan clean on
+  both KDF paths.
+  SHA-NI). New SHA256RNDS2/MSG1/MSG2 compression path with CPUID
+  runtime dispatch (has_shani, CPUID.07H:EBX[29]). Accelerates the
+  Encrypt-then-MAC second pass (HMAC-SHA256) and PBKDF2.
+  Security-relevant property: SHA-NI is constant-time by
+  construction (no data-dependent memory access or branches),
+  strengthening the side-channel posture of HMAC verification over
+  attacker-influenced ciphertext vs the scalar software path. No
+  cryptographic-correctness change: same SHA-256, same HMAC, same
+  Encrypt-then-MAC, same wire bytes (format v1.6 unchanged). NIST
+  FIPS 180-4 vectors pass on both paths; the 64 SHA-NI round
+  constants are verified bit-identical to the scalar K[] table.
+  Speedup ([ESTIMATED] 3-8x) NOT measured in this release — the
+  build host lacks SHA-NI; figure to be confirmed on SHA-NI
+  hardware. Scalar fallback unchanged and remains the path on
+  non-SHA-NI CPUs (incl. aarch64). F-09 byte sweep still 0/1827.
+  byte-identical; 3 .c files changed). Inherits 6 upstream
+  corrupt-input decoder memory-safety fixes (v2.52.4 + v2.53.2).
+  F-14 closed: ASAN found a heap-buffer-overflow WRITE of size 32
+  in OUR decode wrapper — decode buffers were malloc(uncompressed
+  _size) with no slack, but the codec AVX2 over-copy needs >=32 B
+  slack (documented contract in vaptvupt.h). Old codec never
+  reached it; new wider AVX2 hot path does. Fixed with shared
+  ZUPT_VV_DECODE_SLACK (64 B) guard on both single-threaded
+  (zupt_format.c) and parallel (zupt_parallel.c) decode paths.
+  Verified: ASAN 24/24 single-threaded + 15/15 multi-threaded;
+  bit-flip fuzz 300 trials 0 crashes / 300 clean rejects. F-09
+  byte sweep still 0/1827. vv_decoder.c scalar build made
+  -Werror clean for aarch64/Termux. New test tests/test_vv_decode
+  _slack.sh. Wire format unchanged (v1.6); 3.0.3 archives extract
+  byte-exact.
+  knownConditionTrueFalse findings closed in varint decoders
+  (dead `&& (x&0x80)` AND-branch after preceding terminator-byte
+  early-return). -Wconversion / -Wsign-conversion findings closed
+  with explicit casts at two sites. Our 9-file non-vendored C now
+  compiles clean under the union of strict GCC warnings including
+  -Wconversion -Wsign-conversion -Werror. New regression test
+  tests/test_static_analysis.sh (7 assertions) wired into make
+  check and make test. Behaviour byte-identical; F-09 byte sweep
+  still 0/1827 silent accepts. No source crypto changes.
+  src/zupt_main.c exceeded C99's 4095-char ISO limit (was 4121).
+  Refactored to 5 fprintf sections; -Woverlength-strings added to
+  default CFLAGS so future regressions fail the build. Help text
+  drift cleanup (stale "zupt" examples → "vaptvupt", stale "LZ77 +
+  Huffman" → "VaptVupt LZ + ANS 2.48.5", license attribution).
+  New regression test tests/test_help_consistency.sh (10 assertions
+  including the F-13 byte-level guard). No source crypto changes;
+  audit posture unchanged from v3.0.1.
+  gui/LICENSE-GUI rewritten AGPL-3.0-or-later with historical
+  correction note). GUI version-string parsing bug fix (the
+  v3.0.0 `replace("zupt ", "")` parser matched the wrong substring
+  inside the new rename parenthetical, causing garbled window
+  titles; fixed with anchored `_VERSION_RE`). New regression test
+  tests/test_gui_branding.sh (11 assertions) wired into make check
+  and make test. No source crypto changes; audit posture unchanged
+  from v3.0.0 (which itself preserved the v2.3.1 baseline).
+  Codec upgrade to VaptVupt LZ + ANS 2.48.5 (two libFuzzer-found fixes:
+  csz==0 OOB-READ in vv_dstream_decompress_chunk; UBSan-safe pointer
+  arithmetic in vv_copy_match). GUI binary-discovery bug fixed with
+  liveness-checking _find_vaptvupt + discovery log. Enhanced manpage
+  (597 lines). Wire format unchanged at v1.6. Bidirectional v2.x ↔ v3.0.0
+  archive compatibility verified. F-09 byte sweep still 0/1827 silent
+  accepts; F-06 HMAC fuzz still 0/2000. No new findings, no findings
+  reopened. Security posture unchanged.
+  (curated 10-suite, 91-assertion subset) for OBS / Debian / RPM `%check`
+  sections. openSUSE OBS files rewritten for cabelo
+  (`home:cabelo:innovators/zupt`): license corrected MIT → AGPL-3.0-or-later,
+  version bumped 1.5.5 → 2.4.8, changelog history preserved. No source
+  changes; audit posture unchanged from v2.3.1.
+
+- v3.7.0 — 2026-06-01 — ML-KEM-768 decapsulation comparison routed
+  through the audited constant-time primitive. The implicit-
+  rejection check (received ct vs re-encrypted ct', 1088 bytes) was
+  an inline byte-OR loop marked CT-REQUIRED but never measured and
+  not sharing the zupt_ct_memeq primitive introduced in 3.5.0. A
+  timing leak there is a KEM decapsulation oracle (valid vs invalid
+  ciphertext) that breaks IND-CCA2. It now calls
+  zupt_ct_memeq(ct, ct_prime, 1088); the fail bit is (1 - equal) so
+  ML-KEM output is byte-identical (FIPS 203 roundtrip, implicit-
+  rejection vector, PQ-hybrid roundtrip, wrong-key rejection all
+  pass). This was the LAST security-critical comparison using a
+  bespoke inline loop — MAC tag, F-08 trailer, and ML-KEM decaps now
+  all route through one audited, length-independent primitive.
+  tests/test_ct_timing extended to 1088 bytes with a source-routing
+  guard. HONEST SCOPING: the 1088-byte dudect numbers are reported
+  informational, not pass/fail — at that size on a shared vCPU the
+  signal is memory-dominated and memcmp is not a cleanly-leaking
+  control, so the 32-byte environment-relative ratio does not
+  transfer. Constant-timeness of the 1088-byte compare instead
+  follows from (a) the 32-byte pass proving zupt_ct_memeq is CT,
+  (b) zupt_ct_memeq being length-independent by construction
+  (OR-accumulate, no early exit, no data-dependent branch), and
+  (c) the source-routing guard confirming decaps uses it. No
+  cryptographic-correctness change, no wire-format change (v1.6).
+  test_vectors 16/0; F-09 byte sweep 0/1827; F-06 0/2000.
+  vectors + ML-KEM self-test fixes. AES-256-CTR — the bulk cipher —
+  previously had only indirect roundtrip coverage; added the
+  canonical SP 800-38A F.5.5 (encrypt) and F.5.6 (decrypt) vectors,
+  validating zupt_aes256_ctr against the standard on both the Jasmin
+  AES-NI path (zupt_aes256_ctr4 + zupt_aes256_blk) and the C T-table
+  fallback. Both match exactly, confirming the Jasmin single-block
+  AES is correct vs the standard (retires the stale stack-offset
+  concern for zupt_aes256_blk). Also fixed two ML-KEM-768 self-test
+  bugs: (1) an inverted result check in test_vectors that printed OK
+  when the self-test returned failure — it had been passing
+  vacuously; (2) the NTT roundtrip self-test asserted a false
+  ntt∘inv_ntt == identity (this pqcrystals/Kyber Montgomery
+  convention recovers each coefficient scaled by R^-1 mod q = 169),
+  now rewritten to assert the true consistent-linear-scaling
+  invariant, which still catches genuine NTT bugs and no longer
+  emits a misleading stderr "NTT roundtrip FAILED". ML-KEM
+  correctness end-to-end was never affected — the K-PKE, KEM, and
+  FIPS 203 roundtrip vectors and implicit-rejection all pass. No
+  source-crypto behaviour change, no wire-format change (v1.6).
+  test_vectors now 16 passed / 0 failed (was 14, one vacuous). F-09
+  byte sweep 0/1827; F-06 1-bit HMAC fuzz 0/2000.
+  (dudect-style). The MAC tag compare — the most timing-sensitive
+  operation, where a leak is a forgery oracle — was carried as three
+  duplicated inline byte-OR loops marked CT-REQUIRED but never
+  measured. Consolidated into one audited primitive zupt_ct_memeq
+  (volatile OR-accumulate, no early exit, branch-free fold), used by
+  the v1.6 strict decrypt path and the F-08 archive-integrity-trailer
+  check. New dudect-style timing test (tests/test_ct_timing.c):
+  Welch t-test over fixed-equal vs random-differing tag classes,
+  built at -O2 so it exercises the shipped code (incl. that the
+  volatile sink survives the optimiser). Verdict is environment-
+  relative: a leaky-memcmp positive control must show a clear leak in
+  the same environment, and zupt_ct_memeq must show <=20% of that
+  signal (measured ~1%; median of 5 runs; INCONCLUSIVE rather than
+  vacuous-pass if the host is too coarse). A reintroduced early-
+  return/branch pushes the ratio toward 1.0 and fails. This turns an
+  asserted CT property into a measured one + CI regression guard.
+  The formally-verified Jasmin zupt_mac_verify_ct path (v1.4/v1.5
+  legacy compare) and the F-06 two-candidate fold are unchanged. No
+  cryptographic-correctness change, no wire-format change (v1.6).
+  F-09 byte sweep 0/1827; F-06 1-bit HMAC fuzz 0/2000.
+  The 0x04 Argon2id enc-header recorded only [type|salt|nonce] and
+  nothing about the KDF cost (the PBKDF2 header records its iteration
+  count). New archives append a one-byte KDF profile descriptor at
+  offset 33 (ZUPT_ARGON2_PROFILE_MODERATE), making the header self-
+  describing so a reader always knows which Argon2id cost produced
+  the archive — eliminating a silent-undecryptability risk if the
+  preset ever changes. The descriptor is covered by the F-08 archive-
+  integrity trailer (tamper-evident; a flipped byte fails decryption,
+  verified). Additive + back-compatible: legacy 33-byte archives
+  decrypt byte-exact; 33B and 34B headers derive identical keys;
+  unknown profiles are refused fail-closed (no wrong-key guessing).
+  Build-time SDK-drift guard: the F-15 test asserts the KDF is
+  deterministic and meets a coarse memory-hard cost floor (>=20 ms),
+  failing the build if libzuptsdk is swapped for a weak/stub Argon2id.
+  No cryptographic-correctness change, no wire-format change (v1.6).
+  F-09 byte sweep 0/1827; F-06 1-bit HMAC fuzz 0/2000. Note: the
+  explicit RFC 9106 zsdk_argon2id() is header-declared but NOT
+  exported by the vendored libzuptsdk.so, so the cost is recorded in-
+  band rather than re-parameterised; revisit if the SDK exports it.
+  Encrypt-then-MAC hot path. ipad/opad key prefix folded once per
+  keyring; MAC streamed (aad || nonce || ciphertext || seq) instead
+  of concatenated into a malloc'd buffer. SECURITY-RELEVANT:
+  identical authentication semantics — the MAC is byte-for-byte the
+  same (RFC 2104 + SHA-256 Merkle-Damgard associativity), proven by
+  RFC 4231 vectors, a new equivalence test, and byte-exact
+  decryption of 3.2.x archives. Constant-time tag compares unchanged
+  (byte-OR accumulator / Jasmin zupt_mac_verify_ct). F-09 byte sweep
+  0/1827; F-06 1-bit HMAC fuzz 0/2000. Reduces secret-data heap
+  footprint: the old path copied the full ciphertext into a second
+  malloc'd buffer per block — now removed. No cryptographic-
+  correctness change, no wire-format change (v1.6). ASan clean on
+  both KDF paths.
+  SHA-NI). New SHA256RNDS2/MSG1/MSG2 compression path with CPUID
+  runtime dispatch (has_shani, CPUID.07H:EBX[29]). Accelerates the
+  Encrypt-then-MAC second pass (HMAC-SHA256) and PBKDF2.
+  Security-relevant property: SHA-NI is constant-time by
+  construction (no data-dependent memory access or branches),
+  strengthening the side-channel posture of HMAC verification over
+  attacker-influenced ciphertext vs the scalar software path. No
+  cryptographic-correctness change: same SHA-256, same HMAC, same
+  Encrypt-then-MAC, same wire bytes (format v1.6 unchanged). NIST
+  FIPS 180-4 vectors pass on both paths; the 64 SHA-NI round
+  constants are verified bit-identical to the scalar K[] table.
+  Speedup ([ESTIMATED] 3-8x) NOT measured in this release — the
+  build host lacks SHA-NI; figure to be confirmed on SHA-NI
+  hardware. Scalar fallback unchanged and remains the path on
+  non-SHA-NI CPUs (incl. aarch64). F-09 byte sweep still 0/1827.
+  byte-identical; 3 .c files changed). Inherits 6 upstream
+  corrupt-input decoder memory-safety fixes (v2.52.4 + v2.53.2).
+  F-14 closed: ASAN found a heap-buffer-overflow WRITE of size 32
+  in OUR decode wrapper — decode buffers were malloc(uncompressed
+  _size) with no slack, but the codec AVX2 over-copy needs >=32 B
+  slack (documented contract in vaptvupt.h). Old codec never
+  reached it; new wider AVX2 hot path does. Fixed with shared
+  ZUPT_VV_DECODE_SLACK (64 B) guard on both single-threaded
+  (zupt_format.c) and parallel (zupt_parallel.c) decode paths.
+  Verified: ASAN 24/24 single-threaded + 15/15 multi-threaded;
+  bit-flip fuzz 300 trials 0 crashes / 300 clean rejects. F-09
+  byte sweep still 0/1827. vv_decoder.c scalar build made
+  -Werror clean for aarch64/Termux. New test tests/test_vv_decode
+  _slack.sh. Wire format unchanged (v1.6); 3.0.3 archives extract
+  byte-exact.
+  knownConditionTrueFalse findings closed in varint decoders
+  (dead `&& (x&0x80)` AND-branch after preceding terminator-byte
+  early-return). -Wconversion / -Wsign-conversion findings closed
+  with explicit casts at two sites. Our 9-file non-vendored C now
+  compiles clean under the union of strict GCC warnings including
+  -Wconversion -Wsign-conversion -Werror. New regression test
+  tests/test_static_analysis.sh (7 assertions) wired into make
+  check and make test. Behaviour byte-identical; F-09 byte sweep
+  still 0/1827 silent accepts. No source crypto changes.
+  src/zupt_main.c exceeded C99's 4095-char ISO limit (was 4121).
+  Refactored to 5 fprintf sections; -Woverlength-strings added to
+  default CFLAGS so future regressions fail the build. Help text
+  drift cleanup (stale "zupt" examples → "vaptvupt", stale "LZ77 +
+  Huffman" → "VaptVupt LZ + ANS 2.48.5", license attribution).
+  New regression test tests/test_help_consistency.sh (10 assertions
+  including the F-13 byte-level guard). No source crypto changes;
+  audit posture unchanged from v3.0.1.
+  gui/LICENSE-GUI rewritten AGPL-3.0-or-later with historical
+  correction note). GUI version-string parsing bug fix (the
+  v3.0.0 `replace("zupt ", "")` parser matched the wrong substring
+  inside the new rename parenthetical, causing garbled window
+  titles; fixed with anchored `_VERSION_RE`). New regression test
+  tests/test_gui_branding.sh (11 assertions) wired into make check
+  and make test. No source crypto changes; audit posture unchanged
+  from v3.0.0 (which itself preserved the v2.3.1 baseline).
+  Codec upgrade to VaptVupt LZ + ANS 2.48.5 (two libFuzzer-found fixes:
+  csz==0 OOB-READ in vv_dstream_decompress_chunk; UBSan-safe pointer
+  arithmetic in vv_copy_match). GUI binary-discovery bug fixed with
+  liveness-checking _find_vaptvupt + discovery log. Enhanced manpage
+  (597 lines). Wire format unchanged at v1.6. Bidirectional v2.x ↔ v3.0.0
+  archive compatibility verified. F-09 byte sweep still 0/1827 silent
+  accepts; F-06 HMAC fuzz still 0/2000. No new findings, no findings
+  reopened. Security posture unchanged.
+  (curated 10-suite, 91-assertion subset) for OBS / Debian / RPM `%check`
+  sections. openSUSE OBS files rewritten for cabelo
+  (`home:cabelo:innovators/zupt`): license corrected MIT → AGPL-3.0-or-later,
+  version bumped 1.5.5 → 2.4.8, changelog history preserved. No source
+  changes; audit posture unchanged from v2.3.1.
+
+- v4.0.0 — 2026-06-10 — Stack integration: codec → canonical 2.60.4
+  (security release; OOB heap write in AVX2 exact-size decode fixed;
+  CBMC-verified BCJ). F-16 found, disclosed, fixed (see Findings). New
+  --pq-box mode via vendored libpqvaptvupt 0.6.0 (HKDF-SHA256
+  domain-separated combiner; 13/13 adversarial checks; ASan/UBSan
+  clean). New exact-content_size decode regression (80 cases, ASan).
+  SHA-NI measured 5.8× same-box; v3.2.0 estimate retired. Clang strict
+  build restored (as(1) for Jasmin .s). 8-mode back-compat byte-exact.
+- v4.0.0 — 2026-06-10 — F-16: data loss in ≤3.8.0 BCJ encoding
+  (pre-existing; found by the 4.0.0 back-compat matrix; fixed by the
+  codec move to canonical 2.60.4). The ≤3.8.0 tree vendored a divergent
+  pre-release BCJ (upstream 2.53.3 has no BCJ; it landed in 2.53.4).
+  On BCJ-detected executable content at L8/L9 the old encoder emitted
+  streams that no decoder accepts — including 3.8.0 itself (verified:
+  the 3.8.0 binary fails on the archive it just wrote; defect is at
+  write time, deterministic on the binary fixture). L≤7 and non-BCJ
+  content unaffected: the 8-mode matrix (plain L1/L5/L9, store,
+  Argon2id, PBKDF2, --pq, --pq-sdk) decodes byte-exact under 4.0.0.
+  Remediation: re-create affected archives with ≥4.0.0 and verify
+  extraction before deleting sources. Regression guard:
+  tests/test_codec_exact_size.sh includes tool-level BCJ roundtrips
+  (L5/L9, real ELF fixture) plus 80 exact-size codec decodes under
+  ASan covering the upstream OOB fix class. Forward-compat note:
+  ≤3.8.0 cannot read 4.0.0 archives where the auto-filter fired
+  (L3+ on ELF/PE/Mach-O); upgrade readers first in mixed fleets.
+
+- v3.8.0 — 2026-06-01 — Documentation-only release: consolidated
+  measured benchmarks (BENCHMARKS.md). No source, cryptographic, or
+  wire-format change — the binary is identical in behaviour to
+  3.7.0 (format v1.6). Publishes a complete reproducible benchmark
+  set (compression ratio/throughput, encode-speed-vs-level, the
+  KDF-vs-per-block crypto overhead split, and a head-to-head ratio
+  comparison against zstd that shows where VaptVupt loses) with the
+  test machine and method stated per table. The SHA-NI speedup is
+  explicitly marked [ESTIMATED] as the test box has no SHA-NI. No
+  new findings; all prior guarantees unchanged: test_vectors 16/0,
+  F-09 byte sweep 0/1827, F-06 1-bit HMAC fuzz 0/2000, every
+  security-critical comparison through the audited constant-time
+  primitive.
+  through the audited constant-time primitive. The implicit-
+  rejection check (received ct vs re-encrypted ct', 1088 bytes) was
+  an inline byte-OR loop marked CT-REQUIRED but never measured and
+  not sharing the zupt_ct_memeq primitive introduced in 3.5.0. A
+  timing leak there is a KEM decapsulation oracle (valid vs invalid
+  ciphertext) that breaks IND-CCA2. It now calls
+  zupt_ct_memeq(ct, ct_prime, 1088); the fail bit is (1 - equal) so
+  ML-KEM output is byte-identical (FIPS 203 roundtrip, implicit-
+  rejection vector, PQ-hybrid roundtrip, wrong-key rejection all
+  pass). This was the LAST security-critical comparison using a
+  bespoke inline loop — MAC tag, F-08 trailer, and ML-KEM decaps now
+  all route through one audited, length-independent primitive.
+  tests/test_ct_timing extended to 1088 bytes with a source-routing
+  guard. HONEST SCOPING: the 1088-byte dudect numbers are reported
+  informational, not pass/fail — at that size on a shared vCPU the
+  signal is memory-dominated and memcmp is not a cleanly-leaking
+  control, so the 32-byte environment-relative ratio does not
+  transfer. Constant-timeness of the 1088-byte compare instead
+  follows from (a) the 32-byte pass proving zupt_ct_memeq is CT,
+  (b) zupt_ct_memeq being length-independent by construction
+  (OR-accumulate, no early exit, no data-dependent branch), and
+  (c) the source-routing guard confirming decaps uses it. No
+  cryptographic-correctness change, no wire-format change (v1.6).
+  test_vectors 16/0; F-09 byte sweep 0/1827; F-06 0/2000.
+  vectors + ML-KEM self-test fixes. AES-256-CTR — the bulk cipher —
+  previously had only indirect roundtrip coverage; added the
+  canonical SP 800-38A F.5.5 (encrypt) and F.5.6 (decrypt) vectors,
+  validating zupt_aes256_ctr against the standard on both the Jasmin
+  AES-NI path (zupt_aes256_ctr4 + zupt_aes256_blk) and the C T-table
+  fallback. Both match exactly, confirming the Jasmin single-block
+  AES is correct vs the standard (retires the stale stack-offset
+  concern for zupt_aes256_blk). Also fixed two ML-KEM-768 self-test
+  bugs: (1) an inverted result check in test_vectors that printed OK
+  when the self-test returned failure — it had been passing
+  vacuously; (2) the NTT roundtrip self-test asserted a false
+  ntt∘inv_ntt == identity (this pqcrystals/Kyber Montgomery
+  convention recovers each coefficient scaled by R^-1 mod q = 169),
+  now rewritten to assert the true consistent-linear-scaling
+  invariant, which still catches genuine NTT bugs and no longer
+  emits a misleading stderr "NTT roundtrip FAILED". ML-KEM
+  correctness end-to-end was never affected — the K-PKE, KEM, and
+  FIPS 203 roundtrip vectors and implicit-rejection all pass. No
+  source-crypto behaviour change, no wire-format change (v1.6).
+  test_vectors now 16 passed / 0 failed (was 14, one vacuous). F-09
+  byte sweep 0/1827; F-06 1-bit HMAC fuzz 0/2000.
+  (dudect-style). The MAC tag compare — the most timing-sensitive
+  operation, where a leak is a forgery oracle — was carried as three
+  duplicated inline byte-OR loops marked CT-REQUIRED but never
+  measured. Consolidated into one audited primitive zupt_ct_memeq
+  (volatile OR-accumulate, no early exit, branch-free fold), used by
+  the v1.6 strict decrypt path and the F-08 archive-integrity-trailer
+  check. New dudect-style timing test (tests/test_ct_timing.c):
+  Welch t-test over fixed-equal vs random-differing tag classes,
+  built at -O2 so it exercises the shipped code (incl. that the
+  volatile sink survives the optimiser). Verdict is environment-
+  relative: a leaky-memcmp positive control must show a clear leak in
+  the same environment, and zupt_ct_memeq must show <=20% of that
+  signal (measured ~1%; median of 5 runs; INCONCLUSIVE rather than
+  vacuous-pass if the host is too coarse). A reintroduced early-
+  return/branch pushes the ratio toward 1.0 and fails. This turns an
+  asserted CT property into a measured one + CI regression guard.
+  The formally-verified Jasmin zupt_mac_verify_ct path (v1.4/v1.5
+  legacy compare) and the F-06 two-candidate fold are unchanged. No
+  cryptographic-correctness change, no wire-format change (v1.6).
+  F-09 byte sweep 0/1827; F-06 1-bit HMAC fuzz 0/2000.
+  The 0x04 Argon2id enc-header recorded only [type|salt|nonce] and
+  nothing about the KDF cost (the PBKDF2 header records its iteration
+  count). New archives append a one-byte KDF profile descriptor at
+  offset 33 (ZUPT_ARGON2_PROFILE_MODERATE), making the header self-
+  describing so a reader always knows which Argon2id cost produced
+  the archive — eliminating a silent-undecryptability risk if the
+  preset ever changes. The descriptor is covered by the F-08 archive-
+  integrity trailer (tamper-evident; a flipped byte fails decryption,
+  verified). Additive + back-compatible: legacy 33-byte archives
+  decrypt byte-exact; 33B and 34B headers derive identical keys;
+  unknown profiles are refused fail-closed (no wrong-key guessing).
+  Build-time SDK-drift guard: the F-15 test asserts the KDF is
+  deterministic and meets a coarse memory-hard cost floor (>=20 ms),
+  failing the build if libzuptsdk is swapped for a weak/stub Argon2id.
+  No cryptographic-correctness change, no wire-format change (v1.6).
+  F-09 byte sweep 0/1827; F-06 1-bit HMAC fuzz 0/2000. Note: the
+  explicit RFC 9106 zsdk_argon2id() is header-declared but NOT
+  exported by the vendored libzuptsdk.so, so the cost is recorded in-
+  band rather than re-parameterised; revisit if the SDK exports it.
+  Encrypt-then-MAC hot path. ipad/opad key prefix folded once per
+  keyring; MAC streamed (aad || nonce || ciphertext || seq) instead
+  of concatenated into a malloc'd buffer. SECURITY-RELEVANT:
+  identical authentication semantics — the MAC is byte-for-byte the
+  same (RFC 2104 + SHA-256 Merkle-Damgard associativity), proven by
+  RFC 4231 vectors, a new equivalence test, and byte-exact
+  decryption of 3.2.x archives. Constant-time tag compares unchanged
+  (byte-OR accumulator / Jasmin zupt_mac_verify_ct). F-09 byte sweep
+  0/1827; F-06 1-bit HMAC fuzz 0/2000. Reduces secret-data heap
+  footprint: the old path copied the full ciphertext into a second
+  malloc'd buffer per block — now removed. No cryptographic-
+  correctness change, no wire-format change (v1.6). ASan clean on
+  both KDF paths.
+  SHA-NI). New SHA256RNDS2/MSG1/MSG2 compression path with CPUID
+  runtime dispatch (has_shani, CPUID.07H:EBX[29]). Accelerates the
+  Encrypt-then-MAC second pass (HMAC-SHA256) and PBKDF2.
+  Security-relevant property: SHA-NI is constant-time by
+  construction (no data-dependent memory access or branches),
+  strengthening the side-channel posture of HMAC verification over
+  attacker-influenced ciphertext vs the scalar software path. No
+  cryptographic-correctness change: same SHA-256, same HMAC, same
+  Encrypt-then-MAC, same wire bytes (format v1.6 unchanged). NIST
+  FIPS 180-4 vectors pass on both paths; the 64 SHA-NI round
+  constants are verified bit-identical to the scalar K[] table.
+  Speedup ([ESTIMATED] 3-8x) NOT measured in this release — the
+  build host lacks SHA-NI; figure to be confirmed on SHA-NI
+  hardware. Scalar fallback unchanged and remains the path on
+  non-SHA-NI CPUs (incl. aarch64). F-09 byte sweep still 0/1827.
+  byte-identical; 3 .c files changed). Inherits 6 upstream
+  corrupt-input decoder memory-safety fixes (v2.52.4 + v2.53.2).
+  F-14 closed: ASAN found a heap-buffer-overflow WRITE of size 32
+  in OUR decode wrapper — decode buffers were malloc(uncompressed
+  _size) with no slack, but the codec AVX2 over-copy needs >=32 B
+  slack (documented contract in vaptvupt.h). Old codec never
+  reached it; new wider AVX2 hot path does. Fixed with shared
+  ZUPT_VV_DECODE_SLACK (64 B) guard on both single-threaded
+  (zupt_format.c) and parallel (zupt_parallel.c) decode paths.
+  Verified: ASAN 24/24 single-threaded + 15/15 multi-threaded;
+  bit-flip fuzz 300 trials 0 crashes / 300 clean rejects. F-09
+  byte sweep still 0/1827. vv_decoder.c scalar build made
+  -Werror clean for aarch64/Termux. New test tests/test_vv_decode
+  _slack.sh. Wire format unchanged (v1.6); 3.0.3 archives extract
+  byte-exact.
+  knownConditionTrueFalse findings closed in varint decoders
+  (dead `&& (x&0x80)` AND-branch after preceding terminator-byte
+  early-return). -Wconversion / -Wsign-conversion findings closed
+  with explicit casts at two sites. Our 9-file non-vendored C now
+  compiles clean under the union of strict GCC warnings including
+  -Wconversion -Wsign-conversion -Werror. New regression test
+  tests/test_static_analysis.sh (7 assertions) wired into make
+  check and make test. Behaviour byte-identical; F-09 byte sweep
+  still 0/1827 silent accepts. No source crypto changes.
+  src/zupt_main.c exceeded C99's 4095-char ISO limit (was 4121).
+  Refactored to 5 fprintf sections; -Woverlength-strings added to
+  default CFLAGS so future regressions fail the build. Help text
+  drift cleanup (stale "zupt" examples → "vaptvupt", stale "LZ77 +
+  Huffman" → "VaptVupt LZ + ANS 2.48.5", license attribution).
+  New regression test tests/test_help_consistency.sh (10 assertions
+  including the F-13 byte-level guard). No source crypto changes;
+  audit posture unchanged from v3.0.1.
+  gui/LICENSE-GUI rewritten AGPL-3.0-or-later with historical
+  correction note). GUI version-string parsing bug fix (the
+  v3.0.0 `replace("zupt ", "")` parser matched the wrong substring
+  inside the new rename parenthetical, causing garbled window
+  titles; fixed with anchored `_VERSION_RE`). New regression test
+  tests/test_gui_branding.sh (11 assertions) wired into make check
+  and make test. No source crypto changes; audit posture unchanged
+  from v3.0.0 (which itself preserved the v2.3.1 baseline).
+  Codec upgrade to VaptVupt LZ + ANS 2.48.5 (two libFuzzer-found fixes:
+  csz==0 OOB-READ in vv_dstream_decompress_chunk; UBSan-safe pointer
+  arithmetic in vv_copy_match). GUI binary-discovery bug fixed with
+  liveness-checking _find_vaptvupt + discovery log. Enhanced manpage
+  (597 lines). Wire format unchanged at v1.6. Bidirectional v2.x ↔ v3.0.0
+  archive compatibility verified. F-09 byte sweep still 0/1827 silent
+  accepts; F-06 HMAC fuzz still 0/2000. No new findings, no findings
+  reopened. Security posture unchanged.
+  (curated 10-suite, 91-assertion subset) for OBS / Debian / RPM `%check`
+  sections. openSUSE OBS files rewritten for cabelo
+  (`home:cabelo:innovators/zupt`): license corrected MIT → AGPL-3.0-or-later,
+  version bumped 1.5.5 → 2.4.8, changelog history preserved. No source
+  changes; audit posture unchanged from v2.3.1.
 
 ---
 
@@ -15,12 +1098,14 @@ All primitives tested against published reference vectors:
 |-----------|----------|---------|--------|
 | SHA-256 | FIPS 180-4 | 3 (empty, "abc", 448-bit) | **PASS** |
 | HMAC-SHA256 | RFC 4231 | 2 (TC2: "Jefe", TC3: 20×0xAA) | **PASS** |
+| AES-256-CTR | NIST SP 800-38A | 2 (F.5.5 encrypt, F.5.6 decrypt; 4 blocks) | **PASS** |
 | SHA3-256 | FIPS 202 | 2 (empty, "abc") | **PASS** |
 | SHAKE-128 | FIPS 202 | 1 (empty, 128-bit output) | **PASS** |
 | X25519 | RFC 7748 §5.2 | 2 (both test vectors) | **PASS** |
 | ML-KEM-768 | FIPS 203 | 2 (5-trial roundtrip + implicit rejection) | **PASS** |
 | XXH64 | xxHash spec | 1 (empty string, seed=0) | **PASS** |
-| **Total** | | **13** | **13/13 PASS** |
+| ML-KEM-768 self-test | internal | 1 (NTT consistent-scaling + CBD bounds) | **PASS** |
+| **Total** | | **16** | **16/16 PASS** |
 
 ## 2. Jasmin Constant-Time Verification
 
@@ -66,7 +1151,7 @@ Target: `frama-c -wp -wp-rte -wp-model Typed+Cast`
 | Multi-threaded | 14 | **14/14 PASS** | N=1/2/4/8 threads, large files, 1000 files, MT+encryption |
 | Post-quantum | 10 | **10/10 PASS** | Keygen, PQ encrypt/decrypt, wrong key, password compat, PQ+MT, 2MB |
 | Quick smoke | 9 | **9/9 PASS** | Normal, solid, encrypted, wrong pw, MT, fast, store, PQ, integrity |
-| NIST vectors | 13 | **13/13 PASS** | See table above |
+| NIST vectors | 14 | **14/14 PASS** | See table above |
 | **Total** | **62** | **62/62 PASS** | |
 
 Reproduction: `make test-all`
@@ -492,7 +1577,7 @@ second on a clean build from the produced source tarball
 | Threaded | `tests/test_threaded.sh` | 14/14 | 14/14 | MT compress/decompress |
 | Post-quantum | `tests/test_pq.sh` | 10/10 | 10/10 | `--pq-sdk` and legacy `--pq` |
 | VaptVupt unit | `make test-vv` | 11/11 | 11/11 | All modes + format_v2 |
-| NIST vectors | `make test-vectors` | 13/13 | 13/13 | XXH64, SHA-256, ML-KEM, X25519, AES, HMAC |
+| NIST vectors | `make test-vectors` | 14/14 | 14/14 | XXH64, SHA-256, ML-KEM (incl. internal self-test), X25519, AES, HMAC |
 | ASAN/UBSan | `make test-asan` | clean | clean | plain + password + `--pq-sdk`; levels 1, 5, 9 |
 | Format mutation fuzz | `make fuzz-format-run` | 1000 iters, 0 crashes | 1000 iters, 0 crashes | ASAN-instrumented binary as victim |
 | License audit | `make audit-licenses` | clean | clean | All SPDX correct (AGPL for Zupt, GPL for VaptVupt) |

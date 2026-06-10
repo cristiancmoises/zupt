@@ -5,39 +5,41 @@
 set -e
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.1.1}"
+VERSION="${VERSION:-1.2.0}"
 ARCH="all"
-PKG="zupt-gui_${VERSION}_${ARCH}"
+PKG="vaptvupt-gui_${VERSION}_${ARCH}"
 ROOT="/tmp/$PKG"
 
 rm -rf "$ROOT"
 mkdir -p "$ROOT/DEBIAN" \
          "$ROOT/usr/bin" \
-         "$ROOT/usr/lib/zupt-gui" \
+         "$ROOT/usr/lib/vaptvupt-gui" \
          "$ROOT/usr/share/applications" \
          "$ROOT/usr/share/icons/hicolor/256x256/apps" \
          "$ROOT/usr/share/man/man1" \
-         "$ROOT/usr/share/doc/zupt-gui"
+         "$ROOT/usr/share/doc/vaptvupt-gui"
 
 # Source files
-install -m 644 gui/src/zupt_gui.py "$ROOT/usr/lib/zupt-gui/"
+install -m 644 gui/src/zupt_gui.py "$ROOT/usr/lib/vaptvupt-gui/"
 
 # Wrapper script in /usr/bin
-cat > "$ROOT/usr/bin/zupt-gui" <<'WRAP'
+cat > "$ROOT/usr/bin/vaptvupt-gui" <<'WRAP'
 #!/bin/sh
-exec python3 /usr/lib/zupt-gui/zupt_gui.py "$@"
+exec python3 /usr/lib/vaptvupt-gui/zupt_gui.py "$@"
 WRAP
-chmod 755 "$ROOT/usr/bin/zupt-gui"
+chmod 755 "$ROOT/usr/bin/vaptvupt-gui"
+# v3.0.0: legacy zupt-gui symlink
+ln -sf vaptvupt-gui "$ROOT/usr/bin/zupt-gui"
 
 # Desktop entry
-cat > "$ROOT/usr/share/applications/zupt-gui.desktop" <<'DESKTOP'
+cat > "$ROOT/usr/share/applications/vaptvupt-gui.desktop" <<'DESKTOP'
 [Desktop Entry]
 Type=Application
-Name=Zupt GUI
+Name=VaptVupt GUI
 GenericName=Backup and Compression Utility
 Comment=Post-quantum backup with HKDF combiner, key commitment, HPKE binding
-Exec=zupt-gui %f
-Icon=zupt-gui
+Exec=vaptvupt-gui %f
+Icon=vaptvupt-gui
 Terminal=false
 Categories=Utility;Archiving;Compression;Security;
 StartupNotify=true
@@ -46,14 +48,14 @@ Keywords=archive;compression;encryption;post-quantum;backup;
 DESKTOP
 
 # Man page
-if [ -f doc/zupt-gui.1 ]; then
-    install -m 644 doc/zupt-gui.1 "$ROOT/usr/share/man/man1/zupt-gui.1"
-    gzip -9n "$ROOT/usr/share/man/man1/zupt-gui.1"
+if [ -f doc/vaptvupt-gui.1 ]; then
+    install -m 644 doc/vaptvupt-gui.1 "$ROOT/usr/share/man/man1/vaptvupt-gui.1"
+    gzip -9n "$ROOT/usr/share/man/man1/vaptvupt-gui.1"
 fi
 
 # Icon
 if [ -f gui/assets/zupt-icon.png ]; then
-    cp gui/assets/zupt-icon.png "$ROOT/usr/share/icons/hicolor/256x256/apps/zupt-gui.png"
+    cp gui/assets/zupt-icon.png "$ROOT/usr/share/icons/hicolor/256x256/apps/vaptvupt-gui.png"
 else
     python3 -c "
 import struct, zlib
@@ -66,12 +68,12 @@ open('$ROOT/usr/share/icons/hicolor/256x256/apps/zupt-gui.png','wb').write(png(2
 fi
 
 # Docs
-install -m 644 gui/README.md "$ROOT/usr/share/doc/zupt-gui/" 2>/dev/null || true
-gzip -9n -c CHANGELOG.md > "$ROOT/usr/share/doc/zupt-gui/changelog.gz"
+install -m 644 gui/README.md "$ROOT/usr/share/doc/vaptvupt-gui/" 2>/dev/null || true
+gzip -9n -c CHANGELOG.md > "$ROOT/usr/share/doc/vaptvupt-gui/changelog.gz"
 
-cat > "$ROOT/usr/share/doc/zupt-gui/copyright" <<'COPYRIGHT'
+cat > "$ROOT/usr/share/doc/vaptvupt-gui/copyright" <<'COPYRIGHT'
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: zupt-gui
+Upstream-Name: vaptvupt-gui
 Upstream-Contact: Cristian Cezar Moisés <zupt@riseup.net>
 Source: https://git.securityops.co/cristiancmoises/zupt
 
@@ -90,17 +92,20 @@ COPYRIGHT
 # Control
 INSTALLED_SIZE=$(du -sk "$ROOT" | cut -f1)
 cat > "$ROOT/DEBIAN/control" <<EOF
-Package: zupt-gui
+Package: vaptvupt-gui
 Version: $VERSION
 Section: utils
 Priority: optional
 Architecture: $ARCH
-Depends: python3 (>= 3.9), python3-pyqt6 | python3-pyside6, zupt (>= 2.2.3)
+Depends: python3 (>= 3.9), python3-pyqt6 | python3-pyside6, vaptvupt (>= 3.0.0) | zupt (>= 2.2.3)
+Provides: zupt-gui (= ${VERSION})
+Replaces: zupt-gui (<< 1.2.0)
+Conflicts: zupt-gui (<< 1.2.0)
 Maintainer: Cristian Cezar Moisés <zupt@riseup.net>
 Installed-Size: $INSTALLED_SIZE
 Homepage: https://git.securityops.co/cristiancmoises/zupt
-Description: Graphical interface for the Zupt post-quantum backup utility
- PySide6/PyQt6 frontend for Zupt. Supports compression, extraction, key
+Description: Graphical interface for VaptVupt post-quantum backup utility
+ PySide6/PyQt6 frontend for VaptVupt (formerly zupt-gui in 1.x). Supports compression, extraction, key
  management, and full disk backup/restore. Exposes both legacy --pq
  and new --pq-sdk (libzuptsdk: HKDF combiner, key commitment, HPKE
  binding, Argon2id) encryption modes.
@@ -125,7 +130,7 @@ if ! python3 -c 'import PyQt6.QtWidgets' 2>/dev/null \
     cat << 'MSG'
 
 ──────────────────────────────────────────────────────────────────────
-zupt-gui installed, but no Qt6 Python binding is available.
+vaptvupt-gui installed, but no Qt6 Python binding is available.
 
 Install one of the following to enable the GUI:
 
@@ -134,20 +139,20 @@ Install one of the following to enable the GUI:
   Arch/Manjaro:         sudo pacman -S python-pyqt6
   pip (any distro):     pip install --user PySide6
 
-After installing the binding, launch with:   zupt-gui
+After installing the binding, launch with:   vaptvupt-gui
 ──────────────────────────────────────────────────────────────────────
 
 MSG
 fi
 
 # Same friendly warning if zupt CLI not installed.
-if ! command -v zupt >/dev/null 2>&1; then
+if ! command -v vaptvupt >/dev/null 2>&1 && ! command -v zupt >/dev/null 2>&1; then
     cat << 'MSG'
 
 ──────────────────────────────────────────────────────────────────────
-zupt-gui needs the 'zupt' CLI to function. Install it:
+vaptvupt-gui needs the 'vaptvupt' CLI to function. Install it:
 
-  Debian/Ubuntu/Mint:   sudo dpkg -i zupt_2.2.3_amd64.deb
+  Debian/Ubuntu/Mint:   sudo dpkg -i vaptvupt_3.0.0_amd64.deb
                         (followed by: sudo apt --fix-broken install)
 ──────────────────────────────────────────────────────────────────────
 

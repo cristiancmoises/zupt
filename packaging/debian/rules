@@ -1,0 +1,37 @@
+#!/usr/bin/make -f
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# Honour Debian's reproducible-build epoch when set by dpkg-buildpackage.
+export SOURCE_DATE_EPOCH ?= 1747699200
+
+# Hardening flags — Debian's defaults are already strong, this adds project-
+# specific ones.
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CFLAGS_MAINT_APPEND = -Wall -Wextra -Wpedantic
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(MAKE) -j$$(nproc)
+
+override_dh_auto_test:
+	# Project's own regression suite covers F-06..F-12.
+	$(MAKE) test
+
+override_dh_auto_install:
+	$(MAKE) DESTDIR=$(CURDIR)/debian/zupt PREFIX=/usr install
+	# Vendored libzuptsdk goes alongside the binary at a relative rpath.
+	install -d $(CURDIR)/debian/zupt/usr/lib/zupt
+	install -m 0755 vendor/zuptsdk/libzuptsdk.so.2.0.0 \
+		$(CURDIR)/debian/zupt/usr/lib/zupt/libzuptsdk.so.2.0.0
+	ln -sf libzuptsdk.so.2.0.0 $(CURDIR)/debian/zupt/usr/lib/zupt/libzuptsdk.so.2
+	ln -sf libzuptsdk.so.2.0.0 $(CURDIR)/debian/zupt/usr/lib/zupt/libzuptsdk.so
+
+override_dh_auto_clean:
+	$(MAKE) clean
+
+# Skip dh_strip's separate -dbgsym packages for a single-source-package layout.
+override_dh_strip:
+	dh_strip --no-automatic-dbgsym

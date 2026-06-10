@@ -23,6 +23,18 @@
 #ifndef _WIN32
 #include <fcntl.h>
 #include <unistd.h>
+
+/* F-08 of v2.3.0: forward decls — definitions are below read_block(), but the
+ * compress write paths at zupt_compress_files()/_solid() and disk-restore at
+ * zupt_disk.c need to see ait_write/ait_verify_extern. The extern decl in
+ * zupt_disk.c mirrors zupt_format_ait_verify_extern's signature. */
+int zupt_format_ait_write(FILE *f, const zupt_archive_header_t *hdr,
+                          const zupt_footer_t *ft,
+                          const zupt_keyring_t *kr_or_null);
+zupt_error_t zupt_format_ait_verify_extern(const zupt_archive_header_t *hdr,
+                                           const zupt_footer_t *ft,
+                                           const uint8_t ait[ZUPT_AIT_SIZE],
+                                           const zupt_keyring_t *kr_or_null);
 #endif
 
 #ifdef _WIN32
@@ -34,6 +46,9 @@
 /* ═══════════════════════════════════════════════════════════════════
  * UTILITY
  * ═══════════════════════════════════════════════════════════════════ */
+
+/* ZUPT_VV_DECODE_SLACK (SIMD decode over-copy guard) is defined in
+ * zupt.h so both this file and zupt_parallel.c share one definition. */
 
 const char *zupt_strerror(zupt_error_t e) {
     switch (e) {
@@ -147,10 +162,13 @@ int zupt_decode_varint(const uint8_t *b, size_t blen, uint64_t *v) {
         uint64_t x=b[n];
         *v|=(x&0x7F)<<s;
         n++;
-        if(!(x&0x80))return n;
+        if(!(x&0x80))return n;        /* terminator byte — done */
         s+=7;
-        /* Reject continuation past 64 bits — same defense as file variant */
-        if(s>=64 && (x&0x80))return -1;
+        /* Invariant: control flow reaches here only with x&0x80 set
+         * (the !(x&0x80) check above returned otherwise). The 10-byte
+         * loop bound + 7-bit shift means s >= 64 means an 11th byte
+         * would be needed, which we refuse. */
+        if(s>=64) return -1;
     }
     return -1;
 }
@@ -159,9 +177,15 @@ int zupt_write_varint(FILE *f, uint64_t v) {
 }
 int zupt_read_varint(FILE *f, uint64_t *v) {
     *v=0; int s=0;
-    for(int i=0;i<10;i++){int c=fgetc(f);if(c==EOF)return -1;
-    *v|=(uint64_t)(c&0x7F)<<s;if(!(c&0x80))return i+1;s+=7;
-    if(s>=64 && (c&0x80))return -1;} return -1;
+    for(int i=0;i<10;i++){
+        int c=fgetc(f); if(c==EOF) return -1;
+        *v|=(uint64_t)(c&0x7F)<<s;
+        if(!(c&0x80)) return i+1;     /* terminator byte — done */
+        s+=7;
+        /* Same invariant as zupt_decode_varint: only reached with c&0x80 set. */
+        if(s>=64) return -1;
+    }
+    return -1;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -295,7 +319,36 @@ zupt_error_t write_enc_header(FILE *out, zupt_archive_header_t *hdr,
                                zupt_options_t *opts) {
     hdr->encryption_header_off = (uint64_t)ftello(out);
 
-    if (opts->sdk_mode && opts->pq_mode) {
+    if (opts->box_mode && opts->pq_mode) {
+        /* ─── PQ-BOX MODE (libpqvaptvupt sealed box: HKDF-SHA256 combiner) ─── */
+        hdr->global_flags |= ZUPT_FLAG_PQ_HYBRID;
+
+        uint8_t enc_hdr_buf[1500];
+        size_t enc_hdr_len = 0;
+        if (!opts->quiet)
+            fprintf(stderr, "  PQ sealed box via libpqvaptvupt (ML-KEM-768 + X25519, HKDF-SHA256)...\n");
+        if (zupt_pqbox_encrypt_init(&opts->keyring, opts->keyfile,
+                                    enc_hdr_buf, &enc_hdr_len) != 0) {
+            fprintf(stderr, "Error: pq-box key encapsulation failed.\n");
+            return ZUPT_ERR_AUTH_FAIL;
+        }
+
+        zupt_w8(out, ZUPT_BLOCK_MAGIC_0); zupt_w8(out, ZUPT_BLOCK_MAGIC_1);
+        zupt_w8(out, ZUPT_BLOCK_ENC_HEADER);
+        zupt_w16le(out, ZUPT_CODEC_STORE); zupt_w16le(out, 0);
+        zupt_write_varint(out, enc_hdr_len);
+        zupt_write_varint(out, enc_hdr_len);
+        zupt_w64le(out, zupt_xxh64(enc_hdr_buf, enc_hdr_len, 0));
+        if (fwrite(enc_hdr_buf, 1, enc_hdr_len, out) != enc_hdr_len)
+            return ZUPT_ERR_IO;
+
+        fseeko(out, 0, SEEK_SET);
+        if (fwrite(hdr, sizeof(*hdr), 1, out) != 1) return ZUPT_ERR_IO;
+        fseeko(out, 0, SEEK_END);
+
+        if (!opts->quiet)
+            fprintf(stderr, "  Encryption: AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)\n\n");
+    } else if (opts->sdk_mode && opts->pq_mode) {
         /* ─── SDK V2 PQ MODE (libzuptsdk: HKDF combiner + commitment + HPKE) ─── */
         hdr->global_flags |= ZUPT_FLAG_PQ_HYBRID;
 
@@ -355,29 +408,63 @@ zupt_error_t write_enc_header(FILE *out, zupt_archive_header_t *hdr,
         if (!opts->quiet)
             fprintf(stderr, "  Encryption: PQ Hybrid (ML-KEM-768 + X25519) + AES-256-CTR + HMAC-SHA256\n\n");
     } else {
-        /* ─── PASSWORD MODE (PBKDF2) ─── */
-        uint8_t salt[ZUPT_SALT_SIZE], nonce[ZUPT_NONCE_SIZE];
-        zupt_random_bytes(salt, ZUPT_SALT_SIZE);
-        zupt_random_bytes(nonce, ZUPT_NONCE_SIZE);
+        /* ─── PASSWORD MODE ───
+         *
+         * v2.4.1+: default to Argon2id (libzuptsdk path, enc_type=0x04).
+         * PBKDF2-SHA256 (enc_type=0x01) is available via --kdf pbkdf2 for
+         * compatibility with v2.4.0 and older readers. Argon2id is the
+         * OWASP recommendation for password KDFs; PBKDF2 with 600k
+         * iterations is fine but lacks the memory-hardness that makes
+         * Argon2id resistant to GPU/ASIC attacks.
+         *
+         * Both paths produce the same downstream keyring (kr->enc_key,
+         * mac_key, base_nonce) and feed the same AES-256-CTR + HMAC-SHA256
+         * + F-09 preface-AAD per-block pipeline. Only the KDF and
+         * enc-header bytes differ. Read-path dispatch on enc_type byte
+         * at offset 0 of the enc-header block already handles both. */
+        if (opts->kdf_legacy_pbkdf2) {
+            uint8_t salt[ZUPT_SALT_SIZE], nonce[ZUPT_NONCE_SIZE];
+            zupt_random_bytes(salt, ZUPT_SALT_SIZE);
+            zupt_random_bytes(nonce, ZUPT_NONCE_SIZE);
 
-        if (!opts->quiet)
-            fprintf(stderr, "  Deriving encryption key (PBKDF2-SHA256, %d iterations)...\n",
-                    ZUPT_KDF_ITERATIONS);
-        zupt_derive_keys(&opts->keyring, opts->password, salt, nonce, ZUPT_KDF_ITERATIONS);
+            if (!opts->quiet)
+                fprintf(stderr, "  Deriving encryption key (PBKDF2-SHA256, %d iterations, --kdf pbkdf2 legacy)...\n",
+                        ZUPT_KDF_ITERATIONS);
+            zupt_derive_keys(&opts->keyring, opts->password, salt, nonce, ZUPT_KDF_ITERATIONS);
 
-        uint8_t enc_hdr[53];
-        enc_hdr[0] = ZUPT_ENC_PBKDF2;
-        memcpy(enc_hdr + 1, salt, 32);
-        memcpy(enc_hdr + 33, nonce, 16);
-        uint32_t iter = ZUPT_KDF_ITERATIONS;
-        memcpy(enc_hdr + 49, &iter, 4);
+            uint8_t enc_hdr[53];
+            enc_hdr[0] = ZUPT_ENC_PBKDF2;
+            memcpy(enc_hdr + 1, salt, 32);
+            memcpy(enc_hdr + 33, nonce, 16);
+            uint32_t iter = ZUPT_KDF_ITERATIONS;
+            memcpy(enc_hdr + 49, &iter, 4);
 
-        zupt_w8(out, ZUPT_BLOCK_MAGIC_0); zupt_w8(out, ZUPT_BLOCK_MAGIC_1);
-        zupt_w8(out, ZUPT_BLOCK_ENC_HEADER);
-        zupt_w16le(out, ZUPT_CODEC_STORE); zupt_w16le(out, 0);
-        zupt_write_varint(out, 53); zupt_write_varint(out, 53);
-        zupt_w64le(out, zupt_xxh64(enc_hdr, 53, 0));
-        if (fwrite(enc_hdr, 1, 53, out) != 53) return ZUPT_ERR_IO;
+            zupt_w8(out, ZUPT_BLOCK_MAGIC_0); zupt_w8(out, ZUPT_BLOCK_MAGIC_1);
+            zupt_w8(out, ZUPT_BLOCK_ENC_HEADER);
+            zupt_w16le(out, ZUPT_CODEC_STORE); zupt_w16le(out, 0);
+            zupt_write_varint(out, 53); zupt_write_varint(out, 53);
+            zupt_w64le(out, zupt_xxh64(enc_hdr, 53, 0));
+            if (fwrite(enc_hdr, 1, 53, out) != 53) return ZUPT_ERR_IO;
+        } else {
+            /* Argon2id default (v2.4.1+) */
+            uint8_t enc_hdr[33];
+            size_t enc_hdr_len = 0;
+            if (!opts->quiet)
+                fprintf(stderr, "  Deriving encryption key (Argon2id, libzuptsdk)...\n");
+            if (zupt_sdk_password_encrypt_init(&opts->keyring, opts->password,
+                                               enc_hdr, &enc_hdr_len) != 0) {
+                fprintf(stderr, "Error: Argon2id key derivation failed.\n"
+                                "       Pass --kdf pbkdf2 to fall back to PBKDF2-SHA256.\n");
+                return ZUPT_ERR_AUTH_FAIL;
+            }
+
+            zupt_w8(out, ZUPT_BLOCK_MAGIC_0); zupt_w8(out, ZUPT_BLOCK_MAGIC_1);
+            zupt_w8(out, ZUPT_BLOCK_ENC_HEADER);
+            zupt_w16le(out, ZUPT_CODEC_STORE); zupt_w16le(out, 0);
+            zupt_write_varint(out, enc_hdr_len); zupt_write_varint(out, enc_hdr_len);
+            zupt_w64le(out, zupt_xxh64(enc_hdr, enc_hdr_len, 0));
+            if (fwrite(enc_hdr, 1, enc_hdr_len, out) != enc_hdr_len) return ZUPT_ERR_IO;
+        }
 
         fseeko(out, 0, SEEK_SET);
         if (fwrite(hdr, sizeof(*hdr), 1, out) != 1) return ZUPT_ERR_IO;
@@ -484,6 +571,50 @@ static uint64_t get_mtime(const char *path) {
 }
 
 /* Safe ftello wrapper: returns 0 on error (caller should check context) */
+/* F-09 of v2.3.1: serialize the canonical per-block frame preface for use as
+ * extended-AAD input to the per-block MAC. Format is fixed-width little-endian
+ * (NOT the on-disk varint encoding — varints are non-canonical, two encodings
+ * of the same logical value would produce different MACs and either break
+ * roundtrip or open a malleability window).
+ *
+ * Layout: block_type (1B) || codec_id (2B LE) || block_flags (2B LE)
+ *      || uncompressed_size (8B LE) || compressed_size (8B LE)
+ *      || plaintext_checksum (8B LE)
+ *      = 29 bytes
+ *
+ * Excludes block_magic (constant `bb 01`, structurally rejected by read_block
+ * if tampered) and the AES nonce (already part of the existing MAC input). */
+#define ZUPT_PREFACE_AAD_LEN 29
+static void zupt_serialize_preface_aad(const zupt_block_t *b, uint8_t out[ZUPT_PREFACE_AAD_LEN]) {
+    out[0] = (uint8_t)b->block_type;
+    out[1] = (uint8_t)(b->codec_id & 0xFF);
+    out[2] = (uint8_t)((b->codec_id >> 8) & 0xFF);
+    out[3] = (uint8_t)(b->block_flags & 0xFF);
+    out[4] = (uint8_t)((b->block_flags >> 8) & 0xFF);
+    for (int i = 0; i < 8; i++) out[5 + i]  = (uint8_t)(b->uncompressed_size >> (i * 8));
+    for (int i = 0; i < 8; i++) out[13 + i] = (uint8_t)(b->compressed_size   >> (i * 8));
+    for (int i = 0; i < 8; i++) out[21 + i] = (uint8_t)(b->checksum          >> (i * 8));
+}
+
+/* Write-side variant: build the canonical preface AAD from raw scalars
+ * known at MAC time but before the block struct exists. Same byte layout
+ * as zupt_serialize_preface_aad — both sides must produce identical bytes
+ * for the same logical block, or the roundtrip MAC won't match. */
+static void zupt_serialize_preface_aad_scalars(
+    uint8_t block_type, uint16_t codec_id, uint16_t block_flags,
+    uint64_t uncompressed_size, uint64_t compressed_size, uint64_t checksum,
+    uint8_t out[ZUPT_PREFACE_AAD_LEN])
+{
+    out[0] = block_type;
+    out[1] = (uint8_t)(codec_id & 0xFF);
+    out[2] = (uint8_t)((codec_id >> 8) & 0xFF);
+    out[3] = (uint8_t)(block_flags & 0xFF);
+    out[4] = (uint8_t)((block_flags >> 8) & 0xFF);
+    for (int i = 0; i < 8; i++) out[5 + i]  = (uint8_t)(uncompressed_size >> (i * 8));
+    for (int i = 0; i < 8; i++) out[13 + i] = (uint8_t)(compressed_size   >> (i * 8));
+    for (int i = 0; i < 8; i++) out[21 + i] = (uint8_t)(checksum          >> (i * 8));
+}
+
 static uint64_t safe_ftello(FILE *f) {
     int64_t pos = ftello(f);
     if (pos < 0) return 0;
@@ -513,6 +644,88 @@ static uint32_t index_get_u32(const uint8_t *buf) {
  * COMPRESSION
  * ═══════════════════════════════════════════════════════════════════ */
 
+/* F-12 of v2.4.3: write an optional comment block to the archive between
+ * the data blocks and the central index. Stores plaintext UTF-8 text
+ * (max ZUPT_MAX_COMMENT_LEN bytes) under a new block type
+ * ZUPT_BLOCK_COMMENT. Encrypted archives use the same per-block AEAD
+ * pipeline as data blocks (AES-256-CTR + HMAC-SHA256 + v1.6 preface-AAD
+ * if use_preface_aad is set). aad_seq is the sentinel 0xFFFF...FFFE,
+ * one less than the index block's 0xFFFF...FFFF, so it cannot collide
+ * with file-block AAD seqs (which are bounded above by 0xFFFFFFFF00000000
+ * since they encode (fi+1, block_seq) in the upper/lower 32-bit halves).
+ *
+ * The caller must:
+ *   1. Have written all data blocks already.
+ *   2. Have computed `hdr` in memory but not committed comment_offset yet.
+ *   3. Call this; on return, hdr->comment_offset is set and one extra
+ *      block has been written to disk.
+ *   4. Rewrite the archive header on disk (offset 0) so subsequent AIT
+ *      computation matches what's on disk.
+ *
+ * Returns ZUPT_OK on success, an error code on I/O or crypto failure.
+ * If !opts->has_comment, this is a no-op (hdr->comment_offset stays 0).
+ */
+#define ZUPT_COMMENT_AAD_SEQ 0xFFFFFFFFFFFFFFFEULL
+static zupt_error_t write_comment_block(FILE *out, zupt_archive_header_t *hdr,
+                                         zupt_options_t *opts,
+                                         uint64_t *total_blocks) {
+    if (!opts->has_comment) return ZUPT_OK;
+
+    size_t clen = strnlen(opts->comment, ZUPT_MAX_COMMENT_LEN);
+    if (clen == 0) {
+        /* Empty comment string: treat as not-supplied. */
+        return ZUPT_OK;
+    }
+
+    uint64_t comment_off = (uint64_t)ftello(out);
+    uint64_t cksum = zupt_xxh64(opts->comment, clen, 0);
+
+    const uint8_t *payload = (const uint8_t *)opts->comment;
+    uint64_t payload_size = clen;
+    uint16_t bflags = 0;
+    uint8_t *enc_payload = NULL;
+
+    if (opts->encrypt && opts->keyring.active) {
+        size_t enc_len;
+        if (opts->keyring.use_preface_aad) {
+            uint8_t preface[ZUPT_PREFACE_AAD_LEN];
+            uint64_t predicted_csz = 16 + payload_size + 32;
+            zupt_serialize_preface_aad_scalars(
+                ZUPT_BLOCK_COMMENT, ZUPT_CODEC_STORE,
+                (uint16_t)ZUPT_BFLAG_ENCRYPTED,
+                payload_size, predicted_csz, cksum, preface);
+            enc_payload = zupt_encrypt_buffer_aad(&opts->keyring,
+                payload, payload_size, ZUPT_COMMENT_AAD_SEQ,
+                preface, ZUPT_PREFACE_AAD_LEN, &enc_len);
+            zupt_secure_wipe(preface, sizeof(preface));
+        } else {
+            enc_payload = zupt_encrypt_buffer(&opts->keyring,
+                payload, payload_size, ZUPT_COMMENT_AAD_SEQ, &enc_len);
+        }
+        if (!enc_payload) return ZUPT_ERR_NOMEM;
+        payload = enc_payload;
+        payload_size = enc_len;
+        bflags |= ZUPT_BFLAG_ENCRYPTED;
+    }
+
+    int write_err = 0;
+    w8(out, ZUPT_BLOCK_MAGIC_0); w8(out, ZUPT_BLOCK_MAGIC_1);
+    w8(out, ZUPT_BLOCK_COMMENT);
+    w16le(out, ZUPT_CODEC_STORE); w16le(out, bflags);
+    zupt_write_varint(out, clen);            /* uncompressed_size */
+    zupt_write_varint(out, payload_size);    /* compressed_size (= encrypted length when bflags has ENCRYPTED) */
+    w64le(out, cksum);                       /* plaintext XXH64 — F-09 strict validation reads this */
+    if (fwrite(payload, 1, (size_t)payload_size, out) != (size_t)payload_size) write_err = 1;
+
+    free(enc_payload);
+
+    if (write_err) return ZUPT_ERR_IO;
+
+    hdr->comment_offset = comment_off;
+    (*total_blocks)++;
+    return ZUPT_OK;
+}
+
 zupt_error_t zupt_compress_files(const char *output_path,
                                  const char **arc_paths,
                                  const char **disk_paths,
@@ -535,7 +748,13 @@ zupt_error_t zupt_compress_files(const char *output_path,
     hdr.magic[3]=ZUPT_MAGIC_3; hdr.magic[4]=ZUPT_MAGIC_4; hdr.magic[5]=ZUPT_MAGIC_5;
     hdr.version_major = ZUPT_FORMAT_MAJOR; hdr.version_minor = ZUPT_FORMAT_MINOR;
     hdr.global_flags = ZUPT_FLAG_CKSUM_XXH64;
-    if (opts->encrypt) hdr.global_flags |= ZUPT_FLAG_ENCRYPTED | ZUPT_FLAG_AAD_SEQ;
+    if (opts->encrypt) {
+        hdr.global_flags |= ZUPT_FLAG_ENCRYPTED | ZUPT_FLAG_AAD_SEQ;
+        /* F-09 of v2.3.1: bind frame preface into per-block MAC. v1.6 archives
+         * always set this; flag is anchored by the v1.5 AIT (F-08). */
+        hdr.global_flags |= ZUPT_FLAG_AAD_PREFACE;
+        opts->keyring.use_preface_aad = 1;
+    }
     if (opts->threads > 1) hdr.global_flags |= ZUPT_FLAG_MULTITHREADED;
     if (opts->dedup) hdr.global_flags |= ZUPT_FLAG_DEDUP;
     hdr.creation_time = now_ns();
@@ -814,7 +1033,22 @@ zupt_error_t zupt_compress_files(const char *output_path,
                 } else {
                     aad_seq = (((uint64_t)(fi + 1)) << 32) | block_seq;
                 }
-                enc_payload = zupt_encrypt_buffer(&opts->keyring, payload, payload_size, aad_seq, &enc_len);
+                /* F-09 of v2.3.1: bind frame preface into MAC for v1.6 archives.
+                 * Predicted compressed_size = nonce(16) + payload + hmac(32). */
+                if (opts->keyring.use_preface_aad) {
+                    uint8_t preface[ZUPT_PREFACE_AAD_LEN];
+                    uint16_t predicted_bflags = (uint16_t)(ZUPT_BFLAG_ENCRYPTED);
+                    uint64_t predicted_csz = 16 + payload_size + 32;
+                    zupt_serialize_preface_aad_scalars(
+                        ZUPT_BLOCK_DATA, codec, predicted_bflags,
+                        nread, predicted_csz, checksum, preface);
+                    enc_payload = zupt_encrypt_buffer_aad(&opts->keyring,
+                        payload, payload_size, aad_seq,
+                        preface, ZUPT_PREFACE_AAD_LEN, &enc_len);
+                    zupt_secure_wipe(preface, sizeof(preface));
+                } else {
+                    enc_payload = zupt_encrypt_buffer(&opts->keyring, payload, payload_size, aad_seq, &enc_len);
+                }
                 if (!enc_payload) { fclose(inf); free(index); free(rbuf); free(cbuf); fclose(out); return ZUPT_ERR_NOMEM; }
                 payload = enc_payload;
                 payload_size = enc_len;
@@ -875,6 +1109,29 @@ zupt_error_t zupt_compress_files(const char *output_path,
         return ZUPT_ERR_IO;
     }
 
+    /* ─── F-12 of v2.4.3: optional comment block ─── */
+    {
+        zupt_error_t cerr = write_comment_block(out, &hdr, opts, &total_blocks);
+        if (cerr != ZUPT_OK) {
+            fprintf(stderr, "Error: Failed to write comment block\n");
+            free(index); free(rbuf); free(cbuf); fclose(out);
+            return cerr;
+        }
+        if (opts->has_comment && hdr.comment_offset != 0) {
+            /* Rewrite the archive header so on-disk hdr.comment_offset
+             * matches the in-memory hdr that the AIT will sign at the
+             * end of the function. */
+            int64_t save = ftello(out);
+            fseeko(out, 0, SEEK_SET);
+            if (fwrite(&hdr, sizeof(hdr), 1, out) != 1) {
+                fprintf(stderr, "Error: Failed to update header with comment offset\n");
+                free(index); free(rbuf); free(cbuf); fclose(out);
+                return ZUPT_ERR_IO;
+            }
+            fseeko(out, save, SEEK_SET);
+        }
+    }
+
     /* ─── Central Index ─── */
     uint64_t index_offset = safe_ftello(out);
     size_t icap = (size_t)num_files * (ZUPT_MAX_PATH + 128);
@@ -908,17 +1165,30 @@ zupt_error_t zupt_compress_files(const char *output_path,
         ic_pay = ic; ic_plen = ic_size;
     }
 
+    uint64_t ic_ck = zupt_xxh64(ibuf, ip, 0);  /* compute checksum BEFORE encrypt for AAD */
+
     uint8_t *enc_idx = NULL;
     uint16_t idx_bflags = 0;
     if (opts->encrypt && opts->keyring.active) {
         size_t enc_len;
         /* Index uses sentinel seq (matches decrypt site at line ~1515) */
-        enc_idx = zupt_encrypt_buffer(&opts->keyring, ic_pay, ic_plen, 0xFFFFFFFFFFFFFFFFULL, &enc_len);
+        /* F-09: bind frame preface (block_type=INDEX, codec, flags, sizes, ck) */
+        if (opts->keyring.use_preface_aad) {
+            uint8_t preface[ZUPT_PREFACE_AAD_LEN];
+            uint64_t predicted_csz = 16 + ic_plen + 32;
+            zupt_serialize_preface_aad_scalars(
+                ZUPT_BLOCK_INDEX, ic_codec, (uint16_t)ZUPT_BFLAG_ENCRYPTED,
+                ip, predicted_csz, ic_ck, preface);
+            enc_idx = zupt_encrypt_buffer_aad(&opts->keyring, ic_pay, ic_plen,
+                0xFFFFFFFFFFFFFFFFULL, preface, ZUPT_PREFACE_AAD_LEN, &enc_len);
+            zupt_secure_wipe(preface, sizeof(preface));
+        } else {
+            enc_idx = zupt_encrypt_buffer(&opts->keyring, ic_pay, ic_plen, 0xFFFFFFFFFFFFFFFFULL, &enc_len);
+        }
         ic_pay = enc_idx; ic_plen = enc_len;
         idx_bflags |= ZUPT_BFLAG_ENCRYPTED;
     }
 
-    uint64_t ic_ck = zupt_xxh64(ibuf, ip, 0);
     w8(out, ZUPT_BLOCK_MAGIC_0); w8(out, ZUPT_BLOCK_MAGIC_1);
     w8(out, ZUPT_BLOCK_INDEX);
     w16le(out, ic_codec); w16le(out, idx_bflags);
@@ -936,6 +1206,14 @@ zupt_error_t zupt_compress_files(const char *output_path,
     ft.footer_magic[0]='Z'; ft.footer_magic[1]='E'; ft.footer_magic[2]='N'; ft.footer_magic[3]='D';
     ft.footer_version = 1;
     if (fwrite(&ft, sizeof(ft), 1, out) != 1) write_err = 1;
+
+    /* F-08 of v2.3.0: archive-integrity-trailer follows the footer.
+     * Encrypted: HMAC over hdr || ft[0..23]. Plaintext: XXH64 best-effort. */
+    if (!write_err) {
+        const zupt_keyring_t *kr = opts->encrypt ? &opts->keyring : NULL;
+        if (zupt_format_ait_write(out, &hdr, &ft, kr) != 0) write_err = 1;
+    }
+
     fclose(out);
 
     if (write_err) {
@@ -1010,7 +1288,11 @@ zupt_error_t zupt_compress_solid(const char *output_path,
     hdr.magic[3]=ZUPT_MAGIC_3; hdr.magic[4]=ZUPT_MAGIC_4; hdr.magic[5]=ZUPT_MAGIC_5;
     hdr.version_major = ZUPT_FORMAT_MAJOR; hdr.version_minor = ZUPT_FORMAT_MINOR;
     hdr.global_flags = ZUPT_FLAG_CKSUM_XXH64 | ZUPT_FLAG_SOLID;
-    if (opts->encrypt) hdr.global_flags |= ZUPT_FLAG_ENCRYPTED | ZUPT_FLAG_AAD_SEQ;
+    if (opts->encrypt) {
+        hdr.global_flags |= ZUPT_FLAG_ENCRYPTED | ZUPT_FLAG_AAD_SEQ;
+        hdr.global_flags |= ZUPT_FLAG_AAD_PREFACE;  /* F-09 of v2.3.1 */
+        opts->keyring.use_preface_aad = 1;
+    }
     hdr.creation_time = now_ns();
     gen_uuid(hdr.archive_id);
     if (fwrite(&hdr, sizeof(hdr), 1, out) != 1) write_err = 1;
@@ -1137,7 +1419,19 @@ zupt_error_t zupt_compress_solid(const char *output_path,
             /* Solid mode treats whole archive as fi=0 with global block_seq.
              * AAD = (1 << 32) | block_seq still gives unique values per block. */
             uint64_t aad_seq = ((uint64_t)1 << 32) | block_seq;
-            enc_pay = zupt_encrypt_buffer(&opts->keyring, payload, payload_size, aad_seq, &enc_len);
+            if (opts->keyring.use_preface_aad) {
+                uint8_t preface[ZUPT_PREFACE_AAD_LEN];
+                uint64_t predicted_csz = 16 + payload_size + 32;
+                zupt_serialize_preface_aad_scalars(
+                    ZUPT_BLOCK_DATA, codec, (uint16_t)ZUPT_BFLAG_ENCRYPTED,
+                    (uint64_t)chunk, predicted_csz, checksum, preface);
+                enc_pay = zupt_encrypt_buffer_aad(&opts->keyring,
+                    payload, payload_size, aad_seq,
+                    preface, ZUPT_PREFACE_AAD_LEN, &enc_len);
+                zupt_secure_wipe(preface, sizeof(preface));
+            } else {
+                enc_pay = zupt_encrypt_buffer(&opts->keyring, payload, payload_size, aad_seq, &enc_len);
+            }
             if (enc_pay) { payload = enc_pay; payload_size = enc_len; bflags |= ZUPT_BFLAG_ENCRYPTED; }
         }
 
@@ -1158,6 +1452,26 @@ zupt_error_t zupt_compress_solid(const char *output_path,
     }
 
     for (int fi = 0; fi < num_files; fi++) index[fi].block_count = 0;
+
+    /* ─── F-12 of v2.4.3: optional comment block (solid mode) ─── */
+    {
+        zupt_error_t cerr = write_comment_block(out, &hdr, opts, &total_blocks);
+        if (cerr != ZUPT_OK) {
+            fprintf(stderr, "Error: Failed to write comment block (solid mode)\n");
+            free(solid_buf); free(cbuf); free(index); fclose(out);
+            return cerr;
+        }
+        if (opts->has_comment && hdr.comment_offset != 0) {
+            int64_t save = ftello(out);
+            fseeko(out, 0, SEEK_SET);
+            if (fwrite(&hdr, sizeof(hdr), 1, out) != 1) {
+                fprintf(stderr, "Error: Failed to update header with comment offset (solid)\n");
+                free(solid_buf); free(cbuf); free(index); fclose(out);
+                return ZUPT_ERR_IO;
+            }
+            fseeko(out, save, SEEK_SET);
+        }
+    }
 
     /* Write central index (LE serialization) */
     uint64_t index_offset = safe_ftello(out);
@@ -1189,11 +1503,24 @@ zupt_error_t zupt_compress_solid(const char *output_path,
     if (ic_size == 0 || ic_size >= ip) { ic_codec = ZUPT_CODEC_STORE; ic_pay = ibuf; ic_plen = ip; }
     else { ic_pay = ic; ic_plen = ic_size; }
 
+    uint64_t ic_ck_solid = zupt_xxh64(ibuf, ip, 0);  /* computed before encrypt so AAD can use it */
+
     uint8_t *enc_idx = NULL; uint16_t idx_bflags = 0;
     if (opts->encrypt && opts->keyring.active) {
         size_t enc_len;
         /* Index uses sentinel seq (matches decrypt site at line ~1515) */
-        enc_idx = zupt_encrypt_buffer(&opts->keyring, ic_pay, ic_plen, 0xFFFFFFFFFFFFFFFFULL, &enc_len);
+        if (opts->keyring.use_preface_aad) {
+            uint8_t preface[ZUPT_PREFACE_AAD_LEN];
+            uint64_t predicted_csz = 16 + ic_plen + 32;
+            zupt_serialize_preface_aad_scalars(
+                ZUPT_BLOCK_INDEX, ic_codec, (uint16_t)ZUPT_BFLAG_ENCRYPTED,
+                (uint64_t)ip, predicted_csz, ic_ck_solid, preface);
+            enc_idx = zupt_encrypt_buffer_aad(&opts->keyring, ic_pay, ic_plen,
+                0xFFFFFFFFFFFFFFFFULL, preface, ZUPT_PREFACE_AAD_LEN, &enc_len);
+            zupt_secure_wipe(preface, sizeof(preface));
+        } else {
+            enc_idx = zupt_encrypt_buffer(&opts->keyring, ic_pay, ic_plen, 0xFFFFFFFFFFFFFFFFULL, &enc_len);
+        }
         if (enc_idx) { ic_pay = enc_idx; ic_plen = enc_len; idx_bflags |= ZUPT_BFLAG_ENCRYPTED; }
     }
 
@@ -1202,7 +1529,7 @@ zupt_error_t zupt_compress_solid(const char *output_path,
     w16le(out, ic_codec); w16le(out, idx_bflags);
     zupt_write_varint(out, (uint64_t)ip);
     zupt_write_varint(out, ic_plen);
-    w64le(out, zupt_xxh64(ibuf, ip, 0));
+    w64le(out, ic_ck_solid);
     if (fwrite(ic_pay, 1, (size_t)ic_plen, out) != (size_t)ic_plen) write_err = 1;
     total_blocks++;
 
@@ -1215,6 +1542,13 @@ zupt_error_t zupt_compress_solid(const char *output_path,
     ft.footer_magic[0]='Z'; ft.footer_magic[1]='E'; ft.footer_magic[2]='N'; ft.footer_magic[3]='D';
     ft.footer_version = 1;
     if (fwrite(&ft, sizeof(ft), 1, out) != 1) write_err = 1;
+
+    /* F-08 of v2.3.0: archive-integrity-trailer (see compress-flat path). */
+    if (!write_err) {
+        const zupt_keyring_t *kr = opts->encrypt ? &opts->keyring : NULL;
+        if (zupt_format_ait_write(out, &hdr, &ft, kr) != 0) write_err = 1;
+    }
+
     fclose(out);
 
     if (write_err) {
@@ -1261,12 +1595,143 @@ static zupt_error_t read_header(FILE *f, zupt_archive_header_t *h) {
     return ZUPT_OK;
 }
 
-static zupt_error_t read_footer(FILE *f, zupt_footer_t *ft) {
+/* F-08 of v2.3.0: locate_footer_v15 supersedes the old read_footer().
+ *
+ * locate_footer_v15 detects which on-disk layout this file uses:
+ *   v1.5:  [header][...blocks...][index][footer 32B][AIT 32B]    (current)
+ *   v1.4:  [header][...blocks...][index][footer 32B]              (legacy)
+ *
+ * It reads the last 64 bytes and looks for the "ZEND" magic at offsets
+ * EOF-64 (v1.5) and EOF-32 (v1.4). The header's version_minor is informative
+ * but NOT load-bearing here: we trust the on-disk footer position because
+ * the version field is itself uncovered metadata in v1.4 archives and the
+ * point of F-08 is to stop trusting uncovered metadata. If the magic appears
+ * at neither offset, the archive is corrupt.
+ *
+ * On v1.5 archives, *has_ait is set to 1 and *ait_buf is filled with the
+ * 32 trailing bytes (caller is responsible for verifying them, since the
+ * keyring isn't available at this point in open_archive's flow). On v1.4
+ * archives, *has_ait is 0. */
+static zupt_error_t locate_footer_v15(FILE *f, zupt_footer_t *ft,
+                                      int *has_ait, uint8_t ait_buf[ZUPT_AIT_SIZE]) {
+    fseeko(f, 0, SEEK_END);
+    int64_t file_size = ftello(f);
+    if (file_size < (int64_t)sizeof(zupt_footer_t)) return ZUPT_ERR_CORRUPT;
+
+    /* Try v1.5: footer at EOF-64, AIT at EOF-32 */
+    if (file_size >= (int64_t)sizeof(zupt_footer_t) + ZUPT_AIT_SIZE) {
+        zupt_footer_t cand;
+        fseeko(f, -(int64_t)(sizeof(zupt_footer_t) + ZUPT_AIT_SIZE), SEEK_END);
+        if (fread(&cand, sizeof(cand), 1, f) == 1 &&
+            cand.footer_magic[0]=='Z' && cand.footer_magic[1]=='E' &&
+            cand.footer_magic[2]=='N' && cand.footer_magic[3]=='D' &&
+            cand.footer_version == 1) {
+            if (fread(ait_buf, ZUPT_AIT_SIZE, 1, f) != 1) return ZUPT_ERR_IO;
+            *ft = cand;
+            *has_ait = 1;
+            return ZUPT_OK;
+        }
+    }
+
+    /* Fall back to v1.4: footer at EOF-32, no AIT */
     fseeko(f, -(int64_t)sizeof(zupt_footer_t), SEEK_END);
     if (fread(ft, sizeof(*ft), 1, f) != 1) return ZUPT_ERR_IO;
     if (ft->footer_magic[0]!='Z'||ft->footer_magic[1]!='E'||
         ft->footer_magic[2]!='N'||ft->footer_magic[3]!='D') return ZUPT_ERR_CORRUPT;
+    if (ft->footer_version != 1) return ZUPT_ERR_BAD_VERSION;
+    *has_ait = 0;
     return ZUPT_OK;
+}
+
+/* AIT MAC input: header[0..63] || footer[0..23].
+ *
+ * Excludes footer[24..31] = footer_magic[4] || footer_version (u32). The magic
+ * is structurally validated by locate_footer_v15; the version_field is
+ * informational. Including them would not add tamper resistance — a flipped
+ * magic byte already causes locate to fail before we reach the MAC step. */
+static void ait_serialize_mac_input(const zupt_archive_header_t *hdr,
+                                    const zupt_footer_t *ft,
+                                    uint8_t buf[ZUPT_AIT_MAC_INPUT_LEN]) {
+    memcpy(buf, hdr, sizeof(*hdr));
+    memcpy(buf + sizeof(*hdr), ft, 24);  /* index_offset + total_blocks + archive_checksum */
+}
+
+/* Compute the trailing AIT field and emit ZUPT_AIT_SIZE bytes through fwrite.
+ *
+ * Non-static so the disk-backup writer in src/zupt_disk.c can reuse it.
+ * Other cross-file linkage in this codebase (read_block, decompress_block,
+ * read_enc_header, write_enc_header) follows the same "extern by default"
+ * convention — no internal header. The matching extern decl in zupt_disk.c
+ * is the single source of truth for the prototype on the caller side. */
+int zupt_format_ait_write(FILE *f, const zupt_archive_header_t *hdr,
+                          const zupt_footer_t *ft,
+                          const zupt_keyring_t *kr_or_null) {
+    uint8_t mac_input[ZUPT_AIT_MAC_INPUT_LEN];
+    uint8_t ait[ZUPT_AIT_SIZE];
+    memset(ait, 0, sizeof(ait));
+    ait_serialize_mac_input(hdr, ft, mac_input);
+    if (kr_or_null && kr_or_null->active) {
+        zupt_hmac_sha256(kr_or_null->mac_key, ZUPT_HMAC_SIZE,
+                         mac_input, ZUPT_AIT_MAC_INPUT_LEN, ait);
+    } else {
+        uint64_t x = zupt_xxh64(mac_input, ZUPT_AIT_MAC_INPUT_LEN, 0);
+        for (int i = 0; i < 8; i++) ait[i] = (uint8_t)(x >> (i * 8));
+    }
+    int ok = (fwrite(ait, sizeof(ait), 1, f) == 1);
+    zupt_secure_wipe(mac_input, ZUPT_AIT_MAC_INPUT_LEN);
+    zupt_secure_wipe(ait, sizeof(ait));
+    return ok ? 0 : -1;
+}
+
+/* Verify the AIT field against header+footer.
+ *
+ * Encrypted archives: HMAC-SHA256 with constant-time tag compare.
+ * Plaintext archives: XXH64 in the first 8 bytes, byte-wise compare of the
+ *                     remaining 24 bytes against zero.
+ * Returns ZUPT_OK iff the trailer authenticates the header+footer. */
+/* Verify the AIT field against header+footer.
+ *
+ * Encrypted archives: HMAC-SHA256 with constant-time tag compare.
+ * Plaintext archives: XXH64 in the first 8 bytes, byte-wise compare of the
+ *                     remaining 24 bytes against zero.
+ * Returns ZUPT_OK iff the trailer authenticates the header+footer. */
+static zupt_error_t ait_verify(const zupt_archive_header_t *hdr,
+                               const zupt_footer_t *ft,
+                               const uint8_t ait[ZUPT_AIT_SIZE],
+                               const zupt_keyring_t *kr_or_null) {
+    uint8_t mac_input[ZUPT_AIT_MAC_INPUT_LEN];
+    ait_serialize_mac_input(hdr, ft, mac_input);
+
+    zupt_error_t result;
+    if (kr_or_null && kr_or_null->active) {
+        uint8_t expected[ZUPT_AIT_SIZE];
+        zupt_hmac_sha256(kr_or_null->mac_key, ZUPT_HMAC_SIZE,
+                         mac_input, ZUPT_AIT_MAC_INPUT_LEN, expected);
+        /* CT-REQUIRED: constant-time compare via the audited primitive. */
+        int eq = zupt_ct_memeq(expected, ait, ZUPT_AIT_SIZE);
+        zupt_secure_wipe(expected, sizeof(expected));
+        result = eq ? ZUPT_OK : ZUPT_ERR_AUTH_FAIL;
+    } else {
+        uint64_t got = zupt_xxh64(mac_input, ZUPT_AIT_MAC_INPUT_LEN, 0);
+        uint8_t expected[ZUPT_AIT_SIZE];
+        memset(expected, 0, sizeof(expected));
+        for (int i = 0; i < 8; i++) expected[i] = (uint8_t)(got >> (i * 8));
+        /* No timing concern in plaintext mode (no secret involved). */
+        int eq = (memcmp(expected, ait, ZUPT_AIT_SIZE) == 0);
+        result = eq ? ZUPT_OK : ZUPT_ERR_BAD_CHECKSUM;
+    }
+    zupt_secure_wipe(mac_input, ZUPT_AIT_MAC_INPUT_LEN);
+    return result;
+}
+
+/* Public wrapper around ait_verify() for cross-file callers (src/zupt_disk.c).
+ * Mirrors the zupt_format_ait_write() naming convention. The matching extern
+ * decl lives in zupt_disk.c's restore path. */
+zupt_error_t zupt_format_ait_verify_extern(const zupt_archive_header_t *hdr,
+                                           const zupt_footer_t *ft,
+                                           const uint8_t ait[ZUPT_AIT_SIZE],
+                                           const zupt_keyring_t *kr_or_null) {
+    return ait_verify(hdr, ft, ait, kr_or_null);
 }
 
 zupt_error_t read_block(FILE *f, zupt_block_t *b) {
@@ -1304,7 +1769,23 @@ zupt_error_t decompress_block(const zupt_block_t *b, const zupt_keyring_t *kr,
     if (b->block_flags & ZUPT_BFLAG_ENCRYPTED) {
         if (!kr || !kr->active) return ZUPT_ERR_AUTH_FAIL;
         size_t dec_len;
-        dec_payload = zupt_decrypt_buffer(kr, comp_data, comp_len, block_seq, &dec_len);
+        /* F-09 of v2.3.1: the archive's global ZUPT_FLAG_AAD_PREFACE bit
+         * (in opts->global_flags, threaded through kr->use_preface_aad)
+         * tells us whether to bind the canonical preface bytes into the
+         * MAC. The flag itself is MAC-protected at archive level by the
+         * v1.5 archive-integrity-trailer (F-08), so an attacker can't
+         * flip it without auth-fail at open_archive time. */
+        if (kr->use_preface_aad) {
+            uint8_t preface[ZUPT_PREFACE_AAD_LEN];
+            zupt_serialize_preface_aad(b, preface);
+            dec_payload = zupt_decrypt_buffer_aad(kr, comp_data, comp_len,
+                                                  block_seq,
+                                                  preface, ZUPT_PREFACE_AAD_LEN,
+                                                  &dec_len);
+            zupt_secure_wipe(preface, sizeof(preface));
+        } else {
+            dec_payload = zupt_decrypt_buffer(kr, comp_data, comp_len, block_seq, &dec_len);
+        }
         if (!dec_payload) return ZUPT_ERR_AUTH_FAIL;
         comp_data = dec_payload;
         comp_len = dec_len;
@@ -1312,7 +1793,12 @@ zupt_error_t decompress_block(const zupt_block_t *b, const zupt_keyring_t *kr,
 
     *olen = (size_t)b->uncompressed_size;
     if (*olen == 0) { *out = NULL; free(dec_payload); return ZUPT_OK; }
-    *out = (uint8_t*)malloc(*olen);
+    /* Over-allocate by ZUPT_VV_DECODE_SLACK so the VaptVupt AVX2 decode
+     * over-copy (up to 32 B past the logical end) lands in owned memory.
+     * *olen still reports the true uncompressed size to the caller; the
+     * slack bytes are never part of the output. See the constant's
+     * definition near the top of this file. */
+    *out = (uint8_t*)malloc(*olen + ZUPT_VV_DECODE_SLACK);
     if (!*out) { free(dec_payload); return ZUPT_ERR_NOMEM; }
 
     zupt_error_t result = ZUPT_OK;
@@ -1365,7 +1851,13 @@ zupt_error_t decompress_block(const zupt_block_t *b, const zupt_keyring_t *kr,
     }
     /* VAPTVUPT: VaptVupt codec decompress path (v1.4.0 cross-block decode) */
     else if (b->codec_id == ZUPT_CODEC_VAPTVUPT) {
-        int64_t dsz = vvz_decompress(comp_data, comp_len, *out, *olen);
+        /* Pass the padded capacity (*olen + slack): the codec's AVX2
+         * over-copy needs op_end to sit past the logical output end so
+         * its 32-byte SIMD stores stay in bounds. We still require the
+         * returned size to equal the true *olen, so the slack never
+         * affects correctness. */
+        int64_t dsz = vvz_decompress(comp_data, comp_len, *out,
+                                     *olen + ZUPT_VV_DECODE_SLACK);
         if (dsz < 0 || (size_t)dsz != *olen) result = ZUPT_ERR_CORRUPT;
     } else {
         result = ZUPT_ERR_UNSUPPORTED;
@@ -1400,9 +1892,61 @@ zupt_error_t read_enc_header(FILE *f, zupt_archive_header_t *hdr, zupt_options_t
     zupt_error_t err = read_block(f, &eb);
     if (err != ZUPT_OK) return err;
 
+    /* F-09 of v2.3.1 (same pattern as F-07 of v2.2.5): the block at
+     * encryption_header_off MUST identify itself as ENC_HEADER. The
+     * block_type byte sits outside the cryptographic MAC (the SDK-v2
+     * envelope authenticates only its own contents, not the surrounding
+     * frame preface), so a tampering attacker could flip it without
+     * detection. Structurally reject mismatches here.
+     *
+     * The same logic extends to the rest of the enc-header frame preface:
+     * the codec MUST be STORE (the envelope isn't compressed), block_flags
+     * MUST be zero (the envelope contains its own crypto), and
+     * compressed_size MUST equal uncompressed_size (no length games). These
+     * cover bytes 67-72 of the v1.6 sweep. The plaintext-XXH64 field
+     * (bytes 75-82) is checked against the actual payload contents below. */
+    if (eb.block_type != ZUPT_BLOCK_ENC_HEADER) {
+        free(eb.payload);
+        return ZUPT_ERR_CORRUPT;
+    }
+    if (eb.codec_id != ZUPT_CODEC_STORE ||
+        eb.block_flags != 0 ||
+        eb.compressed_size != eb.uncompressed_size) {
+        free(eb.payload);
+        return ZUPT_ERR_CORRUPT;
+    }
+    {
+        uint64_t actual_ck = zupt_xxh64(eb.payload, (size_t)eb.compressed_size, 0);
+        if (actual_ck != eb.checksum) {
+            free(eb.payload);
+            return ZUPT_ERR_BAD_CHECKSUM;
+        }
+    }
+
     if (eb.compressed_size < 1) { free(eb.payload); return ZUPT_ERR_CORRUPT; }
 
     uint8_t enc_type = eb.payload[0];
+
+    if (enc_type == ZUPT_ENC_PQ_BOX_V1) {
+        if (!opts->pq_mode || opts->keyfile[0] == '\0') {
+            fprintf(stderr, "Error: Archive uses pq-box encryption. Use --pq-box <keyfile>.\n");
+            free(eb.payload);
+            return ZUPT_ERR_AUTH_FAIL;
+        }
+        if (zupt_pqbox_decrypt_init(&opts->keyring, opts->keyfile,
+                                    eb.payload, (size_t)eb.compressed_size) != 0) {
+            if (opts->verbose) {
+                fprintf(stderr, "Error: pq-box envelope decryption failed.\n"
+                                "       This means wrong key, tampered envelope, or unsupported format.\n");
+            }
+            fprintf(stderr, "Error: Authentication failed (wrong key, wrong password, or tampered archive).\n");
+            free(eb.payload);
+            return ZUPT_ERR_AUTH_FAIL;
+        }
+        opts->box_mode = 1;
+        free(eb.payload);
+        return ZUPT_OK;
+    }
 
     if (enc_type == ZUPT_ENC_PQ_SDK_V2) {
         if (!opts->pq_mode || opts->keyfile[0] == '\0') {
@@ -1412,7 +1956,14 @@ zupt_error_t read_enc_header(FILE *f, zupt_archive_header_t *hdr, zupt_options_t
         }
         if (zupt_sdk_hybrid_decrypt_init(&opts->keyring, opts->keyfile,
                                           eb.payload, (size_t)eb.compressed_size) != 0) {
-            fprintf(stderr, "Error: SDK-v2 PQ decryption failed (wrong key, tampered, or unsupported).\n");
+            /* F-11 of v2.4.2: same generic phrasing as the AIT-fail path
+             * in open_archive(), for consistency across all key-mode
+             * failures. Verbose mode adds the technical-detail line. */
+            if (opts->verbose) {
+                fprintf(stderr, "Error: SDK-v2 PQ envelope decryption failed.\n"
+                                "       This means wrong key, tampered envelope, or unsupported format.\n");
+            }
+            fprintf(stderr, "Error: Authentication failed (wrong key, wrong password, or tampered archive).\n");
             free(eb.payload);
             return ZUPT_ERR_AUTH_FAIL;
         }
@@ -1427,7 +1978,11 @@ zupt_error_t read_enc_header(FILE *f, zupt_archive_header_t *hdr, zupt_options_t
         }
         if (zupt_sdk_password_decrypt_init(&opts->keyring, opts->password,
                                             eb.payload, (size_t)eb.compressed_size) != 0) {
-            fprintf(stderr, "Error: Argon2id password decryption failed (wrong password?).\n");
+            /* F-11 of v2.4.2: aligned with the AIT-fail path. */
+            if (opts->verbose) {
+                fprintf(stderr, "Error: Argon2id password verification failed at envelope step.\n");
+            }
+            fprintf(stderr, "Error: Authentication failed (wrong key, wrong password, or tampered archive).\n");
             free(eb.payload);
             return ZUPT_ERR_AUTH_FAIL;
         }
@@ -1530,10 +2085,124 @@ static zupt_error_t open_archive(FILE *f, zupt_options_t *opts,
                                   zupt_index_entry_t **entries, int *num_entries) {
     zupt_error_t err = read_header(f, hdr);
     if (err != ZUPT_OK) return err;
-    err = read_footer(f, ft);
+
+    /* F-08 of v2.3.0: locate footer with v1.5 archive-integrity-trailer
+     * awareness. has_ait=1 means an AIT was found at EOF-32; verification
+     * is deferred until after read_enc_header() initialises the keyring. */
+    int has_ait = 0;
+    uint8_t ait_buf[ZUPT_AIT_SIZE];
+    err = locate_footer_v15(f, ft, &has_ait, ait_buf);
     if (err != ZUPT_OK) return err;
+
     err = read_enc_header(f, hdr, opts);
     if (err != ZUPT_OK) return err;
+
+    /* F-08 of v2.3.0: verify the archive-integrity-trailer.
+     *
+     * For encrypted archives, the AIT is HMAC-SHA256(mac_key, hdr || ft[0..23])
+     * and MUST authenticate before we read any further. For plaintext archives,
+     * the AIT is XXH64 best-effort.
+     *
+     * v1.4 archives (no AIT) keep extracting unchanged — backward compatibility
+     * was the explicit design constraint when F-08 was opened. They emit a
+     * warning on stderr in encrypted modes so users notice the integrity
+     * downgrade. The warning text is stable (it's part of the threat model
+     * surface) and the message comes from one place. */
+    if (has_ait) {
+        int is_encrypted = (hdr->global_flags & ZUPT_FLAG_ENCRYPTED) != 0;
+        const zupt_keyring_t *kr = is_encrypted ? &opts->keyring : NULL;
+        zupt_error_t aerr = ait_verify(hdr, ft, ait_buf, kr);
+        if (aerr != ZUPT_OK) {
+            /* F-11 of v2.4.2: a wrong password or wrong PQ key produces a
+             * mac_key that doesn't match the AIT, exactly like a real
+             * tamper. Pre-2.4.2 we printed "archive header or footer has
+             * been tampered with" in both cases, which mislead users
+             * into thinking valid archives were corrupted. The fix:
+             *
+             *  - Encrypted archives → default message is the same single
+             *    "Authentication failed" line that the downstream
+             *    decrypt path emits. Users see one consistent message
+             *    regardless of which check fired first. The detailed
+             *    top-MAC wording moves behind --verbose for debugging.
+             *
+             *  - Plaintext archives → no key was supplied, so wrong-key
+             *    is impossible by construction. The failure IS a tamper
+             *    (or corruption). Keep the detailed message.
+             *
+             * The default message is identical regardless of which
+             * candidate (wrong key vs real tamper) caused the AIT
+             * mismatch, which avoids creating a verbal probe-oracle.
+             * Timing is unchanged: ait_verify always runs the HMAC and
+             * returns branchlessly.
+             */
+            if (is_encrypted) {
+                if (opts->verbose) {
+                    fprintf(stderr, "Error: archive-integrity-trailer (top-MAC) verification failed.\n"
+                                    "       This means EITHER wrong password/key OR a tampered\n"
+                                    "       header or footer. v2.4.2+ collapses both into one\n"
+                                    "       error to avoid a verbal side channel.\n");
+                }
+                fprintf(stderr, "Error: Authentication failed (wrong key, wrong password, or tampered archive).\n");
+            } else {
+                /* Plaintext archive: no key involvement, so this is
+                 * unambiguously corruption or tamper. */
+                fprintf(stderr, "Error: archive-integrity-trailer (XXH64) verification failed.\n"
+                                "       The archive header or footer has been corrupted or tampered with.\n");
+            }
+            return aerr;
+        }
+    } else if (hdr->global_flags & ZUPT_FLAG_ENCRYPTED) {
+        fprintf(stderr, "Warning: legacy v1.4 archive without top-MAC (F-08).\n"
+                        "         File contents are integrity-protected, but header\n"
+                        "         and footer metadata (timestamps, UUID, counts) are not.\n");
+    }
+
+    /* F-09 of v2.3.1: propagate the archive-level preface-AAD policy into
+     * the keyring so decompress_block knows whether to bind the per-block
+     * preface into the MAC. This flag is MAC-protected by the AIT (when
+     * has_ait) — an attacker can't flip it on tampered v1.5+ archives. On
+     * v1.4 archives (no AIT) the flag is also absent, so this stays 0. */
+    if (hdr->global_flags & ZUPT_FLAG_AAD_PREFACE) {
+        opts->keyring.use_preface_aad = 1;
+    }
+
+    /* F-12 of v2.4.3: read the optional comment block. comment_offset is
+     * part of hdr[0..63] and therefore covered by the v1.5+ AIT, so a
+     * tampered pointer is rejected before we reach this code. The block
+     * itself is covered by the per-block HMAC (with preface AAD in v1.6
+     * archives), so its bytes are also tamper-protected. */
+    if (hdr->comment_offset != 0) {
+        int64_t save_pos = ftello(f);
+        fseeko(f, (int64_t)hdr->comment_offset, SEEK_SET);
+        zupt_block_t cb;
+        memset(&cb, 0, sizeof(cb));
+        zupt_error_t cerr = read_block(f, &cb);
+        if (cerr != ZUPT_OK) {
+            free(cb.payload);
+            return cerr;
+        }
+        if (cb.block_type != ZUPT_BLOCK_COMMENT ||
+            cb.uncompressed_size == 0 ||
+            cb.uncompressed_size > ZUPT_MAX_COMMENT_LEN) {
+            free(cb.payload);
+            return ZUPT_ERR_CORRUPT;
+        }
+        uint8_t *plain = NULL;
+        size_t plen = 0;
+        cerr = decompress_block(&cb, &opts->keyring, ZUPT_COMMENT_AAD_SEQ, &plain, &plen);
+        if (cerr != ZUPT_OK) {
+            free(cb.payload);
+            return cerr;
+        }
+        if (plen > ZUPT_MAX_COMMENT_LEN - 1) plen = ZUPT_MAX_COMMENT_LEN - 1;
+        memcpy(opts->comment, plain, plen);
+        opts->comment[plen] = '\0';
+        opts->has_comment = 1;
+        zupt_secure_wipe(plain, plen);
+        free(plain);
+        free(cb.payload);
+        fseeko(f, save_pos, SEEK_SET);
+    }
 
     /* Validate index_offset is within file bounds before seeking. */
     int64_t cur_pos2 = ftello(f);
@@ -1548,6 +2217,19 @@ static zupt_error_t open_archive(FILE *f, zupt_options_t *opts,
     zupt_block_t ib;
     err = read_block(f, &ib);
     if (err != ZUPT_OK) return err;
+
+    /* F-07 of v2.2.5: the block at index_offset MUST identify itself as an
+     * INDEX block. The block_type byte is not covered by per-block HMAC
+     * (which protects nonce||ciphertext||aad_seq only), so a tampering
+     * attacker can flip it without authentication failure. Pre-F-07 the
+     * parser ignored block_type at this position and decoded whatever it
+     * found — making the byte truly unauthenticated. Now it is structurally
+     * validated (rejected at parse time on mismatch), which is the
+     * OPAQUE-class coverage promised by PROMPT.md §5. */
+    if (ib.block_type != ZUPT_BLOCK_INDEX) {
+        free(ib.payload);
+        return ZUPT_ERR_CORRUPT;
+    }
 
     uint8_t *id; size_t idlen;
     err = decompress_block(&ib, &opts->keyring, 0xFFFFFFFFFFFFFFFFULL, &id, &idlen);
@@ -1950,6 +2632,12 @@ file_done:
     if (fail > 0) fprintf(stderr, ", %d error(s)", fail);
     fprintf(stderr, "\n");
 
+    /* F-12 of v2.4.3: print the archive comment, if any. open_archive
+     * decrypted+stored it in opts->comment when the keyring was active. */
+    if (opts->has_comment && opts->comment[0] != '\0') {
+        fprintf(stderr, "\n  Comment: %s\n", opts->comment);
+    }
+
     free(ents); fclose(f);
     return fail>0 ? ZUPT_ERR_CORRUPT : ZUPT_OK;
 }
@@ -2108,10 +2796,25 @@ zupt_error_t zupt_archive_info(const char *path) {
     char sz_buf[32];
     zupt_format_size(file_size, sz_buf, sizeof(sz_buf));
 
-    /* Try to read footer for block count */
+    /* Try to read footer for block count.
+     * F-08 of v2.3.0: also detect whether the v1.5 archive-integrity-trailer
+     * is present, so `zupt info` can report it. The footer can be at EOF-32
+     * (v1.4) or EOF-64 (v1.5, with 32-byte AIT trailing).  */
     uint64_t total_blocks = 0;
     int has_footer = 0;
-    if (file_size > sizeof(zupt_footer_t)) {
+    int has_ait = 0;
+    if (file_size >= sizeof(zupt_footer_t) + ZUPT_AIT_SIZE) {
+        fseeko(f, -(int64_t)(sizeof(zupt_footer_t) + ZUPT_AIT_SIZE), SEEK_END);
+        zupt_footer_t ft;
+        if (fread(&ft, sizeof(ft), 1, f) == 1 &&
+            ft.footer_magic[0]=='Z' && ft.footer_magic[1]=='E' &&
+            ft.footer_magic[2]=='N' && ft.footer_magic[3]=='D') {
+            total_blocks = ft.total_blocks;
+            has_footer = 1;
+            has_ait = 1;
+        }
+    }
+    if (!has_footer && file_size > sizeof(zupt_footer_t)) {
         fseeko(f, -(int64_t)sizeof(zupt_footer_t), SEEK_END);
         zupt_footer_t ft;
         if (fread(&ft, sizeof(ft), 1, f) == 1 &&
@@ -2148,6 +2851,9 @@ zupt_error_t zupt_archive_info(const char *path) {
     printf("  Archive:       %s\n", path);
     printf("  Size:          %s (%llu bytes)\n", sz_buf, (unsigned long long)file_size);
     printf("  Format:        v%u.%u\n", hdr.version_major, hdr.version_minor);
+    printf("  Top-MAC:       %s\n",
+        has_ait ? ((fl & ZUPT_FLAG_ENCRYPTED) ? "YES (HMAC-SHA256)" : "YES (XXH64)")
+                : "no (v1.4 legacy)");
     printf("  UUID:          %s\n", uuid);
     printf("  Created:       %s\n", timebuf);
     if (has_footer)
@@ -2163,6 +2869,8 @@ zupt_error_t zupt_archive_info(const char *path) {
         printf("  Dedup:         YES (block-level)\n");
     if (fl & ZUPT_FLAG_DISK_IMAGE)
         printf("  Disk image:    YES\n");
+    if (hdr.comment_offset != 0)
+        printf("  Comment:       present (use 'zupt x' with the right key to read)\n");
     printf("  Flags:         0x%04X\n", fl);
     printf("\n");
 

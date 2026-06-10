@@ -30,9 +30,47 @@
   #define zupt_mkdir(p) mkdir(p, 0755)
 #endif
 
-#define ZUPT_VERSION_STRING "2.2.3"
+/* ─── Product identity ─────────────────────────────────────────────
+ *
+ * v3.0.0 (INPI Brasil trademark rename):
+ *   - Product name is now "VaptVupt" (was "Zupt"). The earlier name
+ *     conflicted with a software trademark already registered at INPI
+ *     Brasil under "Zupt".
+ *   - File extension stays `.zupt` for archive-format continuity:
+ *     v1.0–v2.4.x archives remain readable, the magic bytes
+ *     `\x5A\x55\x50\x54\x1A\x00` ("ZUPT" + sub-version) are unchanged.
+ *   - C identifier prefix stays `zupt_` / `ZUPT_` for ABI continuity
+ *     with libzuptsdk and existing callers. Only user-visible strings
+ *     (binary name, banner, help text, package names) change.
+ *   - The binary is now `vaptvupt`. Distro packages may ship a
+ *     compatibility symlink `zupt -> vaptvupt` for one major version.
+ */
+#define ZUPT_PRODUCT_NAME      "VaptVupt"
+#define ZUPT_PRODUCT_NAME_LC   "vaptvupt"        /* lowercase: binary name */
+#define ZUPT_PRODUCT_EXTENSION ".zupt"           /* on-disk archive extension (kept stable) */
+#define ZUPT_PRODUCT_TAGLINE   "Post-quantum backup compression"
+
+#define ZUPT_VERSION_STRING "4.0.0"
+/* Vendored codec release (upstream tag) — single source for display strings.
+ * The codec's own VV_VERSION_* is its internal API version, not the release. */
+#define ZUPT_CODEC_RELEASE "2.60.4"
 #define ZUPT_FORMAT_MAJOR   1
-#define ZUPT_FORMAT_MINOR   4
+#define ZUPT_FORMAT_MINOR   6
+
+/* F-08 of v2.3.0: archive-integrity trailer.
+ *
+ * v1.5 archives append a 32-byte trailing field AFTER the 32-byte footer.
+ * Encrypted modes store HMAC-SHA256(mac_key, hdr[0..63] || footer[0..23]).
+ * Plaintext modes store XXH64(...) in the first 8 bytes, zeros in the rest.
+ *
+ * The MAC input excludes footer[24..31] (the "ZEND" magic and footer_version)
+ * to keep the field stable across format-version transitions. Both bytes are
+ * structurally validated by read_footer().
+ *
+ * Read path falls back to v1.4 layout (no trailer) when the footer magic is
+ * found at EOF-32 instead of EOF-64. */
+#define ZUPT_AIT_SIZE       32
+#define ZUPT_AIT_MAC_INPUT_LEN  (sizeof(zupt_archive_header_t) + 24)
 
 #define ZUPT_MAGIC_0  0x5A
 #define ZUPT_MAGIC_1  0x55
@@ -58,21 +96,58 @@
 #define ZUPT_FLAG_FORMAT_STABLE (1u << 4) /* v1.0: format frozen */
 #define ZUPT_FLAG_DEDUP        (1u << 7) /* Block-level deduplication enabled */
 #define ZUPT_FLAG_AAD_SEQ      (1u << 8) /* MAC binds block_seq as AAD (anti-reorder) */
+#define ZUPT_FLAG_AAD_PREFACE  (1u << 9) /* v1.6: MAC also binds per-block frame preface (F-09) */
 
 /* Encryption types (stored in encryption header block) */
 #define ZUPT_ENC_PBKDF2     0x01  /* Password-based: PBKDF2 → AES-256-CTR + HMAC */
 #define ZUPT_ENC_PQ_HYBRID  0x02  /* ML-KEM-768 + X25519 hybrid KEM (legacy XOR+SHA3) */
 #define ZUPT_ENC_PQ_SDK_V2  0x03  /* libzuptsdk v2 header: HKDF combiner + commitment + HPKE binding */
 #define ZUPT_ENC_PW_ARGON2  0x04  /* Password-based via libzuptsdk: Argon2id + XChaCha20-Poly1305 */
+#define ZUPT_ENC_PQ_BOX_V1  0x05  /* libpqvaptvupt sealed box: HKDF-SHA256 domain-separated combiner */
+
+/* Argon2id KDF profile descriptor (v3.4.0).
+ *
+ * The 0x04 Argon2id enc-header historically recorded only [type|salt|
+ * nonce] (33 bytes) and said nothing about the KDF cost parameters,
+ * unlike the PBKDF2 header which records its iteration count. That made
+ * an 0x04 archive non-self-describing: if the underlying Argon2id cost
+ * preset ever changed, old archives could become undecryptable with no
+ * way for a reader to know which cost produced them.
+ *
+ * v3.4.0 appends ONE descriptor byte at offset 33 naming the KDF profile
+ * that produced the archive. Readers that understand the byte can select
+ * the matching derivation; the legacy reader (which checks enc_hdr_len
+ * >= 33 and reads fixed offsets) simply ignores the trailing byte, so
+ * existing 33-byte archives and new 34-byte archives both decrypt. The
+ * descriptor is covered by the archive-integrity trailer (F-08), so it
+ * cannot be stripped or forged without failing authentication.
+ *
+ * Profile 0 (implicit, absent byte) == the historical libzuptsdk
+ * "MODERATE" Argon2id preset reached via zuptsdk_easy_derive_key.
+ * Profile 1 is the same derivation with the descriptor made explicit so
+ * future profiles (should the cost change) get distinct IDs. */
+#define ZUPT_ARGON2_PROFILE_LEGACY   0x00  /* implicit: pre-3.4.0, no descriptor byte */
+#define ZUPT_ARGON2_PROFILE_MODERATE 0x01  /* explicit: libzuptsdk MODERATE preset */
+#define ZUPT_ARGON2_HDR_LEN_V1       33    /* [type|salt16|nonce16] */
+#define ZUPT_ARGON2_HDR_LEN_V2       34    /* + [profile1] */
 
 /* Block types */
 #define ZUPT_BLOCK_DATA       0x00
 #define ZUPT_BLOCK_INDEX      0x02
 #define ZUPT_BLOCK_ENC_HEADER 0x03
 #define ZUPT_BLOCK_DEDUP_REF  0x04  /* Dedup reference: payload = 8B offset of original block */
+#define ZUPT_BLOCK_COMMENT    0x05  /* v2.4.3: free-form UTF-8 comment, encrypted same as data blocks */
+
+#define ZUPT_MAX_COMMENT_LEN  4096  /* Maximum comment payload size (bytes). */
 
 /* Block flags */
 #define ZUPT_BFLAG_ENCRYPTED  (1u << 0)
+/* No per-block flag for F-09 — the v1.6 preface-AAD policy is anchored at
+ * archive level via ZUPT_FLAG_AAD_PREFACE in global_flags. That flag is
+ * itself MAC-protected by the v1.5 archive-integrity-trailer (F-08), so an
+ * attacker can't clear it to downgrade. A per-block flag here would be
+ * unauthenticated until the per-block MAC was checked, creating a chicken-
+ * and-egg gap. */
 
 /* Codec IDs */
 #define ZUPT_CODEC_STORE   0x0000
@@ -81,6 +156,20 @@
 #define ZUPT_CODEC_ZUPT_LZHP 0x000A /* LZ77 + Huffman + Byte Prediction (default) */
 #define ZUPT_CODEC_VAPTVUPT  0x0010 /* VAPTVUPT: VaptVupt LZ + ANS entropy codec */
 #define ZUPT_CODEC_AUTO      0xFFFF /* Auto-detect: VaptVupt if AVX2, else LZHP */
+
+/* SIMD decode over-copy guard (bytes).
+ *
+ * The VaptVupt codec's AVX2 decode hot path over-writes up to 32 bytes
+ * past the logical output end (vaptvupt.h: "Copy exactly n bytes, may
+ * over-read/write by up to 32 bytes. Caller must ensure sufficient slack
+ * in destination."). Every decode output buffer is over-allocated by
+ * this many bytes and the padded capacity is passed to the codec so the
+ * over-copy lands in owned memory. The reported uncompressed size is
+ * unchanged; the slack is never part of the output. 64 > 32 leaves
+ * margin for any future SIMD store-width increase (AVX-512 = 64 B).
+ * Used by both the single-threaded (zupt_format.c) and parallel
+ * (zupt_parallel.c) decode paths. */
+#define ZUPT_VV_DECODE_SLACK 64
 
 /* Crypto */
 #define ZUPT_SALT_SIZE       32
@@ -147,6 +236,7 @@ typedef struct {
     uint32_t iterations;
     int active;
     uint64_t canary_tail;                  /* Must equal ZUPT_CANARY */
+    int use_preface_aad;                   /* F-09 of v2.3.1: appended after canary so existing field layout is preserved */
 } zupt_keyring_t;
 
 /* Check keyring canaries — abort on buffer overflow */
@@ -174,9 +264,13 @@ typedef struct {
     int verbose, encrypt, quiet, solid, threads;
     int pq_mode;           /* 1 = post-quantum hybrid KEM mode */
     int sdk_mode;          /* 1 = use libzuptsdk-backed v3 crypto (HKDF combiner + commitment + HPKE) */
+    int box_mode;          /* 1 = libpqvaptvupt sealed-box mode (ZUPT_ENC_PQ_BOX_V1) */
     int dedup;             /* 1 = block-level deduplication enabled */
+    int kdf_legacy_pbkdf2; /* v2.4.1: 1 = force PBKDF2-SHA256 enc-header (compat with v2.4.0 and older readers). Default 0 = Argon2id. */
     char password[256];
     char keyfile[ZUPT_MAX_PATH]; /* Path to .zupt-key file */
+    char comment[ZUPT_MAX_COMMENT_LEN]; /* v2.4.3: free-form archive comment, encrypted on write if -e */
+    int has_comment;             /* v2.4.3: 1 = a comment was supplied (write side) or read from archive (read side) */
     zupt_keyring_t keyring;
 } zupt_options_t;
 
@@ -263,6 +357,12 @@ void zupt_sha256_init(zupt_sha256_ctx *c);
 void zupt_sha256_update(zupt_sha256_ctx *c, const uint8_t *d, size_t n);
 void zupt_sha256_final(zupt_sha256_ctx *c, uint8_t h[32]);
 void zupt_sha256(const uint8_t *d, size_t n, uint8_t h[32]);
+/* SHA-NI hardware compression function (x86_64; src/zupt_sha256_shani.c).
+ * Processes `blocks` full 64-byte blocks, updating state[8] in place.
+ * Internal: called by zupt_sha256_update() only when zupt_cpu.has_shani. */
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+void zupt_sha256_transform_shani(uint32_t state[8], const uint8_t *data, size_t blocks);
+#endif
 
 /* ─── AES-256 ─── */
 typedef struct { uint32_t rk[60]; } zupt_aes256_ctx;
@@ -271,11 +371,50 @@ void zupt_aes256_encrypt_block(const zupt_aes256_ctx *c, const uint8_t in[16], u
 
 /* ─── Crypto ops ─── */
 void zupt_hmac_sha256(const uint8_t *key, size_t klen, const uint8_t *data, size_t dlen, uint8_t mac[32]);
+
+/* Incremental HMAC-SHA256 (RFC 2104).
+ *
+ * For repeated MACs under the SAME key (the per-block Encrypt-then-MAC
+ * hot path), this folds the ipad/opad key-prefix compression ONCE in
+ * _init and lets the caller stream the message via _update — avoiding
+ * both the per-call key-pad recompute and any concat/copy buffer for
+ * the message segments. Bit-identical output to the one-shot
+ * zupt_hmac_sha256 (which is itself implemented on top of this). */
+typedef struct {
+    zupt_sha256_ctx inner;   /* SHA-256 state seeded with the ipad block */
+    zupt_sha256_ctx outer;   /* SHA-256 state seeded with the opad block */
+} zupt_hmac_ctx;
+void zupt_hmac_sha256_init(zupt_hmac_ctx *c, const uint8_t *key, size_t klen);
+void zupt_hmac_sha256_update(zupt_hmac_ctx *c, const uint8_t *data, size_t dlen);
+void zupt_hmac_sha256_final(zupt_hmac_ctx *c, uint8_t mac[32]);
+
+/* Constant-time buffer equality. Returns 1 if equal, 0 otherwise, in
+ * time dependent only on n (not contents / mismatch position). The single
+ * audited MAC-tag comparison primitive; timing-verified by the
+ * dudect-style test in tests/test_ct_timing.c. CT-REQUIRED. */
+int zupt_ct_memeq(const void *a, const void *b, size_t n);
 void zupt_pbkdf2_sha256(const uint8_t *pw, size_t pwlen, const uint8_t *salt, size_t slen, uint32_t iter, uint8_t *out, size_t olen);
 void zupt_aes256_ctr(const uint8_t key[32], const uint8_t nonce[16], const uint8_t *in, uint8_t *out, size_t len);
 void zupt_derive_keys(zupt_keyring_t *kr, const char *pw, const uint8_t salt[32], const uint8_t nonce[16], uint32_t iter);
 uint8_t *zupt_encrypt_buffer(const zupt_keyring_t *kr, const uint8_t *plain, size_t plen, uint64_t seq, size_t *olen);
 uint8_t *zupt_decrypt_buffer(const zupt_keyring_t *kr, const uint8_t *pkg, size_t pkglen, uint64_t seq, size_t *olen);
+
+/* F-09 of v2.3.1: extended-AAD variants. The MAC input becomes
+ * aad_extra || nonce || ciphertext || aad_seq, which lets the caller bind
+ * the per-block frame preface (block_type, codec_id, block_flags, sizes,
+ * checksum) into the per-block HMAC without changing the on-disk payload
+ * layout. v1.6 archives use these; older archives keep using the original
+ * functions. */
+uint8_t *zupt_encrypt_buffer_aad(const zupt_keyring_t *kr,
+                                  const uint8_t *plain, size_t plen,
+                                  uint64_t seq,
+                                  const uint8_t *aad_extra, size_t aad_extra_len,
+                                  size_t *olen);
+uint8_t *zupt_decrypt_buffer_aad(const zupt_keyring_t *kr,
+                                  const uint8_t *pkg, size_t pkglen,
+                                  uint64_t seq,
+                                  const uint8_t *aad_extra, size_t aad_extra_len,
+                                  size_t *olen);
 void zupt_random_bytes(uint8_t *buf, size_t len);
 
 /* ─── Memory locking for key material ─── */
@@ -335,6 +474,13 @@ int zupt_sdk_hybrid_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
                                   uint8_t *enc_hdr, size_t *enc_hdr_len);
 int zupt_sdk_hybrid_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
                                   const uint8_t *enc_hdr, size_t enc_hdr_len);
+
+/* pq-box mode (ZUPT_ENC_PQ_BOX_V1, vendored libpqvaptvupt) */
+int zupt_pqbox_keygen(const char *privkeyfile, const char *pubkeyfile);
+int zupt_pqbox_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
+                            uint8_t *enc_hdr, size_t *enc_hdr_len);
+int zupt_pqbox_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
+                            const uint8_t *payload, size_t payload_len);
 int zupt_sdk_password_encrypt_init(zupt_keyring_t *kr, const char *password,
                                     uint8_t *enc_hdr, size_t *enc_hdr_len);
 int zupt_sdk_password_decrypt_init(zupt_keyring_t *kr, const char *password,

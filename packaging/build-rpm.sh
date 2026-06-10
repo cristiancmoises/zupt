@@ -1,14 +1,20 @@
 #!/bin/bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
-# Build self-contained zupt RPM. Bundles libzuptsdk.so.2 under
-# /usr/lib/zupt/ so users do NOT need a separate libzuptsdk package.
+#
+# Build self-contained vaptvupt RPM (formerly zupt). Bundles
+# libzuptsdk.so.2 under /usr/lib/vaptvupt/ so users do NOT need
+# a separate libzuptsdk package. Installs a legacy /usr/bin/zupt
+# symlink for one major version cycle.
+
 set -e
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-2.2.3}"
+VERSION="${VERSION:-3.0.0}"
 ARCH="${ARCH:-x86_64}"
 RELEASE="1"
+PKGNAME="vaptvupt"
+LEGACY="zupt"
 
 SDK_LIB="vendor/zuptsdk/libzuptsdk.so.2.0.0"
 if [ ! -f "$SDK_LIB" ]; then
@@ -16,52 +22,54 @@ if [ ! -f "$SDK_LIB" ]; then
     exit 1
 fi
 
-# Build zupt and patch RPATH to /usr/lib/zupt
-echo "[rpm] Building zupt"
+echo "[rpm] Building $PKGNAME"
 make clean >/dev/null 2>&1 || true
 make -j"$(nproc)" >/dev/null
-echo "[rpm] Patching rpath -> /usr/lib/zupt:/usr/lib64/zupt"
-patchelf --set-rpath '/usr/lib/zupt:/usr/lib64/zupt' zupt
-if ! readelf -d zupt | grep -q "RUNPATH.*\[/usr/lib/zupt:/usr/lib64/zupt\]"; then
-    echo "ERROR: zupt does not have correct RUNPATH" >&2
+echo "[rpm] Patching rpath -> /usr/lib/$PKGNAME:/usr/lib64/$PKGNAME"
+patchelf --set-rpath "/usr/lib/$PKGNAME:/usr/lib64/$PKGNAME" $PKGNAME
+if ! readelf -d $PKGNAME | grep -q "RUNPATH.*\[/usr/lib/$PKGNAME:/usr/lib64/$PKGNAME\]"; then
+    echo "ERROR: $PKGNAME does not have correct RUNPATH" >&2
     exit 1
 fi
 
 if ! command -v rpmbuild >/dev/null 2>&1; then
-    echo "[rpm] rpmbuild not found; falling back to packaging/build-rpm-manual.py"
-    if [ ! -d "/tmp/zupt_${VERSION}_amd64" ]; then
-        echo "[rpm] /tmp/zupt_${VERSION}_amd64 missing; running build-deb.sh first"
-        bash packaging/build-deb.sh >/dev/null
-    fi
-    VERSION="$VERSION" python3 packaging/build-rpm-manual.py
-    exit 0
+    echo "[rpm] rpmbuild not found; install rpm package to proceed"
+    exit 1
 fi
 
-# Stage the source tarball that the spec's %install will unpack
-RPMROOT="/tmp/rpmbuild-zupt"
+RPMROOT="/tmp/rpmbuild-$PKGNAME"
 rm -rf "$RPMROOT"
 mkdir -p "$RPMROOT"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 
-STAGE="/tmp/zupt-rpm-stage-${VERSION}"
+STAGE="/tmp/$PKGNAME-rpm-stage-${VERSION}"
 rm -rf "$STAGE"
-mkdir -p "$STAGE/zupt-${VERSION}"
+mkdir -p "$STAGE/$PKGNAME-${VERSION}/completions"
 
-cp zupt "$STAGE/zupt-${VERSION}/zupt"
-cp "$SDK_LIB" "$STAGE/zupt-${VERSION}/libzuptsdk.so.2.0.0"
-cp README.md CHANGELOG.md SECURITY.md AUDIT.md LICENSE "$STAGE/zupt-${VERSION}/"
-[ -f doc/zupt.1 ] && cp doc/zupt.1 "$STAGE/zupt-${VERSION}/zupt.1"
-tar -czf "$RPMROOT/SOURCES/zupt-${VERSION}.tar.gz" -C "$STAGE" "zupt-${VERSION}"
+cp $PKGNAME "$STAGE/$PKGNAME-${VERSION}/$PKGNAME"
+cp "$SDK_LIB" "$STAGE/$PKGNAME-${VERSION}/libzuptsdk.so.2.0.0"
+cp "vendor/pqvaptvupt/libpqvaptvupt.so.0.6.0" "$STAGE/$PKGNAME-${VERSION}/libpqvaptvupt.so.0.6.0"
+cp README.md CHANGELOG.md SECURITY.md AUDIT.md LICENSE "$STAGE/$PKGNAME-${VERSION}/"
+[ -f doc/vaptvupt.1 ] && cp doc/vaptvupt.1 "$STAGE/$PKGNAME-${VERSION}/$PKGNAME.1"
+[ -f completions/vaptvupt.bash ] && cp completions/vaptvupt.bash "$STAGE/$PKGNAME-${VERSION}/completions/"
+[ -f completions/_vaptvupt ]     && cp completions/_vaptvupt     "$STAGE/$PKGNAME-${VERSION}/completions/"
+[ -f completions/vaptvupt.fish ] && cp completions/vaptvupt.fish "$STAGE/$PKGNAME-${VERSION}/completions/"
+tar -czf "$RPMROOT/SOURCES/$PKGNAME-${VERSION}.tar.gz" -C "$STAGE" "$PKGNAME-${VERSION}"
 
-cat > "$RPMROOT/SPECS/zupt.spec" <<EOF
-Name:           zupt
+cat > "$RPMROOT/SPECS/$PKGNAME.spec" <<EOF
+Name:           $PKGNAME
 Version:        $VERSION
 Release:        ${RELEASE}%{?dist}
-Summary:        Post-quantum backup compression utility
+Summary:        Post-quantum backup compression utility (formerly zupt)
 License:        AGPL-3.0-or-later AND GPL-3.0-or-later
 URL:            https://git.securityops.co/cristiancmoises/zupt
-Source0:        zupt-%{version}.tar.gz
+Source0:        $PKGNAME-%{version}.tar.gz
 
-# libzuptsdk is bundled under /usr/lib/zupt; no external sdk dep needed.
+# v3.0.0 rename — INPI Brasil trademark on the prior name "Zupt".
+# Cleanly supersede legacy 'zupt' RPMs.
+Provides:       $LEGACY = %{version}-%{release}
+Obsoletes:      $LEGACY < 3.0.0
+Conflicts:      $LEGACY < 3.0.0
+
 Requires:       libargon2
 Requires:       openssl-libs >= 3.0
 AutoReqProv:    no
@@ -71,13 +79,18 @@ AutoReqProv:    no
 %global _build_id_links none
 
 %description
-Backup-oriented compression utility with hybrid post-quantum encryption
-(ML-KEM-768 + X25519). Provides AES-256-CTR + HMAC-SHA256 authenticated
-encryption, multi-threaded compression, full-disk backup/restore,
-block-level deduplication, and embeds the VaptVupt 2.48.2 codec for
-high-throughput LZ77 + tANS compression with AVX2 and NEON SIMD
-acceleration. The libzuptsdk shared library is bundled under
-/usr/lib/zupt -- no separate package required.
+VaptVupt (renamed from Zupt in v3.0.0 due to INPI Brasil trademark
+on the prior name) is a backup-oriented compression utility with
+hybrid post-quantum encryption (ML-KEM-768 + X25519). Provides
+AES-256-CTR + HMAC-SHA256 authenticated encryption, multi-threaded
+compression, full-disk backup/restore, block-level deduplication,
+and embeds the VaptVupt 2.48.5 LZ + ANS codec with AVX2 and NEON
+SIMD acceleration. The libzuptsdk shared library is bundled under
+/usr/lib/$PKGNAME -- no separate package required.
+
+The on-disk archive extension is unchanged (.zupt); v2.x and v3.0.0
+archives are bidirectionally compatible. The legacy /usr/bin/zupt
+symlink is preserved for one major version cycle.
 
 %prep
 %setup -q
@@ -87,58 +100,96 @@ acceleration. The libzuptsdk shared library is bundled under
 
 %install
 mkdir -p %{buildroot}%{_bindir}
-mkdir -p %{buildroot}%{_libdir}/zupt
-mkdir -p %{buildroot}%{_docdir}/zupt
-mkdir -p %{buildroot}%{_licensedir}/zupt
+mkdir -p %{buildroot}%{_libdir}/$PKGNAME
+mkdir -p %{buildroot}%{_docdir}/$PKGNAME
+mkdir -p %{buildroot}%{_licensedir}/$PKGNAME
 mkdir -p %{buildroot}%{_mandir}/man1
+mkdir -p %{buildroot}%{_datadir}/bash-completion/completions
+mkdir -p %{buildroot}%{_datadir}/zsh/site-functions
+mkdir -p %{buildroot}%{_datadir}/fish/vendor_completions.d
 
-install -m 755 zupt %{buildroot}%{_bindir}/zupt
-install -m 755 libzuptsdk.so.2.0.0 %{buildroot}%{_libdir}/zupt/libzuptsdk.so.2.0.0
-ln -sf libzuptsdk.so.2.0.0 %{buildroot}%{_libdir}/zupt/libzuptsdk.so.2
-ln -sf libzuptsdk.so.2.0.0 %{buildroot}%{_libdir}/zupt/libzuptsdk.so
+install -m 755 $PKGNAME %{buildroot}%{_bindir}/$PKGNAME
+ln -sf $PKGNAME %{buildroot}%{_bindir}/$LEGACY
 
-install -m 644 README.md CHANGELOG.md SECURITY.md AUDIT.md %{buildroot}%{_docdir}/zupt/
-install -m 644 LICENSE %{buildroot}%{_licensedir}/zupt/
+install -m 755 libzuptsdk.so.2.0.0 %{buildroot}%{_libdir}/$PKGNAME/libzuptsdk.so.2.0.0
+ln -sf libzuptsdk.so.2.0.0 %{buildroot}%{_libdir}/$PKGNAME/libzuptsdk.so.2
+ln -sf libzuptsdk.so.2.0.0 %{buildroot}%{_libdir}/$PKGNAME/libzuptsdk.so
+install -m 755 libpqvaptvupt.so.0.6.0 %{buildroot}%{_libdir}/$PKGNAME/libpqvaptvupt.so.0.6.0
+ln -sf libpqvaptvupt.so.0.6.0 %{buildroot}%{_libdir}/$PKGNAME/libpqvaptvupt.so.0
+ln -sf libpqvaptvupt.so.0.6.0 %{buildroot}%{_libdir}/$PKGNAME/libpqvaptvupt.so
 
-if [ -f zupt.1 ]; then
-    install -m 644 zupt.1 %{buildroot}%{_mandir}/man1/zupt.1
-    gzip -9n %{buildroot}%{_mandir}/man1/zupt.1
+install -m 644 README.md CHANGELOG.md SECURITY.md AUDIT.md %{buildroot}%{_docdir}/$PKGNAME/
+install -m 644 LICENSE %{buildroot}%{_licensedir}/$PKGNAME/
+
+if [ -f $PKGNAME.1 ]; then
+    install -m 644 $PKGNAME.1 %{buildroot}%{_mandir}/man1/$PKGNAME.1
+    gzip -9n %{buildroot}%{_mandir}/man1/$PKGNAME.1
+    ln -sf $PKGNAME.1.gz %{buildroot}%{_mandir}/man1/$LEGACY.1.gz
+fi
+
+if [ -f completions/vaptvupt.bash ]; then
+    install -m 644 completions/vaptvupt.bash %{buildroot}%{_datadir}/bash-completion/completions/$PKGNAME
+    ln -sf $PKGNAME %{buildroot}%{_datadir}/bash-completion/completions/$LEGACY
+fi
+if [ -f completions/_vaptvupt ]; then
+    install -m 644 completions/_vaptvupt %{buildroot}%{_datadir}/zsh/site-functions/_$PKGNAME
+    ln -sf _$PKGNAME %{buildroot}%{_datadir}/zsh/site-functions/_$LEGACY
+fi
+if [ -f completions/vaptvupt.fish ]; then
+    install -m 644 completions/vaptvupt.fish %{buildroot}%{_datadir}/fish/vendor_completions.d/$PKGNAME.fish
 fi
 
 %files
-%license %{_licensedir}/zupt/LICENSE
-%doc %{_docdir}/zupt/README.md
-%doc %{_docdir}/zupt/CHANGELOG.md
-%doc %{_docdir}/zupt/SECURITY.md
-%doc %{_docdir}/zupt/AUDIT.md
-%{_bindir}/zupt
-%dir %{_libdir}/zupt
-%{_libdir}/zupt/libzuptsdk.so
-%{_libdir}/zupt/libzuptsdk.so.2
-%{_libdir}/zupt/libzuptsdk.so.2.0.0
-%{_mandir}/man1/zupt.1.gz
+%license %{_licensedir}/$PKGNAME/LICENSE
+%doc %{_docdir}/$PKGNAME/README.md
+%doc %{_docdir}/$PKGNAME/CHANGELOG.md
+%doc %{_docdir}/$PKGNAME/SECURITY.md
+%doc %{_docdir}/$PKGNAME/AUDIT.md
+%{_bindir}/$PKGNAME
+%{_bindir}/$LEGACY
+%dir %{_libdir}/$PKGNAME
+%{_libdir}/$PKGNAME/libzuptsdk.so
+%{_libdir}/$PKGNAME/libzuptsdk.so.2
+%{_libdir}/$PKGNAME/libzuptsdk.so.2.0.0
+%{_libdir}/$PKGNAME/libpqvaptvupt.so
+%{_libdir}/$PKGNAME/libpqvaptvupt.so.0
+%{_libdir}/$PKGNAME/libpqvaptvupt.so.0.6.0
+%{_mandir}/man1/$PKGNAME.1.gz
+%{_mandir}/man1/$LEGACY.1.gz
+%{_datadir}/bash-completion/completions/$PKGNAME
+%{_datadir}/bash-completion/completions/$LEGACY
+%{_datadir}/zsh/site-functions/_$PKGNAME
+%{_datadir}/zsh/site-functions/_$LEGACY
+%{_datadir}/fish/vendor_completions.d/$PKGNAME.fish
 
 %changelog
-* Sat May 02 2026 Cristian Cezar Moises <zupt@riseup.net> - $VERSION-$RELEASE
-- VaptVupt 2.48.2 codec integration (cost-aware lazy parser, format_v2
-  flag, 4-stream Huffman literal coding, encoder memory hygiene).
-- Wrapper defaults: checksum=0 (Zupt outer MAC authenticates),
-  format_v2=1 for BALANCED/EXTREME (defensive guard against the
-  upstream-untested format_v2 + ULTRA_FAST combination).
-- Makefile arch-detection bug fixed (x86-64 / x86_64 mismatch).
-- 22/22 regression tests, 14/14 threaded, 10/10 PQ, 11/11 VaptVupt,
-  13/13 NIST vectors. ASAN clean across plain/password/PQ-SDK at
-  levels 1, 5, 9.
+* Sun May 25 2026 Cristian Cezar Moises <zupt@riseup.net> - $VERSION-$RELEASE
+- v3.0.0: Renamed from "Zupt" to "VaptVupt" because of a prior INPI
+  Brasil trademark on "Zupt". Archive extension .zupt is preserved;
+  v2.x and v3.0.0 archives are bidirectionally compatible. Legacy
+  /usr/bin/zupt is installed as a symlink to /usr/bin/vaptvupt.
+- Integrated VaptVupt LZ + ANS codec 2.48.5: fixes csz==0 heap-
+  buffer-overflow READ in vv_dstream_decompress_chunk (libFuzzer-
+  found, medium severity), UBSan-safe pointer arithmetic in
+  vv_copy_match.
+- Enhanced manpage (597 lines, was 422): POST-QUANTUM ENCRYPTION,
+  PERFORMANCE table, SECURITY/threat-model, ENVIRONMENT and
+  EXIT STATUS sections.
+- Fixed GUI binary-discovery bug (PATH-missing-/usr/bin scenario);
+  GUI now does liveness check + logs discovery to stderr with
+  VAPTVUPT_DEBUG=1.
+- 91/91 distro-safe regression suite green; F-09 byte sweep
+  0/1827 silent accepts; F-06 HMAC fuzz 0/2000 silent accepts.
 EOF
 
 rpmbuild --define "_topdir $RPMROOT" \
          --define "_binary_payload w2.gzdio" \
-         -bb "$RPMROOT/SPECS/zupt.spec" 2>&1 | tail -8
+         -bb "$RPMROOT/SPECS/$PKGNAME.spec" 2>&1 | tail -5
 
-RPM_PATH=$(find "$RPMROOT/RPMS" -name "zupt-${VERSION}-*.rpm" | head -1)
+RPM_PATH=$(find "$RPMROOT/RPMS" -name "$PKGNAME-${VERSION}-*.rpm" | head -1)
 if [ -n "$RPM_PATH" ]; then
-    cp "$RPM_PATH" "/tmp/zupt-${VERSION}-${RELEASE}.${ARCH}.rpm"
+    cp "$RPM_PATH" "/tmp/$PKGNAME-${VERSION}-${RELEASE}.${ARCH}.rpm"
     echo ""
-    echo "Built: /tmp/zupt-${VERSION}-${RELEASE}.${ARCH}.rpm ($(du -h /tmp/zupt-${VERSION}-${RELEASE}.${ARCH}.rpm | cut -f1))"
-    rpm -qpi "/tmp/zupt-${VERSION}-${RELEASE}.${ARCH}.rpm" 2>&1 | head -15
+    echo "Built: /tmp/$PKGNAME-${VERSION}-${RELEASE}.${ARCH}.rpm ($(du -h "/tmp/$PKGNAME-${VERSION}-${RELEASE}.${ARCH}.rpm" | cut -f1))"
+    rpm -qpi "/tmp/$PKGNAME-${VERSION}-${RELEASE}.${ARCH}.rpm" 2>&1 | head -15
 fi

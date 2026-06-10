@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
-"""Zupt GUI — Cross-Platform Post-Quantum Backup.
+"""VaptVupt GUI — Cross-Platform Post-Quantum Backup.
+
+Renamed from "Zupt" in v3.0.0 due to INPI Brasil trademark.
+The .zupt file extension is preserved.
 
 Tries PySide6 first (preferred), falls back to PyQt6 if PySide6 is
 not installed. PyQt6 is the default available package on Debian/Ubuntu
 without requiring pip; PySide6 ships with broader signal/slot semantics
 but the API surface used here is portable between the two.
 """
-import sys, os, subprocess, shutil
+import sys, os, re, subprocess, shutil
 from pathlib import Path
 
 # Try PySide6, fall back to PyQt6. The two have nearly-identical APIs;
@@ -36,48 +39,156 @@ except ImportError:
         QT_BINDING = "PyQt6"
     except ImportError:
         sys.stderr.write(
-            "ERROR: zupt-gui requires PySide6 or PyQt6. Install one of:\n"
+            "ERROR: vaptvupt-gui requires PySide6 or PyQt6. Install one of:\n"
             "  Debian/Ubuntu:  sudo apt install python3-pyqt6\n"
             "  Fedora/RHEL:    sudo dnf install python3-pyqt6\n"
             "  pip (any OS):   pip install PySide6\n"
         )
         sys.exit(1)
 
-# ── Find zupt binary ──
-def _find_zupt():
-    if os.environ.get("ZUPT_BIN") and os.path.isfile(os.environ["ZUPT_BIN"]):
-        return os.environ["ZUPT_BIN"]
-    # Check local project tree FIRST (handles running from zupt-2.1.6/gui/)
-    here = Path(getattr(sys, '_MEIPASS', Path(__file__).parent))
-    for c in [here.parent.parent/"zupt",      # zupt-2.1.6/gui/src -> zupt-2.1.6/zupt
-              here.parent/"zupt",              # zupt-2.1.6/gui -> zupt-2.1.6/zupt (shouldn't happen but safe)
-              here/"zupt",                     # same dir as script
-              here.parent.parent/"zupt.exe",
-              here.parent/"zupt.exe",
-              here/"zupt.exe"]:
-        if c.is_file() and os.access(str(c), os.X_OK):
-            return str(c.resolve())
-    # Then system PATH
-    found = shutil.which("zupt")
-    if found: return found
-    # Fallback common paths
-    for c in [Path("/usr/local/bin/zupt"), Path("/usr/bin/zupt")]:
-        if c.is_file(): return str(c)
-    return "zupt"
+# ── Find vaptvupt binary ──
+#
+# v3.0.0 rename: the binary is now `vaptvupt`; older installations
+# (1.x/2.x) ship `zupt`. We try the new name first, fall back to the
+# old name, and on every candidate verify it's actually executable
+# (not just present). After picking a candidate, we run a quick
+# `version` liveness check — this catches the case where the binary
+# exists but can't load its shared library (the original bug report:
+# "GUI doesn't find zupt; copying to /usr/local/bin fixes it").
+#
+# Diagnostic output goes to stderr so users can `vaptvupt-gui 2>log`
+# to see exactly which path was tried and why each failed.
 
-ZUPT = _find_zupt()
+_DISCOVERY_LOG = []
+
+def _discovery_log(msg):
+    _DISCOVERY_LOG.append(msg)
+    # Echo to stderr if VAPTVUPT_DEBUG or ZUPT_DEBUG is set
+    if os.environ.get("VAPTVUPT_DEBUG") or os.environ.get("ZUPT_DEBUG"):
+        sys.stderr.write(f"  [discovery] {msg}\n")
+
+def _is_runnable(path):
+    """A path is runnable if it's a file, executable, and exits 0 on `version`."""
+    p = str(path)
+    if not os.path.isfile(p):
+        return False, "not a regular file"
+    if not os.access(p, os.X_OK):
+        return False, "not executable (chmod +x needed?)"
+    # Liveness check — catches missing shared libraries, broken rpath,
+    # ABI mismatch, etc. 3-second cap so we never hang the GUI startup.
+    try:
+        r = subprocess.run([p, "version"], capture_output=True, timeout=3)
+        if r.returncode != 0:
+            err = r.stderr.decode("utf-8", errors="replace").strip()
+            return False, f"exit {r.returncode}: {err.splitlines()[0] if err else 'no stderr'}"
+        return True, "OK"
+    except FileNotFoundError:
+        return False, "FileNotFoundError on exec"
+    except subprocess.TimeoutExpired:
+        return False, "timeout (3s) on `version` — binary hung"
+    except OSError as e:
+        return False, f"OSError: {e}"
+
+def _find_vaptvupt():
+    # 1. Explicit env override
+    for env in ("VAPTVUPT_BIN", "ZUPT_BIN"):
+        p = os.environ.get(env)
+        if p:
+            ok, reason = _is_runnable(p)
+            _discovery_log(f"env {env}={p}: {reason}")
+            if ok:
+                return p
+
+    # 2. Local project tree (running from a source checkout)
+    #    Try BOTH names (vaptvupt is v3.0.0+, zupt is legacy).
+    here = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+    for parent in (here.parent.parent, here.parent, here):
+        for name in ("vaptvupt", "zupt", "vaptvupt.exe", "zupt.exe"):
+            c = parent / name
+            ok, reason = _is_runnable(c)
+            _discovery_log(f"local {c}: {reason}")
+            if ok:
+                return str(c.resolve())
+
+    # 3. System PATH — try new name first, then legacy
+    for name in ("vaptvupt", "zupt"):
+        found = shutil.which(name)
+        if found:
+            ok, reason = _is_runnable(found)
+            _discovery_log(f"PATH which({name})={found}: {reason}")
+            if ok:
+                return found
+        else:
+            _discovery_log(f"PATH which({name}): not found")
+
+    # 4. Hard-coded common install paths — catches the "GUI launched
+    #    from a desktop session with a minimal PATH that omits /usr/bin"
+    #    scenario reported against v2.4.8.
+    common = [
+        # New name (v3.0.0+)
+        "/usr/local/bin/vaptvupt", "/usr/bin/vaptvupt",
+        "/opt/vaptvupt/bin/vaptvupt", "/opt/homebrew/bin/vaptvupt",
+        # Legacy name (1.x/2.x)
+        "/usr/local/bin/zupt", "/usr/bin/zupt",
+        "/opt/zupt/bin/zupt", "/opt/homebrew/bin/zupt",
+        # Termux (Android) install path
+        "/data/data/com.termux/files/usr/bin/vaptvupt",
+        "/data/data/com.termux/files/usr/bin/zupt",
+        # Flatpak sandbox runtime path
+        "/app/bin/vaptvupt", "/app/bin/zupt",
+    ]
+    for path in common:
+        ok, reason = _is_runnable(path)
+        _discovery_log(f"common {path}: {reason}")
+        if ok:
+            return path
+
+    # 5. Last resort — return "vaptvupt" and let exec fail loudly later.
+    #    A caller-visible error is better than silently returning a path
+    #    that doesn't work.
+    _discovery_log("FAILED: no runnable vaptvupt/zupt binary found")
+    return "vaptvupt"
+
+# Backward-compat: code elsewhere in this file still uses `ZUPT`.
+VAPTVUPT = _find_vaptvupt()
+ZUPT = VAPTVUPT  # legacy alias used throughout the rest of zupt_gui.py
 
 # ── Query version ONCE at import (cached) ──
-def _get_version():
-    try:
-        r = subprocess.run([ZUPT, "version"], capture_output=True, text=True, timeout=5)
-        if r.returncode == 0:
-            lines = r.stdout.strip().split("\n")
-            return lines[0], r.stdout.strip()
-    except Exception: pass
-    return "zupt (not found)", ""
+#
+# The CLI's `version` first line is the brand banner. Examples:
+#   v2.4.x: "zupt 2.4.8"
+#   v3.0.x: "vaptvupt 3.0.0 (formerly zupt; renamed in v3.0.0 — INPI Brasil trademark)"
+#
+# We extract three things from that line:
+#   - VER_SHORT: the full first line (used as a fallback display)
+#   - VER_NUMBER: just the version number "3.0.0" or "2.4.8" (for hero text)
+#   - VER_FULL: the entire stdout (used in the about panel)
+#
+# Earlier code did `ZUPT_VER_SHORT.replace("zupt ", "")` to peel the
+# product name. That breaks on v3.0.x because the same string "zupt "
+# also appears inside the parenthetical "formerly zupt; renamed".
+# We now use a strict regex anchored at the start of the line.
 
-ZUPT_VER_SHORT, ZUPT_VER_FULL = _get_version()
+_VERSION_RE = re.compile(r'^(?:vaptvupt|zupt)\s+(\d+\.\d+\.\d+(?:[._A-Za-z0-9-]*)?)')
+
+def _get_version():
+    short = "vaptvupt (not found)"
+    number = "?"
+    full = ""
+    try:
+        r = subprocess.run([VAPTVUPT, "version"], capture_output=True, text=True, timeout=5)
+        if r.returncode == 0:
+            full = r.stdout.strip()
+            lines = full.split("\n")
+            short = lines[0]
+            m = _VERSION_RE.match(short)
+            if m:
+                number = m.group(1)
+    except Exception:
+        pass
+    return short, number, full
+
+ZUPT_VER_SHORT, ZUPT_VER_NUMBER, ZUPT_VER_FULL = _get_version()
 
 # ── Find icon file ──
 def _find_icon():
@@ -144,7 +255,7 @@ def run_zupt(args, timeout=30):
     try:
         r = subprocess.run([ZUPT]+list(args), capture_output=True, text=True, timeout=timeout)
         return r.returncode, r.stdout, r.stderr
-    except FileNotFoundError: return -1, "", f"zupt not found: {ZUPT}"
+    except FileNotFoundError: return -1, "", f"vaptvupt not found: {VAPTVUPT}\n\nDiscovery log:\n" + "\n".join(_DISCOVERY_LOG[-10:])
     except subprocess.TimeoutExpired: return -1, "", "Timed out"
 
 class Worker(QObject):
@@ -152,7 +263,7 @@ class Worker(QObject):
     log = Signal(str)
     def __init__(self, args): super().__init__(); self.args = args
     def run(self):
-        self.log.emit(f"$ zupt {' '.join(self.args)}")
+        self.log.emit(f"$ {Path(VAPTVUPT).name} {' '.join(self.args)}")
         try:
             proc = subprocess.Popen([ZUPT]+self.args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             err_lines = []
@@ -161,7 +272,7 @@ class Worker(QObject):
                 if line: err_lines.append(line); self.log.emit(line)
             stdout, _ = proc.communicate(timeout=7200)
             self.done.emit(proc.returncode, stdout or "", "\n".join(err_lines))
-        except FileNotFoundError: self.done.emit(-1, "", f"zupt not found: {ZUPT}")
+        except FileNotFoundError: self.done.emit(-1, "", f"vaptvupt not found: {VAPTVUPT}")
         except subprocess.TimeoutExpired: proc.kill(); self.done.emit(-1, "", "Timed out")
 
 # ── Widgets ──
@@ -306,7 +417,7 @@ class KeysTab(QWidget):
     def _export(self):
         priv = self.exp_priv.path()
         pub = self.exp_pub.path()
-        if not priv: QMessageBox.warning(self, "Zupt", "Select the private key file."); return
+        if not priv: QMessageBox.warning(self, "VaptVupt", "Select the private key file."); return
         if not pub:
             pub = priv.rsplit(".", 1)[0] + "_public.key" if "." in priv else priv + ".pub"
             self.exp_pub.edit.setText(pub)
@@ -331,7 +442,7 @@ class CompressTab(QWidget):
         v.addWidget(H("Source files / directory"))
         self.src = PathField("Drop files here or browse", "multi"); v.addWidget(self.src)
         v.addWidget(H("Output archive"))
-        self.dst = PathField("e.g. backup.zupt", "save", "Zupt (*.zupt);;All (*)"); v.addWidget(self.dst)
+        self.dst = PathField("e.g. backup.zupt", "save", "VaptVupt archive (*.zupt);;All (*)"); v.addWidget(self.dst)
         row = QHBoxLayout(); row.setSpacing(16)
         for label, widget in [("Codec", self._mk_codec()), ("Level", self._mk_level())]:
             c = QVBoxLayout(); c.addWidget(H(label)); c.addWidget(widget); row.addLayout(c)
@@ -361,7 +472,7 @@ class CompressTab(QWidget):
 
     def _run(self):
         srcs = self.src.paths()
-        if not srcs or not srcs[0]: QMessageBox.warning(self, "Zupt", "Select files."); return
+        if not srcs or not srcs[0]: QMessageBox.warning(self, "VaptVupt", "Select files."); return
         dst = self.dst.path() or srcs[0] + ".zupt"; self.dst.edit.setText(dst)
         cmd = ["compress", "-l", str(self.level.value())]
         cm = {"AUTO": None, "VaptVupt": "--vv", "LZHP": "--lzhp", "Store": "-s"}
@@ -384,7 +495,7 @@ class ExtractTab(QWidget):
         v = QVBoxLayout(inner); v.setContentsMargins(24,24,24,24); v.setSpacing(10)
         v.addWidget(QLabel("Extract and decrypt a .zupt archive."))
         v.addWidget(Sep())
-        v.addWidget(H("Archive")); self.arc = PathField("Drop .zupt here", filters="Zupt (*.zupt);;All (*)"); v.addWidget(self.arc)
+        v.addWidget(H("Archive")); self.arc = PathField("Drop .zupt here", filters="VaptVupt archive (*.zupt);;All (*)"); v.addWidget(self.arc)
         v.addWidget(H("Output directory")); self.out = PathField("Same as archive", "dir"); v.addWidget(self.out)
         enc = QHBoxLayout(); enc.setSpacing(16)
         pw = QVBoxLayout(); pw.addWidget(H("Password")); self.pw = PwField(); pw.addWidget(self.pw); enc.addLayout(pw)
@@ -402,7 +513,7 @@ class ExtractTab(QWidget):
 
     def _run(self):
         arc = self.arc.path()
-        if not arc: QMessageBox.warning(self, "Zupt", "Select an archive."); return
+        if not arc: QMessageBox.warning(self, "VaptVupt", "Select an archive."); return
         cmd = ["extract"]
         if self.out.path(): cmd += ["-o", self.out.path()]
         if self.pw.text(): cmd += ["-p", self.pw.text()]
@@ -424,14 +535,14 @@ class VerifyTab(QWidget):
         v.addWidget(QLabel("Verify checksums or inspect archive metadata."))
         v.addWidget(Sep())
         v.addWidget(H("Verify integrity"))
-        self.varc = PathField("Archive to verify", filters="Zupt (*.zupt);;All (*)"); v.addWidget(self.varc)
+        self.varc = PathField("Archive to verify", filters="VaptVupt archive (*.zupt);;All (*)"); v.addWidget(self.varc)
         v.addWidget(H("Password (if encrypted)"))
         self.vpw = PwField("Leave empty if not encrypted"); v.addWidget(self.vpw)
         self.vbtn = QPushButton("Verify"); self.vbtn.setObjectName("amber"); self.vbtn.clicked.connect(self._verify); v.addWidget(self.vbtn)
         self.vlog = Log(120); v.addWidget(self.vlog)
         v.addWidget(Sep())
         v.addWidget(H("Archive info (no password needed)"))
-        self.iarc = PathField("Archive to inspect", filters="Zupt (*.zupt);;All (*)"); v.addWidget(self.iarc)
+        self.iarc = PathField("Archive to inspect", filters="VaptVupt archive (*.zupt);;All (*)"); v.addWidget(self.iarc)
         self.ibtn = QPushButton("Show Info"); self.ibtn.clicked.connect(self._info); v.addWidget(self.ibtn)
         self.ilog = Log(140); v.addWidget(self.ilog); v.addStretch()
         lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0); lay.addWidget(scrollable(inner))
@@ -465,7 +576,7 @@ class DiskTab(QWidget):
         v.addWidget(H("Backup — source device or image"))
         self.bsrc = PathField("/dev/sdX or disk.img"); v.addWidget(self.bsrc)
         v.addWidget(H("Backup — output archive"))
-        self.bout = PathField("backup.zupt", "save", "Zupt (*.zupt);;All (*)"); v.addWidget(self.bout)
+        self.bout = PathField("backup.zupt", "save", "VaptVupt archive (*.zupt);;All (*)"); v.addWidget(self.bout)
         bopt = QHBoxLayout(); bopt.setSpacing(16)
         oc = QVBoxLayout(); oc.addWidget(H("Options")); self.bdedup = QCheckBox("Block deduplication"); oc.addWidget(self.bdedup); bopt.addLayout(oc)
         pc = QVBoxLayout(); pc.addWidget(H("Password")); self.bpw = PwField("Optional — AES-256"); pc.addWidget(self.bpw); bopt.addLayout(pc)
@@ -474,7 +585,7 @@ class DiskTab(QWidget):
         self.blog = Log(100); v.addWidget(self.blog)
         v.addWidget(Sep())
         v.addWidget(H("Restore — archive"))
-        self.rarc = PathField("backup.zupt", filters="Zupt (*.zupt);;All (*)"); v.addWidget(self.rarc)
+        self.rarc = PathField("backup.zupt", filters="VaptVupt archive (*.zupt);;All (*)"); v.addWidget(self.rarc)
         v.addWidget(H("Restore — target device or file"))
         self.rtgt = PathField("/dev/sdX or output.img", "save"); v.addWidget(self.rtgt)
         v.addWidget(H("Restore — password"))
@@ -485,7 +596,7 @@ class DiskTab(QWidget):
 
     def _backup(self):
         s, o = self.bsrc.path(), self.bout.path()
-        if not s or not o: QMessageBox.warning(self, "Zupt", "Set source and output."); return
+        if not s or not o: QMessageBox.warning(self, "VaptVupt", "Set source and output."); return
         cmd = ["disk", "backup"]
         if self.bdedup.isChecked(): cmd.append("--dedup")
         if self.bpw.text(): cmd += ["-p", self.bpw.text()]
@@ -493,7 +604,7 @@ class DiskTab(QWidget):
 
     def _restore(self):
         a, t = self.rarc.path(), self.rtgt.path()
-        if not a or not t: QMessageBox.warning(self, "Zupt", "Set archive and target."); return
+        if not a or not t: QMessageBox.warning(self, "VaptVupt", "Set archive and target."); return
         SB = QMessageBox.StandardButton
         if QMessageBox.warning(self, "Confirm", f"OVERWRITE {t}?", SB.Yes|SB.Cancel) != SB.Yes: return
         cmd = ["disk", "restore"]
@@ -506,33 +617,43 @@ class AboutTab(QWidget):
         super().__init__()
         inner = QWidget()
         v = QVBoxLayout(inner); v.setContentsMargins(24,24,24,24); v.setSpacing(4)
-        # Extract version number from cached string
-        ver_num = ZUPT_VER_SHORT.replace("zupt ", "").strip() if "zupt " in ZUPT_VER_SHORT else ZUPT_VER_SHORT
         for text, style in [
-            ("ZUPT", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
-            (ver_num, "color:white;font-size:28px;font-weight:800;font-family:monospace;"),
+            ("VAPTVUPT", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
+            (ZUPT_VER_NUMBER, "color:white;font-size:28px;font-weight:800;font-family:monospace;"),
             ("", ""),
             ("Post-quantum backup compression with ML-KEM-768 + X25519", "color:#6a8898;font-size:13px;"),
-            ("hybrid encryption, hardware-adaptive codecs, and block dedup.", "color:#6a8898;font-size:13px;"),
+            ("hybrid encryption, Argon2id KDF, and block deduplication.", "color:#6a8898;font-size:13px;"),
+            ("Renamed from Zupt in v3.0.0 (INPI Brasil trademark); .zupt", "color:#6a8898;font-size:13px;"),
+            ("archive extension and v1.6 wire format are unchanged.", "color:#6a8898;font-size:13px;"),
             ("", ""),
             ("CRYPTOGRAPHIC STACK", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
             ("ML-KEM-768     FIPS 203     Post-Quantum KEM", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("X25519         RFC 7748     Elliptic Curve DH", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("X25519         RFC 7748     Elliptic Curve DH (hybrid w/ ML-KEM)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("AES-256-CTR    FIPS 197     Symmetric Cipher", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("HMAC-SHA256    RFC 2104     Authentication", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("PBKDF2         RFC 8018     Key Derivation", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("HMAC-SHA256    RFC 2104     Authentication (Encrypt-then-MAC)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("Argon2id       RFC 9106     Password KDF (default since 2.4.1)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("PBKDF2         RFC 8018     Password KDF (legacy; --kdf pbkdf2)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("HKDF           RFC 5869     Key Derivation Function", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("SHA3/SHAKE     FIPS 202     Hash / XOF", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("XXH64          (non-crypto) Per-block checksum (inside AEAD)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("", ""),
+            ("COMPRESSION CODEC", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
+            ("VaptVupt LZ + ANS  2.48.5  LZ77 + tabled ANS entropy", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("AVX2 / NEON SIMD acceleration; 1.27x zstd-3 decode aggregate", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("", ""),
             ("CREDITS", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
-            ("zupt        Cristian Cezar Moises        MIT", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("git.securityops.co/cristiancmoises/zupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
+            ("VaptVupt application                    Cristian Cezar Moisés", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("    License: AGPL-3.0-or-later (commercial license available)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("    git.securityops.co/cristiancmoises/zupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
             ("", ""),
-            ("zupt        Cristian Cezar Moises          AGPL-3.0+", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("git.securityops.co/cristiancmoises/zupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
+            ("VaptVupt LZ + ANS codec                 Cristian Cezar Moisés", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("    License: GPL-3.0-or-later (commercial license available)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("    git.securityops.co/cristiancmoises/vaptvupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
             ("", ""),
-            ("WEBSITE", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
+            ("WEBSITE & CONTACT", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
             ("https://zupt.securityops.co", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("zupt@riseup.net", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("sac@securityops.co  (commercial licensing)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("zupt@riseup.net     (general / bugs)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("", ""),
             (ZUPT_VER_SHORT, "color:#3a5868;font-size:11px;font-family:monospace;"),
         ]:
@@ -549,7 +670,7 @@ class AboutTab(QWidget):
 class ZuptWindow(QMainWindow):
     def __init__(self, compress_files=None, extract_file=None):
         super().__init__()
-        self.setWindowTitle(f"Zupt — {ZUPT_VER_SHORT}")
+        self.setWindowTitle(f"VaptVupt {ZUPT_VER_NUMBER}")
         self.setMinimumSize(720, 500)
         self.resize(880, 640)
         self.setAcceptDrops(True)
@@ -564,12 +685,11 @@ class ZuptWindow(QMainWindow):
         # Header
         hdr = QFrame(); hdr.setStyleSheet("background:#050a0e;border-bottom:1px solid #1a2a30;")
         hl = QHBoxLayout(hdr); hl.setContentsMargins(20,10,20,10)
-        title = QLabel("ZUPT"); title.setStyleSheet("color:white;font-size:15px;font-weight:800;letter-spacing:3px;")
+        title = QLabel("VAPTVUPT"); title.setStyleSheet("color:white;font-size:15px;font-weight:800;letter-spacing:3px;")
         hl.addWidget(title)
         sub = QLabel("Post-Quantum Backup"); sub.setStyleSheet("color:#3a5868;font-size:10px;font-weight:600;letter-spacing:1px;margin-left:8px;")
         hl.addWidget(sub); hl.addStretch()
-        ver_num = ZUPT_VER_SHORT.replace("zupt ", "v").strip()
-        vl = QLabel(ver_num); vl.setStyleSheet("color:#3a5868;font-size:10px;font-family:monospace;background:#0a1018;padding:3px 10px;border-radius:4px;border:1px solid #1a2a30;")
+        vl = QLabel(f"v{ZUPT_VER_NUMBER}"); vl.setStyleSheet("color:#3a5868;font-size:10px;font-family:monospace;background:#0a1018;padding:3px 10px;border-radius:4px;border:1px solid #1a2a30;")
         hl.addWidget(vl)
         layout.addWidget(hdr)
 
@@ -588,7 +708,7 @@ class ZuptWindow(QMainWindow):
         layout.addWidget(self.tabs)
 
         sb = QStatusBar()
-        sb.showMessage(f"{ZUPT_VER_SHORT}  |  {ZUPT}")
+        sb.showMessage(f"VaptVupt {ZUPT_VER_NUMBER}  |  {VAPTVUPT}")
         self.setStatusBar(sb)
 
     def dragEnterEvent(self, e):
@@ -612,7 +732,7 @@ def main():
         else: compress_files = args
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Zupt")
+    app.setApplicationName("VaptVupt")
     if ICON_PATH: app.setWindowIcon(QIcon(ICON_PATH))
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)

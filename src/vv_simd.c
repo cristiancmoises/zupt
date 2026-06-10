@@ -53,8 +53,27 @@ static void copy_match_scalar(uint8_t *dst, uint32_t offset, size_t length) {
          * writes it to dst[7], corrupting position 7.
          *
          * Safe implementation: byte-by-byte, where each write feeds the
-         * next read correctly (the classic LZ "self-reference" pattern). */
-        for (size_t i = 0; i < length; i++) dst[i] = dst[i - (ptrdiff_t)offset];
+         * next read correctly (the classic LZ "self-reference" pattern).
+         *
+         * SPRINT 123 (v2.48.5): rewritten to avoid UB-risky pointer
+         * arithmetic. Original form `dst[i - (ptrdiff_t)offset]` expands
+         * to `*(dst + (i - offset))` which forms an intermediate pointer
+         * `dst + negative_value` for `i < offset` (always true on the
+         * first iteration). Even though the caller validates
+         * `offset <= (op - dst_base)` so the resulting address stays in
+         * the same allocation, UBSan's pointer-bounds check fires on the
+         * intermediate value computation. Hoist `dst - offset` into a
+         * named pointer ONCE outside the loop where it lands in valid
+         * memory (caller already validated), then index forward only.
+         * Functionally identical: `match_src[i]` reads `dst[i-offset]`
+         * which is either a previously-written literal (i >= offset) or
+         * a byte just written by an earlier iteration (i < offset).
+         * Found by libpqvaptvupt/libvaptvupt fuzz harness in Sprint 21.
+         */
+        const uint8_t *match_src = dst - offset;  /* one valid subtraction */
+        for (size_t i = 0; i < length; i++) {
+            dst[i] = match_src[i];
+        }
     }
 }
 

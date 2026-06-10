@@ -4,7 +4,7 @@
  * VaptVupt — Canonical Huffman Codec
  *
  * Standalone header: can be used independently with VV_HUFFMAN_STANDALONE.
- * Designed for embedding in Zupt or any other LZ codec.
+ * Designed for embedding in a host application or any other LZ codec.
  *
  * API:
  *   vvh_encode() — compress raw literals into Huffman bitstream

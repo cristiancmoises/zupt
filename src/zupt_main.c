@@ -21,27 +21,41 @@
 
 static void banner(void) {
     fprintf(stderr,
-        "Zupt %s - Next-Generation Compression Utility\n"
-        "Format v%d.%d | Codec: Zupt-LZ | Checksum: XXH64\n"
-        "Encryption: AES-256-CTR + HMAC-SHA256 | KDF: PBKDF2-SHA256\n\n",
-        ZUPT_VERSION_STRING, ZUPT_FORMAT_MAJOR, ZUPT_FORMAT_MINOR);
+        "%s %s - %s\n"
+        "Format v%d.%d | Codec: VaptVupt + Zupt-LZ | Checksum: XXH64\n"
+        "Encryption: AES-256-CTR + HMAC-SHA256 | KDF: Argon2id (default) / PBKDF2 (--kdf pbkdf2)\n\n",
+        ZUPT_PRODUCT_NAME, ZUPT_VERSION_STRING, ZUPT_PRODUCT_TAGLINE,
+        ZUPT_FORMAT_MAJOR, ZUPT_FORMAT_MINOR);
 }
 
 static void usage(void) {
     banner();
+    /* usage() text exceeds C99's 4095-char string-literal limit, so we
+     * split it into logical sections, one fprintf call per section.
+     * Don't merge these back into a single literal — see F-13 in
+     * AUDIT.md for the regression test (tests/test_help_consistency.sh)
+     * that asserts this. */
+
+    /* ── Section 1: synopsis ── */
     fprintf(stderr,
         "Usage:\n"
-        "  zupt compress [OPTIONS] <output.zupt> <files/dirs...>\n"
-        "  zupt extract  [OPTIONS] <archive.zupt>\n"
-        "  zupt list     [OPTIONS] <archive.zupt>\n"
-        "  zupt test     [OPTIONS] <archive.zupt>\n"
-        "  zupt info     <archive.zupt>           Archive metadata (no password needed)\n"
-        "  zupt bench    <files/dirs...>          Compare levels 1-9\n"
-        "  zupt disk     backup|restore            Full-disk backup/restore\n"
-        "  zupt keygen                            Key generation"
-        "  zupt version\n"
-        "  zupt help\n"
+        "  vaptvupt compress [OPTIONS] <output.zupt> <files/dirs...>\n"
+        "  vaptvupt extract  [OPTIONS] <archive.zupt>\n"
+        "  vaptvupt list     [OPTIONS] <archive.zupt>\n"
+        "  vaptvupt test     [OPTIONS] <archive.zupt>\n"
+        "  vaptvupt info     <archive.zupt>           Archive metadata (no password needed)\n"
+        "  vaptvupt bench    <files/dirs...>          Compare levels 1-9\n"
+        "  vaptvupt disk     backup|restore            Full-disk backup/restore\n"
+        "  vaptvupt keygen                            Key generation\n"
+        "  vaptvupt version\n"
+        "  vaptvupt help\n"
         "\n"
+        "Note: archive extension stays .zupt for format continuity.\n"
+        "      The `zupt` command is preserved as a legacy alias.\n"
+        "\n");
+
+    /* ── Section 2: compress options ── */
+    fprintf(stderr,
         "Compress Options:\n"
         "  -l, --level <1-9>     Compression level (default: 7)\n"
         "                          1-2: fast, small window\n"
@@ -51,23 +65,32 @@ static void usage(void) {
         "  -b, --block <SIZE>    Block size in bytes (default: 128KB)\n"
         "  -s, --store           Store without compression\n"
         "  -f, --fast            Use fast LZ codec (less compression)\n"
-        "  --vv, --vaptvupt      Use VaptVupt codec (fast LZ + ANS entropy)\n"
+        "  --vv, --vaptvupt      Use VaptVupt codec (LZ + ANS entropy, default)\n"
         "  --lzhp                Use Zupt-LZHP codec (LZ77+Huffman, no SIMD needed)\n"
         "  -p, --password <PW>   Encrypt with AES-256 (prompted if empty)\n"
+        "  --kdf <argon2id|pbkdf2>   KDF for password mode. Default: argon2id (v2.4.1+).\n"
+        "                            Use 'pbkdf2' for v2.4.0-and-older reader compatibility.\n"
+        "  -c, --comment <TEXT>  Embed a free-form archive comment (v2.4.3+).\n"
+        "  --comment-file <FILE>     Read comment from file (max 4096 bytes).\n"
         "  --pq <pubkey>         Post-quantum encryption (legacy XOR+SHA3 combiner)\n"
         "  --pq-sdk <pubkey>     Post-quantum encryption via libzuptsdk\n"
+        "  --pq-box <pubkey>     Post-quantum sealed box via libpqvaptvupt (HKDF combiner)\n"
         "                          (HKDF combiner + key commitment + HPKE binding\n"
         "                          + Argon2id; recommended for new archives)\n"
         "  --dedup, -D           Block-level deduplication\n"
         "  --solid               Solid mode (single stream)\n"
         "  -v, --verbose         Verbose per-file output\n"
         "  -t, --threads <N>     Thread count (0=auto, 1=single, 2-64=explicit)\n"
-        "\n"
+        "\n");
+
+    /* ── Section 3: extract/list/test options ── */
+    fprintf(stderr,
         "Extract/List/Test Options:\n"
         "  -o, --output <DIR>    Output directory (extract only)\n"
         "  -p, --password <PW>   Decryption password\n"
         "  --pq <privkey>        Post-quantum decryption (legacy combiner)\n"
         "  --pq-sdk <privkey>    Post-quantum decryption via libzuptsdk\n"
+        "  --pq-box <privkey>    Post-quantum sealed-box decryption (libpqvaptvupt)\n"
         "  -v, --verbose         Verbose output\n"
         "  -t, --threads <N>     Thread count for decompression\n"
         "\n"
@@ -76,35 +99,43 @@ static void usage(void) {
         "  --pub                 Export public key from existing private key (-k)\n"
         "  -k <privkey>          Source private keyfile (with --pub)\n"
         "  --sdk, --pq-sdk       Generate SDK v2 keypair (writes <file> and <file>.pub)\n"
-        "                          Use these keys with --pq-sdk on compress/extract.\n"
+        "  --box, --pq-box       Generate pq-box keypair (libpqvaptvupt; writes <file> and <file>.pub)\n"
+        "                          Use these keys with --pq-sdk / --pq-box respectively.\n"
         "\n"
         "Directories are traversed recursively.\n"
-        "\n"
+        "\n");
+
+    /* ── Section 4: examples ── */
+    fprintf(stderr,
         "Examples:\n"
         "  # Legacy PQ workflow\n"
-        "  zupt keygen -o mykey.key                                   # Generate keypair\n"
-        "  zupt keygen --pub -o pub.key -k mykey.key                  # Export public key\n"
-        "  zupt compress --pq pub.key backup.zupt ~/Documents/        # Encrypt\n"
-        "  zupt extract  --pq mykey.key backup.zupt -o ~/restored/    # Decrypt\n"
+        "  vaptvupt keygen -o mykey.key                                   # Generate keypair\n"
+        "  vaptvupt keygen --pub -o pub.key -k mykey.key                  # Export public key\n"
+        "  vaptvupt compress --pq pub.key backup.zupt ~/Documents/        # Encrypt\n"
+        "  vaptvupt extract  --pq mykey.key backup.zupt -o ~/restored/    # Decrypt\n"
         "\n"
         "  # SDK v2 PQ workflow (recommended for new archives)\n"
-        "  zupt keygen --sdk -o mykey.priv                            # Writes mykey.priv + .pub\n"
-        "  zupt compress --pq-sdk mykey.priv.pub backup.zupt files/   # Encrypt (HKDF+commit+HPKE)\n"
-        "  zupt extract  --pq-sdk mykey.priv backup.zupt              # Decrypt\n"
+        "  vaptvupt keygen --sdk -o mykey.priv                            # Writes mykey.priv + .pub\n"
+        "  vaptvupt compress --pq-sdk mykey.priv.pub backup.zupt files/   # Encrypt (HKDF+commit+HPKE)\n"
+        "  vaptvupt extract  --pq-sdk mykey.priv backup.zupt              # Decrypt\n"
         "\n"
         "  # Conventional / password\n"
-        "  zupt compress backup.zupt ~/Documents/                     # No encryption\n"
-        "  zupt compress -l 9 -p mysecret secure.zupt data/           # Password + max compression\n"
-        "  zupt list secure.zupt -p mysecret                          # List with password\n"
-        "  zupt extract -o restored/ -p mysecret secure.zupt          # Extract with password\n"
-        "  zupt bench ~/Documents/                                # Benchmark\n"
+        "  vaptvupt compress backup.zupt ~/Documents/                     # No encryption\n"
+        "  vaptvupt compress -l 9 -p mysecret secure.zupt data/           # Password + max compression\n"
+        "  vaptvupt list secure.zupt -p mysecret                          # List with password\n"
+        "  vaptvupt extract -o restored/ -p mysecret secure.zupt          # Extract with password\n"
+        "  vaptvupt bench ~/Documents/                                # Benchmark\n"
+        "\n");
+
+    /* ── Section 5: footer ── */
+    fprintf(stderr,
+        "Default codec: VaptVupt LZ + ANS " ZUPT_CODEC_RELEASE " (AVX2/NEON SIMD)\n"
+        "Encryption:    AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)\n"
+        "KDF:           Argon2id (default, v2.4.1+); PBKDF2-SHA256 600k iter via --kdf pbkdf2\n"
+        "Format:        v1.6 (since v2.3.1); archives byte-compatible with v2.3.1+\n"
         "\n"
-        "Compression: LZ77 (1MB window) + Huffman entropy coding\n"
-        "Security:    AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)\n"
-        "KDF:         PBKDF2-SHA256 (600,000 iterations)\n"
-        "\n"
-        "License: AGPL-3.0-or-later (Zupt) + GPL-3.0-or-later (VaptVupt codec)\n"
-        "         Commercial license available: sac@securityops.co\n"
+        "License: AGPL-3.0-or-later (VaptVupt) + GPL-3.0-or-later (VaptVupt codec)\n"
+        "         Dual-licensed: commercial license available: sac@securityops.co\n"
         "Project: https://git.securityops.co/cristiancmoises/zupt\n"
     );
 }
@@ -126,7 +157,10 @@ static void prompt_password(const char *prompt, char *buf, size_t cap) {
     struct termios old, new_t;
     tcgetattr(0, &old);
     new_t = old;
-    new_t.c_lflag &= ~ECHO;
+    /* Clear the ECHO bit. ~ECHO is `int` (negative); c_lflag is
+     * tcflag_t (unsigned int). The cast makes the conversion
+     * explicit and silences -Wsign-conversion. */
+    new_t.c_lflag &= (tcflag_t)~ECHO;
     tcsetattr(0, TCSANOW, &new_t);
     if (fgets(buf, (int)cap, stdin)) {
         size_t len = strlen(buf);
@@ -149,13 +183,25 @@ int main(int argc, char **argv) {
 
     if (streq(cmd,"help")||streq(cmd,"--help")||streq(cmd,"-h")) { usage(); return 0; }
     if (streq(cmd,"version")||streq(cmd,"--version")||streq(cmd,"-V")) {
-        printf("zupt %s\nFormat: v%d.%d\nCodec: Zupt-LZ (0x%04X)\n"
-               "Encryption: AES-256-CTR+HMAC-SHA256\nKDF: PBKDF2-SHA256 (%d iter)\n"
-               "License: AGPL-3.0-or-later (Zupt) + GPL-3.0-or-later (VaptVupt)\n"
+        printf("vaptvupt %s (formerly zupt; renamed in v3.0.0 — INPI Brasil trademark)\n"
+               "Format: v%d.%d | Archive extension: .zupt (unchanged)\n"
+               "Codec: VaptVupt " ZUPT_CODEC_RELEASE " (0x%04X) — LZ + ANS, optimal parser + large-window extreme\n"
+               "Encryption: AES-256-CTR + HMAC-SHA256\n"
+               "KDF: Argon2id (default) / PBKDF2-SHA256 %d iter (--kdf pbkdf2)\n"
+               "Post-quantum: ML-KEM-768 + X25519 hybrid (FIPS 203 + RFC 7748)\n"
+               "License: AGPL-3.0-or-later (VaptVupt) + GPL-3.0-or-later (codec)\n"
+               "         Dual-licensed: commercial license available\n"
                "Project: https://git.securityops.co/cristiancmoises/zupt\n"
                "Commercial: sac@securityops.co\n",
                ZUPT_VERSION_STRING, ZUPT_FORMAT_MAJOR, ZUPT_FORMAT_MINOR,
-               ZUPT_CODEC_ZUPT_LZ, ZUPT_KDF_ITERATIONS);
+               ZUPT_CODEC_VAPTVUPT, ZUPT_KDF_ITERATIONS);
+        /* Runtime crypto hardware acceleration (reflects this CPU). */
+        printf("HW accel (this CPU):");
+        int any = 0;
+        if (zupt_cpu.has_aesni && zupt_cpu.has_avx) { printf(" AES-NI"); any = 1; }
+        if (zupt_cpu.has_shani)                     { printf(" SHA-NI"); any = 1; }
+        if (zupt_cpu.has_avx2)                      { printf(" AVX2(codec)"); any = 1; }
+        printf("%s\n", any ? "" : " none (portable C fallback)");
         return 0;
     }
 
@@ -204,11 +250,20 @@ int main(int argc, char **argv) {
                 opts.threads=atoi(argv[++ai]);
                 if(opts.threads<0)opts.threads=0;
                 if(opts.threads>ZUPT_MAX_THREADS)opts.threads=ZUPT_MAX_THREADS;
-            } else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
-                opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
+            } else if (streq(argv[ai],"--pq-box")&&ai+1<argc) {
+                opts.pq_mode=1; opts.box_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             } else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
                 opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--pq-box")&&ai+1<argc) {
+                opts.pq_mode=1; opts.box_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
+                opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--pq-box")&&ai+1<argc) {
+                opts.pq_mode=1; opts.box_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             } else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
                 opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
@@ -218,6 +273,40 @@ int main(int argc, char **argv) {
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             } else if (streq(argv[ai],"--dedup")||streq(argv[ai],"-D")) {
                 opts.dedup=1;
+            } else if ((streq(argv[ai],"-c")||streq(argv[ai],"--comment"))&&ai+1<argc) {
+                /* v2.4.3: free-form archive comment. Encrypted along with
+                 * data blocks when -p/--pq is also set. */
+                ai++;
+                strncpy(opts.comment, argv[ai], ZUPT_MAX_COMMENT_LEN - 1);
+                opts.comment[ZUPT_MAX_COMMENT_LEN - 1] = '\0';
+                opts.has_comment = 1;
+            } else if (streq(argv[ai],"--comment-file")&&ai+1<argc) {
+                ai++;
+                FILE *cf = fopen(argv[ai], "rb");
+                if (!cf) {
+                    fprintf(stderr, "Error: --comment-file: cannot open '%s'\n", argv[ai]);
+                    return 1;
+                }
+                size_t n = fread(opts.comment, 1, ZUPT_MAX_COMMENT_LEN - 1, cf);
+                opts.comment[n] = '\0';
+                while (n > 0 && (opts.comment[n-1] == '\n' || opts.comment[n-1] == '\r')) {
+                    opts.comment[--n] = '\0';
+                }
+                opts.has_comment = (n > 0);
+                fclose(cf);
+            } else if (streq(argv[ai],"--kdf")&&ai+1<argc) {
+                /* v2.4.1: explicit KDF selection for password mode.
+                 * Default (without --kdf): Argon2id. Use --kdf pbkdf2
+                 * for compatibility with v2.4.0 and older readers. */
+                ai++;
+                if (streq(argv[ai],"pbkdf2")) {
+                    opts.kdf_legacy_pbkdf2 = 1;
+                } else if (streq(argv[ai],"argon2id") || streq(argv[ai],"argon2")) {
+                    opts.kdf_legacy_pbkdf2 = 0;
+                } else {
+                    fprintf(stderr, "Error: --kdf must be 'argon2id' or 'pbkdf2', got '%s'\n", argv[ai]);
+                    return 1;
+                }
             } else {
                 fprintf(stderr,"Error: Unknown option '%s'\n",argv[ai]); return 1;
             }
@@ -315,7 +404,10 @@ int main(int argc, char **argv) {
                 if(opts.threads<0)opts.threads=0;
                 if(opts.threads>ZUPT_MAX_THREADS)opts.threads=ZUPT_MAX_THREADS;
             }
-            else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
+            else if (streq(argv[ai],"--pq-box")&&ai+1<argc) {
+                opts.pq_mode=1; opts.box_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
                 opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             } else if (streq(argv[ai],"--pq")&&ai+1<argc) {
@@ -348,7 +440,10 @@ int main(int argc, char **argv) {
                 if (ai+1<argc && !isopt(argv[ai+1])) strncpy(opts.password,argv[++ai],sizeof(opts.password)-1);
                 else prompt_password("Password: ", opts.password, sizeof(opts.password));
             }
-            else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
+            else if (streq(argv[ai],"--pq-box")&&ai+1<argc) {
+                opts.pq_mode=1; opts.box_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
                 opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             } else if (streq(argv[ai],"--pq")&&ai+1<argc) {
@@ -380,7 +475,10 @@ int main(int argc, char **argv) {
                 if (ai+1<argc && !isopt(argv[ai+1])) strncpy(opts.password,argv[++ai],sizeof(opts.password)-1);
                 else prompt_password("Password: ", opts.password, sizeof(opts.password));
             }
-            else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
+            else if (streq(argv[ai],"--pq-box")&&ai+1<argc) {
+                opts.pq_mode=1; opts.box_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
                 opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             } else if (streq(argv[ai],"--pq")&&ai+1<argc) {
@@ -650,6 +748,40 @@ int main(int argc, char **argv) {
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             } else if (streq(argv[ai],"--dedup")||streq(argv[ai],"-D")) {
                 opts.dedup=1;
+            } else if ((streq(argv[ai],"-c")||streq(argv[ai],"--comment"))&&ai+1<argc) {
+                /* v2.4.3: free-form archive comment. Encrypted along with
+                 * data blocks when -p/--pq is also set. */
+                ai++;
+                strncpy(opts.comment, argv[ai], ZUPT_MAX_COMMENT_LEN - 1);
+                opts.comment[ZUPT_MAX_COMMENT_LEN - 1] = '\0';
+                opts.has_comment = 1;
+            } else if (streq(argv[ai],"--comment-file")&&ai+1<argc) {
+                ai++;
+                FILE *cf = fopen(argv[ai], "rb");
+                if (!cf) {
+                    fprintf(stderr, "Error: --comment-file: cannot open '%s'\n", argv[ai]);
+                    return 1;
+                }
+                size_t n = fread(opts.comment, 1, ZUPT_MAX_COMMENT_LEN - 1, cf);
+                opts.comment[n] = '\0';
+                while (n > 0 && (opts.comment[n-1] == '\n' || opts.comment[n-1] == '\r')) {
+                    opts.comment[--n] = '\0';
+                }
+                opts.has_comment = (n > 0);
+                fclose(cf);
+            } else if (streq(argv[ai],"--kdf")&&ai+1<argc) {
+                /* v2.4.1: explicit KDF selection for password mode.
+                 * Default (without --kdf): Argon2id. Use --kdf pbkdf2
+                 * for compatibility with v2.4.0 and older readers. */
+                ai++;
+                if (streq(argv[ai],"pbkdf2")) {
+                    opts.kdf_legacy_pbkdf2 = 1;
+                } else if (streq(argv[ai],"argon2id") || streq(argv[ai],"argon2")) {
+                    opts.kdf_legacy_pbkdf2 = 0;
+                } else {
+                    fprintf(stderr, "Error: --kdf must be 'argon2id' or 'pbkdf2', got '%s'\n", argv[ai]);
+                    return 1;
+                }
             } else {
                 fprintf(stderr,"Error: Unknown option '%s'\n",argv[ai]); return 1;
             }
@@ -688,6 +820,7 @@ int main(int argc, char **argv) {
         const char *privfile = NULL;
         int export_pub = 0;
         int sdk_mode = 0;
+        int box_mode = 0;
         int ai = 2;
         while (ai < argc && isopt(argv[ai])) {
             if ((streq(argv[ai],"-o")||streq(argv[ai],"--output")) && ai+1 < argc)
@@ -698,6 +831,8 @@ int main(int argc, char **argv) {
                 export_pub = 1;
             else if (streq(argv[ai],"--sdk")||streq(argv[ai],"--pq-sdk"))
                 sdk_mode = 1;
+            else if (streq(argv[ai],"--box")||streq(argv[ai],"--pq-box"))
+                box_mode = 1;
             else { fprintf(stderr, "Unknown option '%s'\n", argv[ai]); return 1; }
             ai++;
         }
@@ -717,6 +852,16 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "Error: Failed to export public key.\n"); return 1;
             }
             fprintf(stderr, "  Public key written to: %s\n", outfile);
+        } else if (box_mode) {
+            fprintf(stderr, "  Generating ML-KEM-768 + X25519 keypair (pq-box format)...\n");
+            char pubfile[512];
+            snprintf(pubfile, sizeof(pubfile), "%s.pub", outfile);
+            if (zupt_pqbox_keygen(outfile, pubfile) != 0) {
+                fprintf(stderr, "Error: pq-box key generation failed.\n"); return 1;
+            }
+            fprintf(stderr, "  Private key:  %s\n", outfile);
+            fprintf(stderr, "  Public key:   %s\n", pubfile);
+            fprintf(stderr, "  SECURITY: Keep the private key file secret.\n");
         } else if (sdk_mode) {
             fprintf(stderr, "  Generating ML-KEM-768 + X25519 keypair (SDK-v2 format)...\n");
             char pubfile[512];

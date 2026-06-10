@@ -1,0 +1,400 @@
+-------------------------------------------------------------------
+Wed Jun 10 12:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 4.0.0:
+  * Codec -> canonical VaptVupt 2.60.4 (security: OOB heap write in
+    AVX2 exact-size decode fixed; CBMC-verified BCJ with
+    auto-detection; ratio gate byte-identical on identical inputs).
+  * F-16 disclosed and fixed: <= 3.8.0 wrote undecodable archives on
+    executable content at L8/L9 (write-time BCJ defect). Re-create
+    affected archives with 4.0.0.
+  * New --pq-box mode (libpqvaptvupt 0.6.0): ML-KEM-768 + X25519 via
+    HKDF-SHA256 domain-separated combiner; keygen --box; 13/13
+    adversarial checks; ASan/UBSan clean.
+  * SHA-NI measured 5.8x (scalar 204 -> 1184 MB/s); estimate retired.
+  * Clang strict build restored; wire format v1.6 unchanged; 26
+    suites green; vectors 16/16.
+
+-------------------------------------------------------------------
+Mon Jun  1 22:31:24 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 3.8.0 (documentation-only; binary identical to 3.7.0, v1.6)
+  * Add BENCHMARKS.md: consolidated reproducible measured benchmarks
+    (compression ratio/throughput, encode-speed-vs-level, KDF-vs-per-
+    block crypto overhead, head-to-head ratio vs zstd showing where
+    VaptVupt loses) with the test machine + method stated per table.
+    SHA-NI speedup marked [ESTIMATED] (test box has no SHA-NI).
+  * README benchmark section re-dated and linked to BENCHMARKS.md.
+    No source/crypto/wire change; test_vectors 16/0, F-09 0/1827.
+
+-------------------------------------------------------------------
+Mon Jun  1 22:15:58 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 3.7.0
+  * Route the ML-KEM-768 decapsulation implicit-rejection comparison
+    (1088-byte ciphertext) through the audited constant-time primitive
+    zupt_ct_memeq, replacing an inline byte-OR loop. A timing leak there
+    is a KEM decapsulation oracle (breaks IND-CCA2); it now shares the
+    measured-constant-time path of the MAC compare. ML-KEM output
+    semantics unchanged (verified by FIPS 203 roundtrip, implicit-
+    rejection vector, PQ-hybrid roundtrip, wrong-key rejection).
+  * test_ct_timing extended to the 1088-byte compare + a source-routing
+    guard; the 1088B dudect numbers are informational (at that size the
+    signal is memory-dominated and memcmp is not a clean control), with
+    constant-timeness following from the 32B pass + length-independence
+    + routing guard. No wire-format change (v1.6); F-09 0/1827.
+
+-------------------------------------------------------------------
+Mon Jun  1 21:33:10 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 3.6.0
+  * Add NIST SP 800-38A AES-256-CTR known-answer vectors (F.5.5/F.5.6)
+    to the test_vectors suite. Validates zupt_aes256_ctr against the
+    standard on both the Jasmin AES-NI path and the C T-table fallback;
+    AES was previously only roundtrip-tested.
+  * Fix an inverted result check in the ML-KEM-768 self-test reporting
+    (printed OK on failure) and fix the NTT roundtrip self-test to
+    assert the real Montgomery-scaled invariant instead of a false
+    identity (no more misleading stderr "NTT roundtrip FAILED"). ML-KEM
+    correctness end-to-end was never affected.
+  * test_vectors now 16/0 (was 14, one vacuous). No wire-format change
+    (v1.6); F-09 0/1827, F-06 0/2000.
+
+-------------------------------------------------------------------
+Mon Jun  1 16:51:09 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 3.5.0
+  * Measured constant-time MAC comparison (dudect-style). The three
+    duplicated inline byte-OR MAC compares are consolidated into one
+    audited primitive zupt_ct_memeq() (volatile OR-accumulate, no early
+    exit), used by the v1.6 strict decrypt path and the F-08 integrity
+    trailer. New timing test tests/test_ct_timing.sh applies Welch's
+    t-test (fixed vs random tag classes) at -O2 with a leaky-memcmp
+    positive control; the compare shows ~1% of the leak signal.
+  * Internal hardening only: asserted constant-time becomes measured +
+    regression-guarded. No wire-format change (v1.6); F-09 0/1827,
+    F-06 0/2000. Jasmin zupt_mac_verify_ct path unchanged.
+
+-------------------------------------------------------------------
+Mon Jun  1 12:00:57 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 3.4.0
+  * F-15: Argon2id KDF parameter transparency. New archives append a
+    one-byte KDF profile descriptor to the 0x04 enc-header, making it
+    self-describing about the Argon2id cost (the PBKDF2 header already
+    recorded its iteration count). Covered by the F-08 integrity
+    trailer; cannot be stripped undetected.
+  * Back-compatible: legacy 33-byte Argon2id archives decrypt unchanged;
+    unknown profiles are refused fail-closed. New test
+    tests/test_kdf_transparency.sh incl. a build-time KDF cost-floor
+    guard. No wire-format change (v1.6); F-09 0/1827, F-06 0/2000.
+
+-------------------------------------------------------------------
+Mon Jun  1 11:46:10 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 3.3.0
+  * Incremental HMAC-SHA256 for the per-block Encrypt-then-MAC hot
+    path: ipad/opad folded once per keyring; MAC streamed instead of
+    concatenated into a malloc'd buffer. Removes a per-block malloc +
+    full-ciphertext memcpy on both encrypt and decrypt sides.
+  * Byte-identical MAC; verified by RFC 4231 vectors, an equivalence
+    test, and byte-exact decryption of 3.2.x archives. No wire-format
+    change (v1.6); F-09 0/1827, F-06 0/2000.
+
+-------------------------------------------------------------------
+Mon Jun  1 11:18:57 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Package renamed zupt -> vaptvupt (project renamed in 3.0.0 due to a
+  prior INPI Brasil trademark on "Zupt"). Provides/Obsoletes: zupt so
+  the upgrade is automatic; the binary still installs a /usr/bin/zupt
+  compatibility symlink and a zupt.1 man-page symlink.
+- Update to 3.2.0
+  * SHA-256 hardware acceleration (Intel SHA-NI): SHA256RNDS2/MSG1/MSG2
+    compression path with CPUID runtime dispatch; accelerates HMAC-
+    SHA256 (Encrypt-then-MAC second pass) and PBKDF2 on Zen+/Ice Lake+.
+    Bit-identical to the scalar path; scalar C fallback elsewhere
+    (incl. aarch64). SHA-NI is constant-time by construction.
+  * 64 SHA-NI round constants verified identical to the scalar K[]
+    table; NIST FIPS 180-4 vectors pass on both paths. New regression
+    test tests/test_sha256_shani.sh.
+  * No wire-format change (v1.6); 3.1.x archives extract unchanged.
+
+-------------------------------------------------------------------
+Sun May 31 23:41:40 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 3.1.0
+  * VaptVupt codec 2.48.5 -> 2.53.3 (API byte-identical; 3 .c files).
+    Optimal parser (text -1.95%, binary -1.31%, source -4.72% smaller),
+    large-window extreme, faster decode (~on par with zstd-19), and 6
+    upstream corrupt-input decoder memory-safety fixes.
+  * F-14: heap-buffer-overflow WRITE fixed in the decode wrapper. The
+    codec AVX2 over-copy needs >=32 B output slack (documented contract);
+    our buffers had none. Fixed with ZUPT_VV_DECODE_SLACK (64 B) on both
+    single-threaded and parallel decode paths. Found by ASan.
+  * vv_decoder.c scalar build made -Werror clean (aarch64).
+  * New regression test tests/test_vv_decode_slack.sh.
+  * Wire format unchanged (v1.6); 3.0.x archives extract byte-exact.
+
+-------------------------------------------------------------------
+Tue May 26 02:50:05 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 3.0.3
+  * Static-analysis cleanup: removed dead AND-branch in varint
+    decoders (cppcheck knownConditionTrueFalse); explicit casts on
+    -Wsign-conversion sites. Our non-vendored C now compiles clean
+    under -Wconversion -Wsign-conversion -Werror.
+  * New regression test tests/test_static_analysis.sh (7 assertions)
+    wraps cppcheck + strict GCC; wired into make check. Skipped
+    cleanly when cppcheck is unavailable on the build host.
+  * No functional changes; archive format and wire compatibility
+    unchanged at v1.6.
+
+-------------------------------------------------------------------
+Tue May 26 02:27:34 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 3.0.2
+  * F-13: usage() string literal exceeded C99's 4095-char limit
+    (was 4121 chars); split into five logical fprintf sections.
+    -Woverlength-strings added to default CFLAGS so this kind of
+    regression fails the build under -Werror.
+  * Help text refreshed: examples now use `vaptvupt` (not legacy
+    `zupt`), default codec correctly named VaptVupt LZ + ANS 2.48.5
+    (was stale "LZ77 + Huffman"), license attribution corrected.
+  * New regression test tests/test_help_consistency.sh (10 assertions)
+    wired into make check.
+
+-------------------------------------------------------------------
+Tue May 26 00:43:52 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 3.0.1
+  * GUI license cleanup: removed MIT credit line from the about
+    panel; gui/LICENSE-GUI replaced (was MIT) with AGPL-3.0-or-later
+    to match the source SPDX header. The GUI was never actually
+    released under MIT — that was a templating mistake.
+  * GUI version-string parsing bug fix (the replace("zupt ", ...)
+    substring also matched inside the v3.0.0 parenthetical). Window
+    title, splash header, status bar and about-panel hero number now
+    display "3.0.1" cleanly.
+  * GUI about-panel enhanced: header VAPTVUPT, crypto stack now
+    includes Argon2id, HKDF, the VaptVupt codec attribution; the
+    commercial-licensing contact (sac\@securityops.co) is visible.
+  * New regression test tests/test_gui_branding.sh (11 assertions)
+    catches future regressions of all three issues.
+
+-------------------------------------------------------------------
+Mon May 25 13:09:04 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 3.0.0 (rename: zupt → vaptvupt)
+  * Renamed from "Zupt" to "VaptVupt" due to a prior INPI Brasil
+    trademark registration on the name "Zupt" for unrelated software.
+    The on-disk archive extension stays .zupt for format continuity
+    (header magic bytes \x5A\x55\x50\x54\x1A\x00 are unchanged).
+    Binaries from 2.x extract 3.0.0 archives byte-exact and vice
+    versa. The C-source identifier prefix (zupt_, ZUPT_) is also
+    unchanged for ABI continuity with libzuptsdk.
+  * Legacy /usr/bin/zupt symlink installed alongside vaptvupt for
+    one major version cycle.
+  * Integrated VaptVupt LZ + ANS codec 2.48.5: fixes csz==0 heap-
+    buffer-overflow READ in vv_dstream_decompress_chunk (libFuzzer-
+    found, medium severity), UBSan-safe pointer arithmetic in
+    vv_copy_match, const-correctness cleanup in vv_ans entropy
+    encoder.
+  * Enhanced manpage (597 lines, was 422). New PERFORMANCE section
+    with measured numbers against gzip-9 / zstd-3 / zstd-19, ENV
+    var documentation including VAPTVUPT_BIN and VAPTVUPT_DEBUG,
+    threat-model summary in the man page itself.
+  * Fixed GUI binary-discovery bug: zupt-gui (now vaptvupt-gui)
+    launched from desktop sessions with a minimal PATH that didn't
+    include /usr/bin failed to locate the binary. New _find_vaptvupt
+    implementation tries env vars, source-tree paths, shutil.which
+    on both names, then a curated list of common install paths,
+    and runs a liveness check (binary actually runs  and
+    exits 0) on each candidate. Diagnostic output via VAPTVUPT_DEBUG=1.
+
+-------------------------------------------------------------------
+Sun May 24 13:08:04 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 2.4.8
+  * New `make check` target — distro-safe regression subset for
+    OBS %check (no `make clean` mid-stream, no threading-flaky
+    tests). Spec now calls `make check` on x86_64/aarch64.
+  * License field corrected: AGPL-3.0-or-later (was MIT in 1.5.x).
+    Project is dual-licensed AGPL-3.0-or-later + commercial.
+  * Upstream URL updated to git.securityops.co.
+
+-------------------------------------------------------------------
+Sun May 24 13:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 2.4.7
+  * Manpage rewrite covering all v2.4.x flags (--kdf, --comment,
+    --comment-file, --pq-sdk, ML-KEM-768)
+  * Shell completions for bash, zsh, fish covering 16 critical
+    CLI flags
+  * Fixed three stale strings that still mentioned PBKDF2 as the
+    default KDF after the v2.4.1 flip to Argon2id
+
+-------------------------------------------------------------------
+Sun May 24 12:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 2.4.6
+  * Comprehensive GitHub Actions CI matrix: 8 jobs covering
+    GCC+Clang, strict warnings (-Werror + full §6 set),
+    ASAN/UBSAN, PIE hardening, aarch64 via QEMU, `make dist`
+    reproducibility, packaging-syntax, tag-triggered release.
+  * New THREAT_MODEL.md (12 KB): plain-English security boundary
+    document covering what zupt protects against AND what it
+    explicitly does NOT.
+
+-------------------------------------------------------------------
+Sun May 24 11:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 2.4.5
+  * Packaging completion: Fedora/RHEL .spec, NixOS flake.nix,
+    DISTRIBUTION.md guide. openSUSE inherits this work.
+  * New tests/test_packaging_syntax.sh asserts cross-recipe
+    version consistency.
+
+-------------------------------------------------------------------
+Sun May 24 10:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 2.4.4
+  * Reproducible `make dist` source tarball: sorted file order,
+    fixed mtime via SOURCE_DATE_EPOCH, uid/gid pinned, gzip -9n.
+    Two consecutive runs produce byte-identical sha256 (asserted
+    by tests/test_dist_reproducible.sh).
+  * Upstream packaging recipes for AUR, Debian, Homebrew added.
+
+-------------------------------------------------------------------
+Sun May 24 09:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 2.4.3
+  * F-12 closed: encrypted archive comments via new block type
+    ZUPT_BLOCK_COMMENT (0x05). Comments are UTF-8, up to 4096
+    bytes, encrypted using the same per-block AEAD pipeline as
+    data blocks (including F-09 preface AAD). hdr.comment_offset
+    is in the AIT-signed region.
+  * CLI flags -c / --comment and --comment-file.
+  * Exhaustive byte sweep on 1878-byte archive with comment:
+    0/1878 silent accepts.
+
+-------------------------------------------------------------------
+Sun May 24 08:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 2.4.2
+  * F-11 closed: wrong-password and tampered-archive error
+    messages collapsed into one uniform "Authentication failed
+    (wrong key, wrong password, or tampered archive)" line.
+    Detailed top-MAC wording moves behind --verbose.
+  * Eliminates a verbal probe-oracle. No format change.
+
+-------------------------------------------------------------------
+Sun May 24 07:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 2.4.1
+  * F-10: password-mode KDF default flipped from PBKDF2-SHA256
+    (600k iter) to Argon2id (memory-hard). Use `--kdf pbkdf2`
+    for compatibility with v2.4.0-and-older readers.
+
+-------------------------------------------------------------------
+Sun May 24 06:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 2.3.1
+  * F-09 closed: extended-AAD per-block MAC binds 29-byte
+    canonical preface (block_type, codec_id, block_flags, sizes,
+    plaintext-XXH64) into every block's HMAC. Format v1.5 → v1.6.
+  * Exhaustive byte sweep on 1827-byte PQ-SDK archive:
+    0/1827 silent accepts. Full byte-level tamper detection on
+    encrypted archives.
+
+-------------------------------------------------------------------
+Sun May 24 05:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 2.3.0
+  * F-08 closed via 32-byte archive-integrity-trailer:
+    HMAC-SHA256(mac_key, hdr[0..63] || footer[0..23]) appended
+    after the footer. Format v1.4 → v1.5. v1.4 archives still
+    readable with downgrade warning.
+
+-------------------------------------------------------------------
+Sun May 24 04:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 2.2.5
+  * F-06 (HIGH) closed: HMAC verifier on the Jasmin path was
+    silently accepting ~6% of single-bit tampers because
+    `diff_v2 & diff_v1` cleared zeroed-difference bits. Fixed via
+    (x|-x)>>63 nonzero-indicator fold before AND. 2000-trial
+    regression: 0 silent accepts.
+  * F-07 closed: structural block_type check at index_offset
+    rejects malformed archives early.
+
+-------------------------------------------------------------------
+Sun May 24 03:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 2.2.4
+  * Audit batch close (F-01..F-05): help-text newline, flaky
+    tamper test, -Wshadow cleanup, orphan selftest removed,
+    const-correct pointer params.
+
+-------------------------------------------------------------------
+Sun May 24 02:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 2.0.0
+  * Major version bump. libzuptsdk integration: HKDF combiner,
+    key commitment, HPKE binding for the post-quantum path
+    (--pq-sdk mode). Argon2id KDF available. New on-disk format
+    v1.4 with explicit enc_type byte dispatch (0x01=PBKDF2,
+    0x03=PQ-SDK).
+  * VaptVupt 2.x codec integrated as first-class compressor.
+  * AppImage / .deb / .rpm packaging scripts added upstream.
+
+-------------------------------------------------------------------
+Thu Apr  2 02:54:23 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+- Version 1.5.4
+  * Makefile multiarc
+-------------------------------------------------------------------
+Thu Apr  2 02:31:57 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+- Version 1.5.4
+  * Object files removed
+-------------------------------------------------------------------
+Thu Apr  2 02:30:11 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+- Version 1.5.3
+  * Added man page installation (zupt.1.gz)
+  * Enabled verbose build output with V=1 support in Makefile
+  * Fixed Makefile to honor LDFLAGS and support PIE linking
+  * Improved rpmlint compliance for OBS/openSUSE packaging
+-------------------------------------------------------------------
+Tue Mar 31 00:24:26 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+- Version 1.5.2
+- Enable C fallback on AArch64
+  * Jasmin Gate integration behind x86_64 target detection
+  * Detect target architecture using the compiler triplet
+    `$(CC) -dumpmachine`
+  * Prevent Jasmin x86_64 object files from being linked in
+    AArch64 builds
+  * Automatically use C fallback on non-x86_64 targets
+  * Preserve `ZUPT_USE_JASMIN` only when assembly sources are
+    present and compatible
+-------------------------------------------------------------------
+Mon Mar 30 22:17:02 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+- Version 1.5.1
+  * Binaries removed
+-------------------------------------------------------------------
+Sun Mar 29 22:10:54 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+- Version 1.5.0
+- Added -Jasmin Assembly Integration
+  * zupt_mac_verify_ct Jasmin assembly linked into
+    zupt_decrypt_buffer(). Replaces the C XOR accumulation loop
+    for HMAC-SHA256 comparison.
+  * zupt_ct_select_32 Jasmin assembly linked into
+    zupt_mlkem768_decaps(). Replaces the C cmov() function for
+    Fujisaki-Okamoto implicit rejection.
+  * include/zupt_jasmin.h — extern declarations for all Jasmin
+    functions with ABI documentation.
+  * #ifdef ZUPT_USE_JASMIN dispatch guards in zupt_crypto.c and
+    zupt_mlkem.c with clean C fallback.
+  * Makefile auto-detects jasmin/*.s files, assembles to .o,
+    links into binary, sets -DZUPT_USE_JASMIN.
+-------------------------------------------------------------------
+Mon Mar 23 18:46:51 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+- Initial package
+- Version 1.0.0

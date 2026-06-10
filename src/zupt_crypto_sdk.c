@@ -169,11 +169,17 @@ int zupt_sdk_password_encrypt_init(zupt_keyring_t *kr, const char *password,
     uint8_t key[32];
     if (zuptsdk_easy_derive_key(password, salt, key) != 0) return -1;
 
-    /* Layout: [1B type=0x04][16B salt][16B nonce] */
+    /* Layout: [1B type=0x04][16B salt][16B nonce][1B kdf-profile].
+     * The profile byte (v3.4.0) makes the header self-describing about
+     * which Argon2id cost produced the archive — see ZUPT_ARGON2_PROFILE_*
+     * in zupt.h. Readers older than 3.4.0 ignore it (they read fixed
+     * offsets and only require len >= 33); it is covered by the F-08
+     * archive-integrity trailer so it can't be stripped undetected. */
     enc_hdr[0] = ZUPT_ENC_PW_ARGON2;
     memcpy(enc_hdr + 1, salt, 16);
     zupt_random_bytes(enc_hdr + 17, 16);
-    *enc_hdr_len = 33;
+    enc_hdr[33] = ZUPT_ARGON2_PROFILE_MODERATE;
+    *enc_hdr_len = ZUPT_ARGON2_HDR_LEN_V2;
 
     extern void zupt_sha3_256(const uint8_t *in, size_t inlen, uint8_t out[32]);
     uint8_t kdf_buf[32 + 16];
@@ -197,8 +203,22 @@ int zupt_sdk_password_encrypt_init(zupt_keyring_t *kr, const char *password,
 
 int zupt_sdk_password_decrypt_init(zupt_keyring_t *kr, const char *password,
                                     const uint8_t *enc_hdr, size_t enc_hdr_len) {
-    if (enc_hdr_len < 33) return -1;
+    if (enc_hdr_len < ZUPT_ARGON2_HDR_LEN_V1) return -1;
     if (enc_hdr[0] != ZUPT_ENC_PW_ARGON2) return -1;
+
+    /* v3.4.0 self-describing KDF profile. Absent (33-byte header) means
+     * the implicit legacy profile; present (>=34 bytes) names it
+     * explicitly. Both currently map to the same libzuptsdk MODERATE
+     * Argon2id derivation, so the key is identical and old archives keep
+     * decrypting. An unrecognised profile is refused rather than guessed
+     * — better a clear failure than a wrong key derivation. */
+    if (enc_hdr_len >= ZUPT_ARGON2_HDR_LEN_V2) {
+        uint8_t profile = enc_hdr[33];
+        if (profile != ZUPT_ARGON2_PROFILE_LEGACY &&
+            profile != ZUPT_ARGON2_PROFILE_MODERATE) {
+            return -1;  /* unknown KDF profile — cannot derive correctly */
+        }
+    }
 
     const uint8_t *salt  = enc_hdr + 1;
     const uint8_t *nonce = enc_hdr + 17;

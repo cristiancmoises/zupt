@@ -113,10 +113,14 @@ These functions are compiled from Jasmin source to x86-64 assembly. The Jasmin c
 | Asset | Protection |
 |-------|-----------|
 | File contents | AES-256-CTR encryption |
-| File names, sizes, structure | Encrypted in central index block |
-| Archive integrity | Per-block XXH64 + HMAC-SHA256 |
+| File names, sizes, structure | Encrypted in central index block, HMAC-protected |
+| Archive integrity (payloads + index) | Per-block HMAC-SHA256 (v2.2.5+ verifier — see CHANGELOG F-06) |
+| Archive integrity (header + footer metadata) | **v1.5 archives**: 32-byte archive-integrity-trailer HMAC-SHA256 over `hdr ‖ ft[0..23]`. **v1.4 archives**: not covered, downgrade warning on extract (see F-08 / CHANGELOG 2.3.0). |
 | Against stolen backups | AES-256 requires key/password to read |
-| Against tampering | HMAC detects any modification |
+| Against tampering of file contents, names, sizes, offsets | HMAC detects any modification (overwhelming probability after F-06 fix) |
+| Against tampering of header+footer metadata | **v1.5: top-MAC detects tamper.** v1.4: not detected (legacy; re-archive with v2.3.0+ to upgrade). |
+| Against tampering of per-block frame preface bytes (codec_id, block_flags, varints, plaintext-XXH64) | **v1.6 (F-09)**: per-block MAC binds the canonical preface AAD; encryption-header block validated structurally. v1.5 and older: partial detection only (parser/decoder rejects malformed values; explicit MAC coverage was v1.6 work). |
+| Against tampering of archive comment (when present) | v2.4.3 (F-12): comment block goes through the same per-block AEAD pipeline as data (AES-256-CTR + HMAC-SHA256 + preface AAD); `hdr.comment_offset` pointer is in the AIT-signed region. Both payload and pointer are MAC-covered end-to-end. |
 | Against quantum adversary | `--pq` mode: ML-KEM-768 (NIST Level 3) |
 
 ### What Zupt Does NOT Protect Against
@@ -127,7 +131,7 @@ These functions are compiled from Jasmin source to x86-64 assembly. The Jasmin c
 | Cache-timing side channels (C AES) | Table-based S-box lookups | Build with Jasmin AES-NI when available |
 | Memory forensics during operation | Keys on stack during compress/extract | `zupt_secure_wipe()` on completion; `mlock()` planned |
 | Deniability | Archive header identifies format | `.zupt` magic bytes visible; ENCRYPTED flag in header |
-| Weak passwords | PBKDF2 adds ~20 bits of work factor | Use `--pq` mode for critical data |
+| Weak passwords | Argon2id (default, v2.4.1+) is memory-hard and adds ~25–30 bits of work factor vs ~20 for PBKDF2. PBKDF2-SHA256 with 600k iterations available via `--kdf pbkdf2` for legacy reader compatibility. | Use `--pq` or `--pq-sdk` mode for critical data — keys are random, not derived from a password. |
 | Traffic analysis | Archive size reveals data volume | Outside Zupt's scope |
 | File permission/ownership | Not stored in archive | Documented in README.md (Architecture & platform support) |
 

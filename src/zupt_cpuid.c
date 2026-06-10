@@ -11,7 +11,7 @@
 #include <string.h>
 
 /* Global instance */
-zupt_cpu_features_t zupt_cpu = {0, 0, 0, 0, 0};
+zupt_cpu_features_t zupt_cpu = {0, 0, 0, 0, 0, 0};
 
 /* ═══════════════════════════════════════════════════════════════════
  * CPUID intrinsics — platform-specific
@@ -98,6 +98,13 @@ void zupt_detect_cpu(zupt_cpu_features_t *f) {
         /* AVX2 also requires AVX (OS XSAVE) to be usable */
         if (f->has_avx && ((ebx >> 5) & 1))
             f->has_avx2 = 1;
+        /* SHA-NI (CPUID.07H:EBX[29]). Uses 128-bit xmm registers and
+         * legacy-SSE encoding, so unlike AVX it needs no XCR0/OSXSAVE
+         * gate — xmm state is part of the baseline x86-64 ABI. We do
+         * pair it with SSE4.1 at the call site (the byte-swap shuffle
+         * for big-endian message scheduling uses pshufb/SSSE3, always
+         * present on any CPU that has SHA-NI). */
+        f->has_shani = (ebx >> 29) & 1;
     }
 }
 

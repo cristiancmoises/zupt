@@ -23,6 +23,36 @@
 #endif
 
 /* ═══════════════════════════════════════════════════════════════════
+ * CONSTANT-TIME EQUALITY (single audited primitive)
+ *
+ * Returns 1 if the two buffers are equal, 0 otherwise, in time that
+ * depends only on `n` — never on the contents or on where the first
+ * mismatch occurs. This is the one place the MAC-tag comparison is
+ * implemented; the three former inline byte-OR loops (the v1.6 strict
+ * decrypt path, the v1.4/v1.5 legacy v2 candidate, and the F-08 archive-
+ * integrity-trailer check) now all call here, so the property is audited
+ * and timing-tested in exactly one location (see tests/test_ct_timing).
+ *
+ * A timing leak in a MAC comparison is a forgery oracle: if "wrong on
+ * byte 0" returned faster than "wrong on byte 31", an attacker could
+ * recover a valid tag byte-by-byte. The accumulator is therefore folded
+ * with OR (no early exit) and read through a volatile sink so the
+ * compiler cannot reintroduce a short-circuit or branch.
+ *
+ * CT-REQUIRED: no secret-dependent branch or memory access. */
+int zupt_ct_memeq(const void *a, const void *b, size_t n) {
+    const volatile uint8_t *pa = (const volatile uint8_t *)a;
+    const volatile uint8_t *pb = (const volatile uint8_t *)b;
+    uint8_t diff = 0;
+    for (size_t i = 0; i < n; i++)
+        diff |= (uint8_t)(pa[i] ^ pb[i]);   /* CT-REQUIRED: OR-accumulate, no break */
+    /* Fold 0/non-zero -> 1/0 without a branch:
+     *   diff==0      -> (0-1)>>8 == 0xFF...  &1 -> 1
+     *   diff!=0      -> high bits clear        &1 -> 0 */
+    return (int)((uint8_t)((((unsigned)diff) - 1u) >> 8) & 1u);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
  * RANDOM BYTES (OS-native CSPRNG — NO FALLBACK)
  *
  * If the OS CSPRNG is unavailable, this aborts. Using rand() would
@@ -51,9 +81,9 @@ void zupt_random_bytes(uint8_t *buf, size_t len) {
   #endif
     FILE *f = fopen("/dev/urandom", "rb");
     if (f) {
-        size_t r = fread(buf, 1, len, f);
+        size_t nread = fread(buf, 1, len, f);
         fclose(f);
-        if (r == len) return;
+        if (nread == len) return;
     }
     fprintf(stderr, "FATAL: /dev/urandom unavailable. Cannot generate secure random bytes.\n");
     exit(1);
@@ -77,41 +107,60 @@ void zupt_random_bytes(uint8_t *buf, size_t len) {
 void zupt_hmac_sha256(const uint8_t *key, size_t klen,
                       const uint8_t *data, size_t dlen,
                       uint8_t mac[32]) {
+    zupt_hmac_ctx c;
+    zupt_hmac_sha256_init(&c, key, klen);
+    zupt_hmac_sha256_update(&c, data, dlen);
+    zupt_hmac_sha256_final(&c, mac);
+}
+
+/* Incremental HMAC-SHA256 (RFC 2104).
+ *
+ * _init seeds two SHA-256 contexts with the ipad/opad key-prefix blocks
+ * (one 64-byte compression each), so repeated MACs under the same key
+ * never recompute those prefixes and the caller can stream the message
+ * with _update instead of building a concat buffer. RFC 2104 defines
+ *   HMAC(K,m) = H( (K^opad) || H( (K^ipad) || m ) )
+ * and SHA-256's Merkle-Damgard update() is associative over the message,
+ * so streaming m in segments yields byte-identical output to hashing a
+ * single concatenated buffer. */
+void zupt_hmac_sha256_init(zupt_hmac_ctx *c, const uint8_t *key, size_t klen) {
     uint8_t k_pad[64];
     uint8_t k_hash[32];
 
-    /* If key > 64 bytes, hash it first */
+    /* If key > 64 bytes, hash it first (RFC 2104). */
     if (klen > 64) {
         zupt_sha256(key, klen, k_hash);
         key = k_hash; klen = 32;
     }
 
-    /* ipad = key XOR 0x36 */
+    /* inner = SHA256 seeded with (key XOR ipad) */
     memset(k_pad, 0x36, 64);
     for (size_t i = 0; i < klen; i++) k_pad[i] ^= key[i];
+    zupt_sha256_init(&c->inner);
+    zupt_sha256_update(&c->inner, k_pad, 64);
 
-    /* inner = SHA256(ipad || data) */
-    zupt_sha256_ctx ctx;
-    zupt_sha256_init(&ctx);
-    zupt_sha256_update(&ctx, k_pad, 64);
-    zupt_sha256_update(&ctx, data, dlen);
-    uint8_t inner[32];
-    zupt_sha256_final(&ctx, inner);
-
-    /* opad = key XOR 0x5c */
+    /* outer = SHA256 seeded with (key XOR opad) */
     memset(k_pad, 0x5c, 64);
     for (size_t i = 0; i < klen; i++) k_pad[i] ^= key[i];
+    zupt_sha256_init(&c->outer);
+    zupt_sha256_update(&c->outer, k_pad, 64);
 
-    /* mac = SHA256(opad || inner) */
-    zupt_sha256_init(&ctx);
-    zupt_sha256_update(&ctx, k_pad, 64);
-    zupt_sha256_update(&ctx, inner, 32);
-    zupt_sha256_final(&ctx, mac);
-
-    /* Wipe sensitive data */
     zupt_secure_wipe(k_pad, 64);
-    zupt_secure_wipe(inner, 32);
     zupt_secure_wipe(k_hash, 32);
+}
+
+void zupt_hmac_sha256_update(zupt_hmac_ctx *c, const uint8_t *data, size_t dlen) {
+    zupt_sha256_update(&c->inner, data, dlen);
+}
+
+void zupt_hmac_sha256_final(zupt_hmac_ctx *c, uint8_t mac[32]) {
+    uint8_t inner[32];
+    zupt_sha256_final(&c->inner, inner);
+    zupt_sha256_update(&c->outer, inner, 32);
+    zupt_sha256_final(&c->outer, mac);
+    zupt_secure_wipe(inner, 32);
+    /* Wipe the residual context state (contains key-dependent material). */
+    zupt_secure_wipe(c, sizeof(*c));
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -325,9 +374,19 @@ void zupt_derive_keys(zupt_keyring_t *kr, const char *pw,
   @ assigns *olen;
   @ ensures *olen == 16 + plen + 32;
 */
-uint8_t *zupt_encrypt_buffer(const zupt_keyring_t *kr,
-                              const uint8_t *plain, size_t plen,
-                              uint64_t block_seq, size_t *olen) {
+/* F-09 of v2.3.1: extended-AAD encrypt.
+ *
+ * The MAC input becomes  aad_extra || nonce || ciphertext || aad_seq.
+ * Original zupt_encrypt_buffer is a thin wrapper with aad_extra=NULL, len=0
+ * to preserve byte-exact MAC output for archives that don't bind the
+ * preface. New v1.6 callers pass the canonical (block_type, codec_id,
+ * block_flags, usz, csz, plaintext-XXH64) bytes to bind the per-block
+ * frame preface into the MAC. */
+uint8_t *zupt_encrypt_buffer_aad(const zupt_keyring_t *kr,
+                                  const uint8_t *plain, size_t plen,
+                                  uint64_t block_seq,
+                                  const uint8_t *aad_extra, size_t aad_extra_len,
+                                  size_t *olen) {
     *olen = ZUPT_NONCE_SIZE + plen + ZUPT_HMAC_SIZE;
     uint8_t *pkg = (uint8_t *)malloc(*olen);
     if (!pkg) return NULL;
@@ -344,29 +403,29 @@ uint8_t *zupt_encrypt_buffer(const zupt_keyring_t *kr,
     /* Encrypt */
     zupt_aes256_ctr(kr->enc_key, nonce, plain, pkg + 16, plen);
 
-    /* MAC over nonce + ciphertext + block_seq (AAD).
-     *
-     * Binding block_seq into the MAC prevents block-swap (reordering)
-     * attacks: an attacker who swaps two valid encrypted blocks would
-     * have to forge a MAC that includes the new position. v2.2.2+
-     * archives all use this binding (signaled by ZUPT_FLAG_AAD_SEQ).
-     */
     uint8_t aad_seq[8];
     for (int i = 0; i < 8; i++) aad_seq[i] = (uint8_t)(block_seq >> (i * 8));
 
-    /* Compute MAC by feeding nonce || ciphertext || aad_seq into HMAC.
-     * Single-call interface forces a concat into a temp buffer. */
-    uint8_t *mac_input = (uint8_t *)malloc(16 + plen + 8);
-    if (!mac_input) { free(pkg); return NULL; }
-    memcpy(mac_input, pkg, 16 + plen);
-    memcpy(mac_input + 16 + plen, aad_seq, 8);
-    zupt_hmac_sha256(kr->mac_key, ZUPT_HMAC_SIZE,
-                     mac_input, 16 + plen + 8,
-                     pkg + 16 + plen);
-    zupt_secure_wipe(mac_input, 16 + plen + 8);
-    free(mac_input);
+    /* MAC over aad_extra || nonce || ciphertext || aad_seq, streamed
+     * directly through the incremental HMAC — no concat buffer, no copy
+     * of the (up to multi-MB) ciphertext. The segment order is identical
+     * to the legacy concat layout, so the MAC bytes are unchanged: the
+     * extra AAD goes first so a v1.6 reader with aad_extra_len=0
+     * reproduces the legacy v2 MAC exactly (no positional drift). */
+    zupt_hmac_ctx hctx;
+    zupt_hmac_sha256_init(&hctx, kr->mac_key, ZUPT_HMAC_SIZE);
+    if (aad_extra_len) zupt_hmac_sha256_update(&hctx, aad_extra, aad_extra_len);
+    zupt_hmac_sha256_update(&hctx, pkg, 16 + plen);   /* nonce || ciphertext */
+    zupt_hmac_sha256_update(&hctx, aad_seq, 8);
+    zupt_hmac_sha256_final(&hctx, pkg + 16 + plen);
 
     return pkg;
+}
+
+uint8_t *zupt_encrypt_buffer(const zupt_keyring_t *kr,
+                              const uint8_t *plain, size_t plen,
+                              uint64_t block_seq, size_t *olen) {
+    return zupt_encrypt_buffer_aad(kr, plain, plen, block_seq, NULL, 0, olen);
 }
 
 /* FRAMA-C: Decrypt with MAC verification (Encrypt-then-MAC) */
@@ -382,48 +441,85 @@ uint8_t *zupt_encrypt_buffer(const zupt_keyring_t *kr,
   @ behavior auth_fail:
   @   ensures \result == \null ==> *olen == pkglen - 48;
 */
-uint8_t *zupt_decrypt_buffer(const zupt_keyring_t *kr,
-                              const uint8_t *pkg, size_t pkglen,
-                              uint64_t block_seq, size_t *olen) {
+/* F-09 of v2.3.1: extended-AAD decrypt.
+ *
+ * When aad_extra_len > 0: the MAC input is
+ *   aad_extra || nonce || ciphertext || aad_seq
+ * and ONLY this candidate is checked. There is no v1-legacy fallback —
+ * the caller signals "this archive uses extended AAD" by the very act of
+ * passing aad_extra, and an attacker can't downgrade by clearing
+ * aad_extra because the caller (decompress_block) gates the AAD on the
+ * archive-level ZUPT_FLAG_AAD_PREFACE flag, which is itself MAC-protected
+ * by the v1.5+ archive-integrity-trailer (F-08).
+ *
+ * When aad_extra_len == 0: identical to the legacy zupt_decrypt_buffer —
+ * tries v2 MAC (with aad_seq) and falls back to v1 (no AAD). This path
+ * preserves byte-exact behavior for v1.4 and v1.5 archives. */
+uint8_t *zupt_decrypt_buffer_aad(const zupt_keyring_t *kr,
+                                  const uint8_t *pkg, size_t pkglen,
+                                  uint64_t block_seq,
+                                  const uint8_t *aad_extra, size_t aad_extra_len,
+                                  size_t *olen) {
     if (pkglen < ZUPT_NONCE_SIZE + ZUPT_HMAC_SIZE) return NULL;
 
     size_t clen = pkglen - ZUPT_NONCE_SIZE - ZUPT_HMAC_SIZE;
     *olen = clen;
+    const uint8_t *stored_mac = pkg + ZUPT_NONCE_SIZE + clen;
 
-    /* Verify HMAC.
-     *
-     * v2.2.2+ archives bind block_seq into the MAC as AAD (anti-block-swap).
-     * Older archives don't include the AAD. We try the AAD-bound MAC first;
-     * if it fails, fall back to legacy MAC for backward compat. Both
-     * computations are always performed (constant-time policy: don't reveal
-     * via timing which path matched).
-     */
+    uint8_t aad_seq[8];
+    for (int i = 0; i < 8; i++) aad_seq[i] = (uint8_t)(block_seq >> (i * 8));
+
+    /* v1.6 extended-AAD path: strict, single candidate. */
+    if (aad_extra_len > 0) {
+        uint8_t expected[32];
+        /* Stream aad_extra || nonce || ciphertext || aad_seq through the
+         * incremental HMAC — same segment order as the encrypt side and
+         * the legacy concat layout, so the expected MAC is byte-identical
+         * with no per-block concat buffer or ciphertext copy. */
+        zupt_hmac_ctx hctx;
+        zupt_hmac_sha256_init(&hctx, kr->mac_key, ZUPT_HMAC_SIZE);
+        zupt_hmac_sha256_update(&hctx, aad_extra, aad_extra_len);
+        zupt_hmac_sha256_update(&hctx, pkg, ZUPT_NONCE_SIZE + clen);
+        zupt_hmac_sha256_update(&hctx, aad_seq, 8);
+        zupt_hmac_sha256_final(&hctx, expected);
+
+        /* CT-REQUIRED: constant-time MAC compare via the audited primitive. */
+        int mac_ok = zupt_ct_memeq(expected, stored_mac, 32);
+        zupt_secure_wipe(expected, sizeof(expected));
+
+        /* CT-REQUIRED: always decrypt even on MAC failure (timing-oracle
+         * protection — match the legacy path's behaviour). */
+        uint8_t *plain = (uint8_t *)malloc(clen);
+        if (!plain) return NULL;
+        uint8_t nonce[16];
+        memcpy(nonce, pkg, 16);
+        zupt_aes256_ctr(kr->enc_key, nonce, pkg + 16, plain, clen);
+
+        if (!mac_ok) {
+            zupt_secure_wipe(plain, clen);
+            free(plain);
+            return NULL;
+        }
+        return plain;
+    }
+
+    /* v1.4/v1.5 legacy fallback: original two-candidate path. */
     uint8_t expected_mac_v2[32];
     uint8_t expected_mac_v1[32];
 
-    /* v2: AAD = 8-byte block_seq LE */
     {
-        uint8_t aad_seq[8];
-        for (int i = 0; i < 8; i++) aad_seq[i] = (uint8_t)(block_seq >> (i * 8));
-        uint8_t *mac_input = (uint8_t *)malloc(ZUPT_NONCE_SIZE + clen + 8);
-        if (!mac_input) return NULL;
-        memcpy(mac_input, pkg, ZUPT_NONCE_SIZE + clen);
-        memcpy(mac_input + ZUPT_NONCE_SIZE + clen, aad_seq, 8);
-        zupt_hmac_sha256(kr->mac_key, ZUPT_HMAC_SIZE,
-                         mac_input, ZUPT_NONCE_SIZE + clen + 8,
-                         expected_mac_v2);
-        zupt_secure_wipe(mac_input, ZUPT_NONCE_SIZE + clen + 8);
-        free(mac_input);
+        /* v2 candidate: nonce || ciphertext || aad_seq, streamed (no copy). */
+        zupt_hmac_ctx hctx;
+        zupt_hmac_sha256_init(&hctx, kr->mac_key, ZUPT_HMAC_SIZE);
+        zupt_hmac_sha256_update(&hctx, pkg, ZUPT_NONCE_SIZE + clen);
+        zupt_hmac_sha256_update(&hctx, aad_seq, 8);
+        zupt_hmac_sha256_final(&hctx, expected_mac_v2);
     }
 
-    /* v1 legacy: no AAD */
     zupt_hmac_sha256(kr->mac_key, ZUPT_HMAC_SIZE,
                      pkg, ZUPT_NONCE_SIZE + clen,
                      expected_mac_v1);
 
-    const uint8_t *stored_mac = pkg + ZUPT_NONCE_SIZE + clen;
-
-    /* Constant-time comparison against both candidates */
 #ifdef ZUPT_USE_JASMIN
     uint64_t diff_v2 = zupt_mac_verify_ct(expected_mac_v2, stored_mac);
     uint64_t diff_v1 = zupt_mac_verify_ct(expected_mac_v1, stored_mac);
@@ -435,28 +531,32 @@ uint8_t *zupt_decrypt_buffer(const zupt_keyring_t *kr,
     }
 #endif
 
-    /* Authentication succeeds iff at least one candidate matches.
-     * AND-with-zero pattern keeps comparison constant-time. */
-    uint64_t diff = diff_v2 & diff_v1;
+    /* F-06 fix retained: fold to nonzero-indicator bit before AND. */
+    uint64_t nz_v2 = (diff_v2 | (uint64_t)(-(int64_t)diff_v2)) >> 63;  /* CT-REQUIRED */
+    uint64_t nz_v1 = (diff_v1 | (uint64_t)(-(int64_t)diff_v1)) >> 63;  /* CT-REQUIRED */
+    uint64_t diff = nz_v2 & nz_v1;
 
-    zupt_secure_wipe(expected_mac_v2, 32);
-    zupt_secure_wipe(expected_mac_v1, 32);
+    zupt_secure_wipe(expected_mac_v2, sizeof(expected_mac_v2));
+    zupt_secure_wipe(expected_mac_v1, sizeof(expected_mac_v1));
 
-    /* CT-REQUIRED: Always decrypt even on MAC failure to prevent timing oracle. */
+    /* CT-REQUIRED: always decrypt even on MAC failure (timing-oracle protection). */
     uint8_t *plain = (uint8_t *)malloc(clen);
     if (!plain) return NULL;
-
-    const uint8_t *nonce = pkg;
-    zupt_aes256_ctr(kr->enc_key, nonce, pkg + 16, plain, clen);
+    const uint8_t *nonce_ptr = pkg;
+    zupt_aes256_ctr(kr->enc_key, nonce_ptr, pkg + 16, plain, clen);
 
     if (diff != 0) {
-        /* Authentication failed — wipe and discard decrypted data */
         zupt_secure_wipe(plain, clen);
         free(plain);
         return NULL;
     }
-
     return plain;
+}
+
+uint8_t *zupt_decrypt_buffer(const zupt_keyring_t *kr,
+                              const uint8_t *pkg, size_t pkglen,
+                              uint64_t block_seq, size_t *olen) {
+    return zupt_decrypt_buffer_aad(kr, pkg, pkglen, block_seq, NULL, 0, olen);
 }
 
 /* ═══════════════════════════════════════════════════════════════════

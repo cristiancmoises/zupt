@@ -4,7 +4,7 @@
  * Copyright (c) 2025-2026 Cristian Cezar Moisés
  *
  * ZUPT-COMPAT: thin wrapper over vv_compress/vv_decompress with
- * backup-optimized defaults for VaptVupt 2.48.2.
+ * backup-optimized defaults for VaptVupt 2.60.4.
  *
  * Defaults applied here (per ZUPT_INTEGRATION.md, Sprint 122):
  *   - opts.checksum = 0      (Zupt's HMAC-SHA256 / AES-GCM-SIV outer
@@ -24,6 +24,8 @@
 
 #include "vaptvupt_api.h"
 #include "vaptvupt.h"
+#include <stdlib.h>
+#include <string.h>
 
 int64_t vvz_compress(const uint8_t *src, size_t src_len,
                      uint8_t *dst, size_t dst_cap, int level) {
@@ -34,7 +36,7 @@ int64_t vvz_compress(const uint8_t *src, size_t src_len,
 
     if (level <= 2) {
         opts.mode = VV_MODE_ULTRA_FAST;
-        /* ULTRA_FAST + format_v2 is NOT in VaptVupt 2.48.2's tested matrix
+        /* ULTRA_FAST + format_v2 is NOT in VaptVupt's tested matrix
          * (test_zupt_integration.c only validates format_v2 with
          * EXTREME/BALANCED). The combination produces output the decoder
          * rejects with VV_ERR_OVERFLOW. Stay on the v1 frame for ULTRA_FAST. */
@@ -42,15 +44,44 @@ int64_t vvz_compress(const uint8_t *src, size_t src_len,
     } else if (level <= 7) {
         opts.mode = VV_MODE_BALANCED;
         opts.format_v2 = 1;  /* 4-7% better binary ratio (v2.33.0+ decoders) */
+        opts.filter_auto = 1; /* BCJ on recognised ELF/PE/Mach-O input
+                               * (codec 2.55.0): no-op on everything else.
+                               * Blocks where a filter fired need a
+                               * v2.54.0+ decoder (tool >= 3.9.0). */
     } else {
         opts.mode = VV_MODE_EXTREME;
         opts.format_v2 = 1;  /* 4-7% better binary ratio (v2.33.0+ decoders) */
+        opts.filter_auto = 1; /* see BALANCED note above */
     }
 
     /* Auto window: let adaptive selection choose wlog */
     opts.window_log = 0;
 
-    return vv_compress(src, src_len, dst, dst_cap, &opts);
+    int64_t csz = vv_compress(src, src_len, dst, dst_cap, &opts);
+    if (csz <= 0)
+        return csz;
+
+    /* F-16 (v3.9.0): read-back self-check. The engine has produced, on
+     * real machine-code content under specific mode x window combinations,
+     * streams its own decoder rejects (observed: EXTREME + forced
+     * window_log=20, and BALANCED + auto window, both on the same 3.5 MiB
+     * ELF slice; reproducible on codec 2.53.3 and 2.60.4 alike). For a
+     * backup tool a block that cannot be read back is data loss at
+     * creation time, so every compressed block is decoded and compared
+     * before it is accepted. On any mismatch this returns -1 and the
+     * caller's existing fallback stores the block uncompressed instead.
+     * Cost: one decompress per block (~12 ms per 4 MiB at ~300 MB/s),
+     * small next to BALANCED/EXTREME encode cost; correctness is not
+     * negotiable. */
+    uint8_t *chk = (uint8_t *)malloc(src_len + 64 /* SIMD over-store slack,
+                                                     mirrors ZUPT_VV_DECODE_SLACK */);
+    if (!chk)
+        return -1;  /* cannot prove the block reads back -> fail closed */
+    int64_t dsz = vv_decompress_flags(dst, (size_t)csz, chk, src_len + 64,
+                                      VV_DECOMPRESS_SKIP_CHECKSUM);
+    int ok = (dsz == (int64_t)src_len) && (memcmp(chk, src, src_len) == 0);
+    free(chk);
+    return ok ? csz : -1;
 }
 
 int64_t vvz_decompress(const uint8_t *src, size_t src_len,

@@ -4,7 +4,7 @@
  * VaptVupt — tANS Entropy Codec (v2: sparse header + 4-way interleaved)
  *
  * Standalone: define VV_ANS_STANDALONE to use without VaptVupt.
- * ZUPT-COMPAT: this header has zero VaptVupt dependencies when standalone.
+ * EMBED-COMPAT: this header has zero VaptVupt dependencies when standalone.
  *
  * v0.6 changes:
  *   - Adaptive sparse/dense header (Item 1): 3× smaller on typical data
@@ -28,7 +28,7 @@ extern "C" {
 #define VVA_HDR_SINGLE   0x01  /* Single symbol: 0-bit encoding */
 #define VVA_HDR_SPARSE   0x02  /* ≤32 active symbols: (sym,freq) pairs */
 #define VVA_HDR_DENSE    0x03  /* >32 active symbols: max_sym + freq array */
-/* ZUPT-COMPAT: v0.5 legacy format detected by first byte being 0x00-0xFF
+/* EMBED-COMPAT: v0.5 legacy format detected by first byte being 0x00-0xFF
  * without matching any HDR_* code — fall back to old read path. */
 #define VVA_HDR_LEGACY   0x00  /* v0.5 format: [max_sym] [2B×(max_sym+1)] */
 
@@ -86,7 +86,7 @@ vva_error_t vva_decode_ctx(const uint8_t *src, size_t src_len,
                            size_t num_literals, size_t *src_consumed);
 
 /* ═══ Sequence coding (tag 'S', v0.8+) ═══
- * ZUPT-COMPAT: available when VV_ANS_STANDALONE is defined.
+ * EMBED-COMPAT: available when VV_ANS_STANDALONE is defined.
  *
  * Encodes an LZ token stream using 3 ANS tables: literals, match-length
  * codes (36 symbols), and offset codes (24 symbols). Replaces raw varint

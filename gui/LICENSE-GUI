@@ -1,21 +1,43 @@
-MIT License
+                    GNU AFFERO GENERAL PUBLIC LICENSE
+                       Version 3, 19 November 2007
 
-Copyright (c) 2026 Cristian Cezar Moisés
+ Copyright (C) 2026 Cristian Cezar Moisés <zupt@riseup.net>
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+ VaptVupt GUI (formerly Zupt GUI; parent application renamed in v3.0.0
+ due to a prior INPI Brasil trademark registration of "Zupt") is free
+ software: you can redistribute it and/or modify it under the terms of
+ the GNU Affero General Public License as published by the Free
+ Software Foundation, either version 3 of the License, or (at your
+ option) any later version.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+ VaptVupt GUI is distributed in the hope that it will be useful, but
+ WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ Affero General Public License for more details.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+ You should have received a copy of the GNU Affero General Public
+ License along with this program.  If not, see:
+
+     https://www.gnu.org/licenses/agpl-3.0.txt
+     https://www.gnu.org/licenses/agpl-3.0.html
+
+ ─────────────────────────────────────────────────────────────────────
+
+ PRIOR LICENSE NOTE
+
+ Earlier copies of this file may have stated "MIT License" — that was
+ a packaging mistake inherited from a template. The GUI source code's
+ SPDX-License-Identifier header has always been AGPL-3.0-or-later;
+ the file-level license here is corrected to match. There is no
+ historical MIT-licensed release of VaptVupt GUI; do not assume MIT
+ grant from any prior tarball that contained this file.
+
+ ─────────────────────────────────────────────────────────────────────
+
+ COMMERCIAL LICENSING
+
+ The VaptVupt GUI may be commercially relicensed by the author. If
+ you require relief from copyleft terms (proprietary derivatives,
+ closed-source bundling, etc.), contact:
+
+     sac@securityops.co

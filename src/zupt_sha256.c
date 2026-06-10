@@ -7,7 +7,15 @@
  */
 #include "zupt.h"
 #include "zupt_acsl.h"
+#include "zupt_cpuid.h"
 #include <string.h>
+
+/* zupt_sha256_transform_shani() is declared in zupt.h (x86 only) and
+ * defined in src/zupt_sha256_shani.c. The macro gates the dispatch
+ * call below so non-x86 builds never reference the symbol. */
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+#define ZUPT_SHA256_HAVE_SHANI 1
+#endif
 
 static const uint32_t K[64] = {
     0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
@@ -59,16 +67,48 @@ void zupt_sha256_init(zupt_sha256_ctx *c) {
     c->count=0;
 }
 
+/* Process one or more full 64-byte blocks, dispatching to SHA-NI when
+ * the CPU supports it (multi-block in a single call for throughput),
+ * else the scalar transform one block at a time. Bit-identical results. */
+static void sha256_blocks(zupt_sha256_ctx *c, const uint8_t *data, size_t blocks) {
+    if (blocks == 0) return;
+#ifdef ZUPT_SHA256_HAVE_SHANI
+    if (zupt_cpu.has_shani) {
+        zupt_sha256_transform_shani(c->state, data, blocks);
+        return;
+    }
+#endif
+    for (size_t i = 0; i < blocks; i++)
+        sha256_transform(c, data + i * 64);
+}
+
 void zupt_sha256_update(zupt_sha256_ctx *c, const uint8_t *d, size_t n) {
-    while (n > 0) {
-        size_t off = (size_t)(c->count % 64);
+    size_t off = (size_t)(c->count % 64);
+
+    /* 1. Top up a partially-filled buffer to a full block first. */
+    if (off != 0) {
         size_t chunk = 64 - off;
         if (chunk > n) chunk = n;
         memcpy(c->buf + off, d, chunk);
         c->count += chunk;
         d += chunk; n -= chunk;
-        if (c->count % 64 == 0)
-            sha256_transform(c, c->buf);
+        if ((c->count % 64) == 0)
+            sha256_blocks(c, c->buf, 1);
+    }
+
+    /* 2. Bulk-process all full blocks directly from the input. */
+    if (n >= 64) {
+        size_t full = n / 64;
+        sha256_blocks(c, d, full);
+        size_t consumed = full * 64;
+        c->count += consumed;
+        d += consumed; n -= consumed;
+    }
+
+    /* 3. Buffer the trailing partial block. */
+    if (n > 0) {
+        memcpy(c->buf, d, n);
+        c->count += n;
     }
 }
 

@@ -1,28 +1,43 @@
 <!-- Logo: rehost on git.securityops.co/cristiancmoises/zupt or zupt.securityops.co; old GitHub user-attachments URL no longer in use -->
 <!-- <img width="493" height="173" alt="logo" src="https://zupt.securityops.co/assets/logo.png"/> -->
 
-# Zupt
+# VaptVupt
 
 **Compress everything. Trust nothing. Encrypt always.**
 
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 ![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)
-![Version](https://img.shields.io/badge/version-2.2.3-brightgreen)
+![Version](https://img.shields.io/badge/version-4.0.0-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 
-Backup compression with hardware-adaptive codec selection, AES-256 authenticated encryption, post-quantum key encapsulation, and full-disk backup. Pure C11, zero dependencies, ~13,000 lines. Builds and runs on x86_64, aarch64, armhf, ppc64le, s390x, and riscv64.
+> **Renamed from "Zupt" in v3.0.0** because of a prior INPI Brasil
+> trademark registration on the name "Zupt" for unrelated software.
+> The `.zupt` archive extension and `ZUPT` header magic bytes are
+> unchanged — v2.x and v3.0.0 archives are bidirectionally compatible.
+> The `zupt` command is preserved as a symlink to `vaptvupt` for one
+> major version cycle.
+
+Backup compression with hardware-adaptive codec selection, AES-256
+authenticated encryption, post-quantum key encapsulation, and
+full-disk backup. Pure C11, zero dependencies, ~13,000 lines. Builds
+and runs on x86_64, aarch64, armhf, ppc64le, s390x, and riscv64.
 
 ---
 
-## Why Zupt
+## Why VaptVupt
 
 - **Hardware-adaptive codec** — auto-detects AVX2/NEON at runtime and selects the best codec: VaptVupt (LZ77 + tANS + SIMD decode) on capable hardware, Zupt-LZHP on everything else. Override with `--vv` or `--lzhp`.
 - **Post-quantum encryption** — `--pq` mode uses ML-KEM-768 + X25519 hybrid KEM (same approach as Signal and iMessage). Protects against "harvest now, decrypt later" quantum attacks.
 - **AES-NI hardware acceleration** — AES-256-CTR via Jasmin-verified assembly with 4-block interleaved pipeline. Safe AVX detection with OSXSAVE/XCR0 validation — no SIGILL on any CPU. Falls back to C table-based AES on unsupported hardware.
+- **SHA-NI hardware acceleration** — HMAC-SHA256 (the Encrypt-then-MAC second pass) and PBKDF2 use an Intel SHA-NI compression path (`SHA256RNDS2`/`MSG1`/`MSG2`) when the CPU supports it (Intel Goldmont+/Ice Lake+, AMD Zen+), selected at runtime via CPUID. **measured 5.8×** over the scalar path (204 → 1184 MB/s, 256 MiB, Xeon 2.10 GHz) *and* constant-time by construction. Bit-identical output; scalar C fallback elsewhere (incl. aarch64). `vaptvupt version` prints the live acceleration set for your CPU.
+- **Incremental HMAC** — the per-block MAC streams its segments through an incremental HMAC-SHA256 (key prefix folded once per keyring) instead of copying each block's ciphertext into a temporary buffer. Removes a per-block heap allocation and full-payload copy on both encrypt and decrypt, with a byte-for-byte identical MAC (RFC 2104).
 - **Multi-threaded** — Compression and decompression both parallelized. `-t 0` auto-detects cores.
 - **Full-disk backup** — `zupt disk backup` clones entire disks or partitions in one command. Sparse block detection skips zero regions, real-time progress bar, all encryption modes supported. Restore with byte-for-byte verification via per-block XXH64 checksums.
 - **Encrypted backups in one command** — `zupt compress -p changeme backup.zupt ~/data/` — AES-256 + HMAC-SHA256, file names hidden.
 - **Per-block integrity** — XXH64 checksum + HMAC-SHA256 per block. Wrong password rejected instantly.
+- **Self-describing KDF** — password archives record their key-derivation profile in the (authenticated) header, so an archive always carries the parameters needed to open it years later. Unknown profiles are refused fail-closed rather than mis-derived. Argon2id is the default; PBKDF2 (600K iter) via `--kdf pbkdf2`.
+- **Measured constant-time comparisons** — every security-critical comparison (HMAC tag, archive-integrity trailer, and the ML-KEM-768 decapsulation implicit-rejection check) routes through a single audited primitive (`zupt_ct_memeq`, branch-free, volatile accumulator, length-independent) verified by a dudect-style Welch t-test in CI, not just annotated. Its data-dependent timing signal measures ~1% of a leaky-`memcmp` control in the same environment; a reintroduced early-return or inline loop fails the test (timing + source-routing guard).
+- **Sealed-box PQ recipients (`--pq-box`, v4.0.0)** — third post-quantum mode via vendored libpqvaptvupt: ML-KEM-768 + X25519 combined through HKDF-SHA256 with domain separation ("pqvv-seal-v1"), AES-256-CTR + HMAC-SHA256 EtM in the box, magic-tagged keypair files that reject key-type confusion. Legacy `--pq` and `--pq-sdk` remain readable.
 - **Formally verified crypto** — 5 Jasmin assembly functions with constant-time proofs. 19 ACSL-annotated functions for Frama-C memory safety analysis.
 - **Multi-architecture** — builds on x86_64, aarch64, armhf, ppc64le, s390x, riscv64. Jasmin CT crypto on x86_64, C fallback everywhere else. Any archive decompresses on any architecture.
 - **Zero dependencies** — ML-KEM, X25519, Keccak, SHA-256, AES-256, HMAC, PBKDF2, VaptVupt codec — all pure C11. Builds with `gcc` or `cl` alone.
@@ -38,47 +53,56 @@ curl -fsSL https://short.securityops.co/zupt | bash
 
 ### Build & Install
 ```
-git clone https://git.securityops.co/cristiancmoises/zupt.git && \
-cd zupt && \
+git clone https://git.securityops.co/cristiancmoises/vaptvupt.git && \
+cd vaptvupt && \
 make && \
 sudo make install
 ```
 
 ### Pre-built packages
 
+All assets are published on the [v4.0.0 release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v4.0.0)
+and verifiable against the published `SHA256SUMS.txt`.
+
+**Command-line tool (`vaptvupt` 4.0.0):**
+
 | Format | File | Distros |
 |---|---|---|
-| Debian/Ubuntu | `zupt_2.2.3_amd64.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
-| RPM | `zupt-2.2.3-1.x86_64.rpm` | Fedora 38+, RHEL 9+, openSUSE, AlmaLinux, Rocky, and other RPM-based distributions |
-| AppImage | `zupt-2.2.3-x86_64.AppImage` | Any glibc 2.28+ (single-file, no install) |
-| AppDir tarball | `zupt-2.2.3-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run) |
-| Generic tarball | `zupt-2.2.3-linux-x86_64.tar.gz` | Any Linux x86_64 (binary + man page) |
-| Source | `zupt-2.2.3-source.tar.gz` | Build from source |
+| Debian/Ubuntu | `vaptvupt_4.0.0_amd64.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
+| RPM | `vaptvupt-4.0.0-1.x86_64.rpm` | Fedora 38+, RHEL 9+, openSUSE, AlmaLinux, Rocky, and other RPM-based distributions |
+| AppDir tarball | `vaptvupt-4.0.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run, no FUSE) |
+| Source tarball | `vaptvupt-4.0.0.tar.gz` | Build from source on any platform |
+| openSUSE OBS | `vaptvupt-4.0.0-opensuse-obs.tar.gz` | Open Build Service source bundle |
+
+**Graphical front-end (`vaptvupt-gui` 1.3.0):**
+
+| Format | File | Distros |
+|---|---|---|
+| Debian/Ubuntu | `vaptvupt-gui_1.3.0_all.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
+| RPM | `vaptvupt-gui-1.3.0-1.noarch.rpm` | RPM-based distributions |
+| AppImage | `VaptVupt-GUI-1.3.0-x86_64.AppImage` | Any glibc 2.28+ (single-file, no install) |
+| AppDir tarball | `VaptVupt-GUI-1.3.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run) |
 
 ```bash
+# Verify downloads first
+sha256sum -c SHA256SUMS.txt
+
 # Debian / Ubuntu / Mint
-sudo dpkg -i zupt_2.2.3_amd64.deb
+sudo dpkg -i vaptvupt_4.0.0_amd64.deb
 sudo apt-get install -f       # resolve any missing deps
 
 # Fedora / RHEL / openSUSE / AlmaLinux / Rocky and other RPM-based distros
-sudo rpm -i zupt-2.2.3-1.x86_64.rpm
+sudo rpm -i vaptvupt-4.0.0-1.x86_64.rpm
 # or
-sudo dnf install ./zupt-2.2.3-1.x86_64.rpm
-
-# AppImage (single executable, runs anywhere)
-chmod +x zupt-2.2.3-x86_64.AppImage
-./zupt-2.2.3-x86_64.AppImage --help
-# Optionally place in PATH:
-sudo install -m 755 zupt-2.2.3-x86_64.AppImage /usr/local/bin/zupt
+sudo dnf install ./vaptvupt-4.0.0-1.x86_64.rpm
 
 # AppDir tarball (no install, no FUSE required)
-tar xzf zupt-2.2.3-x86_64.AppDir.tar.gz
-./zupt-2.2.3-x86_64.AppDir/AppRun --help
+tar xzf vaptvupt-4.0.0-x86_64.AppDir.tar.gz
+./vaptvupt-4.0.0-x86_64.AppDir/AppRun --help
 
-# Generic tarball (binary + man page, install manually)
-tar xzf zupt-2.2.3-linux-x86_64.tar.gz
-sudo install -m 755 zupt-2.2.3-linux-x86_64/zupt /usr/local/bin/zupt
-sudo install -m 644 zupt-2.2.3-linux-x86_64/zupt.1.gz /usr/local/share/man/man1/
+# GUI AppImage (single executable, runs anywhere)
+chmod +x VaptVupt-GUI-1.3.0-x86_64.AppImage
+./VaptVupt-GUI-1.3.0-x86_64.AppImage
 ```
 
 ### Building from SRPM (Fedora / RHEL / RPM-based distributions)
@@ -137,6 +161,11 @@ zupt keygen --sdk -o mykey.priv     # writes mykey.priv and mykey.priv.pub
 zupt compress --pq-sdk mykey.priv.pub backup.zupt ~/Documents/
 zupt extract  --pq-sdk mykey.priv -o ~/restored/ backup.zupt
 
+# pq-box sealed-box workflow (v4.0.0; HKDF-SHA256 domain-separated combiner)
+zupt keygen --box -o box.key                       # writes box.key + box.key.pub
+zupt compress --pq-box box.key.pub backup.zupt ~/Documents/
+zupt extract  --pq-box box.key -o ~/restored/ backup.zupt
+
 # Legacy --pq mode (XOR+SHA3-512 combiner) — kept for back-compat with
 # archives created by Zupt 2.0–2.1. Do NOT use for new archives.
 zupt keygen -o mykey.key
@@ -185,7 +214,14 @@ Override with `--vv` (force VaptVupt) or `--lzhp` (force Zupt-LZHP) when you kno
 
 VaptVupt is Zupt's high-performance compression codec. It combines LZ77 dictionary matching with tANS (table-based Asymmetric Numeral Systems) entropy coding and SIMD-accelerated decompression.
 
-**This release embeds VaptVupt 2.48.2** — the version cut explicitly as the integration target for Zupt 2.2.3. See `CHANGELOG.md` for the full list of changes.
+**This release embeds VaptVupt 2.60.4** (security release: fixes an OOB
+heap write in the AVX2 decode fast path; adds canonical CBMC-verified
+BCJ filters with auto-detection). The codec API is byte-identical
+to the 2.48.x line; the 2.48.5 → 2.60.4 upgrades add the optimal parser
+(measured: text −1.95%, binary −1.31%, source −4.72% smaller on our
+fixtures), large-window extreme mode, faster decode (now roughly on par
+with zstd-19, up from 1.5–2× slower), and six upstream corrupt-input
+decoder memory-safety fixes. See `CHANGELOG.md` for the full list.
 
 ### Architecture
 
@@ -209,19 +245,95 @@ Format:  v1 frame (default) and v2 frame (T-tag, min_match=3) for binary data
 
 The Zupt wrapper enables VaptVupt's `format_v2` flag (4–7% better real-binary ratio) automatically for Balanced and Extreme modes. Ultra-Fast stays on the v1 frame because the `format_v2 + ULTRA_FAST` combination is not yet covered by VaptVupt's upstream test matrix.
 
-### Benchmark Results (this release)
+### Benchmark Results (v3.8.0, codec 2.60.4)
 
-Measured on the build host with a 4 MB mixed corpus (text records.csv, random.bin). Each codec run once, wall-clock via `time(NULL)` boundaries. Reproduce with `zupt bench <file>`.
+> Full, reproducible measured benchmarks — compression ratio/speed
+> across levels, crypto overhead (KDF vs per-block), and a head-to-head
+> ratio comparison against zstd — are in **[`BENCHMARKS.md`](BENCHMARKS.md)**,
+> with the test machine and method stated for every table.
 
-| Codec / Level | text 4MB → ratio | random 4MB → ratio | Notes |
-|---|---|---|---|
-| **VaptVupt L1** (UltraFast) | 4.31:1 | ~1.00:1 | Fastest |
-| **VaptVupt L3** (Balanced + format_v2) | **15.83:1** | ~1.00:1 | Default sweet spot |
-| **VaptVupt L5** (Balanced + format_v2) | 15.40:1 | ~1.00:1 | |
-| **VaptVupt L9** (Extreme + format_v2) | 15.23:1 | ~1.00:1 | Max ratio |
-| gzip -9 | 8.70:1 | ~1.00:1 | Baseline |
+> **F-16 (data loss, fixed in 4.0.0):** archives created by **≤ 3.8.0** at
+> `-l 8`/`-l 9` whose inputs included x86/ELF/PE executables may be
+> **undecodable by any version** (defect at write time in the old
+> divergent BCJ encoder). Re-create such archives with 4.0.0 and verify
+> extraction before deleting source data. Details in CHANGELOG/AUDIT.
 
-On the standard Silesia + fixture suite measured by the upstream VaptVupt project, v2.48.x **beats zstd-3 by 1.07% in aggregate ratio** (was +1.2% behind in v2.47.x), with decode throughput at **1.27× zstd-3** in aggregate and **3.7× zstd-19 / 1.5× lz4-9** on AEAD-shaped (random) data with `--fast`.
+**Measured against gzip-9, zstd-3, zstd-19** on a 4-fixture suite
+(text 10 MB, binary-struct 7.5 MB, source code 10 MB, random 5 MB).
+Decode timed across 3 runs, minimum reported; wall-clock including the
+`.zupt` envelope (HMAC etc.). Host: Intel Xeon @ 2.1 GHz, single vCPU,
+codec built at the distribution's default optimisation level (AVX2).
+**Reproduce with `vaptvupt bench <file>`** to compare VaptVupt levels,
+or the comparative harness in the source tree.
+
+| Fixture       | Tool      | Ratio    | Dec MB/s |
+|---------------|-----------|---------:|---------:|
+| text 10 MB    | vv-9      | 25.6%    | 278      |
+| text 10 MB    | gzip-9    | 22.6%    | 156      |
+| text 10 MB    | zstd-3    | 24.2%    | 556      |
+| text 10 MB    | zstd-19   | **17.6%**| 435      |
+| binary 7.5 MB | vv-9      | 46.1%    | 300      |
+| binary 7.5 MB | gzip-9    | 46.8%    | 123      |
+| binary 7.5 MB | zstd-3    | 44.8%    | 577      |
+| binary 7.5 MB | zstd-19   | **41.1%**| 417      |
+| source 10 MB  | vv-9      | 4.5%     | 714      |
+| source 10 MB  | gzip-9    | 4.0%     | 238      |
+| source 10 MB  | zstd-3    | 5.6%     | 1000     |
+| source 10 MB  | zstd-19   | **2.7%** | 769      |
+| random 5 MB   | vv-9      | 100.0%   | 625      |
+| random 5 MB   | zstd-3    | 100.0%   | 681      |
+
+Honest reading (these are measured numbers, not aspirations):
+
+- **On ratio, zstd-19 wins every fixture.** VaptVupt L9 lands between
+  zstd-3 and zstd-19 on text and binary, beats zstd-3 on source (4.5%
+  vs 5.6%), and loses to zstd-19 everywhere. If smallest-file is the
+  only goal, use `xz -9` or `zstd -19`.
+- **Decode is now competitive**, not a weakness: 278–714 MB/s, in the
+  same band as zstd-19 (and within ~1.3× of zstd-3). The 2.60.4 codec's
+  decode-speed work (Sprint 53/58) closed most of the gap that existed
+  at 2.48.5. The earlier "1.27× zstd-3 decode" headline (inherited from
+  upstream docs) is **not claimed here** — it did not reproduce in our
+  own single-vCPU measurement.
+- **Encode throughput remains the weakness.** The optimal parser and
+  depth-24 hash-chain walk that win ratio cost encode speed; balanced
+  mode is ~6× slower than fast and ~14× slower than zstd-1. For
+  encode-latency-bound workloads use `vaptvupt compress -l 1`/`-l 2`.
+- **On a degenerate single-pattern input**, large-window extreme (L9)
+  is slightly *worse* than L5/L7 — a known tradeoff of optimizing for
+  real long-range matches. Doesn't affect realistic corpora.
+- **On random / already-compressed data**, all codecs hit the
+  incompressibility wall; the comparison degenerates to
+  framing-overhead measurement.
+
+### Security Test Results (v3.0.0 release)
+
+Every release re-runs the full security regression matrix. These are
+the v3.0.0 numbers:
+
+| Test                            | Coverage                                                                 | Result            |
+|---------------------------------|--------------------------------------------------------------------------|-------------------|
+| F-06 HMAC tamper fuzz           | 2000 trials, single-bit flip in HMAC tag                                 | **0 silent accepts** / 2000 honest roundtrips OK |
+| F-08 archive-integrity trailer  | Header/footer tamper detection                                           | **5/5 pass**      |
+| F-09 byte-level integrity sweep | 1827 positions on a PQ-SDK archive, every byte flipped exhaustively      | **0/1827 silent accepts** ✓ |
+| F-10 KDF default                | Argon2id is the default; PBKDF2 available via `--kdf pbkdf2`             | **10/10 pass**    |
+| F-11 auth-fail wording          | Wrong-password vs tampered-archive messages are indistinguishable        | **12/12 pass**    |
+| F-12 encrypted comments         | Comment block bound to per-block AAD; tamper rejected at extract        | **11/11 pass**    |
+| F-15 KDF transparency           | Argon2id header self-describes its profile; back-compat + fail-closed   | **5/5 pass**      |
+| Constant-time comparisons       | dudect Welch t-test (MAC tag + ML-KEM decaps); ~1% of leaky-memcmp + source-routing guard | **2/2 pass**      |
+| Codec exact-size decode (OOB)   | 80 exact-`content_size` cases incl. BCJ payloads, ASan (codec 2.60.4 fix class) | **80/80 pass** |
+| pq-box mode                     | roundtrips L1/L9/BCJ; wrong-key/key-confusion/tamper/cross-mode rejection | **13/13 pass** |
+| NIST/RFC test vectors           | SHA-256, SHA-3, SHAKE-128, ML-KEM-768, AES-256-CTR (SP 800-38A), HMAC-SHA256, X25519, XXH64 | **16/16 pass** |
+| Path-traversal                  | Absolute paths and `..` components refused                               | **5/5 pass**      |
+| Block-swap                      | Re-ordered block detection                                                | **6/6 pass**      |
+| Dedup property                  | Deduplication never produces wrong output                                 | **12/12 pass**    |
+| Audit suite                     | Curated smoke tests                                                       | **10/10 pass**    |
+| Argument-order                  | CLI flag ordering doesn't change semantics                               | **8/8 pass**      |
+| Distro-safe `make check`        | Aggregate of the above (no flaky threading, no `make clean` mid-stream) | **91/91 pass**    |
+
+Reproduce: `make check` (≈2 minutes, 91 assertions across 10 suites,
+all green on x86_64 + aarch64). `make test` runs the full 15-suite
+arc including dist reproducibility and packaging-syntax.
 
 ### Why VaptVupt?
 
@@ -389,7 +501,7 @@ Key protection: mlock() prevents swap, buffer canaries detect overflow
 Timing:         Always-decrypt mitigation (no timing oracle on MAC failure)
 AES dispatch:   AVX+AES-NI check with OSXSAVE/XCR0 (no SIGILL on any CPU)
 Path safety:    Zip Slip / symlink defenses (zupt_path_is_safe + O_NOFOLLOW)
-Verification:   5 Jasmin CT proofs, 19 ACSL contracts, 13 NIST/RFC test vectors
+Verification:   5 Jasmin CT proofs, 19 ACSL contracts, 16 NIST/RFC test vectors
 ```
 
 **Audit history:** Three internal audit sprints conducted on the 2.2.x line.

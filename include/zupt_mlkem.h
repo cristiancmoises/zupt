@@ -62,4 +62,9 @@ int zupt_mlkem768_decaps(uint8_t ss[MLKEM_SSBYTES],
                           const uint8_t ct[MLKEM_CIPHERTEXTBYTES],
                           const uint8_t sk[MLKEM_SECRETKEYBYTES]);
 
+/* Self-test: NTT/iNTT roundtrip + CBD-sampler range invariants.
+ * Returns 1 on pass, 0 on fail. Called from test_vectors.c case 14
+ * (F-04, Zupt 2.2.4). */
+int zupt_mlkem768_selftest(void);
+
 #endif

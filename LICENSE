@@ -3,12 +3,14 @@
 
  Copyright (C) 2026 Cristian Cezar Moisés <zupt@riseup.net>
 
- Zupt is free software: you can redistribute it and/or modify
- it under the terms of the GNU Affero General Public License as
- published by the Free Software Foundation, either version 3 of the
- License, or (at your option) any later version.
+ VaptVupt (formerly Zupt; renamed in v3.0.0 due to a prior INPI Brasil
+ trademark registration of "Zupt" for unrelated software) is free
+ software: you can redistribute it and/or modify it under the terms of
+ the GNU Affero General Public License as published by the Free
+ Software Foundation, either version 3 of the License, or (at your
+ option) any later version.
 
- Zupt is distributed in the hope that it will be useful, but
+ VaptVupt is distributed in the hope that it will be useful, but
  WITHOUT ANY WARRANTY; without even the implied warranty of
  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  Affero General Public License for more details.

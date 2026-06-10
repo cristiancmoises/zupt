@@ -121,7 +121,9 @@ static inline uint32_t vv_bh_pack(vv_block_type_t t, int last, uint32_t sz) {
 typedef struct {
     uint32_t magic;           /* VV_MAGIC */
     uint8_t  version;         /* Format version (1) */
-    uint8_t  flags;           /* bit0: has_checksum, bit1: has_dict */
+    uint8_t  flags;           /* bit0: has_checksum, bit1: has_dict,
+                               *  bit2: x86 BCJ filter applied,
+                               *  bit3: ARM64 BCJ filter applied */
     uint8_t  mode_hint;       /* Compression mode used (informational) */
     uint8_t  window_log;      /* Window size = 1 << window_log */
     uint64_t content_size;    /* Uncompressed size (0 = unknown) */
@@ -195,6 +197,63 @@ typedef struct {
                               *     output must be readable by v2.46.5 or
                               *     older decoders. Default 0 (lit_fmt=4
                               *     enabled, requires v2.47+ decoder). */
+    int       filter_x86;    /* 1 = apply the reversible x86 BCJ branch
+                              *     filter before compression (header flag
+                              *     bit2). Improves x86/x86-64 machine-code
+                              *     ratio (~+3–7% measured); the decoder
+                              *     inverts it automatically. Requires a
+                              *     v2.53.4+ decoder. Opt-in; default 0. */
+    int       filter_arm64;  /* 1 = apply the reversible AArch64 (ARM64) BCJ
+                              *     branch filter (BL + ADRP) before
+                              *     compression (header flag bit3). Improves
+                              *     AArch64 machine-code ratio (~+2–5%
+                              *     measured); the decoder inverts it
+                              *     automatically. Requires a v2.54.0+
+                              *     decoder. Opt-in; default 0. Mutually
+                              *     exclusive with filter_x86 (a file is one
+                              *     architecture). */
+    int       filter_auto;   /* 1 = sniff the input for an ELF/PE/Mach-O
+                              *     header and automatically select the x86
+                              *     or ARM64 BCJ filter (or none) to match.
+                              *     Has no effect if filter_x86 or
+                              *     filter_arm64 is already set, or if no
+                              *     executable header is recognised — in
+                              *     which case output is unchanged. Opt-in;
+                              *     default 0. */
+    uint32_t  depth_override;/* 0 = use the mode's default match-finder chain
+                              *     depth (fast=4, balanced=24, extreme=256).
+                              *     Non-zero overrides it, clamped to
+                              *     [1, 4096], trading encode speed for ratio
+                              *     along a smooth monotonic curve (measured:
+                              *     on dickens, fast depth 1→8 spans
+                              *     1.785@79 MB/s to 2.067@55 MB/s). Affects
+                              *     only the chosen matches, so output stays a
+                              *     valid stream any decoder reads; default
+                              *     output (0) is byte-identical to prior
+                              *     releases. Opt-in; default 0. */
+    uint32_t  accel;         /* 0 = off (default; byte-identical). >0 enables
+                              *     lz4-style position-skip acceleration: after
+                              *     a run of f consecutive no-match positions
+                              *     the parser advances by 1 + ((f*accel)>>6)
+                              *     instead of 1, skipping hash/insert work on
+                              *     unmatchable input. Massively speeds up
+                              *     encode on incompressible / already-
+                              *     compressed data (measured ~8-9x on
+                              *     random/gzip input) for a small ratio cost
+                              *     on compressible data (~-0.2% on dickens),
+                              *     which is why it is opt-in. Clamped to
+                              *     [0, 64]; higher = more aggressive skipping.
+                              *     Primarily useful with -m fast. Output stays
+                              *     decodable by any decoder. */
+    int       no_rep;        /* 1 = disable rep-match probing in the greedy/
+                              *     lazy parser. Measured net-positive on ratio
+                              *     in fast mode (which has no entropy stage, so
+                              *     rep offsets are not cheaper to code) and
+                              *     ~10% faster; on binary it can cost a little
+                              *     ratio, so it is opt-in. Default 0 keeps rep
+                              *     enabled and output byte-identical. Affects
+                              *     fast/balanced (the greedy/lazy parser);
+                              *     designed for -m fast. */
 } vv_options_t;
 
 static inline void vv_default_options(vv_options_t *o) {
@@ -204,6 +263,12 @@ static inline void vv_default_options(vv_options_t *o) {
     o->verbose = 0;
     o->format_v2 = 0;
     o->compat_v246_5_decoder = 0;
+    o->filter_x86 = 0;
+    o->filter_arm64 = 0;
+    o->filter_auto = 0;
+    o->depth_override = 0;
+    o->accel = 0;
+    o->no_rep = 0;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -228,7 +293,7 @@ int64_t vv_decompress(const uint8_t *src, size_t src_len,
                                               * Use when the caller has its own
                                               * integrity protection (e.g. AES-GCM
                                               * wrapping the compressed data, as in
-                                              * Zupt backups). On RAW/random-data
+                                              * application backups). On RAW/random-data
                                               * inputs where XXH64 dominates decode
                                               * time, this flag delivers a ~2× speedup.
                                               *
@@ -250,8 +315,8 @@ size_t vv_compress_bound(size_t src_len);
  * MULTI-THREADED COMPRESSION
  *
  * Compresses large inputs in parallel by splitting into independent
- * frames (each a valid .vv frame on its own — concatenated output
- * is a valid .vv file that vv_decompress handles natively as a
+ * frames (each a valid VaptVupt frame on its own — concatenated output
+ * is a valid .zupt file that vv_decompress handles natively as a
  * multi-frame stream).
  *
  * Requires the library to be built with VV_ENABLE_THREADS (and

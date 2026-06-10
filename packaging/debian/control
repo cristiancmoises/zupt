@@ -1,0 +1,41 @@
+Source: vaptvupt
+Section: utils
+Priority: optional
+Maintainer: Cristian Cezar Moisés <sac@securityops.co>
+Build-Depends:
+ debhelper-compat (= 13),
+ gcc,
+ libc6-dev,
+ python3 (>= 3.8)
+Standards-Version: 4.6.2
+Homepage: https://git.securityops.co/cristiancmoises/zupt
+Vcs-Browser: https://git.securityops.co/cristiancmoises/zupt
+Vcs-Git: https://git.securityops.co/cristiancmoises/zupt.git
+Rules-Requires-Root: no
+
+Package: vaptvupt
+Architecture: any
+Provides: zupt (= ${binary:Version})
+Replaces: zupt
+Conflicts: zupt
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Post-quantum backup compression utility (formerly Zupt)
+ VaptVupt (renamed from Zupt in v3.0.0 due to INPI Brasil trademark) is
+ a pure-C11 backup compression utility featuring:
+  * Post-quantum hybrid encryption (ML-KEM-768 + X25519, FIPS 203)
+  * AES-256-CTR + HMAC-SHA256 authenticated encryption (Encrypt-then-MAC)
+  * Argon2id password-based key derivation (default since 2.4.1)
+  * Multi-threaded compression with the VaptVupt LZ + ANS codec 2.48.5
+  * Full-disk backup and restore with sparse-region detection
+  * End-to-end byte-level tamper detection on encrypted archives
+    (0 silent-accept positions in the v1.6 exhaustive byte sweep)
+  * Constant-time cryptographic primitives verified with Jasmin
+  * NIST/RFC test vectors for SHA-256, SHA-3, ML-KEM-768, AES-256-CTR,
+    HMAC-SHA256, X25519, PBKDF2, Argon2id
+ .
+ The archive extension stays .zupt for format continuity (header magic
+ unchanged). The binary `zupt` is preserved as a symlink to `vaptvupt`.
+ .
+ The archive format includes an integrity trailer that authenticates the
+ header and footer, per-block HMAC with bound frame-preface AAD, and
+ optional encrypted comments.

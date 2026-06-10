@@ -27,6 +27,7 @@
  */
 #include "zupt_parallel.h"
 #include "vaptvupt.h"  /* VAPTVUPT: VaptVupt codec integration */
+#include "vaptvupt_api.h"  /* F-16: single codec-option policy (vvz_*) */
 #include <stdlib.h>
 #include <string.h>
 
@@ -90,20 +91,23 @@ static void worker_compress(zpar_slot_t *slot, const zupt_keyring_t *kr) {
     } else if (codec == ZUPT_CODEC_ZUPT_LZ) {
         comp_size = zupt_lz_compress(rbuf, nread, cbuf, zupt_lz_bound(nread), level);
     }
-    /* VAPTVUPT: VaptVupt codec in parallel compress worker */
+    /* VAPTVUPT: VaptVupt codec in parallel compress worker.
+     *
+     * F-16 (v3.9.0): this worker previously built its own vv_options_t
+     * and had drifted from the serial wrapper (forced window_log=20, a
+     * different ULTRA_FAST cutoff, checksum=1, no format_v2, no BCJ, no
+     * ULTRA_FAST/format_v2 gate). EXTREME + window_log=20 produced
+     * blocks the decoder rejects on real ELF content — a corrupt archive
+     * at creation time. Codec option policy now lives in exactly one
+     * place: vvz_compress() (src/vaptvupt_api.c), which also self-checks
+     * every produced block (decode + memcmp) and fails closed so the
+     * caller falls back to STORE rather than ever writing an unreadable
+     * block. Serial and parallel paths emit identical streams. */
     else if (codec == ZUPT_CODEC_VAPTVUPT) {
-        vv_options_t vv_opts;
-        vv_default_options(&vv_opts);
-        if (level <= 3) vv_opts.mode = VV_MODE_ULTRA_FAST;
-        else if (level <= 7) vv_opts.mode = VV_MODE_BALANCED;
-        else vv_opts.mode = VV_MODE_EXTREME;
-        vv_opts.checksum = 0;
-        vv_opts.window_log = (nread > (1u << 16)) ? 20 : 16;
-
-        size_t vv_cap = vv_compress_bound(nread);
+        size_t vv_cap = vvz_compress_bound(nread);
         uint8_t *vv_tmp = (uint8_t *)malloc(vv_cap);
         if (vv_tmp) {
-            int64_t csz = vv_compress(rbuf, nread, vv_tmp, vv_cap, &vv_opts);
+            int64_t csz = vvz_compress(rbuf, nread, vv_tmp, vv_cap, level);
             if (csz > 0 && (size_t)csz < nread) {
                 if ((size_t)csz <= cbuf_cap) {
                     memcpy(cbuf, vv_tmp, (size_t)csz);
@@ -184,7 +188,10 @@ static void worker_decompress(zpar_slot_t *slot, const zupt_keyring_t *kr) {
         return;
     }
 
-    uint8_t *out = (uint8_t *)malloc(olen);
+    /* Over-allocate by ZUPT_VV_DECODE_SLACK for the VaptVupt AVX2 decode
+     * over-copy (see zupt.h). olen still tracks the true uncompressed
+     * size for the XXH64 verify and the returned output_len. */
+    uint8_t *out = (uint8_t *)malloc(olen + ZUPT_VV_DECODE_SLACK);
     if (!out) { free(dec_payload); slot->error = ZUPT_ERR_NOMEM; return; }
 
     zupt_error_t result = ZUPT_OK;
@@ -226,7 +233,10 @@ static void worker_decompress(zpar_slot_t *slot, const zupt_keyring_t *kr) {
     }
     /* VAPTVUPT: VaptVupt codec in parallel decompress worker */
     else if (codec == ZUPT_CODEC_VAPTVUPT) {
-        int64_t dsz = vv_decompress(comp_data, comp_len, out, olen);
+        /* Pass padded capacity (olen + slack) for the AVX2 over-copy;
+         * require the returned size to equal the true olen. */
+        int64_t dsz = vv_decompress(comp_data, comp_len, out,
+                                    olen + ZUPT_VV_DECODE_SLACK);
         if (dsz < 0 || (size_t)dsz != olen) result = ZUPT_ERR_CORRUPT;
     } else {
         result = ZUPT_ERR_UNSUPPORTED;

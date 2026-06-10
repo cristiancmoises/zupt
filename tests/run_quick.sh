@@ -24,4 +24,9 @@ $Z keygen -o "$T/k.key" 2>/dev/null && $Z keygen --pub -o "$T/p.key" -k "$T/k.ke
 $Z compress --pq "$T/p.key" "$T/8.zupt" "$T/d/" 2>/dev/null && $Z extract --pq "$T/k.key" -o "$T/o8" "$T/8.zupt" 2>/dev/null
 E=$(find "$T/o8" -name a.txt -type f 2>/dev/null|head -1); [ -n "$E" ] && diff -q "$T/d/a.txt" "$E" >/dev/null 2>&1 && ok "PQ" || fl "PQ"
 R=$($Z test "$T/1.zupt" 2>&1); echo "$R"|grep -q "0 failed" && ok "Integrity" || fl "Integrity"
-echo ""; echo "  Results: $P passed, $F failed (9 tests)"; [ "$F" -eq 0 ] && exit 0 || exit 1
+# F-01 (2.2.4): every help command verb starts its own line.
+# Pre-fix output ran "keygen … Key generation  zupt version" on one
+# wrapped line due to a missing \n in src/zupt_main.c:41.
+HC=$($Z help 2>&1 | grep -cE '^  (vaptvupt|zupt) ')
+[ "$HC" -ge 10 ] && ok "Help command lines ($HC)" || fl "Help command lines ($HC, need ≥10)"
+echo ""; echo "  Results: $P passed, $F failed (10 tests)"; [ "$F" -eq 0 ] && exit 0 || exit 1

@@ -15,6 +15,7 @@
 #include "vv_platform.h"
 #include "vv_huffman.h"
 #include "vv_ans.h"
+#include "vv_bcj.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -64,6 +65,37 @@ static inline void match_copy_32(uint8_t *d, const uint8_t *s, size_t n) {
     /* Exact tail: use 16-byte then memcpy to avoid corrupting future output */
     if (n >= 16) { wcopy16(d, s); d += 16; s += 16; n -= 16; }
     if (n > 0) memcpy(d, s, n);
+}
+
+/* SPRINT 53: hot-path match copy for offset >= 32 used ONLY when the
+ * caller guarantees >= 32 bytes of writable margin past d (the phase-2
+ * op_safe invariant: op < op_end - 72). Profiling dickens decode showed
+ * 98.9% of matches have offset >= 32 and average match length 6.9 bytes,
+ * so match_copy_32's tail `memcpy(d,s,n)` for tiny n was the dominant
+ * decode operation. An unconditional 32-byte store (lz4's decode trick)
+ * is branch-free and faster for the common short match; the over-copy
+ * lands in allocated safe-margin bytes that the next token overwrites.
+ * offset >= 32 guarantees [s, s+32) does not overlap [d, d+32), so a
+ * single wide load/store is correct regardless of match length. For
+ * n > 32 (rare: ~1% of matches), fall back to the chunked copy. */
+static inline void match_copy_32_hot(uint8_t *d, const uint8_t *s, size_t n) {
+    if (VV_LIKELY(n <= 32)) {
+        wcopy32(d, s);            /* single 32-byte store covers all n <= 32 */
+    } else {
+        /* n > 32 (rare: ~1% of matches). The 32-byte chunk loop is followed
+         * by an EXACT tail (16-byte then memcpy) rather than a final 32-byte
+         * over-store: the caller's room guarantee is only >= 32 bytes (the
+         * single-store case), not the rounded-up >= ((n+31)&~31) the old
+         * unconditional tail store needed. An over-store here writes up to
+         * 32 - (n & 31) bytes past op_end on an exactly-content-sized output
+         * buffer (heap-buffer-overflow WRITE). Exact tail keeps it in bounds;
+         * for n > 32 the per-store cost is already amortized so this is not a
+         * hot-path regression. */
+        wcopy32(d, s); d += 32; s += 32; n -= 32;
+        while (n >= 32) { wcopy32(d, s); d += 32; s += 32; n -= 32; }
+        if (n >= 16) { wcopy16(d, s); d += 16; s += 16; n -= 16; }
+        if (n > 0) memcpy(d, s, n);
+    }
 }
 
 /* Match copy with offset 16-31: 16-byte chunks, exact tail */
@@ -121,9 +153,13 @@ decode_block_tokens_impl(
     uint8_t *const op_safe = (dst_cap > 72) ? (op_end - 72) : op;
 
     /* PERF: once we've written enough bytes, any offset ≤ max_dist passes
-     * the "offset > op - dst_base" check. Max offset is (1 << wlog) - 1,
-     * at most (1<<20) - 1 for wlog=20. So past this threshold, only
-     * offset==0 needs checking (invalid/corrupted). */
+     * the "offset > op - dst_base" check. Max offset is (1 << wlog) - 1:
+     * at most 0xFFFF for 2-byte offsets (wlog ≤ 16), 0xFFFFFF for 3-byte
+     * offsets (wlog ≤ 24, the extreme large-window path since Sprint 46).
+     * Past this threshold only offset==0 (invalid/corrupted) needs the
+     * explicit check. The 3-byte ceiling (2^24) is also the absolute DoS
+     * cap: a larger offset is unrepresentable in the wire format and is
+     * rejected. */
     const uint32_t max_valid_off = (off_bytes == 2) ? 0xFFFF : 0xFFFFFF;
 
 #if VV_INLINE_AVX2
@@ -181,8 +217,32 @@ decode_block_tokens_impl(
         if (VV_UNLIKELY(offset == 0 || offset > (uint32_t)(op - dst_base)))
             return VV_ERR_CORRUPT;
 
+        /* Phase-1 warmup previously lacked the match-length output bound that
+         * phase 2 and the general/tail path carry. A corrupt match-length
+         * extension can make mlen large enough that match_copy writes past
+         * op_end (heap-buffer-overflow WRITE, e.g. via match_overlap for
+         * offset < 8). The op < op_safe loop guard only reserves a 72-byte
+         * margin and does not bound an extended mlen. On a VALID stream
+         * op + mlen never exceeds op_end, so this branch is never taken and
+         * decode output is byte-identical; it only rejects corrupt input. */
+        if (VV_UNLIKELY((size_t)(op_end - op) < mlen))
+            return VV_ERR_OVERFLOW;
+
+        /* match_copy_32_hot does an unconditional 32-byte store (lz4 trick)
+         * and so requires >= 32 bytes of writable room past op. The op_safe
+         * loop guard reserves 72 bytes at loop *entry*, but op advances by ll
+         * (which can be large via a literal-length extension) before this
+         * copy, so op can land within 32 bytes of op_end mid-iteration. When
+         * the remaining room is < 32, use the exact-tail match_copy_32 to
+         * avoid an over-write past op_end (heap-buffer-overflow WRITE on an
+         * exactly-content-sized output buffer; the wide-store overshoot is
+         * up to 32 - mlen bytes). Byte-identical: both copy the same mlen
+         * bytes; only the harmless trailing over-write differs. */
         if (VV_LIKELY(offset >= 32)) {
-            match_copy_32(op, op - offset, mlen);
+            if (VV_LIKELY((size_t)(op_end - op) >= 32))
+                match_copy_32_hot(op, op - offset, mlen);
+            else
+                match_copy_32(op, op - offset, mlen);
         } else if (offset >= 16) {
             match_copy_16(op, op - offset, mlen);
         } else if (offset >= 8) {
@@ -241,8 +301,29 @@ decode_block_tokens_impl(
         if (VV_UNLIKELY(offset == 0))
             return VV_ERR_CORRUPT;
 
+        /* Phase-2 previously had NO output-length bound before the match
+         * copy — it relied solely on the op < op_safe loop guard
+         * (op_safe = op_end - 72). A corrupt token whose match-length
+         * extension makes mlen large can therefore drive match_copy_32_hot
+         * to write past op_end (found under ASan on corrupt input). The
+         * general/tail path already has this exact check (op + mlen >
+         * op_end → OVERFLOW); add it to the hot path too. On a VALID
+         * stream op + mlen never exceeds op_end, so this branch is never
+         * taken and decode output/perf is unchanged; it only stops corrupt
+         * input from over-writing. */
+        if (VV_UNLIKELY((size_t)(op_end - op) < mlen))
+            return VV_ERR_OVERFLOW;
+
+        /* See phase-1: match_copy_32_hot over-writes a full 32 bytes, so it
+         * needs >= 32 bytes of room past op. op advances by ll within the
+         * iteration, so guard against the exact buffer end and fall back to
+         * the exact-tail match_copy_32 when room < 32. Byte-identical output;
+         * prevents an OOB write on an exactly-content-sized buffer. */
         if (VV_LIKELY(offset >= 32)) {
-            match_copy_32(op, op - offset, mlen);
+            if (VV_LIKELY((size_t)(op_end - op) >= 32))
+                match_copy_32_hot(op, op - offset, mlen);
+            else
+                match_copy_32(op, op - offset, mlen);
         } else if (offset >= 16) {
             match_copy_16(op, op - offset, mlen);
         } else if (offset >= 8) {
@@ -574,7 +655,7 @@ int64_t vv_decompress_flags(const uint8_t *src, size_t src_len,
     uint8_t *op_end = dst + dst_cap;
 
     /* MULTI-FRAME: a .vv file may contain one or more concatenated frames
-     * (useful for parallel encode, Zupt-style archives, append-mode
+     * (useful for parallel encode, multi-frame archives, append-mode
      * writes). We decode frames in a loop until input is exhausted. */
     while (ip < ip_end) {
         if (ip + sizeof(vv_frame_header_t) > ip_end) return VV_ERR_CORRUPT;
@@ -677,6 +758,21 @@ int64_t vv_decompress_flags(const uint8_t *src, size_t src_len,
                 if (computed != ff.checksum) return VV_ERR_CORRUPT;
             }
             ip += sizeof(vv_frame_footer_t);
+        }
+
+        /* x86 BCJ inverse (flags bit2): the encoder applied the forward
+         * branch transform to this frame's bytes BEFORE compression, and
+         * checksummed the transformed bytes, so we invert AFTER the
+         * checksum check, over exactly this frame's output region. The
+         * transform was done with ip=0 per frame, so the inverse uses 0
+         * too. No-op for frames without the flag. */
+        if (fh.flags & 4) {
+            vv_bcj_x86(frame_out_start, (size_t)(op - frame_out_start), 0, 0);
+        }
+        /* AArch64 BCJ inverse (flags bit3): same contract as the x86 case
+         * above. A frame carries at most one of bit2/bit3. */
+        if (fh.flags & 8) {
+            vv_bcj_arm64(frame_out_start, (size_t)(op - frame_out_start), 0, 0);
         }
 
         /* Loop back to try another frame (if input remains) */
@@ -876,6 +972,12 @@ int vv_dstream_decompress_chunk(vv_dstream_t *ctx,
                 if (err != VV_OK || actual != dsz) { ctx->state = VV_DSTREAM_ERROR; return err != VV_OK ? err : VV_ERR_CORRUPT; }
             } else { /* ENTROPY */
                 uint32_t csz = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16);
+                /* SPRINT 123 (v2.48.5): csz == 0 makes bdata_len underflow
+                 * to SIZE_MAX, causing the entropy decoder to read past
+                 * the input buffer. Found by libFuzzer fuzz_dstream.
+                 * The stateless decoder already has this check at line 631;
+                 * porting it here. */
+                if (csz < 1) { ctx->state = VV_DSTREAM_ERROR; return VV_ERR_CORRUPT; }
                 uint8_t tag = p[3];
                 const uint8_t *bdata = p + 4;
                 size_t bdata_len = csz - 1;

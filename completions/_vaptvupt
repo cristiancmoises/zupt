@@ -1,0 +1,136 @@
+#compdef vaptvupt zupt
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2025-2026 Cristian Cezar Moisés
+#
+# Install:
+#   sudo install -m 644 completions/_zupt /usr/share/zsh/site-functions/_zupt
+# or for a single user (anywhere in $fpath):
+#   cp completions/_zupt ~/.zsh/completion/_zupt
+#   # then in ~/.zshrc:
+#   #   fpath=(~/.zsh/completion $fpath)
+#   #   autoload -U compinit && compinit
+
+_zupt_levels() {
+    _values 'compression level' \
+        '1[fastest, smallest window]' \
+        '2[fast]' \
+        '3[balanced (low)]' \
+        '4[balanced]' \
+        '5[balanced (high)]' \
+        '6[high compression]' \
+        '7[default; high]' \
+        '8[maximum, 1MB window]' \
+        '9[maximum, deep search]'
+}
+
+_zupt_kdf() {
+    _values 'KDF' \
+        'argon2id[memory-hard, default since v2.4.1]' \
+        'pbkdf2[legacy 600k-iter PBKDF2-SHA256]'
+}
+
+_zupt_threads() {
+    _values 'threads' '0[auto]' '1' '2' '4' '8' '16' '32' '64'
+}
+
+_zupt_compress_opts() {
+    _arguments \
+        '(-l --level)'{-l,--level}'[compression level]:level:_zupt_levels' \
+        '(-b --block)'{-b,--block}'[block size in bytes]:size:' \
+        '(-s --store)'{-s,--store}'[store without compression]' \
+        '(-f --fast)'{-f,--fast}'[use fast LZ codec]' \
+        '(--vv --vaptvupt)'{--vv,--vaptvupt}'[use VaptVupt codec]' \
+        '--lzhp[use Zupt-LZHP codec (LZ77+Huffman, no SIMD)]' \
+        '(-p --password)'{-p,--password}'[encrypt with password]:password:' \
+        '--kdf[password KDF]:kdf:_zupt_kdf' \
+        '(-c --comment)'{-c,--comment}'[embed archive comment]:text:' \
+        '--comment-file[read comment from file]:file:_files' \
+        '--pq[legacy PQ encryption]:pubkey:_files' \
+        '--pq-sdk[PQ encryption via libzuptsdk]:pubkey:_files' \
+        '(-D --dedup)'{-D,--dedup}'[block-level deduplication]' \
+        '--solid[solid mode: single stream]' \
+        '(-v --verbose)'{-v,--verbose}'[verbose output]' \
+        '(-q --quiet)'{-q,--quiet}'[suppress non-error output]' \
+        '(-t --threads)'{-t,--threads}'[thread count]:threads:_zupt_threads' \
+        '*:files:_files'
+}
+
+_zupt_extract_opts() {
+    _arguments \
+        '(-o --output)'{-o,--output}'[output directory]:directory:_directories' \
+        '(-p --password)'{-p,--password}'[decryption password]:password:' \
+        '--pq[legacy PQ decryption]:privkey:_files' \
+        '--pq-sdk[PQ decryption via libzuptsdk]:privkey:_files' \
+        '(-v --verbose)'{-v,--verbose}'[verbose output]' \
+        '(-t --threads)'{-t,--threads}'[thread count]:threads:_zupt_threads' \
+        '*:archive:_files -g "*.zupt"'
+}
+
+_zupt() {
+    local context curcontext="$curcontext" state line
+    local -a subcommands
+
+    subcommands=(
+        'compress:create an archive'
+        'c:create an archive (alias)'
+        'extract:extract an archive'
+        'x:extract an archive (alias)'
+        'list:list archive entries'
+        'l:list archive entries (alias)'
+        'test:verify archive integrity'
+        't:verify archive integrity (alias)'
+        'info:archive metadata (no key needed)'
+        'bench:benchmark levels 1-9'
+        'disk:full-disk backup/restore'
+        'keygen:generate a key file'
+        'version:print version info'
+        'help:print help'
+    )
+
+    _arguments -C \
+        '(-): :->command' \
+        '(-)*:: :->args'
+
+    case $state in
+        command)
+            _describe -t commands 'zupt subcommand' subcommands
+            ;;
+        args)
+            case $line[1] in
+                compress|c)
+                    _zupt_compress_opts
+                    ;;
+                extract|x)
+                    _zupt_extract_opts
+                    ;;
+                list|l|test|t)
+                    _arguments \
+                        '(-p --password)'{-p,--password}'[password]:password:' \
+                        '--pq[legacy PQ privkey]:privkey:_files' \
+                        '--pq-sdk[PQ privkey]:privkey:_files' \
+                        '(-v --verbose)'{-v,--verbose}'[verbose]' \
+                        '*:archive:_files -g "*.zupt"'
+                    ;;
+                info)
+                    _arguments '*:archive:_files -g "*.zupt"'
+                    ;;
+                disk)
+                    _values 'disk action' 'backup' 'restore'
+                    ;;
+                keygen)
+                    _arguments \
+                        '--sdk[generate SDK v2 keypair]' \
+                        '--pq-sdk[same as --sdk]' \
+                        '-o[output keyfile]:file:_files' \
+                        '--pub[export public key from -k]' \
+                        '-k[source private key for --pub]:file:_files'
+                    ;;
+                bench)
+                    _arguments '*:files:_files'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_zupt "$@"
