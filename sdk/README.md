@@ -1,8 +1,8 @@
 # libzuptsdk
 
-Public C ABI for the [Zupt](https://git.securityops.co/cristiancmoises/zupt) backup compression library.
+Public C ABI for the [VaptVupt](https://git.securityops.co/cristiancmoises/vaptvupt) backup compression library.
 
-Provides post-quantum encrypted compression as a stable, embeddable shared library — completely independent of the `zupt` CLI.No dependency on any other compression library; everything is built from Zupt's own implementations.
+Provides post-quantum encrypted compression as a stable, embeddable shared library — completely independent of the `vaptvupt` CLI.No dependency on any other compression library; everything is built from VaptVupt's own implementations.
 
 - **Version:** 1.0.0
 - **License:** AGPL-3.0-or-later
@@ -87,8 +87,8 @@ with zuptsdk.Context() as ctx:
 ## Build & install
 
 ```sh
-git clone https://git.securityops.co/cristiancmoises/zupt
-cd zupt
+git clone https://git.securityops.co/cristiancmoises/vaptvupt
+cd vaptvupt
 make            # builds CLI (required: produces jasmin/*.o assembly objects)
 make sdk        # builds libzuptsdk.so.1.0.0 + libzuptsdk.a + zuptsdk.pc
 make sdk-test   # runs C roundtrip suite (15 tests)
@@ -178,6 +178,6 @@ The AGPL allows everyone to use the library freely, but anyone running it as a n
 
 ## Contact
 
-- Repository: https://git.securityops.co/cristiancmoises/zupt
+- Repository: https://git.securityops.co/cristiancmoises/vaptvupt
 - Website: https://zupt.securityops.co
 - Email: zupt@riseup.net

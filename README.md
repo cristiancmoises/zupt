@@ -1,4 +1,4 @@
-<!-- Logo: rehost on git.securityops.co/cristiancmoises/zupt or zupt.securityops.co; old GitHub user-attachments URL no longer in use -->
+<!-- Logo: rehost on git.securityops.co/cristiancmoises/vaptvupt or zupt.securityops.co; old GitHub user-attachments URL no longer in use -->
 <!-- <img width="493" height="173" alt="logo" src="https://zupt.securityops.co/assets/logo.png"/> -->
 
 # VaptVupt
@@ -17,6 +17,16 @@
 > The `zupt` command is preserved as a symlink to `vaptvupt` for one
 > major version cycle.
 
+## What's new in 4.0.0
+
+- **Codec security release** — vendored codec upgraded to VaptVupt 2.60.4, fixing a high-severity OOB heap write in the AVX2 decode fast path (reachable on valid streams with exact-size output buffers). 80 new exact-size decode regression cases under ASan.
+- **`--pq-box` sealed-box mode** — third post-quantum recipient mode via vendored libpqvaptvupt 0.6.0: ML-KEM-768 + X25519 through an HKDF-SHA256 domain-separated combiner. `vaptvupt keygen --box` writes magic-tagged keypairs that reject key-type confusion.
+- **F-16 disclosure and fix** — archives created by ≤ 3.8.0 at `-l 8`/`-l 9` containing x86/ELF/PE executables may be unreadable by *any* version (write-time defect in the old in-tree BCJ encoder). Re-create them with 4.0.0; details below and in [CHANGELOG.md](CHANGELOG.md).
+- **SHA-NI measured** — 5.8× over scalar SHA-256 (204 → 1184 MB/s); encrypted per-block throughput now 293 MB/s.
+
+Binaries for the CLI (4.0.0) and GUI (1.3.0) are on the
+[release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v4.0.0).
+
 Backup compression with hardware-adaptive codec selection, AES-256
 authenticated encryption, post-quantum key encapsulation, and
 full-disk backup. Pure C11, zero dependencies, ~13,000 lines. Builds
@@ -26,14 +36,14 @@ and runs on x86_64, aarch64, armhf, ppc64le, s390x, and riscv64.
 
 ## Why VaptVupt
 
-- **Hardware-adaptive codec** — auto-detects AVX2/NEON at runtime and selects the best codec: VaptVupt (LZ77 + tANS + SIMD decode) on capable hardware, Zupt-LZHP on everything else. Override with `--vv` or `--lzhp`.
+- **Hardware-adaptive codec** — auto-detects AVX2/NEON at runtime and selects the best codec: VaptVupt (LZ77 + tANS + SIMD decode) on capable hardware, VaptVupt-LZHP on everything else. Override with `--vv` or `--lzhp`.
 - **Post-quantum encryption** — `--pq` mode uses ML-KEM-768 + X25519 hybrid KEM (same approach as Signal and iMessage). Protects against "harvest now, decrypt later" quantum attacks.
 - **AES-NI hardware acceleration** — AES-256-CTR via Jasmin-verified assembly with 4-block interleaved pipeline. Safe AVX detection with OSXSAVE/XCR0 validation — no SIGILL on any CPU. Falls back to C table-based AES on unsupported hardware.
 - **SHA-NI hardware acceleration** — HMAC-SHA256 (the Encrypt-then-MAC second pass) and PBKDF2 use an Intel SHA-NI compression path (`SHA256RNDS2`/`MSG1`/`MSG2`) when the CPU supports it (Intel Goldmont+/Ice Lake+, AMD Zen+), selected at runtime via CPUID. **measured 5.8×** over the scalar path (204 → 1184 MB/s, 256 MiB, Xeon 2.10 GHz) *and* constant-time by construction. Bit-identical output; scalar C fallback elsewhere (incl. aarch64). `vaptvupt version` prints the live acceleration set for your CPU.
 - **Incremental HMAC** — the per-block MAC streams its segments through an incremental HMAC-SHA256 (key prefix folded once per keyring) instead of copying each block's ciphertext into a temporary buffer. Removes a per-block heap allocation and full-payload copy on both encrypt and decrypt, with a byte-for-byte identical MAC (RFC 2104).
 - **Multi-threaded** — Compression and decompression both parallelized. `-t 0` auto-detects cores.
-- **Full-disk backup** — `zupt disk backup` clones entire disks or partitions in one command. Sparse block detection skips zero regions, real-time progress bar, all encryption modes supported. Restore with byte-for-byte verification via per-block XXH64 checksums.
-- **Encrypted backups in one command** — `zupt compress -p changeme backup.zupt ~/data/` — AES-256 + HMAC-SHA256, file names hidden.
+- **Full-disk backup** — `vaptvupt disk backup` clones entire disks or partitions in one command. Sparse block detection skips zero regions, real-time progress bar, all encryption modes supported. Restore with byte-for-byte verification via per-block XXH64 checksums.
+- **Encrypted backups in one command** — `vaptvupt compress -p changeme backup.zupt ~/data/` — AES-256 + HMAC-SHA256, file names hidden.
 - **Per-block integrity** — XXH64 checksum + HMAC-SHA256 per block. Wrong password rejected instantly.
 - **Self-describing KDF** — password archives record their key-derivation profile in the (authenticated) header, so an archive always carries the parameters needed to open it years later. Unknown profiles are refused fail-closed rather than mis-derived. Argon2id is the default; PBKDF2 (600K iter) via `--kdf pbkdf2`.
 - **Measured constant-time comparisons** — every security-critical comparison (HMAC tag, archive-integrity trailer, and the ML-KEM-768 decapsulation implicit-rejection check) routes through a single audited primitive (`zupt_ct_memeq`, branch-free, volatile accumulator, length-independent) verified by a dudect-style Welch t-test in CI, not just annotated. Its data-dependent timing signal measures ~1% of a leaky-`memcmp` control in the same environment; a reintroduced early-return or inline loop fails the test (timing + source-routing guard).
@@ -48,7 +58,7 @@ and runs on x86_64, aarch64, armhf, ppc64le, s390x, and riscv64.
 
 ### Fast installation
 ```
-curl -fsSL https://short.securityops.co/zupt | bash
+curl -fsSL https://short.securityops.co/vaptvupt | bash
 ```
 
 ### Build & Install
@@ -108,48 +118,48 @@ chmod +x VaptVupt-GUI-1.3.0-x86_64.AppImage
 ### Building from SRPM (Fedora / RHEL / RPM-based distributions)
 
 ```bash
-tar xzf zupt-2.2.3.srpm.tar.gz
+tar xzf vaptvupt-4.0.0.srpm.tar.gz
 cd ~/rpmbuild  # or use rpmbuild --define "_topdir $(pwd)"
-rpmbuild -bb SPECS/zupt.spec
-sudo rpm -i RPMS/x86_64/zupt-2.2.3-1.*.rpm
+rpmbuild -bb SPECS/vaptvupt.spec
+sudo rpm -i RPMS/x86_64/vaptvupt-4.0.0-1.*.rpm
 ```
 
 ### Basic usage
 
 ```bash
 # Compress a directory (auto-selects best codec for your hardware)
-zupt compress backup.zupt ~/Documents/
+vaptvupt compress backup.zupt ~/Documents/
 
 # Compress at a specific level (1=fast, 5=balanced, 9=extreme)
-zupt compress -l 9 backup.zupt ~/Documents/
+vaptvupt compress -l 9 backup.zupt ~/Documents/
 
 # Force the VaptVupt codec (default on AVX2/NEON hardware)
-zupt compress --vv -l 5 backup.zupt ~/Documents/
+vaptvupt compress --vv -l 5 backup.zupt ~/Documents/
 
 # Compress with multi-threading (-t 0 = auto-detect cores)
-zupt compress -t 0 -l 5 backup.zupt ~/Documents/
+vaptvupt compress -t 0 -l 5 backup.zupt ~/Documents/
 
 # Compress with password encryption (AES-256-CTR + HMAC-SHA256)
-zupt compress -p "my-strong-password" backup.zupt ~/Documents/
+vaptvupt compress -p "my-strong-password" backup.zupt ~/Documents/
 
 # List archive contents
-zupt list backup.zupt
+vaptvupt list backup.zupt
 
 # Show archive metadata (codec, blocks, encryption — no password needed)
-zupt info backup.zupt
+vaptvupt info backup.zupt
 
 # Verify archive integrity (HMAC + per-block checksums)
-zupt test backup.zupt
-zupt test -p "my-strong-password" backup.zupt
+vaptvupt test backup.zupt
+vaptvupt test -p "my-strong-password" backup.zupt
 
 # Extract everything
-zupt extract -o ~/restored/ backup.zupt
+vaptvupt extract -o ~/restored/ backup.zupt
 
 # Extract from encrypted archive
-zupt extract -p "my-strong-password" -o ~/restored/ backup.zupt
+vaptvupt extract -p "my-strong-password" -o ~/restored/ backup.zupt
 
 # Benchmark all 9 levels on a file
-zupt bench big-file.tar
+vaptvupt bench big-file.tar
 ```
 
 #### Post-quantum encryption
@@ -157,62 +167,62 @@ zupt bench big-file.tar
 ```bash
 # Recommended: SDK v2 (HKDF combiner + key commitment + HPKE binding + Argon2id).
 # New archives should use this.
-zupt keygen --sdk -o mykey.priv     # writes mykey.priv and mykey.priv.pub
-zupt compress --pq-sdk mykey.priv.pub backup.zupt ~/Documents/
-zupt extract  --pq-sdk mykey.priv -o ~/restored/ backup.zupt
+vaptvupt keygen --sdk -o mykey.priv     # writes mykey.priv and mykey.priv.pub
+vaptvupt compress --pq-sdk mykey.priv.pub backup.zupt ~/Documents/
+vaptvupt extract  --pq-sdk mykey.priv -o ~/restored/ backup.zupt
 
 # pq-box sealed-box workflow (v4.0.0; HKDF-SHA256 domain-separated combiner)
-zupt keygen --box -o box.key                       # writes box.key + box.key.pub
-zupt compress --pq-box box.key.pub backup.zupt ~/Documents/
-zupt extract  --pq-box box.key -o ~/restored/ backup.zupt
+vaptvupt keygen --box -o box.key                       # writes box.key + box.key.pub
+vaptvupt compress --pq-box box.key.pub backup.zupt ~/Documents/
+vaptvupt extract  --pq-box box.key -o ~/restored/ backup.zupt
 
 # Legacy --pq mode (XOR+SHA3-512 combiner) — kept for back-compat with
 # archives created by Zupt 2.0–2.1. Do NOT use for new archives.
-zupt keygen -o mykey.key
-zupt keygen --pub -o pub.key -k mykey.key
-zupt compress --pq pub.key backup.zupt ~/Documents/
-zupt extract --pq mykey.key -o ~/restored/ backup.zupt
+vaptvupt keygen -o mykey.key
+vaptvupt keygen --pub -o pub.key -k mykey.key
+vaptvupt compress --pq pub.key backup.zupt ~/Documents/
+vaptvupt extract --pq mykey.key -o ~/restored/ backup.zupt
 ```
 
 #### Full-disk backup
 
 ```bash
 # Backup an entire disk or partition (sparse-detection skips zero regions)
-sudo zupt disk backup -l 5 disk.zupt /dev/sda
+sudo vaptvupt disk backup -l 5 disk.zupt /dev/sda
 
 # Backup with encryption
-sudo zupt disk backup -p "passphrase" -l 5 disk.zupt /dev/sda
+sudo vaptvupt disk backup -p "passphrase" -l 5 disk.zupt /dev/sda
 
 # Restore (writes raw bytes back to a block device or file)
-sudo zupt disk restore disk.zupt /dev/sdb
-sudo zupt disk restore -p "passphrase" disk.zupt /dev/sdb
+sudo vaptvupt disk restore disk.zupt /dev/sdb
+sudo vaptvupt disk restore -p "passphrase" disk.zupt /dev/sdb
 
 # Backup a partition image file (no root needed)
-zupt disk backup -l 5 part.zupt /path/to/partition.img
+vaptvupt disk backup -l 5 part.zupt /path/to/partition.img
 ```
 
 ---
 
 ## Auto Codec Detection
 
-Zupt v2.0.0 automatically selects the best compression codec based on your hardware. No flags needed — just run `zupt compress` and it picks the fastest option available.
+VaptVupt automatically selects the best compression codec based on your hardware (since v2.0.0). No flags needed — just run `vaptvupt compress` and it picks the fastest option available.
 
 | Architecture | SIMD Available | Default Codec | Decode Throughput |
 |---|---|---|---|
 | x86_64 + AVX2 | AVX2 inline SIMD | **VaptVupt** | ~2–3 GB/s |
-| x86_64 (no AVX2) | Scalar | Zupt-LZHP | ~500 MB/s |
+| x86_64 (no AVX2) | Scalar | VaptVupt-LZHP | ~500 MB/s |
 | aarch64 + NEON | NEON SIMD | **VaptVupt** | ~1–2 GB/s |
-| armhf, ppc64le, s390x, riscv64 | Scalar | Zupt-LZHP | ~300–500 MB/s |
+| armhf, ppc64le, s390x, riscv64 | Scalar | VaptVupt-LZHP | ~300–500 MB/s |
 
 **Decompression is universal.** An archive created with VaptVupt on x86_64 extracts on aarch64 (using NEON or scalar decode), and vice versa. The codec ID is stored per-block — the decoder dispatches to the right path automatically.
 
-Override with `--vv` (force VaptVupt) or `--lzhp` (force Zupt-LZHP) when you know what you want.
+Override with `--vv` (force VaptVupt) or `--lzhp` (force VaptVupt-LZHP) when you know what you want.
 
 ---
 
 ## VaptVupt Codec
 
-VaptVupt is Zupt's high-performance compression codec. It combines LZ77 dictionary matching with tANS (table-based Asymmetric Numeral Systems) entropy coding and SIMD-accelerated decompression.
+VaptVupt is the project's high-performance compression codec. It combines LZ77 dictionary matching with tANS (table-based Asymmetric Numeral Systems) entropy coding and SIMD-accelerated decompression.
 
 **This release embeds VaptVupt 2.60.4** (security release: fixes an OOB
 heap write in the AVX2 decode fast path; adds canonical CBMC-verified
@@ -243,9 +253,9 @@ Format:  v1 frame (default) and v2 frame (T-tag, min_match=3) for binary data
 | Balanced | `-l 3` to `-l 7` (default) | 48 | 4-way ANS | General backup data |
 | Extreme | `-l 8` to `-l 9` | 256 | Order-1 context ANS + cost-aware lazy parser | Maximum compression |
 
-The Zupt wrapper enables VaptVupt's `format_v2` flag (4–7% better real-binary ratio) automatically for Balanced and Extreme modes. Ultra-Fast stays on the v1 frame because the `format_v2 + ULTRA_FAST` combination is not yet covered by VaptVupt's upstream test matrix.
+The VaptVupt wrapper enables VaptVupt's `format_v2` flag (4–7% better real-binary ratio) automatically for Balanced and Extreme modes. Ultra-Fast stays on the v1 frame because the `format_v2 + ULTRA_FAST` combination is not yet covered by VaptVupt's upstream test matrix.
 
-### Benchmark Results (v3.8.0, codec 2.60.4)
+### Benchmark Results (codec 2.60.4)
 
 > Full, reproducible measured benchmarks — compression ratio/speed
 > across levels, crypto overhead (KDF vs per-block), and a head-to-head
@@ -306,10 +316,10 @@ Honest reading (these are measured numbers, not aspirations):
   incompressibility wall; the comparison degenerates to
   framing-overhead measurement.
 
-### Security Test Results (v3.0.0 release)
+### Security Test Results (v4.0.0 release)
 
 Every release re-runs the full security regression matrix. These are
-the v3.0.0 numbers:
+the v4.0.0 numbers:
 
 | Test                            | Coverage                                                                 | Result            |
 |---------------------------------|--------------------------------------------------------------------------|-------------------|
@@ -376,22 +386,22 @@ Clone entire disks, partitions, or raw images with compression and encryption in
 ### Quick start
 ```bash
 # Clone a partition (requires read access)
-sudo zupt disk backup backup.zupt /dev/sda1
+sudo vaptvupt disk backup backup.zupt /dev/sda1
 
 # Clone with post-quantum encryption (strongest)
-zupt keygen -o mykey.key
-zupt keygen --pub -o pub.key -k mykey.key
-sudo zupt disk backup --pq pub.key backup.zupt /dev/nvme0n1p2
+vaptvupt keygen -o mykey.key
+vaptvupt keygen --pub -o pub.key -k mykey.key
+sudo vaptvupt disk backup --pq pub.key backup.zupt /dev/nvme0n1p2
 
 # Clone with password encryption
-sudo zupt disk backup -p backup.zupt /dev/sda1
+sudo vaptvupt disk backup -p backup.zupt /dev/sda1
 
 # Maximum compression (level 9, extreme mode)
-sudo zupt disk backup -l 9 backup.zupt /dev/sda1
+sudo vaptvupt disk backup -l 9 backup.zupt /dev/sda1
 
 # Restore to a device or file
-sudo zupt disk restore backup.zupt /dev/sda1
-sudo zupt disk restore --pq mykey.key backup.zupt /dev/sda1
+sudo vaptvupt disk restore backup.zupt /dev/sda1
+sudo vaptvupt disk restore --pq mykey.key backup.zupt /dev/sda1
 ```
 
 ### How it works
@@ -404,7 +414,7 @@ Source device → Read 4MB blocks → Sparse detection → Compress → Encrypt 
                                       └─ Zero blocks stored as STORE (near-zero overhead)
 ```
 
-Zupt reads the source device sequentially in 4MB chunks. Each block is checked for all-zero content (sparse detection uses 8-byte-wide comparison). Zero blocks are stored with codec `STORE` — effectively just the block header with no payload, saving both compression CPU time and archive space. Non-zero blocks are compressed with the selected codec and optionally encrypted. Per-block XXH64 checksums ensure byte-for-byte integrity on restore.
+VaptVupt reads the source device sequentially in 4MB chunks. Each block is checked for all-zero content (sparse detection uses 8-byte-wide comparison). Zero blocks are stored with codec `STORE` — effectively just the block header with no payload, saving both compression CPU time and archive space. Non-zero blocks are compressed with the selected codec and optionally encrypted. Per-block XXH64 checksums ensure byte-for-byte integrity on restore.
 
 ### Best practices
 
@@ -426,16 +436,16 @@ Zupt reads the source device sequentially in 4MB chunks. Each block is checked f
 
 **Operational guidance:**
 
-- **Unmount before backup** for filesystem consistency. For live systems, use LVM snapshots or filesystem freeze: `fsfreeze -f /mnt/data && zupt disk backup ... && fsfreeze -u /mnt/data`.
+- **Unmount before backup** for filesystem consistency. For live systems, use LVM snapshots or filesystem freeze: `fsfreeze -f /mnt/data && vaptvupt disk backup ... && fsfreeze -u /mnt/data`.
 - **Block devices require root** on Linux. Regular files (disk images, `.img`, `.raw`) do not.
 - **Sparse-heavy disks** (freshly formatted, VMs with thin provisioning) compress extremely well — the sparse detector skips zero blocks at memory-copy speed with no compression overhead.
-- **Verify after backup** with `zupt test archive.zupt` — checks every block's XXH64 checksum without extracting.
+- **Verify after backup** with `vaptvupt test archive.zupt` — checks every block's XXH64 checksum without extracting.
 - **PQ encryption for long-term** — disk backups stored for years should use `--pq` to resist future quantum attacks. Generate one keypair, store the private key offline, distribute the public key.
 - **Restore is non-destructive on files** — writing to a regular file creates/overwrites it. Writing to a block device overwrites the raw device. Double-check the target path before restoring to a device.
 
 ### Comparison with other tools
 
-| Feature | Zupt disk | dd + gzip | Clonezilla | partclone |
+| Feature | VaptVupt disk | dd + gzip | Clonezilla | partclone |
 |---------|-----------|-----------|------------|-----------|
 | Compression | VaptVupt/LZHP (adaptive) | gzip (fixed) | Multiple | Multiple |
 | Encryption | AES-256 + PQ hybrid | None (pipe to gpg) | None | None |
@@ -449,7 +459,7 @@ Zupt reads the source device sequentially in 4MB chunks. Each block is checked f
 
 ## Multi-Architecture Support
 
-Zupt builds and runs on all major architectures. The Makefile auto-detects the platform and enables the best available features.
+VaptVupt builds and runs on all major architectures. The Makefile auto-detects the platform and enables the best available features.
 
 | Feature | x86_64 | aarch64 | armhf | ppc64le | s390x | riscv64 |
 |---------|--------|---------|-------|---------|-------|---------|
@@ -470,10 +480,10 @@ make install DESTDIR=/buildroot
 
 ## Feature Comparison
 
-| Feature | Zupt v2.1 | gzip | zstd | 7-Zip |
+| Feature | VaptVupt v4.0 | gzip | zstd | 7-Zip |
 |---------|-----------|------|------|-------|
 | Default codec | VaptVupt/LZHP (auto) | DEFLATE | FSE+Huffman | LZMA2 |
-| Full-disk backup | **`zupt disk`** | — | — | — |
+| Full-disk backup | **`vaptvupt disk`** | — | — | — |
 | Post-quantum encryption | **ML-KEM-768** | — | — | — |
 | Password encryption | AES-256 + HMAC | — | — | AES-256 |
 | AES-NI hardware accel | **Jasmin-verified** | — | — | — |
@@ -507,7 +517,7 @@ Verification:   5 Jasmin CT proofs, 19 ACSL contracts, 16 NIST/RFC test vectors
 **Audit history:** Three internal audit sprints conducted on the 2.2.x line.
 **14 bugs** found and fixed across the sprints — including one **HIGH-severity
 Zip Slip path traversal** caught in the formal audit pass. Cumulative test
-surface: **265 tests** (47 zupt + 169 SDK + 49 inherited) plus **751,000
+surface: **265 tests** (47 vaptvupt + 169 SDK + 49 inherited) plus **751,000
 mutation-fuzz iterations** under ASAN/UBSAN, all passing. No external audit
 yet — see SECURITY.md for honest scope.
 
@@ -520,16 +530,16 @@ methodology used in audit sprints.
 ## Usage
 
 ```
-zupt compress [OPTIONS] <output.zupt> <files/dirs...>
-zupt extract  [OPTIONS] <archive.zupt>
-zupt list     [OPTIONS] <archive.zupt>
-zupt test     [OPTIONS] <archive.zupt>
-zupt disk     backup [OPTIONS] <output.zupt> <device_or_file>
-zupt disk     restore [OPTIONS] <archive.zupt> <target>
-zupt bench    [--compare] <files/dirs...>
-zupt keygen   [-o file] [--pub] [-k privkey]
-zupt version
-zupt help
+vaptvupt compress [OPTIONS] <output.zupt> <files/dirs...>
+vaptvupt extract  [OPTIONS] <archive.zupt>
+vaptvupt list     [OPTIONS] <archive.zupt>
+vaptvupt test     [OPTIONS] <archive.zupt>
+vaptvupt disk     backup [OPTIONS] <output.zupt> <device_or_file>
+vaptvupt disk     restore [OPTIONS] <archive.zupt> <target>
+vaptvupt bench    [--compare] <files/dirs...>
+vaptvupt keygen   [-o file] [--pub] [-k privkey]
+vaptvupt version
+vaptvupt help
 ```
 
 | Option | Description |
@@ -540,9 +550,9 @@ zupt help
 | `--pq <keyfile>` | Post-quantum hybrid encryption |
 | `-o <DIR>` | Output directory (extract) |
 | `-s` | Store without compression |
-| `-f` | Fast LZ codec (Zupt-LZ) |
+| `-f` | Fast LZ codec (VaptVupt-LZ) |
 | `--vv` | Force VaptVupt codec |
-| `--lzhp` | Force Zupt-LZHP codec |
+| `--lzhp` | Force VaptVupt-LZHP codec |
 | `-v` | Verbose |
 | `--solid` | Solid mode (cross-file LZ context) |
 | `--compare` | Codec comparison benchmark |
@@ -565,9 +575,9 @@ build.bat                   # Windows (MSVC)
 
 ### Benchmark
 ```bash
-zupt bench ~/Documents/             # Per-level benchmark (levels 1-9)
-zupt bench --compare                # Cross-codec comparison (auto-generates corpus)
-zupt bench --compare ~/Documents/   # Compare codecs on your own data
+vaptvupt bench ~/Documents/             # Per-level benchmark (levels 1-9)
+vaptvupt bench --compare                # Cross-codec comparison (auto-generates corpus)
+vaptvupt bench --compare ~/Documents/   # Compare codecs on your own data
 ```
 
 ---
@@ -577,12 +587,12 @@ zupt bench --compare ~/Documents/   # Compare codecs on your own data
 | ID | Name | Algorithm | Default on | Override |
 |----|------|-----------|------------|----------|
 | `0x0010` | **VaptVupt** | LZ77 + tANS + AVX2/NEON SIMD | x86_64 (AVX2), aarch64 (NEON) | `--vv` |
-| `0x000A` | **Zupt-LZHP** | LZ77 + Huffman + byte prediction | armhf, ppc64le, s390x, riscv64 | `--lzhp` |
-| `0x0009` | Zupt-LZH | LZ77 + Huffman | — | — |
-| `0x0008` | Zupt-LZ | Fast LZ77, 64KB window | — | `-f` |
+| `0x000A` | **VaptVupt-LZHP** | LZ77 + Huffman + byte prediction | armhf, ppc64le, s390x, riscv64 | `--lzhp` |
+| `0x0009` | VaptVupt-LZH | LZ77 + Huffman | — | — |
+| `0x0008` | VaptVupt-LZ | Fast LZ77, 64KB window | — | `-f` |
 | `0x0000` | Store | No compression | — | `-s` |
 
-All codecs are forward-compatible: archives created with any codec can be read by any Zupt version that includes that codec, on any architecture. VaptVupt archives require Zupt v2.0+.
+All codecs are forward-compatible: archives created with any codec can be read by any VaptVupt version that includes that codec, on any architecture. VaptVupt archives require VaptVupt v2.0+.
 
 ---
 
@@ -599,12 +609,22 @@ All codecs are forward-compatible: archives created with any codec can be read b
 | v2.0 | VaptVupt 1.1.0 codec, auto hardware detection, all 5 Jasmin wired, AVX SIGILL fix, copy_match/litlen fixes, ACSL, mlock, fuzzing, canaries, AES-NI pipeline, MT decompress, multi-arch (6 arches), --lzhp flag |
 | v2.1.0 | VaptVupt 1.4.0: cross-block dictionary carry, context decode prefetch, faster adaptive window (2.6× encode), integration API |
 | v2.1.1 | Termux/Android build fix, arch-safety guard, Keccak ROL64 UB fix, zero UBSan violations |
-| v2.1.2 | Full-disk backup/restore (`zupt disk`), sparse detection, all encryption modes, progress bar |
+| v2.1.2 | Full-disk backup/restore (`disk` subcommand), sparse detection, all encryption modes, progress bar |
 | v2.1.3 | LZHP prediction encoding fix (data corruption on structured data), shared write_enc_header, SOLID flag removed from disk, 78 tests |
 | v2.1.4 | CodeQL: 4 security fixes — TOCTOU races eliminated (fstat on fd), X25519 scalar wipe via volatile |
 | v2.1.5 | Block-level deduplication (`--dedup`), XXH64 fingerprint index, DEDUP_REF block type, 81 tests |
 | v2.2.0–v2.2.2 | libzuptsdk 2.0 integration (HKDF-SHA3 combiner + key commitment + HPKE binding + Argon2id), `--pq-sdk` mode (XChaCha20-Poly1305 / AES-256-SIV), license-hygiene cleanup, full SPDX coverage |
-| **v2.2.3** | **VaptVupt 2.48.2 codec integration: cost-aware lazy parser (beats zstd-3 by 1.07% aggregate), 4-stream Huffman, `format_v2` flag (4–7% better binary), `compat_v246_5_decoder` flag, encoder memory hygiene (`vv_secure_zero` on free), Sprint 117 hardened-build compatibility. Wrapper defaults applied per upstream `ZUPT_INTEGRATION.md`: `checksum=0` (Zupt's outer MAC authenticates), `format_v2=1` for BALANCED/EXTREME (defensive guard against the upstream-untested `format_v2 + ULTRA_FAST` combo). Makefile arch-detection bug fixed (`x86-64` ≠ `x86_64` mismatch). 22/22 regression tests, 14/14 threaded, 10/10 PQ, 11/11 VaptVupt, 13/13 NIST vectors, ASAN/UBSAN clean across plain/password/PQ-SDK at all levels.** |
+| v2.2.3 | VaptVupt 2.48.2 codec integration: cost-aware lazy parser, 4-stream Huffman, `format_v2` flag (4–7% better binary), encoder memory hygiene (`vv_secure_zero` on free). Makefile arch-detection fix. ASAN/UBSAN clean across plain/password/PQ-SDK at all levels |
+| v2.2.4–v2.2.5 | Audit sprint: findings F-01..F-07 closed, including F-06 (high) HMAC accept-on-disjoint-bits |
+| v2.3.0–v2.3.1 | F-08/F-09 closed: archive-integrity trailer + preface-AAD MAC — exhaustive byte sweep 0/1827 undetected (format v1.5 → v1.6) |
+| v2.4.x | Argon2id default KDF (F-10), error-message hygiene (F-11), encrypted archive comments (F-12), packaging arc (deb, RPM, AUR, Nix, Homebrew, openSUSE OBS), CI rewrite, THREAT_MODEL.md, manpage + shell completions, distro-safe `make check` |
+| v3.0.0 | **Renamed Zupt → VaptVupt** (INPI Brasil trademark), VV codec 2.48.5, GUI binary-discovery fix. Wire format unchanged; `zupt` kept as compat symlink |
+| v3.0.1–v3.0.3 | GUI license/version-parsing cleanup, F-13 (usage() literal size), static-analysis cleanup |
+| v3.1.0 | Codec 2.48.5 → 2.53.3, decode over-copy fix |
+| v3.2.0–v3.3.0 | SHA-256 hardware acceleration (Intel SHA-NI), incremental per-block HMAC (drops a malloc + full copy per block) |
+| v3.4.0–v3.7.0 | F-15 KDF parameter transparency, measured constant-time MAC comparison (dudect), NIST SP 800-38A AES-CTR vectors, ML-KEM decaps routed through the audited CT primitive |
+| v3.8.0 | Consolidated measured benchmarks + constant-time test robustness |
+| **v4.0.0** | **Codec 2.60.4 security release (OOB heap write fixed in AVX2 decode fast path), `--pq-box` sealed-box mode (libpqvaptvupt 0.6.0, HKDF-SHA256 combiner), F-16 data-loss disclosure + fix (old in-tree BCJ encoder), CBMC-verified BCJ filters with auto ELF/PE/Mach-O detection, SHA-NI measured 5.8×. Wire format stays v1.6** |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.
 
@@ -612,13 +632,13 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.
 
 ## License
 
-Zupt is **dual-licensed**:
+VaptVupt is **dual-licensed**:
 
 - **AGPL-3.0-or-later** — most of the codebase (CLI, libzuptsdk, GUI, Jasmin source). See [`LICENSE`](LICENSE).
 - **GPL-3.0-or-later** — the VaptVupt LZ codec only (`src/vv_*.c`, `src/vaptvupt_api.c` and headers). VaptVupt is GPL so it can be considered for upstreaming into the Linux/BSD kernels.
 - **Commercial license** available for relief from AGPL/GPL terms. Contact `sac@securityops.co`.
 
-Every source file carries an explicit SPDX header. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for full attribution. Zupt contains **no third-party source code** — every line is original work.
+Every source file carries an explicit SPDX header. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for full attribution. VaptVupt contains **no third-party source code** — every line is original work.
 
 Security vulnerabilities: see [SECURITY.md](SECURITY.md).
 
@@ -626,14 +646,14 @@ Security vulnerabilities: see [SECURITY.md](SECURITY.md).
 
 All by Cristian Cezar Moisés, hosted on git.securityops.co:
 
-- [zupt](https://git.securityops.co/cristiancmoises/zupt) — this repo (CLI + GUI)
+- [vaptvupt](https://git.securityops.co/cristiancmoises/vaptvupt) — this repo (CLI + GUI)
 - [zupt-android](https://git.securityops.co/cristiancmoises/zupt-android) — Android port
 - [zupt-web](https://git.securityops.co/cristiancmoises/zupt-web) — Web frontend
-- [libzuptsdk](https://git.securityops.co/cristiancmoises/libzuptsdk) — Standalone C SDK
-- [vaptvupt](https://git.securityops.co/cristiancmoises/vaptvupt) — Standalone LZ + tANS codec
+- [libvuptsdk](https://git.securityops.co/cristiancmoises/libvuptsdk) — Standalone C SDK
+- [vaptvupt-codec](https://git.securityops.co/cristiancmoises/vaptvupt-codec) — Standalone LZ + tANS codec
 
 ## Support the Project
-If you find Zupt useful, please consider sharing it or contributing — see the README footer for contact links.
+If you find VaptVupt useful, please consider sharing it or contributing — see the README footer for contact links.
 
 ---
 © 2026 Cristian Cezar Moisés — [git.securityops.co/cristiancmoises](https://git.securityops.co/cristiancmoises)

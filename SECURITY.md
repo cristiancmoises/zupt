@@ -1,4 +1,4 @@
-# Security Policy — Zupt
+# Security Policy — VaptVupt
 
 ## Reporting Vulnerabilities
 
@@ -108,7 +108,7 @@ These functions are compiled from Jasmin source to x86-64 assembly. The Jasmin c
 
 ## Threat Model
 
-### What Zupt Protects
+### What VaptVupt Protects
 
 | Asset | Protection |
 |-------|-----------|
@@ -123,7 +123,7 @@ These functions are compiled from Jasmin source to x86-64 assembly. The Jasmin c
 | Against tampering of archive comment (when present) | v2.4.3 (F-12): comment block goes through the same per-block AEAD pipeline as data (AES-256-CTR + HMAC-SHA256 + preface AAD); `hdr.comment_offset` pointer is in the AIT-signed region. Both payload and pointer are MAC-covered end-to-end. |
 | Against quantum adversary | `--pq` mode: ML-KEM-768 (NIST Level 3) |
 
-### What Zupt Does NOT Protect Against
+### What VaptVupt Does NOT Protect Against
 
 | Threat | Reason | Mitigation Path |
 |--------|--------|----------------|
@@ -132,7 +132,7 @@ These functions are compiled from Jasmin source to x86-64 assembly. The Jasmin c
 | Memory forensics during operation | Keys on stack during compress/extract | `zupt_secure_wipe()` on completion; `mlock()` planned |
 | Deniability | Archive header identifies format | `.zupt` magic bytes visible; ENCRYPTED flag in header |
 | Weak passwords | Argon2id (default, v2.4.1+) is memory-hard and adds ~25–30 bits of work factor vs ~20 for PBKDF2. PBKDF2-SHA256 with 600k iterations available via `--kdf pbkdf2` for legacy reader compatibility. | Use `--pq` or `--pq-sdk` mode for critical data — keys are random, not derived from a password. |
-| Traffic analysis | Archive size reveals data volume | Outside Zupt's scope |
+| Traffic analysis | Archive size reveals data volume | Outside VaptVupt's scope |
 | File permission/ownership | Not stored in archive | Documented in README.md (Architecture & platform support) |
 
 ### Quantum Threat Analysis
@@ -156,7 +156,7 @@ In `--pq` mode: even if Shor's algorithm breaks X25519, ML-KEM-768 protects the 
 | macOS | `/dev/urandom` | None | **Hard exit** |
 | Windows | `RtlGenRandom` | None | **Hard exit** |
 
-There is no `rand()`, `srand()`, or any weak PRNG fallback anywhere in the codebase. If the OS CSPRNG is unavailable, Zupt exits with an error. This is a deliberate design choice — weak random keys are worse than no encryption.
+There is no `rand()`, `srand()`, or any weak PRNG fallback anywhere in the codebase. If the OS CSPRNG is unavailable, VaptVupt exits with an error. This is a deliberate design choice — weak random keys are worse than no encryption.
 
 ---
 
@@ -202,7 +202,7 @@ make test-asan                    # Zero ASAN/UBSAN errors
 make test-vectors && ./test_vectors   # 13/13 pass
 
 # Verify Jasmin symbols are active
-nm zupt | grep "zupt_mac_verify_ct\|zupt_ct_select_32"
+nm vaptvupt | grep "zupt_mac_verify_ct\|zupt_ct_select_32"
 # Expected: T zupt_mac_verify_ct
 #           T zupt_ct_select_32
 
@@ -217,7 +217,7 @@ jasminc -arch x86-64 -o /dev/null jasmin/zupt_mlkem_select.jazz
 
 ## Production deployment notes (v2.2.1)
 
-Zupt is deployed in production environments. The following supported
+VaptVupt is deployed in production environments. The following supported
 configurations are considered current and receive security fixes:
 
 | Channel | Supported | Notes |
@@ -232,9 +232,9 @@ configurations are considered current and receive security fixes:
 For new archives, use the libzuptsdk-backed mode:
 
 ```bash
-zupt keygen --sdk -o key.priv
-zupt c --pq-sdk key.priv.pub backup.zupt /path/to/data
-zupt x --pq-sdk key.priv backup.zupt
+vaptvupt keygen --sdk -o key.priv
+vaptvupt c --pq-sdk key.priv.pub backup.zupt /path/to/data
+vaptvupt x --pq-sdk key.priv backup.zupt
 ```
 
 This selects:
@@ -250,7 +250,7 @@ This selects:
 
 ### Threat model
 
-Zupt assumes:
+VaptVupt assumes:
 
 - The recipient's private key file is kept secret and is not exfiltrated.
 - The execution environment has a working `getrandom(2)` / `/dev/urandom`.
@@ -259,7 +259,7 @@ Zupt assumes:
 - An attacker may have full write access to the archive in transit; AEAD
   + commitment + HPKE binding ensures any modification is detected.
 
-Zupt does **not** defend against:
+VaptVupt does **not** defend against:
 
 - Endpoint compromise (keylogger, malware on the machine where you type
   the password or hold the private key).
@@ -274,7 +274,7 @@ If you find a security issue:
 
 1. **Do not** open a public issue on the project's git server.
 2. Email `zupt@riseup.net` with subject `SECURITY: <brief>`.
-3. Include the version (`zupt --version`), platform, and a
+3. Include the version (`vaptvupt --version`), platform, and a
    reproduction (a minimal archive or a code snippet).
 4. Expect acknowledgement within 7 days. Coordinated disclosure
    timeline will be discussed case by case.

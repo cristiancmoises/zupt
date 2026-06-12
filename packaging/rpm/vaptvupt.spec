@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
-# Fedora / RHEL / CentOS RPM spec for zupt.
+# Fedora / RHEL / CentOS RPM spec for vaptvupt.
 #
 # Build with:
-#   spectool -g zupt.spec               # fetches the upstream tarball
-#   rpmbuild -ba zupt.spec              # builds source + binary RPMs
+#   spectool -g vaptvupt.spec               # fetches the upstream tarball
+#   rpmbuild -ba vaptvupt.spec              # builds source + binary RPMs
 #
 # To bring a release into production:
-#   1. Run `make dist` upstream → /tmp/zupt-VERSION.tar.gz (reproducible).
+#   1. Run `make dist` upstream → /tmp/vaptvupt-VERSION.tar.gz (reproducible).
 #   2. Upload to a stable release URL (git.securityops.co releases).
 #   3. Update %{version} below.
-#   4. Run `sha256sum /tmp/zupt-VERSION.tar.gz` and update Source0
+#   4. Run `sha256sum /tmp/vaptvupt-VERSION.tar.gz` and update Source0
 #      checksum (handled by spectool when configured) or pin via
 #      sha256sum in a separate manifest if your distro requires it.
 #   5. rpmbuild --define '_topdir ~/rpmbuild' -ba zupt.spec
@@ -25,7 +25,7 @@ Release:        1%{?dist}
 Summary:        Post-quantum backup compression utility (AES-256 + ML-KEM-768 + Argon2id, formerly Zupt)
 
 License:        AGPL-3.0-or-later AND GPL-3.0-or-later
-URL:            https://git.securityops.co/cristiancmoises/zupt
+URL:            https://git.securityops.co/cristiancmoises/vaptvupt
 Source0:        %{url}/releases/download/v%{version}/%{name}-%{version}.tar.gz
 
 # v3.0.0: legacy `zupt` package is superseded. Renaming was forced

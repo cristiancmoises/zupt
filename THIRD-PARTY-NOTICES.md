@@ -1,12 +1,12 @@
 THIRD-PARTY NOTICES
 ===================
 
-**Zupt contains no third-party source code.** Every line of source in
+**VaptVupt contains no third-party source code.** Every line of source in
 this repository is the work of Cristian Cezar Moisés. This document
 exists for transparency about runtime dependencies and build-time
 tools.
 
-If you redistribute Zupt, you must preserve this attribution document
+If you redistribute VaptVupt, you must preserve this attribution document
 along with the LICENSE file.
 
 -------------------------------------------------------------------------
@@ -15,20 +15,20 @@ Components shipped in this repository (all original work)
 
 | Component | Location | License | Author |
 |---|---|---|---|
-| zupt CLI | src/, include/ | AGPL-3.0-or-later | Cristian Cezar Moisés |
+| vaptvupt CLI | src/, include/ | AGPL-3.0-or-later | Cristian Cezar Moisés |
 | libzuptsdk | sdk/, vendor/zuptsdk/include/ | AGPL-3.0-or-later | Cristian Cezar Moisés |
 | VaptVupt LZ codec | src/vv_*.c, src/vaptvupt_api.c, include/vaptvupt*.h | **GPL-3.0-or-later** | Cristian Cezar Moisés |
 | Jasmin constant-time crypto | jasmin/*.jazz, jasmin/*.s | AGPL-3.0-or-later | Cristian Cezar Moisés |
-| Zupt GUI (Python) | gui/ | AGPL-3.0-or-later | Cristian Cezar Moisés |
+| VaptVupt GUI (Python) | gui/ | AGPL-3.0-or-later | Cristian Cezar Moisés |
 
 **Note on VaptVupt licensing**: VaptVupt is licensed GPL-3.0-or-later
-(not AGPL like the rest of Zupt) so that, with sufficient maturity, it
+(not AGPL like the rest of VaptVupt) so that, with sufficient maturity, it
 can be considered for upstreaming into the Linux or BSD kernels, which
 require GPL-compatible licenses. The author retains the right to dual-
 license VaptVupt under other terms for commercial use; contact
 sac@securityops.co for inquiries.
 
-The rest of the project (zupt CLI, libzuptsdk, Jasmin source, GUI) is
+The rest of the project (vaptvupt CLI, libzuptsdk, Jasmin source, GUI) is
 licensed AGPL-3.0-or-later. Commercial licenses (relief from AGPL
 network-use clause) are available; contact sac@securityops.co.
 
@@ -40,12 +40,12 @@ Build-time tool (not redistributed)
 
 The constant-time cryptographic primitives in jasmin/*.jazz are
 compiled to native assembly (jasmin/*.s) using the external `jasminc`
-compiler. The jasminc tool is not bundled with Zupt; the AGPL .jazz
+compiler. The jasminc tool is not bundled with VaptVupt; the AGPL .jazz
 source files and their AGPL-licensed .s assembly output are bundled.
 
   Upstream:  https://github.com/jasmin-lang/jasmin
-  License:   MIT (the compiler itself; not relevant to Zupt's licensing)
-  Used by:   Zupt's build system, only when re-generating jasmin/*.s
+  License:   MIT (the compiler itself; not relevant to VaptVupt's licensing)
+  Used by:   VaptVupt's build system, only when re-generating jasmin/*.s
              from jasmin/*.jazz (most users won't need to do this —
              pre-built .s files ship in this repo).
 
@@ -55,7 +55,7 @@ Runtime system libraries (linked from the OS, never bundled)
 
 These are standard system libraries provided by the operating system's
 package manager (apt, dnf, pacman, etc.). They are dynamically linked
-at runtime and are NOT redistributed as part of Zupt.
+at runtime and are NOT redistributed as part of VaptVupt.
 
 **libargon2** — Argon2id password hashing function (RFC 9106)
 
@@ -79,7 +79,7 @@ at runtime and are NOT redistributed as part of Zupt.
 Compatibility with public standards
 -------------------------------------------------------------------------
 
-Where Zupt implements public standards, it does so independently
+Where VaptVupt implements public standards, it does so independently
 from any reference implementation. No code has been copied from
 external projects. Standards followed:
 
@@ -94,16 +94,16 @@ external projects. Standards followed:
   - RFC 9106  (Argon2)
   - RFC 9180  (HPKE)
 
-The Zupt project was designed independently. Other projects in the
+The VaptVupt project was designed independently. Other projects in the
 post-quantum hybrid encryption space (libsodium, age, Tink, rustls,
 etc.) were referenced as prior art during design but no code was
-copied. Zupt does not include any code from these projects.
+copied. VaptVupt does not include any code from these projects.
 
 -------------------------------------------------------------------------
 Reporting attribution issues
 -------------------------------------------------------------------------
 
-If you believe Zupt redistributes code from a project not listed here,
+If you believe VaptVupt redistributes code from a project not listed here,
 or if attribution information is incomplete, please email:
 
    sac@securityops.co
@@ -114,8 +114,8 @@ with the subject "[third-party]" and details of the issue.
 License summary
 -------------------------------------------------------------------------
 
-  Zupt CLI, libzuptsdk, Jasmin source, GUI:  AGPL-3.0-or-later
+  VaptVupt CLI, libzuptsdk, Jasmin source, GUI:  AGPL-3.0-or-later
   VaptVupt LZ codec:                          GPL-3.0-or-later
   Commercial license (any component):         contact sac@securityops.co
 
-  Project home:  https://git.securityops.co/cristiancmoises/zupt
+  Project home:  https://git.securityops.co/cristiancmoises/vaptvupt

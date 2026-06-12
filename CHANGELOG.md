@@ -1,4 +1,4 @@
-# Zupt Changelog
+# VaptVupt Changelog
 
 
 ## [4.0.0] — 2026-06-10 — Codec 2.60.4 (security), pq-box mode, F-16 disclosure

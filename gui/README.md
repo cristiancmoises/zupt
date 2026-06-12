@@ -1,6 +1,6 @@
-# Zupt GUI — Cross-Platform Post-Quantum Backup
+# VaptVupt GUI — Cross-Platform Post-Quantum Backup
 
-Desktop application for [zupt](https://git.securityops.co/cristiancmoises/zupt) backup compression with ML-KEM-768 + X25519 post-quantum hybrid encryption.
+Desktop application for [vaptvupt](https://git.securityops.co/cristiancmoises/vaptvupt) backup compression with ML-KEM-768 + X25519 post-quantum hybrid encryption.
 
 Works on GNU/Linux, BSD, macOS, and Windows.
 
@@ -9,19 +9,19 @@ Works on GNU/Linux, BSD, macOS, and Windows.
 ### Linux (recommended)
 
 ```bash
-tar xzf zupt-gui.tar.gz && cd zupt-gui
-./zupt-gui                      # auto-creates venv, installs PySide6
+tar xzf vaptvupt-gui.tar.gz && cd vaptvupt-gui
+./vaptvupt-gui                      # auto-creates venv, installs PySide6
 ./install.sh --user              # adds right-click menu integration
 ```
 
-After install, right-click any file in Nemo/Nautilus to see "Compress with Zupt".
+After install, right-click any file in Nemo/Nautilus to see "Compress with VaptVupt".
 Double-click any .zupt file to open it in the GUI.
 
 ### Windows
 
 **Option A — Installer (recommended):**
 
-Download `ZuptGUI-2.1.6-Setup.exe` and run it. Installs to Program Files, adds Start Menu shortcut, desktop shortcut, right-click context menus, and .zupt file association. Includes uninstaller.
+Download `VaptVuptGUI-1.3.0-Setup.exe` and run it. Installs to Program Files, adds Start Menu shortcut, desktop shortcut, right-click context menus, and .zupt file association. Includes uninstaller.
 
 **Option B — Build from source:**
 
@@ -30,7 +30,7 @@ cd packaging\windows
 build-windows.bat
 ```
 
-Requires Python 3.9+, NSIS 3.x, and a compiled `zupt.exe`.
+Requires Python 3.9+, NSIS 3.x, and a compiled `vaptvupt.exe`.
 
 **Option C — Run directly:**
 
@@ -49,8 +49,8 @@ python3 src/zupt_gui.py
 ### AppImage (universal Linux)
 
 ```bash
-chmod +x zupt-gui-1.0.0-x86_64.AppImage
-./zupt-gui-1.0.0-x86_64.AppImage
+chmod +x VaptVupt-GUI-1.3.0-x86_64.AppImage
+./VaptVupt-GUI-1.3.0-x86_64.AppImage
 ```
 
 ### Flatpak
@@ -78,32 +78,32 @@ All tabs support drag-and-drop. Drop a .zupt file anywhere on the window to extr
 ### Linux (Nemo / Cinnamon)
 
 After `./install.sh --user`:
-- Right-click any file: **Compress with Zupt**
-- Right-click .zupt file: **Extract with Zupt**
-- Double-click .zupt: opens in Zupt GUI
+- Right-click any file: **Compress with VaptVupt**
+- Right-click .zupt file: **Extract with VaptVupt**
+- Double-click .zupt: opens in VaptVupt GUI
 
 ### Windows (after installer)
 
-- Right-click any file: **Compress with Zupt**
-- Right-click any folder: **Compress with Zupt**
-- Double-click .zupt: opens in Zupt GUI
+- Right-click any file: **Compress with VaptVupt**
+- Right-click any folder: **Compress with VaptVupt**
+- Double-click .zupt: opens in VaptVupt GUI
 - Right-click .zupt: **Verify Integrity**
 
 ## Architecture
 
 ```
-Zupt GUI (PySide6, Python)
+VaptVupt GUI (PySide6, Python)
     |
     |-- subprocess.Popen() with streaming stderr
     |
     v
-zupt CLI (Pure C11 binary)
+vaptvupt CLI (Pure C11 binary)
     ML-KEM-768 + X25519 + AES-256-CTR
     VaptVupt / LZHP / Store codecs
     Block deduplication, full-disk backup
 ```
 
-The GUI calls the zupt CLI binary — all cryptography runs in native C, not Python.
+The GUI calls the vaptvupt CLI binary — all cryptography runs in native C, not Python.
 
 ## Packaging
 
@@ -111,7 +111,7 @@ The GUI calls the zupt CLI binary — all cryptography runs in native C, not Pyt
 |----------|--------|------|
 | Any | pip | `pip install .` |
 | Debian/Ubuntu/Mint | .deb | `packaging/deb/control` |
-| Fedora/RHEL | .rpm | `rpmbuild -ba packaging/rpm/zupt-gui.spec` |
+| Fedora/RHEL | .rpm | `rpmbuild -ba packaging/rpm/vaptvupt.spec` |
 | Universal Linux | .AppImage | `packaging/appimage/build-appimage.sh` |
 | Sandboxed Linux | .flatpak | `packaging/flatpak/dev.zupt.gui.yml` |
 | Windows | .exe installer | `packaging/windows/build-windows.bat` |
@@ -119,7 +119,7 @@ The GUI calls the zupt CLI binary — all cryptography runs in native C, not Pyt
 
 ## Credits
 
-- **zupt** v2.2.3 — Cristian Cezar Moisés ([github](https://git.securityops.co/cristiancmoises/zupt))
+- **vaptvupt** v2.2.3 — Cristian Cezar Moisés ([github](https://git.securityops.co/cristiancmoises/vaptvupt))
 
 ## License
 

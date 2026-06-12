@@ -320,7 +320,7 @@ if [ -f THREAT_MODEL.md ]; then
     else
         F "THREAT_MODEL.md: too short ($SZ bytes, expected >= 3000)"
     fi
-    for section in "What Zupt protects against" "What Zupt does NOT protect against" "Cryptographic assumptions"; do
+    for section in "What VaptVupt protects against" "What VaptVupt does NOT protect against" "Cryptographic assumptions"; do
         if grep -qF "$section" THREAT_MODEL.md; then
             :
         else

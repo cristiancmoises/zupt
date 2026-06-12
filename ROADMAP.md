@@ -1,4 +1,4 @@
-# Zupt — Roadmap
+# VaptVupt — Roadmap
 
 ## Released
 
@@ -6,8 +6,8 @@
 |---------|--------|-------------|
 | v0.1 | ✅ | Initial release — LZ77 compression, `.zupt` format, XXH64 checksums |
 | v0.2 | ✅ | AES-256-CTR + HMAC-SHA256 encryption, PBKDF2, directory recursion |
-| v0.3 | ✅ | Zupt-LZH codec — LZ77 + Huffman, 1MB window, near-optimal parsing |
-| v0.4 | ✅ | Byte prediction preprocessor (Zupt-LZHP), solid mode |
+| v0.3 | ✅ | VaptVupt-LZH codec — LZ77 + Huffman, 1MB window, near-optimal parsing |
+| v0.4 | ✅ | Byte prediction preprocessor (VaptVupt-LZHP), solid mode |
 | v0.5 | ✅ | Security hardening — 16 bug fixes, Huffman codec fix, CSPRNG hardened |
 | v0.6 | ✅ | Multi-threaded compression (`-t N`), batch-parallel pipeline |
 | v0.7 | ✅ | Post-quantum hybrid encryption (ML-KEM-768 + X25519) |
@@ -33,10 +33,10 @@
 | v2.4.0 | ✅ | Methodology release. `PROMPT.md` → v2: NEW §3.5 exhaustive byte-sweep mandate after format changes, sprint protocol gains a step, §11 outage table grows four rows for F-06..F-09. Makefile help banner now auto-derived from `include/zupt.h` (closes a recurring banner-drift bug). No source/binary changes; archives byte-identical to v2.3.1. |
 | v2.4.1 | ✅ | F-10: password-mode KDF default flipped from PBKDF2-SHA256 to Argon2id (libzuptsdk). PBKDF2 remains available via `--kdf pbkdf2` for v2.4.0-and-older reader compatibility. No format change; v2.4.0 already supports reading Argon2id archives via existing enc_type dispatch. F-11 (auth-fail vs integrity-fail error message UX) opened, deferred. |
 | v2.4.2 | ✅ | F-11 closed: wrong-password and tampered-archive error messages collapsed into one uniform `Authentication failed (wrong key, wrong password, or tampered archive)` line. Detailed top-MAC wording moves behind `--verbose`. Plaintext tamper keeps detailed XXH64 wording (no key, no oracle concern). Eliminates a verbal probe-oracle that was leaking which failure cause hit first. No format change. |
-| v2.4.3 | ✅ | F-12 closed: encrypted archive comments. Implements the previously-reserved `comment_offset` header field via new block type `ZUPT_BLOCK_COMMENT = 0x05`. Comments are UTF-8, up to 4096 bytes, encrypted using the same per-block AEAD pipeline as data blocks (including F-09 preface AAD). `hdr.comment_offset` is in the AIT-signed region, so pointer tampering → auth-fail. CLI flags `-c` / `--comment` and `--comment-file`. `zupt info` reports presence without decrypting; `zupt x` displays comment after extract. v2.4.2 readers extract v2.4.3 archives byte-exact (they ignore `comment_offset`). Format still v1.6. Exhaustive byte sweep on 1878-byte archive with comment: 0/1878 silent accepts. |
-| v2.4.4 | ✅ | Distribution packaging + reproducible source tarball. New `make dist` produces byte-identical `zupt-VERSION.tar.gz`; regression test `tests/test_dist_reproducible.sh` asserts two consecutive runs produce identical sha256. Upstream packaging recipes added at `packaging/aur/PKGBUILD`, `packaging/debian/{control,rules,changelog,copyright,source/format}`, and `packaging/homebrew/zupt.rb`. No source-code changes, no format changes. |
-| v2.4.5 | ✅ | Packaging arc completion. New `packaging/rpm/zupt.spec` (Fedora/RHEL/CentOS) and `packaging/nix/flake.nix` (NixOS, x86_64 + aarch64). New `DISTRIBUTION.md` covers all 5 packaging methods with concrete submission flows. New `tests/test_packaging_syntax.sh` (18 assertions, wired into `make test`) enforces cross-recipe version consistency and basic syntax validity. No source-code changes. |
-| v2.4.6 | ✅ | CI + threat model. Rewrote `.github/workflows/ci.yml` from 4 jobs to 8 (matrix builds, strict warnings, ASAN, PIE, aarch64, dist-reproducibility, packaging-syntax, tag-triggered release). New `THREAT_MODEL.md` (12 KB) documents what Zupt protects against and — explicitly per userPreferences — what it does NOT. Packaging-syntax test expanded 18 → 22. No source-code changes. |
+| v2.4.3 | ✅ | F-12 closed: encrypted archive comments. Implements the previously-reserved `comment_offset` header field via new block type `ZUPT_BLOCK_COMMENT = 0x05`. Comments are UTF-8, up to 4096 bytes, encrypted using the same per-block AEAD pipeline as data blocks (including F-09 preface AAD). `hdr.comment_offset` is in the AIT-signed region, so pointer tampering → auth-fail. CLI flags `-c` / `--comment` and `--comment-file`. `vaptvupt info` reports presence without decrypting; `vaptvupt x` displays comment after extract. v2.4.2 readers extract v2.4.3 archives byte-exact (they ignore `comment_offset`). Format still v1.6. Exhaustive byte sweep on 1878-byte archive with comment: 0/1878 silent accepts. |
+| v2.4.4 | ✅ | Distribution packaging + reproducible source tarball. New `make dist` produces byte-identical `vaptvupt-VERSION.tar.gz`; regression test `tests/test_dist_reproducible.sh` asserts two consecutive runs produce identical sha256. Upstream packaging recipes added at `packaging/aur/PKGBUILD`, `packaging/debian/{control,rules,changelog,copyright,source/format}`, and `packaging/homebrew/vaptvupt.rb`. No source-code changes, no format changes. |
+| v2.4.5 | ✅ | Packaging arc completion. New `packaging/rpm/vaptvupt.spec` (Fedora/RHEL/CentOS) and `packaging/nix/flake.nix` (NixOS, x86_64 + aarch64). New `DISTRIBUTION.md` covers all 5 packaging methods with concrete submission flows. New `tests/test_packaging_syntax.sh` (18 assertions, wired into `make test`) enforces cross-recipe version consistency and basic syntax validity. No source-code changes. |
+| v2.4.6 | ✅ | CI + threat model. Rewrote `.github/workflows/ci.yml` from 4 jobs to 8 (matrix builds, strict warnings, ASAN, PIE, aarch64, dist-reproducibility, packaging-syntax, tag-triggered release). New `THREAT_MODEL.md` (12 KB) documents what VaptVupt protects against and — explicitly per userPreferences — what it does NOT. Packaging-syntax test expanded 18 → 22. No source-code changes. |
 | v2.4.7 | ✅ | Manpage refresh + shell completions. |
 | v2.4.8 | ✅ | Distro-safe `make check` target + binary packages. |
 | v3.0.0 | ✅ | MAJOR: Zupt → VaptVupt rename, VV codec 2.48.5, GUI binary-discovery fix. |
