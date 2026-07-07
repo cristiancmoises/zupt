@@ -50,7 +50,7 @@
 #define ZUPT_PRODUCT_EXTENSION ".zupt"           /* on-disk archive extension (kept stable) */
 #define ZUPT_PRODUCT_TAGLINE   "Post-quantum backup compression"
 
-#define ZUPT_VERSION_STRING "4.0.0"
+#define ZUPT_VERSION_STRING "4.1.0"
 /* Vendored codec release (upstream tag) — single source for display strings.
  * The codec's own VV_VERSION_* is its internal API version, not the release. */
 #define ZUPT_CODEC_RELEASE "2.60.4"
@@ -177,6 +177,12 @@
 #define ZUPT_HMAC_SIZE       32
 #define ZUPT_AES_KEY_SIZE    32
 #define ZUPT_KDF_ITERATIONS  600000
+/* SECURITY (DoS guard): the PBKDF2 iteration count is read from the archive
+ * header, which is attacker-controlled. The writer only ever stamps
+ * ZUPT_KDF_ITERATIONS; a crafted archive could demand 2^32-1 iterations to
+ * pin a CPU core for many minutes before authentication can even fail.
+ * Reject anything above this generous cap (≈166× the default). */
+#define ZUPT_KDF_MAX_ITERATIONS  100000000u
 
 typedef enum {
     ZUPT_OK = 0, ZUPT_ERR_IO = -1, ZUPT_ERR_CORRUPT = -2,
@@ -416,6 +422,16 @@ uint8_t *zupt_decrypt_buffer_aad(const zupt_keyring_t *kr,
                                   const uint8_t *aad_extra, size_t aad_extra_len,
                                   size_t *olen);
 void zupt_random_bytes(uint8_t *buf, size_t len);
+
+/* F-09 frame-preface AAD (v1.6). Serialised canonical bytes bound into the
+ * per-block MAC. Shared by the serial (zupt_format.c) and parallel
+ * (zupt_parallel.c) compress paths so both produce byte-identical prefaces —
+ * a mismatch makes every multithreaded encrypted block fail to authenticate. */
+#define ZUPT_PREFACE_AAD_LEN 29
+void zupt_serialize_preface_aad_scalars(
+    uint8_t block_type, uint16_t codec_id, uint16_t block_flags,
+    uint64_t uncompressed_size, uint64_t compressed_size, uint64_t checksum,
+    uint8_t out[ZUPT_PREFACE_AAD_LEN]);
 
 /* ─── Memory locking for key material ─── */
 int  zupt_mlock_keys(void *ptr, size_t len);

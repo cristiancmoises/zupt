@@ -20,7 +20,7 @@
 # in the base.
 
 Name:           vaptvupt
-Version:        4.0.0
+Version:        4.1.0
 Release:        1%{?dist}
 Summary:        Post-quantum backup compression utility (AES-256 + ML-KEM-768 + Argon2id, formerly Zupt)
 
@@ -99,7 +99,7 @@ ln -sf libpqvaptvupt.so.0.6.0 %{buildroot}%{_libdir}/%{name}/libpqvaptvupt.so
 
 %files
 %license LICENSE
-%doc README.md SECURITY.md CHANGELOG.md AUDIT.md
+%doc README.md SECURITY.md CHANGELOG.md
 %{_bindir}/zupt
 %{_libdir}/%{name}/libzuptsdk.so.2.0.0
 %{_libdir}/%{name}/libzuptsdk.so.2

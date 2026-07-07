@@ -2297,12 +2297,17 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
      * near the boundaries. We maintain §4 invariants 3 and 5.
      *
      * SAFEZONE_MAX_OFFSET covers the legal offset range (1 << wlog_max).
-     * SAFEZONE_MAX_RUN covers BOTH max litlen and max matchlen (both are
-     * bounded by the wire format at ≤65535: LL encoding ll_base[35]=61440
-     * + up to 4095 extra bits = 65535; ML encoding likewise). So
-     * op_safe_end = op_end - 65535 guarantees any single sequence's
-     * total writes (literals + match) fit without per-iter overflow
-     * checking.
+     * SAFEZONE_MAX_RUN bounds EACH of litlen and matchlen (both ≤65535 by
+     * the wire format: LL ll_base[35]=61440 + up to 4095 extra = 65535;
+     * ML ml_base[35]=32768 + up to 32767 extra = 65535). A single sequence
+     * writes litlen literals THEN a matchlen match copy — up to TWO max
+     * runs — and in_safe_zone is computed once (pre-literal) yet gates BOTH
+     * the literal and the match op_end checks. So the reserve must cover
+     * the full worst-case sequence: op_safe_end = op_end - 2*SAFEZONE_MAX_RUN
+     * guarantees litlen+matchlen fit without per-iter overflow checking.
+     * (Reserving only ONE run let a crafted final sequence write up to
+     * 65535 bytes past op_end — a heap overflow; the +64 caller slack was
+     * far too small to absorb it.)
      *
      * SPRINT 46: raised from 1<<20 to 1<<24. The 3-byte offset wire
      * encoding (off_bytes==3 for wlog>16) represents offsets up to
@@ -2318,9 +2323,11 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
      * An offset > 2^24 remains genuinely corrupt (unrepresentable in
      * 3 bytes) and is still rejected, preserving the DoS guard. */
     enum { SAFEZONE_MAX_OFFSET = 1u << 24 };  /* 3-byte offset wire max */
-    enum { SAFEZONE_MAX_RUN    = 65535 };     /* litlen or matchlen */
-    uint8_t *op_safe_end = (dst_cap > SAFEZONE_MAX_RUN)
-                           ? op_end - SAFEZONE_MAX_RUN : dst;
+    enum { SAFEZONE_MAX_RUN    = 65535 };     /* max litlen OR matchlen */
+    /* Reserve for a full worst-case sequence (litlen + matchlen). */
+    enum { SAFEZONE_RESERVE    = 2 * SAFEZONE_MAX_RUN };
+    uint8_t *op_safe_end = (dst_cap > SAFEZONE_RESERVE)
+                           ? op_end - SAFEZONE_RESERVE : dst;
     const uint8_t *offset_check_floor = dst_base + SAFEZONE_MAX_OFFSET;
 
     size_t seqs_decoded = 0;

@@ -32,6 +32,8 @@
  *   [..]  raw key bytes (PQVV_PUBLICKEYBYTES / PQVV_SECRETKEYBYTES)
  */
 #include "zupt.h"
+
+#ifdef ZUPT_WITH_SDK
 #include "zupt_keccak.h"
 #include "pqvaptvupt.h"
 #include <stdio.h>
@@ -179,3 +181,35 @@ int zupt_pqbox_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
     zupt_secure_wipe(session_key, sizeof(session_key));
     return 0;
 }
+
+#else  /* !ZUPT_WITH_SDK */
+
+/* Source-only build (no vendored libpqvaptvupt binary). The --pq-box sealed-box
+ * mode is unavailable; use native --pq (ML-KEM-768 + X25519) instead, or rebuild
+ * with `make WITH_SDK=1` (requires the vendored libpqvaptvupt). */
+#include <stdio.h>
+
+static int pqbox_unavailable(const char *what) {
+    fprintf(stderr,
+            "Error: this build has no libpqvaptvupt support, so %s is unavailable.\n"
+            "       Use native --pq (ML-KEM-768 + X25519) instead, or rebuild with "
+            "'make WITH_SDK=1'.\n", what);
+    return -1;
+}
+
+int zupt_pqbox_keygen(const char *privkeyfile, const char *pubkeyfile) {
+    (void)privkeyfile; (void)pubkeyfile;
+    return pqbox_unavailable("--pq-box key generation");
+}
+int zupt_pqbox_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
+                            uint8_t *enc_hdr, size_t *enc_hdr_len) {
+    (void)kr; (void)pubkeyfile; (void)enc_hdr; (void)enc_hdr_len;
+    return pqbox_unavailable("--pq-box encryption");
+}
+int zupt_pqbox_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
+                            const uint8_t *payload, size_t payload_len) {
+    (void)kr; (void)privkeyfile; (void)payload; (void)payload_len;
+    return pqbox_unavailable("--pq-box decryption (this archive needs it)");
+}
+
+#endif /* ZUPT_WITH_SDK */

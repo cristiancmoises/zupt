@@ -1,3 +1,22 @@
+vaptvupt (4.1.0-1) UNRELEASED; urgency=high
+
+  * Source-only build: the prebuilt vendored libraries libzuptsdk.so and
+    libpqvaptvupt.so are removed; the package builds with no external
+    library dependency and ships no shared object. The default password
+    KDF is PBKDF2-SHA256 (600k); the Argon2id KDF and the --pq-sdk /
+    --pq-box modes are gated behind an upstream WITH_SDK=1 build. Native
+    --pq (ML-KEM-768 + X25519) is unchanged.
+  * Fix: multithreaded encrypted archives were unextractable on the
+    native AEAD path — the parallel workers now bind the F-09 frame-
+    preface AAD like the serial path. Byte-identical across thread counts.
+  * Security: LZH raw code-length stack overflow and huff_lut OOB;
+    integer-overflow heap OOB reads in the index and solid-mode parsers;
+    SEQ decoder safe-zone heap overflow; per-block ENCRYPTED-flag
+    authentication gate; PBKDF2 iteration-count DoS cap; non-elidable
+    secret wipe; restored disk images created 0600. Wire format v1.6.
+
+ -- Cristian Cezar Moisés <sac@securityops.co>  Tue, 07 Jul 2026 12:00:00 +0000
+
 vaptvupt (4.0.0-1) UNRELEASED; urgency=high
 
   * Codec upgraded to canonical VaptVupt 2.60.4 (security release):

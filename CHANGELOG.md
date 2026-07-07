@@ -1,6 +1,51 @@
 # VaptVupt Changelog
 
 
+## [4.1.0] — 2026-07-07 — Source-only build; multithreaded-encryption fix; hardening
+
+### Source-only build (no vendored binaries)
+
+- The prebuilt vendored libraries `libzuptsdk.so` and `libpqvaptvupt.so` are
+  removed from the repository. The default build (`make`) now compiles entirely
+  from the in-tree C sources with no external library dependency and installs no
+  shared object.
+- The libzuptsdk-backed modes — the Argon2id password KDF, `--pq-sdk`, and
+  `--pq-box` — are gated behind an opt-in `make WITH_SDK=1` build against the
+  separately distributed libraries. In the default build they report as
+  unsupported. The default password KDF is **PBKDF2-SHA256** (600k iterations)
+  and `--pq` (native **ML-KEM-768 + X25519**) is the built-in PQ mode.
+- openSUSE packaging builds source-only: `%build`/`%install` pass `WITH_SDK=0`
+  and `%files` no longer ships the `.so`.
+
+### Fixed
+
+- **Multithreaded encrypted archives were unextractable** on the native AEAD
+  path. The parallel compress/decompress workers used the non-preface
+  encrypt/decrypt calls, but the archive's `ZUPT_FLAG_AAD_PREFACE` (F-09) and the
+  serial path bind the 29-byte frame preface into every block MAC — so each
+  multithreaded block failed authentication. The workers now bind the preface via
+  the shared `zupt_serialize_preface_aad_scalars`. Output is byte-identical across
+  thread counts, and archives interoperate between single- and multithreaded
+  compress/extract. Also fixes `--kdf pbkdf2 -t N`.
+
+### Security
+
+- LZH decoder: bound the raw code-length header against the destination stack
+  buffers and reject code lengths > 15 (stack overflow + `huff_lut` OOB write on
+  crafted archives).
+- Format parser: overflow-safe bounds in `parse_index` and solid-mode extract
+  (heap OOB reads via wrapped 64-bit length/offset fields).
+- ANS SEQ decoder: reserve a full worst-case sequence (litlen + matchlen) in the
+  fast path (heap OOB write past the output buffer).
+- Require the per-block ENCRYPTED flag on every block of an encrypted archive
+  (plaintext-injection / authentication bypass).
+- Cap the archive-supplied PBKDF2 iteration count (KDF-amplification DoS).
+- Non-elidable secret wipe on the SDK crypto path; restored disk images are
+  created with mode 0600.
+
+Wire format **v1.6** unchanged; pre-4.1 archives remain readable.
+
+
 ## [4.0.0] — 2026-06-10 — Codec 2.60.4 (security), pq-box mode, F-16 disclosure
 
 Major release: the vendored codec moves to the canonical **VaptVupt

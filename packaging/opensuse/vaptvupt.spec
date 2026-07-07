@@ -19,7 +19,7 @@
 
 
 Name:           vaptvupt
-Version:        4.0.0
+Version:        4.1.0
 Release:        0
 Summary:        Post-quantum backup compression with AES-256 + ML-KEM-768 hybrid encryption
 License:        AGPL-3.0-or-later
@@ -38,25 +38,29 @@ Obsoletes:      zupt < 3.0.0
 
 %description
 VaptVupt (formerly Zupt; renamed in v3.0.0 due to a prior INPI Brasil
-trademark on the name "Zupt") compresses and encrypts backup archives. LZ77+Huffman compression
-(VaptVupt codec, ~2-3 GB/s decompression on x86_64 with AVX2 / aarch64
-with NEON), AES-256-CTR + HMAC-SHA256 per-block authenticated
-encryption, multi-threaded, with optional ML-KEM-768 + X25519
-post-quantum hybrid key encapsulation (FIPS 203 + RFC 7748). The
-default password KDF is Argon2id; PBKDF2-SHA256 remains available
-via --kdf pbkdf2 for backward compatibility.
+trademark on the name "Zupt") compresses and encrypts backup archives.
+LZ + ANS compression (VaptVupt codec, ~2-3 GB/s decompression on x86_64
+with AVX2 / aarch64 with NEON), AES-256-CTR + HMAC-SHA256 per-block
+authenticated encryption, multi-threaded, with ML-KEM-768 + X25519
+post-quantum hybrid key encapsulation (FIPS 203 + RFC 7748) via --pq.
 
-Pure C11, vendored libzuptsdk, ~5,000 lines of core code. Constant-
-time cryptographic primitives are formally verified with Jasmin on
-x86_64 (zupt_mac_verify_ct, zupt_ct_select_32); a clean C fallback
-runs on aarch64 and other architectures.
+This package builds entirely from source with no external library
+dependency. The password KDF is PBKDF2-SHA256 (600k iterations). The
+optional libzuptsdk-backed modes (Argon2id KDF, --pq-sdk, --pq-box) are
+not built here; they require an upstream WITH_SDK=1 build against the
+separately distributed libzuptsdk/libpqvaptvupt.
+
+Pure C11, ~5,000 lines of core code. Constant-time cryptographic
+primitives are formally verified with Jasmin on x86_64
+(zupt_mac_verify_ct, zupt_ct_select_32); a clean C fallback runs on
+aarch64 and other architectures.
 
 %prep
 %autosetup -p1
 chmod +x tests/*.sh
 
 %build
-%make_build V=1 \
+%make_build V=1 WITH_SDK=0 \
     CFLAGS="%{optflags} -fPIE -Wall -Wextra -std=c11 -Iinclude -Isrc" \
     LDFLAGS="%{?build_ldflags} -pie" \
     LDLIBS="-lm -lpthread"
@@ -71,14 +75,14 @@ chmod +x tests/*.sh
 # On s390x, fall back to just the vector tests (Jasmin assembly is
 # x86_64-only; threading harness has been flaky on big-endian).
 %ifarch s390x
-%make_build V=1 \
+%make_build V=1 WITH_SDK=0 \
     CFLAGS="%{optflags} -fPIE -Wall -Wextra -std=c11 -Iinclude -Isrc" \
     LDFLAGS="%{?build_ldflags} -pie" \
     LDLIBS="-lm -lpthread" \
     test-vectors
 ./test_vectors
 %else
-%make_build V=1 \
+%make_build V=1 WITH_SDK=0 \
     CFLAGS="%{optflags} -fPIE -Wall -Wextra -std=c11 -Iinclude -Isrc" \
     LDFLAGS="%{?build_ldflags} -pie" \
     LDLIBS="-lm -lpthread" \
@@ -86,7 +90,7 @@ chmod +x tests/*.sh
 %endif
 
 %install
-%make_install PREFIX=%{_prefix}
+%make_install WITH_SDK=0 PREFIX=%{_prefix}
 
 %files
 %license LICENSE
@@ -95,12 +99,5 @@ chmod +x tests/*.sh
 %{_bindir}/zupt
 %{_mandir}/man1/vaptvupt.1%{?ext_man}
 %{_mandir}/man1/zupt.1%{?ext_man}
-%dir %{_prefix}/lib/vaptvupt
-%{_prefix}/lib/vaptvupt/libzuptsdk.so
-%{_prefix}/lib/vaptvupt/libzuptsdk.so.2
-%{_prefix}/lib/vaptvupt/libzuptsdk.so.2.0.0
-%{_prefix}/lib/vaptvupt/libpqvaptvupt.so
-%{_prefix}/lib/vaptvupt/libpqvaptvupt.so.0
-%{_prefix}/lib/vaptvupt/libpqvaptvupt.so.0.6.0
 
 %changelog

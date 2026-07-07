@@ -1,7 +1,7 @@
 .\" Manpage for vaptvupt (formerly zupt; INPI Brasil trademark rename in v3.0.0)
 .\" SPDX-License-Identifier: AGPL-3.0-or-later
 .\" Copyright (c) 2025-2026 Cristian Cezar Moisés
-.TH VAPTVUPT 1 "May 2026" "vaptvupt 4.0.0" "User Commands"
+.TH VAPTVUPT 1 "July 2026" "vaptvupt 4.1.0" "User Commands"
 
 .SH NAME
 vaptvupt \- post-quantum backup compression utility (formerly zupt)
@@ -205,7 +205,8 @@ Force a specific codec by id. Accepted values:
 
 .TP
 .BR -p " " \fIpassword\fR
-Enable password-based encryption (Argon2id KDF by default since v2.4.1).
+Enable password-based encryption (PBKDF2-SHA256 KDF; Argon2id is available
+only in a WITH_SDK=1 build via \fB--kdf argon2id\fR).
 Reading the password from a flag exposes it in
 .BR ps (1)
 output; prefer
@@ -517,7 +518,7 @@ On random / already-compressed data, all codecs hit the incompressibility wall; 
 .SH EXAMPLES
 
 .PP
-Compress with default settings (Argon2id password, VaptVupt level 7, multi-threaded):
+Compress with default settings (PBKDF2-SHA256 password, VaptVupt level 7, multi-threaded):
 
 .RS
 .nf
@@ -530,8 +531,9 @@ Compress with post-quantum hybrid encryption to a published public key:
 .RS
 .nf
 $ vaptvupt keygen --sdk -o ~/.config/vaptvupt-mykey
-$ vaptvupt keygen --sdk --pub -o mykey.pub -k ~/.config/vaptvupt-mykey
-$ vaptvupt compress --pq-sdk mykey.pub backup.zupt ~/Documents
+$ vaptvupt keygen -o ~/.config/vaptvupt-mykey
+$ vaptvupt keygen --pub -o mykey.pub -k ~/.config/vaptvupt-mykey
+$ vaptvupt compress --pq mykey.pub backup.zupt ~/Documents
 .fi
 .RE
 

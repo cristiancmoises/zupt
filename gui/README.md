@@ -1,4 +1,4 @@
-# VaptVupt GUI — Cross-Platform Post-Quantum Backup
+# VaptVupt GUI
 
 Desktop application for [vaptvupt](https://git.securityops.co/cristiancmoises/vaptvupt) backup compression with ML-KEM-768 + X25519 post-quantum hybrid encryption.
 
@@ -13,9 +13,6 @@ tar xzf vaptvupt-gui.tar.gz && cd vaptvupt-gui
 ./vaptvupt-gui                      # auto-creates venv, installs PySide6
 ./install.sh --user              # adds right-click menu integration
 ```
-
-After install, right-click any file in Nemo/Nautilus to see "Compress with VaptVupt".
-Double-click any .zupt file to open it in the GUI.
 
 ### Windows
 
@@ -119,7 +116,7 @@ The GUI calls the vaptvupt CLI binary — all cryptography runs in native C, not
 
 ## Credits
 
-- **vaptvupt** v2.2.3 — Cristian Cezar Moisés ([github](https://git.securityops.co/cristiancmoises/vaptvupt))
+- **vaptvupt** v4.1.0 — Cristian Cezar Moisés ([github](https://git.securityops.co/cristiancmoises/vaptvupt))
 
 ## License
 

@@ -8,6 +8,8 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #include "zupt.h"
+
+#ifdef ZUPT_WITH_SDK
 #include "zuptsdk.h"
 #include "zuptsdk_easy.h"
 #include <stdio.h>
@@ -68,14 +70,14 @@ int zupt_sdk_hybrid_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
     size_t blob_sz = 0;
     int rc = zuptsdk_easy_encrypt(pubkeyfile, session_key, 32, &blob, &blob_sz);
     if (rc != 0 || !blob) {
-        memset(session_key, 0, 32);
+        zupt_secure_wipe(session_key, 32);
         return -1;
     }
 
     /* Layout: [1B type][4B blob_sz LE][blob] */
     if (1 + 4 + blob_sz > 1500) {
         free(blob);
-        memset(session_key, 0, 32);
+        zupt_secure_wipe(session_key, 32);
         return -1;
     }
 
@@ -98,7 +100,7 @@ int zupt_sdk_hybrid_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
     zupt_sha3_256(kdf_buf, sizeof(kdf_buf), kr->enc_key);
     memcpy(kdf_buf + 32, "ZUPT-SDK-MAC-KEY", 16);
     zupt_sha3_256(kdf_buf, sizeof(kdf_buf), kr->mac_key);
-    memset(kdf_buf, 0, sizeof(kdf_buf));
+    zupt_secure_wipe(kdf_buf, sizeof(kdf_buf));
 
     kr->canary_head = ZUPT_CANARY;
     zupt_random_bytes(kr->base_nonce, ZUPT_NONCE_SIZE);
@@ -107,7 +109,7 @@ int zupt_sdk_hybrid_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
     kr->canary_tail = ZUPT_CANARY;
 
     free(blob);
-    memset(session_key, 0, 32);
+    zupt_secure_wipe(session_key, 32);
     return 0;
 }
 
@@ -144,7 +146,7 @@ int zupt_sdk_hybrid_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
     zupt_sha3_256(kdf_buf, sizeof(kdf_buf), kr->enc_key);
     memcpy(kdf_buf + 32, "ZUPT-SDK-MAC-KEY", 16);
     zupt_sha3_256(kdf_buf, sizeof(kdf_buf), kr->mac_key);
-    memset(kdf_buf, 0, sizeof(kdf_buf));
+    zupt_secure_wipe(kdf_buf, sizeof(kdf_buf));
 
     kr->canary_head = ZUPT_CANARY;
     /* base_nonce will be overwritten per-block by the legacy path; in SDK
@@ -188,7 +190,7 @@ int zupt_sdk_password_encrypt_init(zupt_keyring_t *kr, const char *password,
     zupt_sha3_256(kdf_buf, sizeof(kdf_buf), kr->enc_key);
     memcpy(kdf_buf + 32, "ZUPT-SDK-MAC-KEY", 16);
     zupt_sha3_256(kdf_buf, sizeof(kdf_buf), kr->mac_key);
-    memset(kdf_buf, 0, sizeof(kdf_buf));
+    zupt_secure_wipe(kdf_buf, sizeof(kdf_buf));
 
     kr->canary_head = ZUPT_CANARY;
     memcpy(kr->base_nonce, enc_hdr + 17, ZUPT_NONCE_SIZE);
@@ -196,8 +198,8 @@ int zupt_sdk_password_encrypt_init(zupt_keyring_t *kr, const char *password,
     kr->active = 1;
     kr->canary_tail = ZUPT_CANARY;
 
-    memset(key, 0, 32);
-    memset(salt, 0, 16);
+    zupt_secure_wipe(key, 32);
+    zupt_secure_wipe(salt, 16);
     return 0;
 }
 
@@ -233,7 +235,7 @@ int zupt_sdk_password_decrypt_init(zupt_keyring_t *kr, const char *password,
     zupt_sha3_256(kdf_buf2, sizeof(kdf_buf2), kr->enc_key);
     memcpy(kdf_buf2 + 32, "ZUPT-SDK-MAC-KEY", 16);
     zupt_sha3_256(kdf_buf2, sizeof(kdf_buf2), kr->mac_key);
-    memset(kdf_buf2, 0, sizeof(kdf_buf2));
+    zupt_secure_wipe(kdf_buf2, sizeof(kdf_buf2));
 
     kr->canary_head = ZUPT_CANARY;
     memcpy(kr->base_nonce, nonce, ZUPT_NONCE_SIZE);
@@ -241,6 +243,52 @@ int zupt_sdk_password_decrypt_init(zupt_keyring_t *kr, const char *password,
     kr->active = 1;
     kr->canary_tail = ZUPT_CANARY;
 
-    memset(key, 0, 32);
+    zupt_secure_wipe(key, 32);
     return 0;
 }
+
+#else  /* !ZUPT_WITH_SDK */
+
+/* Source-only build (no vendored libzuptsdk binary). The SDK-backed modes
+ * — --pq-sdk and the Argon2id default password KDF — are unavailable. These
+ * stubs let the project build and link from source with no prebuilt library;
+ * callers fall back to native crypto (PBKDF2-SHA256 password KDF, native
+ * ML-KEM-768 + X25519 via --pq) or report the requested mode as unsupported.
+ * Rebuild with `make WITH_SDK=1` (requires the vendored libzuptsdk) to enable. */
+#include <stdio.h>
+
+static int sdk_unavailable(const char *what) {
+    fprintf(stderr,
+            "Error: this build has no libzuptsdk support, so %s is unavailable.\n"
+            "       Use native crypto instead (password mode uses PBKDF2-SHA256; "
+            "--pq uses ML-KEM-768 + X25519),\n"
+            "       or rebuild with 'make WITH_SDK=1'.\n", what);
+    return -1;
+}
+
+int zupt_sdk_hybrid_keygen(const char *privkeyfile, const char *pubkeyfile) {
+    (void)privkeyfile; (void)pubkeyfile;
+    return sdk_unavailable("--pq-sdk key generation");
+}
+int zupt_sdk_hybrid_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
+                                  uint8_t *enc_hdr, size_t *enc_hdr_len) {
+    (void)kr; (void)pubkeyfile; (void)enc_hdr; (void)enc_hdr_len;
+    return sdk_unavailable("--pq-sdk encryption");
+}
+int zupt_sdk_hybrid_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
+                                  const uint8_t *enc_hdr, size_t enc_hdr_len) {
+    (void)kr; (void)privkeyfile; (void)enc_hdr; (void)enc_hdr_len;
+    return sdk_unavailable("--pq-sdk decryption");
+}
+int zupt_sdk_password_encrypt_init(zupt_keyring_t *kr, const char *password,
+                                    uint8_t *enc_hdr, size_t *enc_hdr_len) {
+    (void)kr; (void)password; (void)enc_hdr; (void)enc_hdr_len;
+    return sdk_unavailable("the Argon2id password KDF");
+}
+int zupt_sdk_password_decrypt_init(zupt_keyring_t *kr, const char *password,
+                                    const uint8_t *enc_hdr, size_t enc_hdr_len) {
+    (void)kr; (void)password; (void)enc_hdr; (void)enc_hdr_len;
+    return sdk_unavailable("the Argon2id password KDF (this archive needs it)");
+}
+
+#endif /* ZUPT_WITH_SDK */

@@ -421,7 +421,11 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
     }
 
     /* ─── Write index (single entry for the disk image) ─── */
-    uint8_t idx_buf[4096];
+    /* SECURITY: size for the worst case — a path clamped to ZUPT_MAX_PATH-1
+     * (4095) PLUS the 4-byte file count, the (≤5-byte) varint length, and the
+     * 48 bytes of fixed trailing fields. A bare [4096] overflowed by ~57
+     * bytes when source_path approached ZUPT_MAX_PATH. */
+    uint8_t idx_buf[ZUPT_MAX_PATH + 128];
     size_t idx_pos = 0;
 
     /* File count (4B LE) */
@@ -706,7 +710,11 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
      * fall back to O_CREAT | O_TRUNC for new files. */
     tgt_fd = open(target_path, O_WRONLY);
     if (tgt_fd < 0) {
-        tgt_fd = open(target_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        /* SECURITY: 0600, not 0644 — a restored disk image holds decrypted
+         * backup contents and must not be world-/group-readable. Matches the
+         * file-extraction convention in zupt_safe_fopen_output(). (When the
+         * target is an existing block device the mode is ignored.) */
+        tgt_fd = open(target_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
     }
     if (tgt_fd < 0) {
         fprintf(stderr, "Error: Cannot open target '%s': %s\n",

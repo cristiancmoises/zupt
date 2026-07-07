@@ -1,4 +1,29 @@
 -------------------------------------------------------------------
+Tue Jul  7 12:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 4.1.0:
+  * Source-only build. The prebuilt vendored libraries (libzuptsdk,
+    libpqvaptvupt) are removed from the tree; the package now builds
+    with no external library dependency and ships no .so. The
+    libzuptsdk-backed modes (Argon2id KDF, --pq-sdk, --pq-box) are
+    gated behind an optional upstream WITH_SDK=1 build; the default
+    password KDF is PBKDF2-SHA256 (600k) and --pq (native ML-KEM-768
+    + X25519) is unchanged. spec %files no longer lists the .so;
+    %build/%install pass WITH_SDK=0.
+  * Fix: multithreaded encrypted archives were unextractable on the
+    native AEAD path. The parallel compress/decompress workers did not
+    bind the F-09 frame-preface AAD that the serial path and the
+    archive's AAD_PREFACE flag require, so every multithreaded block
+    failed authentication. Now byte-identical across thread counts;
+    also fixes `--kdf pbkdf2 -t N`.
+  * Security: LZH raw code-length stack overflow and huff_lut OOB on
+    crafted archives; integer-overflow heap OOB reads in the index and
+    solid-mode parsers; SEQ decoder safe-zone heap overflow; per-block
+    ENCRYPTED-flag authentication gate; PBKDF2 iteration-count DoS cap;
+    non-elidable secret wipe in the SDK path; restored disk images now
+    0600. Wire format v1.6 unchanged.
+
+-------------------------------------------------------------------
 Wed Jun 10 12:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
 
 - Update to 4.0.0:

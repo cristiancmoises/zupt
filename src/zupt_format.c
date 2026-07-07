@@ -422,7 +422,15 @@ zupt_error_t write_enc_header(FILE *out, zupt_archive_header_t *hdr,
          * + F-09 preface-AAD per-block pipeline. Only the KDF and
          * enc-header bytes differ. Read-path dispatch on enc_type byte
          * at offset 0 of the enc-header block already handles both. */
-        if (opts->kdf_legacy_pbkdf2) {
+#ifdef ZUPT_WITH_SDK
+        int use_pbkdf2 = opts->kdf_legacy_pbkdf2;
+#else
+        /* No libzuptsdk in this build: Argon2id is unavailable, so the password
+         * KDF is always native PBKDF2-SHA256 (600k iters, AES-256-CTR + HMAC-
+         * SHA256). Archives written this way are readable by any build. */
+        int use_pbkdf2 = 1;
+#endif
+        if (use_pbkdf2) {
             uint8_t salt[ZUPT_SALT_SIZE], nonce[ZUPT_NONCE_SIZE];
             zupt_random_bytes(salt, ZUPT_SALT_SIZE);
             zupt_random_bytes(nonce, ZUPT_NONCE_SIZE);
@@ -584,7 +592,7 @@ static uint64_t get_mtime(const char *path) {
  *
  * Excludes block_magic (constant `bb 01`, structurally rejected by read_block
  * if tampered) and the AES nonce (already part of the existing MAC input). */
-#define ZUPT_PREFACE_AAD_LEN 29
+/* ZUPT_PREFACE_AAD_LEN is defined in zupt.h (shared with the parallel path). */
 static void zupt_serialize_preface_aad(const zupt_block_t *b, uint8_t out[ZUPT_PREFACE_AAD_LEN]) {
     out[0] = (uint8_t)b->block_type;
     out[1] = (uint8_t)(b->codec_id & 0xFF);
@@ -600,7 +608,7 @@ static void zupt_serialize_preface_aad(const zupt_block_t *b, uint8_t out[ZUPT_P
  * known at MAC time but before the block struct exists. Same byte layout
  * as zupt_serialize_preface_aad — both sides must produce identical bytes
  * for the same logical block, or the roundtrip MAC won't match. */
-static void zupt_serialize_preface_aad_scalars(
+void zupt_serialize_preface_aad_scalars(
     uint8_t block_type, uint16_t codec_id, uint16_t block_flags,
     uint64_t uncompressed_size, uint64_t compressed_size, uint64_t checksum,
     uint8_t out[ZUPT_PREFACE_AAD_LEN])
@@ -1766,6 +1774,16 @@ zupt_error_t decompress_block(const zupt_block_t *b, const zupt_keyring_t *kr,
     if (b->uncompressed_size > ZUPT_MAX_BLOCK_SZ) return ZUPT_ERR_OVERFLOW;
     if (comp_len > ZUPT_MAX_BLOCK_SZ + 1024) return ZUPT_ERR_OVERFLOW;
 
+    /* SECURITY: in an encrypted archive every block MUST be encrypted.
+     * The per-block ENCRYPTED flag is NOT covered by the archive-integrity
+     * trailer (which only authenticates the header and footer, not block
+     * bodies/flags). Without this gate an attacker could clear the flag on
+     * a forged STORE block and inject attacker-chosen plaintext that passes
+     * only the keyless XXH64 — an authentication bypass / plaintext forgery.
+     * Fail closed when the keyring is active but the block isn't encrypted. */
+    if (kr && kr->active && !(b->block_flags & ZUPT_BFLAG_ENCRYPTED))
+        return ZUPT_ERR_AUTH_FAIL;
+
     if (b->block_flags & ZUPT_BFLAG_ENCRYPTED) {
         if (!kr || !kr->active) return ZUPT_ERR_AUTH_FAIL;
         size_t dec_len;
@@ -2017,6 +2035,10 @@ zupt_error_t read_enc_header(FILE *f, zupt_archive_header_t *hdr, zupt_options_t
         memcpy(nonce, eb.payload + 33, 16);
         memcpy(&iter, eb.payload + 49, 4);
         free(eb.payload);
+        /* SECURITY: reject an absurd attacker-supplied iteration count before
+         * spending the CPU on it (KDF-amplification DoS). See
+         * ZUPT_KDF_MAX_ITERATIONS. */
+        if (iter < 1 || iter > ZUPT_KDF_MAX_ITERATIONS) return ZUPT_ERR_CORRUPT;
         fprintf(stderr, "  Deriving decryption key (PBKDF2-SHA256, %u iterations)...\n", iter);
         zupt_derive_keys(&opts->keyring, opts->password, salt, nonce, iter);
         return ZUPT_OK;
@@ -2033,6 +2055,9 @@ zupt_error_t read_enc_header(FILE *f, zupt_archive_header_t *hdr, zupt_options_t
         memcpy(nonce, eb.payload + 32, 16);
         memcpy(&iter, eb.payload + 48, 4);
         free(eb.payload);
+        /* SECURITY: reject an absurd attacker-supplied iteration count before
+         * spending the CPU on it (KDF-amplification DoS). */
+        if (iter < 1 || iter > ZUPT_KDF_MAX_ITERATIONS) return ZUPT_ERR_CORRUPT;
         fprintf(stderr, "  Deriving decryption key (PBKDF2-SHA256, %u iterations)...\n", iter);
         zupt_derive_keys(&opts->keyring, opts->password, salt, nonce, iter);
         return ZUPT_OK;
@@ -2059,7 +2084,13 @@ static zupt_error_t parse_index(const uint8_t *buf, size_t blen,
         zupt_index_entry_t *e = &(*ents)[i];
         uint64_t plen;
         vn = zupt_decode_varint(buf+p, blen-p, &plen);
-        if (vn<0||p+(size_t)vn+plen>blen) { free(*ents); return ZUPT_ERR_CORRUPT; }
+        if (vn<0) { free(*ents); return ZUPT_ERR_CORRUPT; }
+        /* SECURITY: overflow-safe bound. The decoder consumes at most blen-p
+         * bytes so p+vn<=blen and blen-p-vn cannot underflow. The previous
+         * check `p+vn+plen>blen` wrapped around for an attacker-supplied
+         * ~2^64 plen, passed, then drove an OOB memcpy of ZUPT_MAX_PATH-1
+         * bytes past the index buffer. */
+        if (plen > (uint64_t)(blen - p - (size_t)vn)) { free(*ents); return ZUPT_ERR_CORRUPT; }
         p += (size_t)vn;
         if (plen >= ZUPT_MAX_PATH) plen = ZUPT_MAX_PATH-1;
         memcpy(e->path, buf+p, (size_t)plen); e->path[plen]='\0'; p += (size_t)plen;
@@ -2389,7 +2420,11 @@ zupt_error_t zupt_extract_archive(const char *arc, const char *dir, zupt_options
 
             uint64_t off = e->first_block_offset;
             uint64_t sz = e->uncompressed_size;
-            if (off + sz <= total_size) {
+            /* SECURITY: overflow-safe bound. off and sz are both attacker-
+             * controlled 64-bit index fields; the previous `off+sz<=total_size`
+             * wrapped on overflow, letting solid_buf+off point far out of
+             * bounds for an arbitrary-offset OOB heap read. */
+            if (off <= total_size && sz <= total_size - off) {
                 if (fwrite(solid_buf + off, 1, (size_t)sz, of) != (size_t)sz) {
                     fprintf(stderr, "Error: write failed (disk full?) for %s\n", e->path);
                     fclose(of);

@@ -5,13 +5,13 @@ If you're seeing the error:
 ```
 vaptvupt-gui depende de python3-pyqt6 | python3-pyside6; porém:
   Pacote python3-pyqt6 não está instalado.
-vaptvupt-gui depende de vaptvupt (>= 2.2.3); porém:
+vaptvupt-gui depende de vaptvupt (>= 4.1.0); porém:
   Versão de vaptvupt no sistema é 2.1.7-1.
 ```
 
 This is correct behavior. The `vaptvupt-gui` deb requires:
 - Python 3 with **PyQt6** or **PySide6** (the GUI toolkit)
-- The **vaptvupt CLI 2.2.3** or newer
+- The **vaptvupt CLI 4.1.0** or newer
 
 ## The fastest fix — one command (Linux Mint, Ubuntu, Debian)
 
@@ -22,7 +22,7 @@ sudo bash install-zupt-gui.sh
 ```
 
 This script auto-detects your distribution and installs everything in
-the right order. Done.
+the right order.
 
 ## Manual fix — three commands (if you prefer)
 
@@ -33,8 +33,8 @@ the right order. Done.
 sudo apt update
 sudo apt install -y python3-pyqt6
 
-# 2. Upgrade vaptvupt CLI to 4.0.0
-sudo dpkg -i vaptvupt_4.0.0_amd64.deb
+# 2. Upgrade vaptvupt CLI to 4.1.0
+sudo dpkg -i vaptvupt_4.1.0_amd64.deb
 
 # 3. Install the GUI
 sudo dpkg -i vaptvupt-gui_1.3.0_all.deb
@@ -50,7 +50,7 @@ sudo apt --fix-broken install
 
 ```bash
 sudo dnf install -y python3-pyqt6
-sudo dnf install -y vaptvupt-4.0.0-1.x86_64.rpm vaptvupt-gui-1.3.0-1.noarch.rpm
+sudo dnf install -y vaptvupt-4.1.0-1.x86_64.rpm vaptvupt-gui-1.3.0-1.noarch.rpm
 ```
 
 (Or build the RPM from the SRPM tarball with `rpmbuild -bb SPECS/vaptvupt.spec`)
@@ -79,8 +79,7 @@ cd vaptvupt-gui.AppDir
 ./AppRun
 ```
 
-The AppImage still needs Python 3 + Qt6 binding on the host (those are
-universally available on every Linux distribution since 2022). For a
+The AppImage still needs Python 3 + Qt6 binding on the host. For a
 fully standalone executable with no Python dependency, use a future
 PyInstaller-built version (not in this release).
 
@@ -91,28 +90,25 @@ auto-detects whichever is installed). These are bindings to the Qt 6
 graphical toolkit — they're how the GUI draws windows, buttons, and
 dialogs.
 
-PyQt6 is in the default repositories of every major Linux distribution
-since 2022, so installing it is one apt/dnf/zypper/pacman command away.
-We don't bundle Qt6 inside the deb because:
+PyQt6 is in the default repositories of major Linux distributions, so
+installing it is one apt/dnf/zypper/pacman command away. We don't bundle
+Qt6 inside the deb because:
 
 - It's already on most modern systems
 - Bundling would make the deb 80 MB+ instead of 35 KB
 - Distribution-managed Qt gets security updates automatically
 
-## Why does the GUI need vaptvupt 2.2.3?
+## Why does the GUI need vaptvupt 4.1.0?
 
-The GUI calls `vaptvupt --pq-sdk` and `vaptvupt keygen --sdk` for state-of-the-art
-post-quantum encryption (HKDF-SHA3 hybrid combiner, key commitment, HPKE
-binding, Argon2id). These flags didn't exist in 2.1.7 — they were added
-in 2.2.0.
-
-If you have an older vaptvupt installed, the GUI's compress/extract will fail
-with "unknown option --pq-sdk".
+The GUI calls `vaptvupt --pq` and `vaptvupt keygen` for native
+post-quantum encryption (ML-KEM-768 + X25519, in-tree implementation).
+Older CLI versions lack these flags, so the GUI's compress/extract will
+fail against them.
 
 ## After installing — verify
 
 ```bash
-vaptvupt version       # should show: 2.2.3
+vaptvupt version       # should show: 4.1.0
 vaptvupt-gui           # should launch the GUI window
 ```
 
@@ -150,49 +146,40 @@ at https://git.securityops.co/cristiancmoises/vaptvupt/issues with:
 ## Building from source
 
 If you want to build VaptVupt from the source tarball instead of installing
-the pre-built `.deb` / `.rpm` packages, you'll need:
+the pre-built `.deb` / `.rpm` packages, you'll need only a C compiler and
+make. The default build has NO external crypto dependency and installs no
+shared library.
 
-### Build dependencies
+### Build dependencies (default build)
 
 | Component | Why needed |
 |---|---|
 | `gcc` ≥ 7 or `clang` ≥ 10 | C11 compiler |
 | `make` | build driver |
-| `libargon2-dev` | Argon2id KDF |
-| `libssl-dev` | OpenSSL libcrypto (AES, SHA-256) |
-| **`libzuptsdk-dev` 2.0.0+** | VaptVupt's cryptographic SDK |
+| libm, pthread | math and threading (part of the standard C library/toolchain) |
 
-The `libzuptsdk-dev` package is a separate sister project — it contains
-the post-quantum hybrid cryptography that VaptVupt uses on its `--pq-sdk`
-path. Both libraries are by the same author (Cristian Cezar Moisés) but
-are distributed as separate source/binary packages so each can evolve
-on its own release cadence.
+The default build uses PBKDF2-SHA256 (600k iterations) for password KDF
+and the in-tree native `--pq` mode (ML-KEM-768 + X25519) for post-quantum
+encryption. No `libzuptsdk`, no OpenSSL, no libargon2 is required.
 
 ### Install build dependencies (Debian/Ubuntu/Mint)
 
 ```bash
-sudo apt install build-essential libargon2-dev libssl-dev
-
-# Then install libzuptsdk from its package:
-sudo apt install ./libzuptsdk2_2.0.0_amd64.deb \
-                 ./libzuptsdk-dev_2.0.0_amd64.deb
+sudo apt install build-essential
 ```
 
 ### Install build dependencies (Fedora/RHEL/openSUSE)
 
 ```bash
-sudo dnf install gcc make libargon2-devel openssl-devel
-# libzuptsdk from its SRPM:
-tar -xzf libzuptsdk-2.0.0.srpm.tar.gz
-rpmbuild -bb SPECS/libzuptsdk.spec
-sudo rpm -i ~/rpmbuild/RPMS/x86_64/libzuptsdk-2.0.0-*.rpm
+sudo dnf install gcc make        # Fedora/RHEL
+sudo zypper install gcc make     # openSUSE
 ```
 
 ### Build VaptVupt itself
 
 ```bash
-tar -xzf vaptvupt-2.2.3-source.tar.gz
-cd vaptvupt-2.2.3
+tar -xzf vaptvupt-4.1.0-source.tar.gz
+cd vaptvupt-4.1.0
 
 make                 # build the `./vaptvupt` binary
 sudo make install    # install to /usr/local/bin (override with PREFIX=/usr)
@@ -210,9 +197,9 @@ The `make` step takes 10-30 seconds. The build emits the binary as
 make test
 ```
 
-61 tests pass: roundtrip, audit, multi-file, cross-block, dedup property,
-path-traversal, argument-order, block-swap regression. Each suite reports
-its own pass/fail count.
+Covers roundtrip, multi-file, cross-block, dedup property, path-traversal,
+argument-order, and block-swap regression. Each suite reports its own
+pass/fail count.
 
 ### Cross-compilation
 
@@ -228,15 +215,18 @@ The Makefile auto-detects target architecture via `$(CC) -dumpmachine`
 and selects the appropriate SIMD flags (NEON on AArch64, SSE4/AVX2 on
 x86_64).
 
-### Static linking against libzuptsdk
+### Optional: WITH_SDK=1 build
 
-If you want a fully self-contained `vaptvupt` binary (no `libzuptsdk.so.2`
-runtime dependency), you can link against the static library:
+The SDK-backed modes — `--pq-sdk`, `--pq-box` (sealed-box), and the
+Argon2id KDF — are optional. They are not in the default build and require
+building against the separately distributed `libzuptsdk` / `libpqvaptvupt`
+libraries:
 
 ```bash
-make LDLIBS='-l:libzuptsdk.a -lcrypto -largon2'
+make WITH_SDK=1
 ```
 
-This produces a binary that doesn't need `libzuptsdk2` installed at
-runtime — useful for containers, embedded systems, or distribution to
-machines without package management.
+This build additionally needs the SDK development package and its runtime
+dependencies (OpenSSL libcrypto, libargon2), which ship with the SDK
+distribution. Without `WITH_SDK=1`, the `--pq-sdk` and `--pq-box` flags are
+unavailable; use the native `--pq` mode instead.

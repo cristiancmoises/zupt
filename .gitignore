@@ -6,12 +6,13 @@
 *.so
 *.so.*
 *.dylib
-# ...but keep vendored prebuilt libraries (shipped, no in-tree source)
-!vendor/**/*.so
-!vendor/**/*.so.*
 *.exe
 *.obj
 *.lib
+
+# Python bytecode caches
+__pycache__/
+*.pyc
 
 # Coverage / profiling
 *.gcda

@@ -2,7 +2,7 @@
 
 Public C ABI for the [VaptVupt](https://git.securityops.co/cristiancmoises/vaptvupt) backup compression library.
 
-Provides post-quantum encrypted compression as a stable, embeddable shared library — completely independent of the `vaptvupt` CLI.No dependency on any other compression library; everything is built from VaptVupt's own implementations.
+Provides post-quantum encrypted compression as a stable, embeddable shared library, independent of the `vaptvupt` CLI and of any external compression library — everything is built from VaptVupt's own implementations.
 
 - **Version:** 1.0.0
 - **License:** AGPL-3.0-or-later
@@ -18,7 +18,7 @@ Provides post-quantum encrypted compression as a stable, embeddable shared libra
 - **Secure memory** — mlock-backed buffers for passwords and keys, zeroed on destroy
 - **Constant-time crypto** — Jasmin-verified assembly on x86_64
 - **Per-context state** — no globals; safe to use from any thread on distinct contexts
-- **Custom allocator hooks** — embed cleanly in any runtime
+- **Custom allocator hooks** — supply your own malloc/free
 
 ## Quick start (C)
 
@@ -94,6 +94,8 @@ make sdk        # builds libzuptsdk.so.1.0.0 + libzuptsdk.a + zuptsdk.pc
 make sdk-test   # runs C roundtrip suite (15 tests)
 sudo make sdk-install PREFIX=/usr/local
 ```
+
+This SDK is built from source via `make sdk`; the previously vendored prebuilt `vendor/zuptsdk/libzuptsdk.so` has been removed from the tree.
 
 This installs:
 - `/usr/local/include/zuptsdk.h`
@@ -174,7 +176,7 @@ sdk/
 
 libzuptsdk is licensed under **AGPL-3.0-or-later** (see `sdk/LICENSE`).
 
-The AGPL allows everyone to use the library freely, but anyone running it as a network service must publish their source code modifications. This protects the project from enterprise exploitation while keeping it usable by individuals, small businesses, and the open-source community.
+The AGPL allows everyone to use the library freely, but anyone running it as a network service must publish their source code modifications.
 
 ## Contact
 

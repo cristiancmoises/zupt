@@ -63,10 +63,21 @@ ZUPT_SOURCES = src/zupt_main.c src/zupt_format.c src/zupt_lz.c src/zupt_lzh.c \
                src/zupt_x25519.c src/zupt_mlkem.c src/zupt_cpuid.c src/zupt_mlock.c \
                src/zupt_filetype.c src/zupt_disk.c src/zupt_dedup.c
 
-# --- libzuptsdk linkage (vendored) ---
+# --- Optional vendored libraries (libzuptsdk + libpqvaptvupt) ---
+#
+# These are PREBUILT shared libraries shipped only as binaries (no source), so
+# they are NOT part of the source tree and a distro/source build must not need
+# them. WITH_SDK is therefore OFF by default: the tool builds entirely from the
+# in-tree C sources, using native crypto (PBKDF2-SHA256 password KDF and native
+# ML-KEM-768 + X25519 via --pq). The SDK-backed modes (--pq-sdk, --pq-box, and
+# the Argon2id password KDF) compile to "unsupported" stubs in that case.
+#
+# Set WITH_SDK=1 (with the vendored libs present under vendor/) to enable them.
+WITH_SDK ?= 0
+ifeq ($(WITH_SDK),1)
 ZUPTSDK_DIR ?= vendor/zuptsdk
 ZUPTSDK_ABS := $(abspath $(ZUPTSDK_DIR))
-CFLAGS  += -I$(ZUPTSDK_DIR)/include
+CFLAGS  += -DZUPT_WITH_SDK -I$(ZUPTSDK_DIR)/include
 PQVV_DIR ?= vendor/pqvaptvupt
 CFLAGS  += -I$(PQVV_DIR)/include
 LDFLAGS += -L$(ZUPTSDK_DIR) -Wl,-rpath,$(ZUPTSDK_ABS) -Wl,-rpath,'$$ORIGIN/$(ZUPTSDK_DIR)'
@@ -77,6 +88,7 @@ LDFLAGS += -L$(PQVV_DIR) -Wl,-rpath,$(PQVV_ABS) -Wl,-rpath,'$$ORIGIN/$(PQVV_DIR)
 # binary a matching relative rpath so `make install` is self-contained.
 LDFLAGS += -Wl,-rpath,'$$ORIGIN/../lib/vaptvupt'
 LDLIBS  += -lpqvaptvupt
+endif
 
 # --- VAPTVUPT: VaptVupt codec sources (GPL-3.0-or-later; tool is AGPL-3.0-or-later) ---
 VV_SOURCES = src/vv_encoder.c src/vv_decoder.c src/vv_ans.c src/vv_bcj.c \
@@ -313,8 +325,11 @@ install: $(TARGET)
 		echo "Installed: $(DESTDIR)$(PREFIX)/share/fish/vendor_completions.d/$(TARGET).fish"; \
 	fi
 
-	# Vendored runtime libraries (NEEDED by the binary): libzuptsdk
-	# (password KDF + --pq-sdk) and libpqvaptvupt (--pq-box, v4.0.0+).
+	# Vendored runtime libraries — installed ONLY for a WITH_SDK=1 build. In the
+	# default source-only build the binary links no external library and there is
+	# nothing to install here (the vendored .so are prebuilt binaries kept out of
+	# the source tree).
+ifeq ($(WITH_SDK),1)
 	$(Q)mkdir -p $(DESTDIR)$(PREFIX)/lib/vaptvupt
 	$(Q)install -m 755 vendor/zuptsdk/libzuptsdk.so.2.0.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libzuptsdk.so.2.0.0
 	$(Q)ln -sf libzuptsdk.so.2.0.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libzuptsdk.so.2
@@ -322,6 +337,7 @@ install: $(TARGET)
 	$(Q)install -m 755 vendor/pqvaptvupt/libpqvaptvupt.so.0.6.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libpqvaptvupt.so.0.6.0
 	$(Q)ln -sf libpqvaptvupt.so.0.6.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libpqvaptvupt.so.0
 	$(Q)ln -sf libpqvaptvupt.so.0.6.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libpqvaptvupt.so
+endif
 
 	@echo "Installed: $(DESTDIR)$(BINDIR)/$(TARGET) (legacy: $(DESTDIR)$(BINDIR)/$(LEGACY_LINK) -> $(TARGET))"
 
@@ -507,10 +523,9 @@ test-vv: tests/test_vaptvupt.c $(HEADERS)
 	$(Q)./test_vaptvupt
 
 test-asan: $(SOURCES) $(HEADERS) $(JAZZ_O)
-	$(Q)$(CC) -Wall -Wextra -std=c11 -Iinclude -Isrc -I$(ZUPTSDK_DIR)/include \
-	    -fsanitize=address,undefined -g -O1 \
-	    $(VV_SIMD_FLAGS) $(SHANI_FLAGS) -I$(PQVV_DIR)/include -L$(ZUPTSDK_DIR) -Wl,-rpath,$(ZUPTSDK_ABS) \
-	    $(SOURCES) $(JAZZ_O) -o zupt_asan -lzuptsdk -L$(PQVV_DIR) -Wl,-rpath,$(PQVV_ABS) $(LDLIBS)
+	$(Q)$(CC) $(CFLAGS) -fsanitize=address,undefined -g -O1 \
+	    $(VV_SIMD_FLAGS) $(SHANI_FLAGS) $(LDFLAGS) \
+	    $(SOURCES) $(JAZZ_O) -o zupt_asan $(LDLIBS)
 	@echo "ASAN build: ./zupt_asan"
 
 # Build the format-parser fuzz harness. Runs against ./zupt_asan to catch
