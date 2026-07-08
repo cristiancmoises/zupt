@@ -656,6 +656,14 @@ Every source file carries an explicit SPDX header. See
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for full attribution.
 VaptVupt contains no third-party source code.
 
+## Acknowledgements
+
+- **openSUSE packaging** — [Alessandro de Oliveira Faria (CABELO)](https://github.com/cabelo)
+  &lt;cabelo@opensuse.org&gt;, openSUSE maintainer, packaged VaptVupt for the openSUSE
+  Build Service (the recipe under [`packaging/opensuse/`](packaging/opensuse/)).
+
+All compression and cryptography code is by Cristian Cezar Moisés.
+
 ## Related projects
 
 All by Cristian Cezar Moisés, hosted on git.securityops.co:

@@ -47,6 +47,3 @@ SHA256SUMS.txt
 .DS_Store
 .idea/
 .vscode/
-
-# AI assistant scratch
-.claude/
