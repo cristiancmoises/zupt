@@ -2330,7 +2330,6 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
                            ? op_end - SAFEZONE_RESERVE : dst;
     const uint8_t *offset_check_floor = dst_base + SAFEZONE_MAX_OFFSET;
 
-    size_t seqs_decoded = 0;
     /* SPRINT 90 SECURITY FIX (DoS hardening):
      *
      * The original loop terminated only when both lit_pos reached
@@ -2454,7 +2453,6 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
             op += litlen;
             lit_pos += litlen;
         }
-        seqs_decoded++;
 
         /* SPRINT 63/64: continue the loop even when all matches are
          * consumed, as long as literals remain. Previously this broke

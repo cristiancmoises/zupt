@@ -18,6 +18,14 @@ set -u
 PASS=0
 FAIL=0
 ZUPT="${ZUPT_BIN:-./zupt}"
+# Source-only build (WITH_SDK=0) has no libzuptsdk: the SDK-mode paths this
+# test exercises are unavailable, so skip cleanly instead of failing.
+_sdkck="$(mktemp -d)"
+if ! "$ZUPT" keygen --sdk -o "$_sdkck/p" >/dev/null 2>&1; then
+    rm -rf "$_sdkck"; echo "  SKIP: built without libzuptsdk (source-only) - SDK-mode test not applicable"; exit 0
+fi
+rm -rf "$_sdkck"
+
 # Resolve to absolute path so the test continues to find the binary after cd.
 case "$ZUPT" in
     /*) ;;

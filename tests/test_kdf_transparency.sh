@@ -7,6 +7,14 @@
 
 set -u
 SDK_DIR="${ZUPTSDK_DIR:-vendor/zuptsdk}"
+# Source-only build (WITH_SDK=0) has no libzuptsdk: the SDK-mode paths this
+# test exercises are unavailable, so skip cleanly instead of failing.
+_sdkck="$(mktemp -d)"
+if ! ls "$SDK_DIR"/libzuptsdk.so* >/dev/null 2>&1; then
+    rm -rf "$_sdkck"; echo "  SKIP: built without libzuptsdk (source-only) - SDK-mode test not applicable"; exit 0
+fi
+rm -rf "$_sdkck"
+
 ARCH=$(uname -m)
 if [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "i686" ]; then
     SHANI="-msha -mssse3 -msse4.1"

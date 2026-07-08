@@ -5,6 +5,14 @@
 # Each property is checked via TWO independent paths.
 
 ZUPT_BIN="$(realpath ./zupt)"
+# Source-only build (WITH_SDK=0) has no libzuptsdk: the SDK-mode paths this
+# test exercises are unavailable, so skip cleanly instead of failing.
+_sdkck="$(mktemp -d)"
+if ! "$ZUPT_BIN" keygen --sdk -o "$_sdkck/p" >/dev/null 2>&1; then
+    rm -rf "$_sdkck"; echo "  SKIP: built without libzuptsdk (source-only) - SDK-mode test not applicable"; exit 0
+fi
+rm -rf "$_sdkck"
+
 TMPDIR=$(mktemp -d)
 trap "rm -rf $TMPDIR" EXIT
 cd "$TMPDIR"

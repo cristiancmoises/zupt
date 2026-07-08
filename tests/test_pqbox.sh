@@ -14,6 +14,14 @@ bad() { echo "  ✗ $1"; F=$((F+1)); }
 T=$(mktemp -d)
 FX=/tmp/bench/fixtures
 BIN=./vaptvupt
+# Source-only build (WITH_SDK=0) has no libzuptsdk: the SDK-mode paths this
+# test exercises are unavailable, so skip cleanly instead of failing.
+_sdkck="$(mktemp -d)"
+if ! "$BIN" keygen --box -o "$_sdkck/p" >/dev/null 2>&1; then
+    rm -rf "$_sdkck"; echo "  SKIP: built without libzuptsdk (source-only) - SDK-mode test not applicable"; exit 0
+fi
+rm -rf "$_sdkck"
+
 
 echo "pq-box mode (ZUPT_ENC_PQ_BOX_V1)"
 

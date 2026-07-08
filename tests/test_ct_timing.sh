@@ -24,12 +24,19 @@ else
 fi
 
 TMP=$(mktemp -d)
+# This test uses only native CT primitives (zupt_ct_memeq, ML-KEM CT compare);
+# the libzuptsdk linkage is vestigial. Link it only when the vendored library
+# is present (WITH_SDK builds); source-only builds compile+run without it.
+SDK_LINK=""
+if ls "$SDK_DIR"/libzuptsdk.so* >/dev/null 2>&1; then
+    SDK_LINK="-L$SDK_DIR -lzuptsdk -Wl,-rpath,$(cd "$SDK_DIR" && pwd)"
+fi
 if gcc -Iinclude -Isrc -I"$SDK_DIR/include" -Wall -Wextra -Werror $SHANI -O2 -std=c11 \
        tests/test_ct_timing.c \
        src/zupt_crypto.c src/zupt_sha256.c src/zupt_sha256_shani.c src/zupt_aes256.c \
        src/zupt_xxh.c src/zupt_keccak.c src/zupt_x25519.c src/zupt_mlkem.c \
        src/zupt_cpuid.c src/zupt_mlock.c \
-       -L"$SDK_DIR" -lzuptsdk -Wl,-rpath,"$(cd "$SDK_DIR" && pwd)" -lm \
+       $SDK_LINK -lm \
        -o "$TMP/t" 2>"$TMP/cc.log"; then
     "$TMP/t"; rc=$?
 else
