@@ -50,7 +50,7 @@
 #define ZUPT_PRODUCT_EXTENSION ".zupt"           /* on-disk archive extension (kept stable) */
 #define ZUPT_PRODUCT_TAGLINE   "Post-quantum backup compression"
 
-#define ZUPT_VERSION_STRING "4.1.0"
+#define ZUPT_VERSION_STRING "4.2.0"
 /* Vendored codec release (upstream tag) — single source for display strings.
  * The codec's own VV_VERSION_* is its internal API version, not the release. */
 #define ZUPT_CODEC_RELEASE "2.60.4"
@@ -104,6 +104,7 @@
 #define ZUPT_ENC_PQ_SDK_V2  0x03  /* libzuptsdk v2 header: HKDF combiner + commitment + HPKE binding */
 #define ZUPT_ENC_PW_ARGON2  0x04  /* Password-based via libzuptsdk: Argon2id + XChaCha20-Poly1305 */
 #define ZUPT_ENC_PQ_BOX_V1  0x05  /* libpqvaptvupt sealed box: HKDF-SHA256 domain-separated combiner */
+#define ZUPT_ENC_PQ_ONLY    0x06  /* Full post-quantum: ML-KEM-768 only (no X25519), SHA3-512 KDF (v4.2.0) */
 
 /* Argon2id KDF profile descriptor (v3.4.0).
  *
@@ -271,6 +272,7 @@ typedef struct {
     int pq_mode;           /* 1 = post-quantum hybrid KEM mode */
     int sdk_mode;          /* 1 = use libzuptsdk-backed v3 crypto (HKDF combiner + commitment + HPKE) */
     int box_mode;          /* 1 = libpqvaptvupt sealed-box mode (ZUPT_ENC_PQ_BOX_V1) */
+    int pqonly_mode;       /* 1 = full post-quantum mode: ML-KEM-768 only (ZUPT_ENC_PQ_ONLY) */
     int dedup;             /* 1 = block-level deduplication enabled */
     int kdf_legacy_pbkdf2; /* v2.4.1: 1 = force PBKDF2-SHA256 enc-header (compat with v2.4.0 and older readers). Default 0 = Argon2id. */
     char password[256];
@@ -483,6 +485,14 @@ int zupt_hybrid_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
                               uint8_t *enc_hdr, size_t *enc_hdr_len);
 int zupt_hybrid_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
                               const uint8_t *enc_hdr, size_t enc_hdr_len);
+
+/* ─── Full post-quantum crypto: ML-KEM-768 only, no X25519 (v4.2.0) ─── */
+int zupt_pq_keygen(const char *keyfile);
+int zupt_pq_export_pubkey(const char *privfile, const char *pubfile);
+int zupt_pq_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
+                         uint8_t *enc_hdr, size_t *enc_hdr_len);
+int zupt_pq_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
+                         const uint8_t *enc_hdr, size_t enc_hdr_len);
 
 /* ─── SDK-backed crypto (zupt v2.2+, libzuptsdk under the hood) ─── */
 int zupt_sdk_hybrid_keygen(const char *privkeyfile, const char *pubkeyfile);

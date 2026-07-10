@@ -20,7 +20,7 @@
 # in the base.
 
 Name:           vaptvupt
-Version:        4.1.0
+Version:        4.2.0
 Release:        1%{?dist}
 Summary:        Post-quantum backup compression utility (AES-256 + ML-KEM-768 + Argon2id, formerly Zupt)
 
@@ -112,6 +112,16 @@ ln -sf libpqvaptvupt.so.0.6.0 %{buildroot}%{_libdir}/%{name}/libpqvaptvupt.so
 %endif
 
 %changelog
+* Wed Jul 09 2026 Cristian Cezar Moisés <sac@securityops.co> - 4.2.0-1
+- New native full (pure) post-quantum mode --pq-only: ML-KEM-768 as the
+  sole KEM, no classical X25519 (envelope 0x06). For "PQ-only" compliance
+  postures; hybrid --pq remains the recommended default. In-tree crypto.
+- Security (critical): fixed AES-256-CTR keystream reuse under --dedup
+  (every block now uses a fresh random 128-bit nonce). Re-encrypt any
+  --dedup encrypted archives written by <= 4.1.0.
+- Clearer keygen --sdk/--box guidance on source-only builds.
+- Wire format v1.6 unchanged.
+
 * Tue May 20 2025 Cristian Cezar Moisés <sac@securityops.co> - 2.4.4-1
 - Initial Fedora/EPEL RPM package.
 - Tracks upstream v2.4.4: distribution packaging release; archive

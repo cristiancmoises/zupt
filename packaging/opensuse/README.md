@@ -1,12 +1,12 @@
 # openSUSE Build Service update for `home:cabelo:innovators/vaptvupt`
 
-This directory contains the three files needed to build vaptvupt `4.1.0`
+This directory contains the three files needed to build vaptvupt `4.2.0`
 in OBS:
 
 | File          | Purpose                                                                 |
 |---------------|-------------------------------------------------------------------------|
-| `_service`    | `revision` pinned to `v4.1.0`. Format unchanged (still `tar_scm`).      |
-| `vaptvupt.spec`   | `Version: 4.1.0`. `License: AGPL-3.0-or-later`. `%check` calls `make check`. |
+| `_service`    | `revision` pinned to `v4.2.0`. Format unchanged (still `tar_scm`).      |
+| `vaptvupt.spec`   | `Version: 4.2.0`. `License: AGPL-3.0-or-later`. `%check` calls `make check`. |
 | `vaptvupt.changes`| Changelog for the 4.x series. Older history preserved verbatim.        |
 
 ## Spec notes
@@ -58,22 +58,22 @@ cp /path/to/vaptvupt-source/packaging/opensuse/_service     .
 cp /path/to/vaptvupt-source/packaging/opensuse/vaptvupt.spec    .
 cp /path/to/vaptvupt-source/packaging/opensuse/vaptvupt.changes .
 
-# 3. Trigger the service locally to fetch v4.1.0 from GitHub
+# 3. Trigger the service locally to fetch v4.2.0 from GitHub
 osc service runall
-# Produces vaptvupt-4.1.0.tar.gz in the current directory.
+# Produces vaptvupt-4.2.0.tar.gz in the current directory.
 
 # 4. (Optional) Local build to verify before committing
 osc build openSUSE_Tumbleweed x86_64
 
 # 5. Commit upstream
-osc status   # confirm vaptvupt-4.1.0.tar.gz is staged alongside the
+osc status   # confirm vaptvupt-4.2.0.tar.gz is staged alongside the
              # three text files
-osc commit -m "Update to 4.1.0"
+osc commit -m "Update to 4.2.0"
 ```
 
 ## Notes for future updates
 
-* The `_service` `revision` is pinned to `v4.1.0`. To track a new
+* The `_service` `revision` is pinned to `v4.2.0`. To track a new
   release, edit that one line and re-run `osc service runall`.
 * The spec's `Version:` field is hard-coded — when you bump `_service`
   `revision`, also bump `Version:` to match.

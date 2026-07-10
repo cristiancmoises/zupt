@@ -1,3 +1,27 @@
+vaptvupt (4.2.0-1) UNRELEASED; urgency=high
+
+  * New native full (pure) post-quantum mode --pq-only: ML-KEM-768 (FIPS
+    203) as the sole key-establishment mechanism, no classical X25519
+    component (envelope type 0x06; archive key SHA3-512(ml_ss || ml_ct ||
+    "ZUPT-PQ-ONLY-v1")). For compliance postures that require a single
+    NIST-standardised PQ primitive with no classical KEM in the envelope
+    (CNSA 2.0-style "PQ-only"). Keys via keygen --pq-only (ZPQK magic;
+    not interchangeable with hybrid --pq keys). Hybrid --pq remains the
+    recommended default; --pq-only has no classical fallback, so a break
+    of ML-KEM-768 alone breaks the archive. In-tree, default build.
+  * Security (critical): AES-256-CTR keystream reuse under --dedup. Dedup
+    blocks all use sequence 0, so the previous nonce (base_nonce XOR seq)
+    collapsed to a single value across blocks, reusing the CTR keystream
+    (a many-time-pad). Each block now uses a fresh random 128-bit nonce
+    stored in the block prefix and bound into the block MAC; block_seq is
+    still bound as MAC AAD. Regression test tests/test_dedup_nonce.sh.
+    Re-encrypt any --dedup encrypted archives written by <= 4.1.0.
+  * keygen --sdk / --box on a source-only build now fails with a clear
+    message pointing to native --pq / --pq-only (or a WITH_SDK=1 build).
+  * Wire format v1.6 unchanged; the 0x06 envelope is additive.
+
+ -- Cristian Cezar Moisés <sac@securityops.co>  Wed, 09 Jul 2026 12:00:00 +0000
+
 vaptvupt (4.1.0-1) UNRELEASED; urgency=high
 
   * Source-only build: the prebuilt vendored libraries libzuptsdk.so and

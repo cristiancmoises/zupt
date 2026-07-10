@@ -1,4 +1,4 @@
-# Security Policy — VaptVupt 4.1.0
+# Security Policy — VaptVupt 4.2.0
 
 ## Reporting Vulnerabilities
 
@@ -26,12 +26,24 @@ deployments, treat it as "reviewed but unaudited" and do your own review.
 | Mode | CLI Flag | Algorithm | PQ-Safe? | Use Case |
 |------|----------|-----------|----------|----------|
 | Password | `-p` | PBKDF2-SHA256 → AES-256-CTR + HMAC-SHA256 | No | Short-term backups, personal use |
-| PQ Hybrid | `--pq` | ML-KEM-768 + X25519 → AES-256-CTR + HMAC-SHA256 | Yes | Long-term archives, high-value data |
+| PQ Hybrid | `--pq` | ML-KEM-768 + X25519 → AES-256-CTR + HMAC-SHA256 | Yes | Long-term archives, high-value data (**recommended**) |
+| PQ Only | `--pq-only` | ML-KEM-768 only → AES-256-CTR + HMAC-SHA256 | Yes | "PQ-only" compliance postures (no classical KEM) |
 | None | (default) | No encryption (compression only) | N/A | Non-sensitive data |
 
 Password mode (`-p`) is not quantum-safe. For protection against "harvest
 now, decrypt later" quantum attacks, use `--pq` — the recommended
 post-quantum mode. `--pq` is native and in-tree; it needs no external
+library.
+
+`--pq-only` (envelope type `0x06`) uses ML-KEM-768 as the *sole* key
+mechanism, with no classical X25519 component. It exists for compliance
+postures that mandate a single NIST-standardised PQ primitive with no
+classical KEM in the envelope (CNSA 2.0-style "PQ-only"). **This is a
+deliberate reduction in defence-in-depth:** unlike `--pq`, there is no
+classical fallback, so a future cryptanalytic break of ML-KEM-768 alone is
+sufficient to break the archive. Under `--pq`, an attacker must break *both*
+ML-KEM-768 and X25519. **Unless a policy forbids the classical component,
+prefer `--pq`.** Both modes are native, in-tree, and need no external
 library.
 
 Optional SDK modes (`--pq-sdk`, `--pq-box`) are available only in an
@@ -51,7 +63,8 @@ build and are not defaults.
 | Password KDF (WITH_SDK=1 option) | Argon2id | RFC 9106 | OWASP minimums | Password-dependent, memory-hard |
 | Post-quantum KEM | ML-KEM-768 | FIPS 203 | 1184B pk / 2400B sk | NIST Level 3 |
 | Classical KEM | X25519 | RFC 7748 | 32B scalar | ~128-bit classical |
-| Hybrid KDF | SHA3-512 | FIPS 202 | 512-bit output | Secure if either KEM holds |
+| Hybrid KDF (`--pq`) | SHA3-512 | FIPS 202 | 512-bit output | Secure if either KEM holds |
+| PQ-only KDF (`--pq-only`) | SHA3-512 | FIPS 202 | 512-bit output | Secure if ML-KEM-768 holds (no classical fallback) |
 | Integrity | XXH64 | xxHash spec | 64-bit checksum | Non-cryptographic |
 | Hashing | SHA3-256, SHA3-512 | FIPS 202 | 256/512-bit | Standard |
 | Random | OS CSPRNG | getrandom(2) / RtlGenRandom | N/A | Hard fail if unavailable |
@@ -66,13 +79,27 @@ Argon2id is available only in a `make WITH_SDK=1` build.
 ### Per-Block Authenticated Encryption
 
 ```
-For each data block (sequence 0, 1, 2, ...):
+For each data block:
 
-  nonce = base_nonce XOR pad_le(block_seq, 8)    [16 bytes]
+  nonce = CSPRNG(16)                               [16 bytes, fresh per block]
   ciphertext = AES-256-CTR(enc_key, nonce, plaintext)
-  mac = HMAC-SHA256(mac_key, nonce ‖ ciphertext)   [32 bytes]
+  mac = HMAC-SHA256(mac_key, aad ‖ nonce ‖ ciphertext)   [32 bytes]
   stored = nonce ‖ ciphertext ‖ mac
 ```
+
+The nonce is a **fresh 128-bit random value per block**, stored in the block
+prefix and bound into the block MAC. The block sequence number is bound into
+the MAC AAD (not into the nonce), so reordering, splicing, or replaying blocks
+is still detected.
+
+> **History (fixed in 4.2.0):** earlier releases derived the nonce as
+> `base_nonce XOR pad_le(block_seq, 8)`. In `--dedup` mode every data block is
+> assigned sequence 0 (the sentinel that keeps cross-file dedup references
+> authenticating consistently), so the nonce collapsed to a single value across
+> all dedup blocks — reusing the AES-CTR keystream across distinct plaintexts
+> (a many-time-pad). Switching to a fresh random per-block nonce closes this.
+> Regression test: `tests/test_dedup_nonce.sh`. Re-encrypt any `--dedup` +
+> encrypted archives written by ≤ 4.1.0.
 
 ### Encrypt-then-MAC
 
@@ -105,6 +132,26 @@ simultaneously to recover the archive key. Same approach as Signal
 The `--pq-sdk` mode (WITH_SDK=1 only) uses an HKDF-SHA3-256 combiner, a
 32-byte key commitment tag, HPKE-style context binding (RFC 9180 §5),
 anti-fault double decapsulation, and XChaCha20-Poly1305 AEAD.
+
+### Full Post-Quantum KEM (`--pq-only`)
+
+```
+Encapsulation:
+  ML-KEM-768.Encaps(pk)  → ml_ct[1088], ml_ss[32]
+  archive_key = SHA3-512(ml_ss ‖ ml_ct ‖ "ZUPT-PQ-ONLY-v1")
+  enc_key = archive_key[0:32]
+  mac_key = archive_key[32:64]
+```
+
+Security model: secure if ML-KEM-768 (post-quantum, NIST Level 3) remains
+unbroken. **There is no classical component**, so — unlike `--pq` — a break of
+ML-KEM-768 alone is sufficient to compromise the archive key. This mode exists
+only for compliance postures that mandate a single NIST-standardised PQ
+primitive with no classical KEM in the envelope (CNSA 2.0-style "PQ-only").
+Decapsulation uses ML-KEM Fujisaki-Okamoto implicit rejection: a wrong or
+tampered `ml_ct` yields a pseudorandom shared secret, so decryption fails
+closed at the HMAC check rather than leaking a decapsulation-validity oracle.
+**Unless a policy forbids the classical component, prefer `--pq`.**
 
 ---
 

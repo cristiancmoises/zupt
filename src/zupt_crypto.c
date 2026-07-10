@@ -391,11 +391,23 @@ uint8_t *zupt_encrypt_buffer_aad(const zupt_keyring_t *kr,
     uint8_t *pkg = (uint8_t *)malloc(*olen);
     if (!pkg) return NULL;
 
-    /* Derive per-block nonce */
+    /* Per-block nonce: a fresh random 128-bit value for every block.
+     *
+     * SECURITY FIX (v4.2.0): the previous scheme derived the nonce as
+     * base_nonce XOR block_seq, but dedup mode hard-codes block_seq == 0 for
+     * every data block (the sentinel needed so cross-file dedup references MAC
+     * the same way). That collapsed every dedup block's nonce to the single
+     * per-archive base_nonce, reusing the AES-256-CTR keystream across distinct
+     * plaintext blocks — a many-time-pad that leaks plaintext to a
+     * ciphertext-only attacker, in every encryption mode (password, hybrid PQ,
+     * full PQ). A random 128-bit nonce is unique with overwhelming probability
+     * regardless of dedup or thread scheduling. The nonce is stored in the
+     * package prefix and bound by the HMAC, and decrypt reads it back directly,
+     * so this is an encrypt-side change only — the on-disk format, the MAC
+     * transcript (which still uses block_seq as aad_seq), and the decrypt path
+     * are all unchanged, and pre-4.2 archives still extract byte-exact. */
     uint8_t nonce[16];
-    memcpy(nonce, kr->base_nonce, 16);
-    for (int i = 0; i < 8; i++)
-        nonce[i] ^= (uint8_t)(block_seq >> (i * 8));
+    zupt_random_bytes(nonce, 16);
 
     /* Store nonce */
     memcpy(pkg, nonce, 16);
@@ -848,5 +860,209 @@ int zupt_hybrid_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
     zupt_secure_wipe(kdf_input, sizeof(kdf_input));
     zupt_secure_wipe(archive_key, 64);
 
+    return 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * FULL POST-QUANTUM KEM: ML-KEM-768 only (v4.2.0)
+ *
+ * Unlike the hybrid --pq mode (ML-KEM-768 + X25519), this mode uses
+ * ML-KEM-768 ALONE — no classical X25519 component. It is "fully
+ * post-quantum": confidentiality of the archive key rests solely on
+ * ML-KEM (FIPS 203, IND-CCA2 with the Fujisaki-Okamoto transform /
+ * implicit rejection that zupt_mlkem768_decaps implements).
+ *
+ * SECURITY NOTE: the hybrid --pq mode remains the recommended default.
+ * A pure-PQ scheme has NO classical fallback, so a future break of
+ * ML-KEM-768 leaves no second layer. Use --pq-only only when a strictly
+ * post-quantum construction is a hard requirement (e.g. a policy that
+ * forbids classical primitives entirely).
+ *
+ * Key file (ZPQK):
+ *   [4B]    "ZPQK"
+ *   [1B]    version 0x01
+ *   [1B]    flags: bit0 = has_private
+ *   [2B]    reserved
+ *   [1184B] ml_kem_pk
+ *   [2400B] ml_kem_sk   (only if has_private)
+ *   [8B]    xxh64 of everything above
+ *
+ * enc_hdr (ZUPT_ENC_PQ_ONLY = 0x06), 1105 bytes:
+ *   [1B]    0x06
+ *   [1088B] ml_kem_ciphertext
+ *   [16B]   base_nonce
+ *
+ * archive_key[64] = SHA3-512(ml_ss ‖ ml_ct ‖ "ZUPT-PQ-ONLY-v1")
+ *   enc_key = archive_key[0:32], mac_key = archive_key[32:64]
+ * The ML-KEM ciphertext is bound into the KDF transcript (defense in
+ * depth) alongside the domain separator, which also prevents cross-mode
+ * key reuse with the hybrid path (different label).
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#define ZPQK_MAGIC        "ZPQK"
+#define ZPQK_VERSION      0x01
+#define ZPQK_FLAG_PRIVATE 0x01
+#define ZPQK_HDR          8
+#define ZPQK_PUB_SIZE     (ZPQK_HDR + 1184)
+#define ZPQK_PRIV_SIZE    (ZPQK_HDR + 1184 + 2400)
+#define ZUPT_PQ_ONLY_LABEL "ZUPT-PQ-ONLY-v1"   /* 15 bytes */
+
+int zupt_pq_keygen(const char *keyfile) {
+    uint8_t ml_pk[MLKEM_PUBLICKEYBYTES], ml_sk[MLKEM_SECRETKEYBYTES];
+    if (zupt_mlkem768_keygen(ml_pk, ml_sk) != 0) return -1;
+
+    FILE *f = fopen(keyfile, "wb");
+    if (!f) { zupt_secure_wipe(ml_sk, sizeof(ml_sk)); return -1; }
+
+    size_t total = ZPQK_PRIV_SIZE;
+    uint8_t *buf = (uint8_t *)calloc(total + 8, 1);
+    if (!buf) { fclose(f); zupt_secure_wipe(ml_sk, sizeof(ml_sk)); return -1; }
+
+    memcpy(buf, ZPQK_MAGIC, 4);
+    buf[4] = ZPQK_VERSION;
+    buf[5] = ZPQK_FLAG_PRIVATE;
+    buf[6] = buf[7] = 0;
+    memcpy(buf + ZPQK_HDR, ml_pk, 1184);
+    memcpy(buf + ZPQK_HDR + 1184, ml_sk, 2400);
+
+    uint64_t ck = zupt_xxh64(buf, total, 0);
+    zupt_le64_put(buf + total, ck);
+
+    size_t written = fwrite(buf, 1, total + 8, f);
+    if (fclose(f) != 0) written = 0;
+
+    zupt_secure_wipe(ml_sk, sizeof(ml_sk));
+    zupt_secure_wipe(buf, total + 8);
+    free(buf);
+    return (written == total + 8) ? 0 : -1;
+}
+
+int zupt_pq_export_pubkey(const char *privfile, const char *pubfile) {
+    FILE *f = fopen(privfile, "rb");
+    if (!f) return -1;
+    uint8_t hdr[ZPQK_HDR];
+    if (fread(hdr, 1, ZPQK_HDR, f) != ZPQK_HDR || memcmp(hdr, ZPQK_MAGIC, 4) != 0 ||
+        !(hdr[5] & ZPQK_FLAG_PRIVATE)) { fclose(f); return -1; }
+    uint8_t ml_pk[1184];
+    if (fread(ml_pk, 1, 1184, f) != 1184) { fclose(f); return -1; }
+    fclose(f);
+
+    FILE *out = fopen(pubfile, "wb");
+    if (!out) return -1;
+    size_t total = ZPQK_PUB_SIZE;
+    uint8_t buf[ZPQK_PUB_SIZE + 8];
+    memcpy(buf, ZPQK_MAGIC, 4);
+    buf[4] = ZPQK_VERSION;
+    buf[5] = 0;
+    buf[6] = buf[7] = 0;
+    memcpy(buf + ZPQK_HDR, ml_pk, 1184);
+    uint64_t ck = zupt_xxh64(buf, total, 0);
+    zupt_le64_put(buf + total, ck);
+    size_t written = fwrite(buf, 1, total + 8, out);
+    if (fclose(out) != 0) written = 0;
+    return (written == total + 8) ? 0 : -1;
+}
+
+static int read_pq_pubkey(const char *path, uint8_t ml_pk[1184]) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    uint8_t hdr[ZPQK_HDR];
+    if (fread(hdr, 1, ZPQK_HDR, f) != ZPQK_HDR || memcmp(hdr, ZPQK_MAGIC, 4) != 0) {
+        fclose(f); return -1;
+    }
+    if (fread(ml_pk, 1, 1184, f) != 1184) { fclose(f); return -1; }
+    fclose(f);
+    return 0;
+}
+
+static int read_pq_privkey(const char *path, uint8_t ml_pk[1184], uint8_t ml_sk[2400]) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    uint8_t hdr[ZPQK_HDR];
+    if (fread(hdr, 1, ZPQK_HDR, f) != ZPQK_HDR || memcmp(hdr, ZPQK_MAGIC, 4) != 0 ||
+        !(hdr[5] & ZPQK_FLAG_PRIVATE)) { fclose(f); return -1; }
+    if (fread(ml_pk, 1, 1184, f) != 1184) { fclose(f); return -1; }
+    if (fread(ml_sk, 1, 2400, f) != 2400) { fclose(f); return -1; }
+    fclose(f);
+    return 0;
+}
+
+/* archive_key = SHA3-512(ml_ss ‖ ml_ct ‖ label). Shared by encrypt/decrypt. */
+static void pq_only_derive(const uint8_t ml_ss[32], const uint8_t ml_ct[1088],
+                           uint8_t archive_key[64]) {
+    uint8_t kdf_input[32 + 1088 + 15];
+    memcpy(kdf_input, ml_ss, 32);
+    memcpy(kdf_input + 32, ml_ct, 1088);
+    memcpy(kdf_input + 32 + 1088, ZUPT_PQ_ONLY_LABEL, 15);
+    zupt_sha3_512(kdf_input, sizeof(kdf_input), archive_key);
+    zupt_secure_wipe(kdf_input, sizeof(kdf_input));
+}
+
+int zupt_pq_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
+                         uint8_t *enc_hdr, size_t *enc_hdr_len) {
+    uint8_t ml_pk[1184];
+    if (read_pq_pubkey(pubkeyfile, ml_pk) != 0) return -1;
+
+    uint8_t ml_ct[1088], ml_ss[32];
+    if (zupt_mlkem768_encaps(ml_ct, ml_ss, ml_pk) != 0) return -1;
+
+    uint8_t archive_key[64];
+    pq_only_derive(ml_ss, ml_ct, archive_key);
+
+    kr->canary_head = ZUPT_CANARY;
+    memcpy(kr->enc_key, archive_key, 32);
+    memcpy(kr->mac_key, archive_key + 32, 32);
+    zupt_random_bytes(kr->base_nonce, ZUPT_NONCE_SIZE);
+    kr->iterations = 0;
+    kr->active = 1;
+    kr->canary_tail = ZUPT_CANARY;
+    zupt_mlock_keys(kr->enc_key, ZUPT_AES_KEY_SIZE);
+    zupt_mlock_keys(kr->mac_key, ZUPT_HMAC_SIZE);
+
+    enc_hdr[0] = ZUPT_ENC_PQ_ONLY;
+    memcpy(enc_hdr + 1, ml_ct, 1088);
+    memcpy(enc_hdr + 1 + 1088, kr->base_nonce, 16);
+    *enc_hdr_len = 1 + 1088 + 16;   /* 1105 bytes */
+
+    zupt_secure_wipe(ml_ss, 32);
+    zupt_secure_wipe(archive_key, 64);
+    return 0;
+}
+
+int zupt_pq_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
+                         const uint8_t *enc_hdr, size_t enc_hdr_len) {
+    if (enc_hdr_len < 1 + 1088 + 16) return -1;
+    if (enc_hdr[0] != ZUPT_ENC_PQ_ONLY) return -1;
+    const uint8_t *ml_ct = enc_hdr + 1;
+    const uint8_t *nonce = enc_hdr + 1 + 1088;
+
+    uint8_t ml_pk[1184], ml_sk[2400];
+    if (read_pq_privkey(privkeyfile, ml_pk, ml_sk) != 0) {
+        zupt_secure_wipe(ml_sk, sizeof(ml_sk));  /* wipe any partial secret from a truncated key file */
+        return -1;
+    }
+
+    /* ML-KEM-768 decapsulation (FO implicit rejection: an invalid ciphertext
+     * yields a pseudorandom shared secret, so a wrong/tampered ct produces a
+     * wrong archive key and the per-block HMAC fails-closed at extract time). */
+    uint8_t ml_ss[32];
+    zupt_mlkem768_decaps(ml_ss, ml_ct, ml_sk);
+
+    uint8_t archive_key[64];
+    pq_only_derive(ml_ss, ml_ct, archive_key);
+
+    kr->canary_head = ZUPT_CANARY;
+    memcpy(kr->enc_key, archive_key, 32);
+    memcpy(kr->mac_key, archive_key + 32, 32);
+    memcpy(kr->base_nonce, nonce, ZUPT_NONCE_SIZE);
+    kr->iterations = 0;
+    kr->active = 1;
+    kr->canary_tail = ZUPT_CANARY;
+    zupt_mlock_keys(kr->enc_key, ZUPT_AES_KEY_SIZE);
+    zupt_mlock_keys(kr->mac_key, ZUPT_HMAC_SIZE);
+
+    zupt_secure_wipe(ml_sk, sizeof(ml_sk));
+    zupt_secure_wipe(ml_ss, 32);
+    zupt_secure_wipe(archive_key, 64);
     return 0;
 }

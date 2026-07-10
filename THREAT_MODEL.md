@@ -35,8 +35,15 @@ a substitute for full-disk encryption.
   (600k iterations). Argon2id is available only in an upstream
   `make WITH_SDK=1` build against the separately distributed
   libraries.
-- `--pq`: native post-quantum mode (ML-KEM-768 + X25519), the PQ mode
-  in the default build. The ML-KEM-768 implementation is in-tree.
+- `--pq`: native post-quantum **hybrid** mode (ML-KEM-768 + X25519), the
+  recommended PQ mode in the default build. The ML-KEM-768 implementation
+  is in-tree.
+- `--pq-only`: native **full/pure** post-quantum mode (ML-KEM-768 only, no
+  X25519), also in the default build. For compliance postures that mandate a
+  single NIST-standardised PQ primitive with no classical KEM in the envelope.
+  Its threat profile differs from `--pq` in exactly one axis: it has no
+  classical fallback, so a break of ML-KEM-768 alone breaks the archive
+  (see §5 and "Cryptographic assumptions").
 - `--pq-sdk` / `--pq-box`: optional post-quantum modes backed by the
   separately distributed `libzuptsdk` / `libpqvaptvupt` libraries.
   Available only in a `make WITH_SDK=1` build. Key files for these
@@ -99,7 +106,7 @@ also constant (HMAC is always run, branchless return).
 The detailed cause is available via `--verbose` for debugging on
 machines under the user's own control.
 
-### 5. Post-quantum forward secrecy (`--pq` and optional `--pq-sdk`)
+### 5. Post-quantum forward secrecy (`--pq`, `--pq-only`, and optional `--pq-sdk`)
 
 The native `--pq` mode uses ML-KEM-768 (FIPS 203) hybridized with
 X25519 via an HKDF combiner. Archives encrypted today cannot be
@@ -111,8 +118,18 @@ assuming:
 - X25519 hybridization protects against an unforeseen ML-KEM break
 - The recipient's private key is not later compromised
 
-The optional `--pq-sdk` mode provides the same hybrid guarantee via
-the separately distributed SDK libraries.
+The native `--pq-only` mode (envelope type `0x06`) provides the same
+harvest-now-decrypt-later protection using ML-KEM-768 as the *sole* key
+mechanism. It exists for compliance postures that mandate a single
+NIST-standardised PQ primitive with no classical KEM in the envelope
+(CNSA 2.0-style "PQ-only"). **The trade-off is a loss of the second
+assumption above:** there is no X25519 hybridization, so an unforeseen
+break of ML-KEM-768 alone is sufficient to recover the archive key. For
+that reason `--pq` (hybrid) is the recommended default, and `--pq-only`
+should be used only when a policy forbids the classical component.
+
+The optional `--pq-sdk` mode provides the same hybrid guarantee as
+`--pq` via the separately distributed SDK libraries.
 
 ### 6. Side-channel resistance for cryptographic primitives
 
@@ -274,8 +291,8 @@ VaptVupt's security rests on the following standard assumptions:
 | AES-256-CTR is a secure stream cipher | All encrypted archives become readable |
 | HMAC-SHA256 is a secure PRF / MAC | Tamper detection fails; integrity can be forged |
 | PBKDF2-SHA256 (or Argon2id, WITH_SDK) is a secure password KDF | Password-mode archives become brute-forceable faster |
-| ML-KEM-768 retains NIST Category 3 security | `--pq` / `--pq-sdk` reduce to the X25519 layer |
-| X25519 retains 128-bit security (no quantum) | PQ modes reduce to the ML-KEM layer; classical password mode unaffected |
+| ML-KEM-768 retains NIST Category 3 security | `--pq` / `--pq-sdk` reduce to the X25519 layer; **`--pq-only` has no fallback and is broken** |
+| X25519 retains 128-bit security (no quantum) | Hybrid PQ modes reduce to the ML-KEM layer; `--pq-only` and classical password mode unaffected |
 | HKDF-SHA256 is a secure key-derivation construction | Combined PQ + classical keys may be predictable |
 | SHA3 / SHAKE retain pre-image and collision resistance | Auxiliary protocol bindings may be forged |
 
@@ -306,6 +323,6 @@ normally.
 ## Document version
 
 This threat model covers archive format v1.6 as shipped in VaptVupt
-4.1.0. It is part of the source tree (`THREAT_MODEL.md`) and
+4.2.0. It is part of the source tree (`THREAT_MODEL.md`) and
 versioned with the project; this section will be updated as the
 format evolves.

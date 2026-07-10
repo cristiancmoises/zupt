@@ -1,6 +1,52 @@
 # VaptVupt Changelog
 
 
+## [4.2.0] — 2026-07-09 — Full (pure) post-quantum mode; dedup keystream-reuse fix
+
+### Added — full post-quantum encryption (`--pq-only`)
+
+- New native **full post-quantum** mode: `--pq-only` uses **ML-KEM-768**
+  (FIPS 203) as the *sole* key-establishment mechanism, with no classical
+  X25519 component. It complements the existing hybrid `--pq` for compliance
+  postures that require a single NIST-standardised PQ primitive with no
+  classical KEM in the envelope (CNSA 2.0-style "PQ-only" requirements).
+- Wire format: new envelope type `0x06` (`ZUPT_ENC_PQ_ONLY`). The archive key
+  is `SHA3-512(ml_ss || ml_ct || "ZUPT-PQ-ONLY-v1")`. Keypairs use the `ZPQK`
+  magic (1200-byte public, 3600-byte private) and are **not** interchangeable
+  with hybrid `--pq` keys.
+- Keygen: `vaptvupt keygen --pq-only` and `keygen --pub --pq-only`. Encrypt
+  with `compress --pq-only pub.key`, restore with `extract --pq-only priv.key`.
+  Wrong/tampered ciphertext is rejected via ML-KEM Fujisaki-Okamoto implicit
+  rejection plus the HMAC-SHA256 Encrypt-then-MAC envelope.
+- Built entirely from the in-tree crypto — no external library, always
+  available in the default source-only build. The security trade-off vs the
+  hybrid is documented explicitly: `--pq-only` has no classical safety net, so
+  a future break of ML-KEM-768 alone breaks the envelope. `--pq` (hybrid)
+  remains the default recommendation.
+
+### Fixed
+
+- **Deterministic keygen guidance for the SDK path.** `keygen --sdk` /
+  `--box` on a source-only build now fails with a clear message pointing to the
+  native `--pq` / `--pq-only` keygen (or a `WITH_SDK=1` build) instead of an
+  opaque error.
+
+### Security
+
+- **Critical — AES-256-CTR keystream reuse under deduplication.** In `--dedup`
+  mode every data block was assigned block sequence 0 (the sentinel that lets
+  cross-file dedup references authenticate consistently). The per-block AEAD
+  nonce was previously derived as `base_nonce XOR block_seq`, so under dedup
+  every block collapsed to the *same* nonce — reusing the CTR keystream across
+  distinct plaintexts (a many-time-pad, from which XOR of ciphertexts leaks
+  plaintext XOR). Each block now uses a **fresh random 128-bit nonce** stored in
+  the block prefix and bound into the block MAC; `block_seq` is still bound as
+  MAC AAD. Nonces are now distinct across all blocks in every mode (regression
+  test `tests/test_dedup_nonce.sh`). Found by an adversarial review of the
+  encryption path and confirmed empirically. Archives written by 4.1.0 and
+  earlier in `--dedup` + encryption mode should be re-encrypted with 4.2.0.
+
+
 ## [4.1.0] — 2026-07-07 — Source-only build; multithreaded-encryption fix; hardening
 
 ### Source-only build (no vendored binaries)

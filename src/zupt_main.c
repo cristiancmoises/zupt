@@ -72,8 +72,9 @@ static void usage(void) {
         "                            Use 'pbkdf2' for v2.4.0-and-older reader compatibility.\n"
         "  -c, --comment <TEXT>  Embed a free-form archive comment (v2.4.3+).\n"
         "  --comment-file <FILE>     Read comment from file (max 4096 bytes).\n"
-        "  --pq <pubkey>         Post-quantum encryption (legacy XOR+SHA3 combiner)\n"
-        "  --pq-sdk <pubkey>     Post-quantum encryption via libzuptsdk\n"
+        "  --pq <pubkey>         Post-quantum HYBRID encryption (ML-KEM-768 + X25519) [recommended]\n"
+        "  --pq-only <pubkey>    FULL post-quantum encryption (ML-KEM-768 only, no classical layer)\n"
+        "  --pq-sdk <pubkey>     Post-quantum encryption via libzuptsdk (WITH_SDK=1 builds only)\n"
         "  --pq-box <pubkey>     Post-quantum sealed box via libpqvaptvupt (HKDF combiner)\n"
         "                          (HKDF combiner + key commitment + HPKE binding\n"
         "                          + Argon2id; recommended for new archives)\n"
@@ -88,8 +89,9 @@ static void usage(void) {
         "Extract/List/Test Options:\n"
         "  -o, --output <DIR>    Output directory (extract only)\n"
         "  -p, --password <PW>   Decryption password\n"
-        "  --pq <privkey>        Post-quantum decryption (legacy combiner)\n"
-        "  --pq-sdk <privkey>    Post-quantum decryption via libzuptsdk\n"
+        "  --pq <privkey>        Post-quantum HYBRID decryption (ML-KEM-768 + X25519)\n"
+        "  --pq-only <privkey>   FULL post-quantum decryption (ML-KEM-768 only)\n"
+        "  --pq-sdk <privkey>    Post-quantum decryption via libzuptsdk (WITH_SDK=1 builds only)\n"
         "  --pq-box <privkey>    Post-quantum sealed-box decryption (libpqvaptvupt)\n"
         "  -v, --verbose         Verbose output\n"
         "  -t, --threads <N>     Thread count for decompression\n"
@@ -98,9 +100,11 @@ static void usage(void) {
         "  -o <file>             Output keyfile path (required)\n"
         "  --pub                 Export public key from existing private key (-k)\n"
         "  -k <privkey>          Source private keyfile (with --pub)\n"
-        "  --sdk, --pq-sdk       Generate SDK v2 keypair (writes <file> and <file>.pub)\n"
-        "  --box, --pq-box       Generate pq-box keypair (libpqvaptvupt; writes <file> and <file>.pub)\n"
-        "                          Use these keys with --pq-sdk / --pq-box respectively.\n"
+        "  (default)             Generate HYBRID keypair (ML-KEM-768 + X25519) for --pq\n"
+        "  --pq-only             Generate FULL post-quantum keypair (ML-KEM-768 only) for --pq-only\n"
+        "  --sdk, --pq-sdk       Generate SDK v2 keypair (libzuptsdk; WITH_SDK=1 builds only)\n"
+        "  --box, --pq-box       Generate pq-box keypair (libpqvaptvupt; WITH_SDK=1 builds only)\n"
+        "                          Use each key with its matching mode.\n"
         "\n"
         "Directories are traversed recursively.\n"
         "\n");
@@ -268,6 +272,9 @@ int main(int argc, char **argv) {
             } else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
                 opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--pq-only")&&ai+1<argc) {
+                opts.pqonly_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             } else if (streq(argv[ai],"--pq")&&ai+1<argc) {
                 opts.pq_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
@@ -410,6 +417,9 @@ int main(int argc, char **argv) {
             } else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
                 opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--pq-only")&&ai+1<argc) {
+                opts.pqonly_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             } else if (streq(argv[ai],"--pq")&&ai+1<argc) {
                 opts.pq_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
@@ -446,6 +456,9 @@ int main(int argc, char **argv) {
             } else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
                 opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--pq-only")&&ai+1<argc) {
+                opts.pqonly_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             } else if (streq(argv[ai],"--pq")&&ai+1<argc) {
                 opts.pq_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
@@ -480,6 +493,9 @@ int main(int argc, char **argv) {
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             } else if (streq(argv[ai],"--pq-sdk")&&ai+1<argc) {
                 opts.pq_mode=1; opts.sdk_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
+            } else if (streq(argv[ai],"--pq-only")&&ai+1<argc) {
+                opts.pqonly_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             } else if (streq(argv[ai],"--pq")&&ai+1<argc) {
                 opts.pq_mode=1; opts.encrypt=1;
@@ -743,6 +759,9 @@ int main(int argc, char **argv) {
                 opts.verbose=1;
             } else if ((streq(argv[ai],"-t")||streq(argv[ai],"--threads"))&&ai+1<argc) {
                 opts.threads=atoi(argv[++ai]);
+            } else if (streq(argv[ai],"--pq-only")&&ai+1<argc) {
+                opts.pqonly_mode=1; opts.encrypt=1;
+                strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             } else if (streq(argv[ai],"--pq")&&ai+1<argc) {
                 opts.pq_mode=1; opts.encrypt=1;
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
@@ -821,6 +840,7 @@ int main(int argc, char **argv) {
         int export_pub = 0;
         int sdk_mode = 0;
         int box_mode = 0;
+        int pqonly_mode = 0;
         int ai = 2;
         while (ai < argc && isopt(argv[ai])) {
             if ((streq(argv[ai],"-o")||streq(argv[ai],"--output")) && ai+1 < argc)
@@ -833,6 +853,8 @@ int main(int argc, char **argv) {
                 sdk_mode = 1;
             else if (streq(argv[ai],"--box")||streq(argv[ai],"--pq-box"))
                 box_mode = 1;
+            else if (streq(argv[ai],"--pq-only")||streq(argv[ai],"--pqonly"))
+                pqonly_mode = 1;
             else { fprintf(stderr, "Unknown option '%s'\n", argv[ai]); return 1; }
             ai++;
         }
@@ -848,10 +870,22 @@ int main(int argc, char **argv) {
         if (export_pub) {
             if (!privfile) { fprintf(stderr, "Error: --pub requires -k <private_keyfile>\n"); return 1; }
             fprintf(stderr, "  Exporting public key from: %s\n", privfile);
-            if (zupt_hybrid_export_pubkey(privfile, outfile) != 0) {
-                fprintf(stderr, "Error: Failed to export public key.\n"); return 1;
+            int erc = pqonly_mode ? zupt_pq_export_pubkey(privfile, outfile)
+                                  : zupt_hybrid_export_pubkey(privfile, outfile);
+            if (erc != 0) {
+                fprintf(stderr, "Error: Failed to export public key%s.\n",
+                        pqonly_mode ? "" : " (for full-PQ keys use: keygen --pub --pq-only)");
+                return 1;
             }
             fprintf(stderr, "  Public key written to: %s\n", outfile);
+        } else if (pqonly_mode) {
+            fprintf(stderr, "  Generating ML-KEM-768 keypair (full post-quantum, no X25519)...\n");
+            if (zupt_pq_keygen(outfile) != 0) {
+                fprintf(stderr, "Error: full-PQ key generation failed.\n"); return 1;
+            }
+            fprintf(stderr, "  Private key written to: %s\n", outfile);
+            fprintf(stderr, "  SECURITY: Keep this file secret. Back it up securely.\n");
+            fprintf(stderr, "  To export public key: vaptvupt keygen --pub --pq-only -o pub.key -k %s\n", outfile);
         } else if (box_mode) {
             fprintf(stderr, "  Generating ML-KEM-768 + X25519 keypair (pq-box format)...\n");
             char pubfile[512];
@@ -867,7 +901,14 @@ int main(int argc, char **argv) {
             char pubfile[512];
             snprintf(pubfile, sizeof(pubfile), "%s.pub", outfile);
             if (zupt_sdk_hybrid_keygen(outfile, pubfile) != 0) {
-                fprintf(stderr, "Error: SDK key generation failed.\n"); return 1;
+                fprintf(stderr,
+                    "Error: SDK-v2 key generation is unavailable in this build.\n"
+                    "       --pq-sdk needs libzuptsdk, which is not part of the source-only\n"
+                    "       build. For post-quantum keys use one of the native modes:\n"
+                    "         vaptvupt keygen -o key            # hybrid ML-KEM-768 + X25519 (--pq)\n"
+                    "         vaptvupt keygen --pq-only -o key  # full PQ, ML-KEM-768 only (--pq-only)\n"
+                    "       (Rebuild upstream with 'make WITH_SDK=1' to enable --pq-sdk.)\n");
+                return 1;
             }
             fprintf(stderr, "  Private key:  %s\n", outfile);
             fprintf(stderr, "  Public key:   %s\n", pubfile);

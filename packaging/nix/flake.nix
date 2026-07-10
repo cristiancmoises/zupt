@@ -33,7 +33,7 @@
 
         zupt = pkgs.stdenv.mkDerivation {
           pname = "vaptvupt";
-          version = "4.1.0";
+          version = "4.2.0";
 
           # When publishing, replace this with `fetchurl` against the
           # release tarball. For local development the flake assumes it

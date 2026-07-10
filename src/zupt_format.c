@@ -377,6 +377,35 @@ zupt_error_t write_enc_header(FILE *out, zupt_archive_header_t *hdr,
 
         if (!opts->quiet)
             fprintf(stderr, "  Encryption: SDK-v2 PQ Hybrid + XChaCha20-Poly1305 (commitment + HPKE)\n\n");
+    } else if (opts->pqonly_mode) {
+        /* ─── FULL POST-QUANTUM MODE (ML-KEM-768 only, no X25519) ─── */
+        hdr->global_flags |= ZUPT_FLAG_PQ_HYBRID;   /* generic PQ indicator; enc_type distinguishes */
+
+        uint8_t enc_hdr_buf[1200];
+        size_t enc_hdr_len = 0;
+        if (!opts->quiet)
+            fprintf(stderr, "  Full post-quantum key encapsulation (ML-KEM-768, no classical layer)...\n");
+        if (zupt_pq_encrypt_init(&opts->keyring, opts->keyfile,
+                                 enc_hdr_buf, &enc_hdr_len) != 0) {
+            fprintf(stderr, "Error: full-PQ key encapsulation failed (wrong key file?).\n");
+            return ZUPT_ERR_AUTH_FAIL;
+        }
+
+        zupt_w8(out, ZUPT_BLOCK_MAGIC_0); zupt_w8(out, ZUPT_BLOCK_MAGIC_1);
+        zupt_w8(out, ZUPT_BLOCK_ENC_HEADER);
+        zupt_w16le(out, ZUPT_CODEC_STORE); zupt_w16le(out, 0);
+        zupt_write_varint(out, enc_hdr_len);
+        zupt_write_varint(out, enc_hdr_len);
+        zupt_w64le(out, zupt_xxh64(enc_hdr_buf, enc_hdr_len, 0));
+        if (fwrite(enc_hdr_buf, 1, enc_hdr_len, out) != enc_hdr_len)
+            return ZUPT_ERR_IO;
+
+        fseeko(out, 0, SEEK_SET);
+        if (fwrite(hdr, sizeof(*hdr), 1, out) != 1) return ZUPT_ERR_IO;
+        fseeko(out, 0, SEEK_END);
+
+        if (!opts->quiet)
+            fprintf(stderr, "  Encryption: Full PQ (ML-KEM-768) + AES-256-CTR + HMAC-SHA256\n\n");
     } else if (opts->pq_mode) {
         /* ─── PQ HYBRID MODE ─── */
         hdr->global_flags |= ZUPT_FLAG_PQ_HYBRID;
@@ -2017,6 +2046,21 @@ zupt_error_t read_enc_header(FILE *f, zupt_archive_header_t *hdr, zupt_options_t
         if (zupt_hybrid_decrypt_init(&opts->keyring, opts->keyfile,
                                       eb.payload, (size_t)eb.compressed_size) != 0) {
             fprintf(stderr, "Error: PQ decryption key derivation failed (wrong key?).\n");
+            free(eb.payload);
+            return ZUPT_ERR_AUTH_FAIL;
+        }
+        free(eb.payload);
+        return ZUPT_OK;
+    } else if (enc_type == ZUPT_ENC_PQ_ONLY) {
+        /* ─── FULL POST-QUANTUM MODE (ML-KEM-768 only) ─── */
+        if (opts->keyfile[0] == '\0') {
+            fprintf(stderr, "Error: Archive uses full post-quantum encryption. Use --pq-only <keyfile>.\n");
+            free(eb.payload);
+            return ZUPT_ERR_AUTH_FAIL;
+        }
+        if (zupt_pq_decrypt_init(&opts->keyring, opts->keyfile,
+                                 eb.payload, (size_t)eb.compressed_size) != 0) {
+            fprintf(stderr, "Error: full-PQ decryption key derivation failed (wrong key?).\n");
             free(eb.payload);
             return ZUPT_ERR_AUTH_FAIL;
         }

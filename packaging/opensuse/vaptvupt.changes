@@ -1,4 +1,27 @@
 -------------------------------------------------------------------
+Wed Jul  9 12:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 4.2.0:
+  * New native full (pure) post-quantum mode --pq-only: ML-KEM-768
+    (FIPS 203) as the sole key-establishment mechanism, with no
+    classical X25519 component (envelope type 0x06; archive key
+    SHA3-512(ml_ss || ml_ct || "ZUPT-PQ-ONLY-v1")). For compliance
+    postures that mandate a single NIST-standardised PQ primitive with
+    no classical KEM in the envelope (CNSA 2.0-style "PQ-only"). Keys
+    via keygen --pq-only. In-tree crypto, built in the default
+    source-only package. Hybrid --pq remains the recommended default;
+    --pq-only has no classical fallback.
+  * Security (critical): fixed AES-256-CTR keystream reuse under
+    --dedup. Dedup blocks all use sequence 0, so the previous nonce
+    (base_nonce XOR seq) collapsed to a single value across blocks,
+    reusing the CTR keystream. Each block now uses a fresh random
+    128-bit nonce. Re-encrypt any --dedup encrypted archives written
+    by <= 4.1.0.
+  * keygen --sdk / --box now gives clear guidance toward native --pq /
+    --pq-only on a source-only build.
+  * Wire format v1.6 unchanged; the 0x06 envelope is additive.
+
+-------------------------------------------------------------------
 Tue Jul  7 12:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
 
 - Update to 4.1.0:

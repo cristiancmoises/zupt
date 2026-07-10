@@ -17,28 +17,37 @@ License: AGPL-3.0-or-later (dual-licensed AGPL + commercial).
 > command is preserved as a symlink to `vaptvupt` for one major version
 > cycle.
 
-## What's new in 4.1.0
+## What's new in 4.2.0
 
-- **Source-only tree.** The prebuilt vendored libraries `libzuptsdk.so`
-  and `libpqvaptvupt.so` have been removed. The default `make` needs only
-  a C compiler and make (plus libm/pthread) — no external crypto library —
-  and installs no `.so`.
-- **Native `--pq` is the default post-quantum mode.** ML-KEM-768 + X25519
-  hybrid KEM, in-tree C implementation, available in the default build.
-- **SDK-backed modes are optional.** `--pq-sdk`, `--pq-box`, and the
-  Argon2id KDF are only available in an upstream `make WITH_SDK=1` build
-  linked against the separately distributed `libzuptsdk`/`libpqvaptvupt`.
-- **Wire/on-disk format is v1.6, unchanged.** Archives created by 4.0.0
-  are read and written identically.
+- **Full (pure) post-quantum mode — `--pq-only`.** ML-KEM-768 (FIPS 203) as
+  the *sole* key-establishment mechanism, with no classical X25519 component.
+  For compliance postures that mandate a single NIST-standardised PQ primitive
+  with no classical KEM in the envelope (CNSA 2.0-style "PQ-only"). Envelope
+  type `0x06`; archive key `SHA3-512(ml_ss ‖ ml_ct ‖ "ZUPT-PQ-ONLY-v1")`.
+  In-tree crypto, available in the default build.
+  - **Hybrid `--pq` stays the default recommendation.** `--pq-only` trades away
+    the hybrid safety net: a future break of ML-KEM-768 *alone* would break a
+    `--pq-only` archive, whereas `--pq` would still require breaking X25519 too.
+    Use `--pq-only` only when a policy forbids the classical component.
+- **Security fix (critical): AES-CTR keystream reuse under `--dedup`.** Dedup
+  blocks all share sequence 0, and the old nonce (`base_nonce XOR seq`)
+  therefore collapsed to one value across blocks — reusing the CTR keystream
+  (a many-time-pad). Every block now uses a **fresh random 128-bit nonce**.
+  Re-encrypt any `--dedup` + encrypted archives written by ≤ 4.1.0. Regression
+  test: `tests/test_dedup_nonce.sh`.
+- **Clearer SDK keygen guidance.** `keygen --sdk`/`--box` on the source-only
+  build now points you to native `--pq`/`--pq-only` (or a `WITH_SDK=1` build).
+- **Wire/on-disk format is v1.6, unchanged.** All 4.x archives interoperate;
+  the new `0x06` envelope is additive.
 
 > **F-16 (data loss):** archives created by **≤ 3.8.0** at `-l 8`/`-l 9`
 > whose inputs included x86/ELF/PE executables may be **undecodable by any
 > version** (write-time defect in the old in-tree BCJ encoder). Re-create
-> such archives with 4.1.0 and verify extraction before deleting source
+> such archives with 4.2.0 and verify extraction before deleting source
 > data. Details in [CHANGELOG.md](CHANGELOG.md).
 
-Binaries for the CLI (4.1.0) and GUI (1.3.0) are on the
-[release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v4.1.0).
+Binaries for the CLI (4.2.0) and GUI (1.3.0) are on the
+[release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v4.2.0).
 
 ---
 
@@ -50,8 +59,10 @@ Binaries for the CLI (4.1.0) and GUI (1.3.0) are on the
   `--lzhp`.
 - **Post-quantum encryption** — `--pq` uses ML-KEM-768 + X25519 hybrid
   KEM (the approach used by Signal and iMessage), protecting against
-  "harvest now, decrypt later" attacks. In-tree, available in the default
-  build.
+  "harvest now, decrypt later" attacks. `--pq-only` offers a full (pure)
+  ML-KEM-768 mode with no classical component for "PQ-only" compliance
+  postures. Both are in-tree and available in the default build; hybrid
+  `--pq` is the recommended default.
 - **AES-NI acceleration** — AES-256-CTR via Jasmin-verified assembly with
   a 4-block interleaved pipeline. AVX detection validates OSXSAVE/XCR0 (no
   SIGILL). Falls back to C table-based AES on unsupported hardware.
@@ -111,18 +122,18 @@ Argon2id KDF.
 ### Pre-built packages
 
 Assets are published on the
-[v4.1.0 release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v4.1.0)
+[v4.2.0 release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v4.2.0)
 and verifiable against the published `SHA256SUMS.txt`.
 
-**Command-line tool (`vaptvupt` 4.1.0):**
+**Command-line tool (`vaptvupt` 4.2.0):**
 
 | Format | File | Distros |
 |---|---|---|
-| Debian/Ubuntu | `vaptvupt_4.1.0_amd64.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
-| RPM | `vaptvupt-4.1.0-1.x86_64.rpm` | Fedora 38+, RHEL 9+, openSUSE, AlmaLinux, Rocky, other RPM-based distributions |
-| AppDir tarball | `vaptvupt-4.1.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run, no FUSE) |
-| Source tarball | `vaptvupt-4.1.0.tar.gz` | Build from source on any platform |
-| openSUSE OBS | `vaptvupt-4.1.0-opensuse-obs.tar.gz` | Open Build Service source bundle |
+| Debian/Ubuntu | `vaptvupt_4.2.0_amd64.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
+| RPM | `vaptvupt-4.2.0-1.x86_64.rpm` | Fedora 38+, RHEL 9+, openSUSE, AlmaLinux, Rocky, other RPM-based distributions |
+| AppDir tarball | `vaptvupt-4.2.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run, no FUSE) |
+| Source tarball | `vaptvupt-4.2.0.tar.gz` | Build from source on any platform |
+| openSUSE OBS | `vaptvupt-4.2.0-opensuse-obs.tar.gz` | Open Build Service source bundle |
 
 **Graphical front-end (`vaptvupt-gui` 1.3.0):**
 
@@ -138,17 +149,17 @@ and verifiable against the published `SHA256SUMS.txt`.
 sha256sum -c SHA256SUMS.txt
 
 # Debian / Ubuntu / Mint
-sudo dpkg -i vaptvupt_4.1.0_amd64.deb
+sudo dpkg -i vaptvupt_4.2.0_amd64.deb
 sudo apt-get install -f       # resolve any missing deps
 
 # Fedora / RHEL / openSUSE / AlmaLinux / Rocky and other RPM-based distros
-sudo rpm -i vaptvupt-4.1.0-1.x86_64.rpm
+sudo rpm -i vaptvupt-4.2.0-1.x86_64.rpm
 # or
-sudo dnf install ./vaptvupt-4.1.0-1.x86_64.rpm
+sudo dnf install ./vaptvupt-4.2.0-1.x86_64.rpm
 
 # AppDir tarball (no install, no FUSE required)
-tar xzf vaptvupt-4.1.0-x86_64.AppDir.tar.gz
-./vaptvupt-4.1.0-x86_64.AppDir/AppRun --help
+tar xzf vaptvupt-4.2.0-x86_64.AppDir.tar.gz
+./vaptvupt-4.2.0-x86_64.AppDir/AppRun --help
 
 # GUI AppImage (single executable)
 chmod +x VaptVupt-GUI-1.3.0-x86_64.AppImage
@@ -158,10 +169,10 @@ chmod +x VaptVupt-GUI-1.3.0-x86_64.AppImage
 ### Building from SRPM (Fedora / RHEL / RPM-based distributions)
 
 ```bash
-tar xzf vaptvupt-4.1.0.srpm.tar.gz
+tar xzf vaptvupt-4.2.0.srpm.tar.gz
 cd ~/rpmbuild  # or use rpmbuild --define "_topdir $(pwd)"
 rpmbuild -bb SPECS/vaptvupt.spec
-sudo rpm -i RPMS/x86_64/vaptvupt-4.1.0-1.*.rpm
+sudo rpm -i RPMS/x86_64/vaptvupt-4.2.0-1.*.rpm
 ```
 
 ### Basic usage
@@ -209,6 +220,13 @@ vaptvupt keygen -o mykey.key
 vaptvupt keygen --pub -o pub.key -k mykey.key
 vaptvupt compress --pq pub.key backup.zupt ~/Documents/
 vaptvupt extract  --pq mykey.key -o ~/restored/ backup.zupt
+
+# Native --pq-only (full/pure ML-KEM-768, no classical component).
+# Use only for "PQ-only" compliance postures; --pq (hybrid) is safer.
+vaptvupt keygen --pq-only -o pqkey
+vaptvupt keygen --pub --pq-only -o pqkey.pub -k pqkey
+vaptvupt compress --pq-only pqkey.pub backup.zupt ~/Documents/
+vaptvupt extract  --pq-only pqkey -o ~/restored/ backup.zupt
 ```
 
 The SDK-backed modes below require a `make WITH_SDK=1` build linked against
@@ -397,8 +415,10 @@ packaging-syntax checks.
 
 ## Post-Quantum Encryption
 
-`--pq` uses hybrid ML-KEM-768 + X25519 key encapsulation per NIST FIPS 203,
-in-tree and available in the default build.
+VaptVupt has two native PQ modes, both in-tree and available in the default
+build.
+
+**`--pq` — hybrid ML-KEM-768 + X25519 (envelope `0x02`, recommended):**
 
 ```
 Public key → ML-KEM-768 Encaps + X25519 ECDH → hybrid shared secret
@@ -406,11 +426,27 @@ Public key → ML-KEM-768 Encaps + X25519 ECDH → hybrid shared secret
            → AES-256-CTR + HMAC-SHA256 per block
 ```
 
-Security model: secure if EITHER ML-KEM-768 (post-quantum) OR X25519
-(classical) is secure.
+Security model: secure if **EITHER** ML-KEM-768 (post-quantum) **OR** X25519
+(classical) is secure. This is the recommended default — it stays safe even
+if one primitive is later broken.
 
-Password mode (`-p`) is not quantum-safe. Use `--pq` for long-term
-protection.
+**`--pq-only` — full/pure ML-KEM-768 (envelope `0x06`):**
+
+```
+Public key → ML-KEM-768 Encaps → shared secret ss, ciphertext ct
+           → archive_key = SHA3-512(ss ‖ ct ‖ "ZUPT-PQ-ONLY-v1")
+           → AES-256-CTR + HMAC-SHA256 per block
+```
+
+Security model: secure if ML-KEM-768 is secure — there is **no classical
+fallback**. Choose this only when a policy mandates a single NIST-standardised
+PQ primitive with no classical KEM in the envelope (CNSA 2.0-style "PQ-only").
+The trade-off is explicit: a future break of ML-KEM-768 *alone* breaks the
+archive, whereas under `--pq` the attacker must also break X25519. **When in
+doubt, use `--pq`.**
+
+Password mode (`-p`) is not quantum-safe. Use `--pq` (or `--pq-only`) for
+long-term protection.
 
 The SDK-backed `--pq-sdk` and `--pq-box` modes are optional and require a
 `make WITH_SDK=1` build against `libzuptsdk`/`libpqvaptvupt`.
@@ -635,6 +671,7 @@ VaptVupt archives require VaptVupt v2.0+.
 | v3.4.0–v3.8.0 | F-15 KDF parameter transparency, measured constant-time MAC comparison (dudect), NIST SP 800-38A AES-CTR vectors, ML-KEM decaps through the CT primitive, consolidated benchmarks |
 | v4.0.0 | Codec 2.60.4 security release (OOB heap write fixed in AVX2 decode fast path), `--pq-box` sealed-box mode, F-16 data-loss disclosure + fix (old in-tree BCJ encoder), CBMC-verified BCJ filters with auto ELF/PE/Mach-O detection, SHA-NI acceleration. Wire format v1.6 |
 | v4.1.0 | Source-only tree (prebuilt libzuptsdk/libpqvaptvupt removed); default build needs only a C compiler + make; native `--pq` is the default PQ mode; `--pq-sdk`/`--pq-box`/Argon2id gated behind `make WITH_SDK=1`. Wire format stays v1.6 |
+| v4.2.0 | Full (pure) post-quantum mode `--pq-only` (ML-KEM-768 only, envelope 0x06); critical fix for AES-CTR keystream reuse under `--dedup` (fresh random per-block nonce); clearer SDK keygen guidance. Wire format stays v1.6 |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.
 
