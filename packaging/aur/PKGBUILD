@@ -18,7 +18,7 @@ replaces=('zupt')
 conflicts=('zupt')
 pkgdesc='Pure-C11 post-quantum backup compression utility (AES-256-CTR + HMAC-SHA256 + ML-KEM-768 + X25519)'
 arch=('x86_64' 'aarch64')
-url='https://git.securityops.co/cristiancmoises/zupt'
+url='https://git.securityops.co/cristiancmoises/vaptvupt'
 license=('AGPL-3.0-or-later')
 depends=('glibc')
 makedepends=('gcc')
@@ -26,39 +26,31 @@ checkdepends=('python')
 
 # Replace SHA256 placeholder with output of:
 #   sha256sum /tmp/zupt-2.4.4.tar.gz
-source=("${pkgname}-${pkgver}.tar.gz::https://git.securityops.co/cristiancmoises/zupt/releases/download/v${pkgver}/${pkgname}-${pkgver}.tar.gz")
+source=("${pkgname}-${pkgver}.tar.gz::https://git.securityops.co/cristiancmoises/vaptvupt/releases/download/v${pkgver}/${pkgname}-${pkgver}.tar.gz")
 sha256sums=('SKIP')
 
 build() {
     cd "${pkgname}-${pkgver}"
-    # Strict-warning build that the project's own §6 verification matrix uses.
+    # Source-only build (WITH_SDK=0) with the project's strict warning set.
     CFLAGS="${CFLAGS:--O2 -std=c11} -Wall -Wextra -Wpedantic" \
-        make -j"$(nproc)"
+        make WITH_SDK=0 -j"$(nproc)"
 }
 
 check() {
     cd "${pkgname}-${pkgver}"
-    # Project regression suite — F-06 HMAC, F-08 top-MAC, F-09 byte sweep, etc.
-    make test
+    # Distro-safe regression subset (F-06..F-12, dedup-nonce, NIST/RFC vectors).
+    make WITH_SDK=0 check
 }
 
 package() {
     cd "${pkgname}-${pkgver}"
-    make DESTDIR="${pkgdir}" PREFIX=/usr install
+    # Source-only build (no vendored libraries); `make install` places the
+    # binary, the zupt symlink, the man pages and the shell completions.
+    make DESTDIR="${pkgdir}" PREFIX=/usr WITH_SDK=0 install
 
     # Docs that aren't part of `make install`
-    install -Dm644 README.md         "${pkgdir}/usr/share/doc/${pkgname}/README.md"
-    install -Dm644 SECURITY.md       "${pkgdir}/usr/share/doc/${pkgname}/SECURITY.md"
-    install -Dm644 CHANGELOG.md      "${pkgdir}/usr/share/doc/${pkgname}/CHANGELOG.md"
-    install -Dm644 AUDIT.md          "${pkgdir}/usr/share/doc/${pkgname}/AUDIT.md"
-    install -Dm644 LICENSE           "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
-
-    # Vendored libzuptsdk shipped alongside the binary because the binary
-    # is linked with -Wl,-rpath,$ORIGIN/vendor/zuptsdk. For system install
-    # we move it to /usr/lib/zupt/ and the binary's rpath remains relative.
-    install -d "${pkgdir}/usr/lib/${pkgname}"
-    install -Dm755 vendor/zuptsdk/libzuptsdk.so.2.0.0 \
-        "${pkgdir}/usr/lib/${pkgname}/libzuptsdk.so.2.0.0"
-    ln -sf libzuptsdk.so.2.0.0 "${pkgdir}/usr/lib/${pkgname}/libzuptsdk.so.2"
-    ln -sf libzuptsdk.so.2.0.0 "${pkgdir}/usr/lib/${pkgname}/libzuptsdk.so"
+    install -Dm644 README.md    "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+    install -Dm644 SECURITY.md  "${pkgdir}/usr/share/doc/${pkgname}/SECURITY.md"
+    install -Dm644 CHANGELOG.md "${pkgdir}/usr/share/doc/${pkgname}/CHANGELOG.md"
+    install -Dm644 LICENSE      "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }

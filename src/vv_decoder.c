@@ -202,6 +202,12 @@ decode_block_tokens_impl(
 
         if (VV_UNLIKELY(ip >= ip_end)) break;
 
+        /* Bound the 2-/3-byte offset read against the compressed-block end.
+         * Without this a crafted block whose last literal advances ip to
+         * ip_end-1 (or ip_end-2 for 3-byte offsets) makes vv_read16 / the
+         * 3-byte load read past the heap buffer. The general/tail decode path
+         * already carries this guard; the AVX2 fast paths were missing it. */
+        if (VV_UNLIKELY(ip + off_bytes > ip_end)) return VV_ERR_CORRUPT;
         uint32_t offset;
         if (off_bytes == 2) {
             offset = vv_read16(ip);
@@ -285,6 +291,12 @@ decode_block_tokens_impl(
 
         if (VV_UNLIKELY(ip >= ip_end)) break;
 
+        /* Bound the 2-/3-byte offset read against the compressed-block end.
+         * Without this a crafted block whose last literal advances ip to
+         * ip_end-1 (or ip_end-2 for 3-byte offsets) makes vv_read16 / the
+         * 3-byte load read past the heap buffer. The general/tail decode path
+         * already carries this guard; the AVX2 fast paths were missing it. */
+        if (VV_UNLIKELY(ip + off_bytes > ip_end)) return VV_ERR_CORRUPT;
         uint32_t offset;
         if (off_bytes == 2) {
             offset = vv_read16(ip);

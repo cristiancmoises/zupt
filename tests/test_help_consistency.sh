@@ -109,11 +109,19 @@ else
 fi
 
 # ─── KDF consistency ───
-# Argon2id is the default since v2.4.1; the help must say so.
-if echo "$HELP" | grep -qE "Argon2id.*default"; then
-    P "help correctly identifies Argon2id as the default KDF"
+# The help must state the ACTUAL default KDF for this build: PBKDF2-SHA256 on
+# the source-only build (WITH_SDK=0), Argon2id only when built with WITH_SDK=1.
+# A build that advertises Argon2id-by-default but derives PBKDF2 keys overstates
+# its GPU/ASIC resistance (regression from v4.2.1).
+if echo "$HELP" | grep -qiE "argon2id.*WITH_SDK=1"; then
+    P "help correctly scopes Argon2id to WITH_SDK=1 (source-only build)"
+elif echo "$HELP" | grep -qE "PBKDF2.*[Dd]efault|[Dd]efault.*PBKDF2"; then
+    P "help correctly identifies PBKDF2-SHA256 as the default KDF"
+elif echo "$HELP" | grep -qE "Argon2id.*[Dd]efault"; then
+    # A WITH_SDK=1 build legitimately defaults to Argon2id.
+    P "help identifies Argon2id as the default KDF (WITH_SDK=1 build)"
 else
-    F "help doesn't identify Argon2id as the default KDF"
+    F "help does not state the default password KDF"
 fi
 
 # ─── Format consistency ───

@@ -817,7 +817,14 @@ int zupt_hybrid_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
     const uint8_t *nonce  = enc_hdr + 1 + 1088 + 32;
 
     uint8_t ml_pk[1184], x_pk[32], ml_sk[2400], x_sk[32];
-    if (read_privkey(privkeyfile, ml_pk, x_pk, ml_sk, x_sk) != 0) return -1;
+    if (read_privkey(privkeyfile, ml_pk, x_pk, ml_sk, x_sk) != 0) {
+        /* Wipe any partially-read secret-key material on error, matching the
+         * pq-only decrypt path (a bad/truncated key file must not leave secret
+         * bytes on the stack). */
+        zupt_secure_wipe(ml_sk, sizeof(ml_sk));
+        zupt_secure_wipe(x_sk, sizeof(x_sk));
+        return -1;
+    }
 
     /* ML-KEM-768 decapsulation */
     uint8_t ml_ss[32];

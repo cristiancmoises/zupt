@@ -52,48 +52,38 @@
           # hardening flags. Don't override -O2 from stdenv.
           NIX_CFLAGS_COMPILE = "-Wall -Wextra -Wpedantic -std=c11";
 
-          # `make` builds the binary using vendored libzuptsdk via rpath.
+          # Source-only build (WITH_SDK=0): native crypto, no vendored libraries.
           buildPhase = ''
             runHook preBuild
-            make -j$NIX_BUILD_CORES
+            make WITH_SDK=0 -j$NIX_BUILD_CORES
             runHook postBuild
           '';
 
-          # Run the full upstream regression suite. Disable per-package by
-          # setting doCheck = false; on by default.
+          # Distro-safe regression subset. Disable with doCheck = false;.
           doCheck = true;
           checkPhase = ''
             runHook preCheck
-            make test
+            make WITH_SDK=0 check
             runHook postCheck
           '';
 
           installPhase = ''
             runHook preInstall
-            make DESTDIR=$out PREFIX= install
-
-            # Move libzuptsdk into $out/lib/zupt/. The binary's rpath is
-            # $ORIGIN/../lib/zupt after autopatchelf rewrites it during
-            # the fixup phase.
-            mkdir -p $out/lib/zupt
-            install -m 0755 vendor/zuptsdk/libzuptsdk.so.2.0.0 \
-              $out/lib/zupt/libzuptsdk.so.2.0.0
-            ln -sf libzuptsdk.so.2.0.0 $out/lib/zupt/libzuptsdk.so.2
-            ln -sf libzuptsdk.so.2.0.0 $out/lib/zupt/libzuptsdk.so
+            make DESTDIR=$out PREFIX= WITH_SDK=0 install
 
             # Docs
-            mkdir -p $out/share/doc/zupt
-            cp README.md SECURITY.md CHANGELOG.md AUDIT.md $out/share/doc/zupt/
+            mkdir -p $out/share/doc/vaptvupt
+            cp README.md SECURITY.md CHANGELOG.md $out/share/doc/vaptvupt/
             runHook postInstall
           '';
 
           meta = with pkgs.lib; {
-            description = "Post-quantum backup compression utility (ML-KEM-768 + AES-256-CTR + HMAC-SHA256 + Argon2id)";
-            homepage = "https://git.securityops.co/cristiancmoises/zupt";
+            description = "Post-quantum backup compression utility (ML-KEM-768 + X25519 + AES-256-CTR + HMAC-SHA256)";
+            homepage = "https://git.securityops.co/cristiancmoises/vaptvupt";
             license = with licenses; [ agpl3Plus gpl3Plus ];
             maintainers = [ ];
             platforms = [ "x86_64-linux" "aarch64-linux" ];
-            mainProgram = "zupt";
+            mainProgram = "vaptvupt";
           };
         };
       in {

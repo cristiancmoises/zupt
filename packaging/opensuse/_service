@@ -1,6 +1,6 @@
 <services>
         <service name="tar_scm" mode="manual">
-                <param name="url">https://github.com/cristiancmoises/zupt</param>
+                <param name="url">https://github.com/cristiancmoises/vaptvupt</param>
                 <param name="scm">git</param>
                 <param name="revision">v4.2.1</param>
                 <param name="versionformat">@PARENT_TAG@</param>

@@ -2911,7 +2911,11 @@ zupt_error_t zupt_archive_info(const char *path) {
      * write_enc_header: 7-byte prefix (magic0,magic1,block_type,codec u16,
      * flags u16) + varint(len) + varint(len) + u64 xxh64 + enc_hdr[0]=enc_type. */
     uint8_t enc_type = 0;
+    /* encryption_header_off is attacker-controlled; bound it inside the file
+     * before the (off_t)+7 arithmetic so the signed addition cannot overflow
+     * (UB) and the seek stays in-range. All subsequent reads are EOF-checked. */
     if ((hdr.global_flags & ZUPT_FLAG_ENCRYPTED) && hdr.encryption_header_off != 0 &&
+        hdr.encryption_header_off < file_size && (file_size - hdr.encryption_header_off) > 7 &&
         fseeko(f, (off_t)hdr.encryption_header_off + 7, SEEK_SET) == 0) {
         uint64_t l1 = 0, l2 = 0;
         if (zupt_read_varint(f, &l1) > 0 && zupt_read_varint(f, &l2) > 0 &&

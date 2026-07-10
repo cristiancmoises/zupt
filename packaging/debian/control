@@ -8,9 +8,9 @@ Build-Depends:
  libc6-dev,
  python3 (>= 3.8)
 Standards-Version: 4.6.2
-Homepage: https://git.securityops.co/cristiancmoises/zupt
-Vcs-Browser: https://git.securityops.co/cristiancmoises/zupt
-Vcs-Git: https://git.securityops.co/cristiancmoises/zupt.git
+Homepage: https://git.securityops.co/cristiancmoises/vaptvupt
+Vcs-Browser: https://git.securityops.co/cristiancmoises/vaptvupt
+Vcs-Git: https://git.securityops.co/cristiancmoises/vaptvupt.git
 Rules-Requires-Root: no
 
 Package: vaptvupt
@@ -24,7 +24,7 @@ Description: Post-quantum backup compression utility (formerly Zupt)
  a pure-C11 backup compression utility featuring:
   * Post-quantum hybrid encryption (ML-KEM-768 + X25519, FIPS 203)
   * AES-256-CTR + HMAC-SHA256 authenticated encryption (Encrypt-then-MAC)
-  * Argon2id password-based key derivation (default since 2.4.1)
+  * PBKDF2-SHA256 password key derivation (Argon2id in WITH_SDK=1 builds)
   * Multi-threaded compression with the VaptVupt LZ + ANS codec 2.48.5
   * Full-disk backup and restore with sparse-region detection
   * End-to-end byte-level tamper detection on encrypted archives

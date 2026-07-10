@@ -97,6 +97,11 @@ chmod +x tests/*.sh
 %doc README.md SECURITY.md CHANGELOG.md
 %{_bindir}/vaptvupt
 %{_bindir}/zupt
+%{_datadir}/bash-completion/completions/vaptvupt
+%{_datadir}/bash-completion/completions/zupt
+%{_datadir}/zsh/site-functions/_vaptvupt
+%{_datadir}/zsh/site-functions/_zupt
+%{_datadir}/fish/vendor_completions.d/vaptvupt.fish
 %{_mandir}/man1/vaptvupt.1%{?ext_man}
 %{_mandir}/man1/zupt.1%{?ext_man}
 

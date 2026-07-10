@@ -190,6 +190,81 @@ def _get_version():
 
 ZUPT_VER_SHORT, ZUPT_VER_NUMBER, ZUPT_VER_FULL = _get_version()
 
+# ── Detect build capabilities from `version` (and `help` as fallback) ──
+#
+# The default build is SOURCE-ONLY: the libzuptsdk-backed modes (Argon2id
+# KDF, --pq-sdk, --pq-box) are absent and fail with exit 1. Offering them in
+# the UI is the #1 reason "functions don't work". We detect what THIS binary
+# actually supports and build the encryption UI around it:
+#   - SDK_AVAILABLE  : --pq-sdk / --pq-box / Argon2id compiled in (WITH_SDK=1)
+#   - PQONLY_AVAILABLE: native --pq-only (full post-quantum, v4.2.0+)
+#   - DEFAULT_KDF    : the password KDF this build actually uses
+# The `version` banner carries a machine-readable "Build:" line (v4.2.1+);
+# for older binaries we fall back to `help` text and default SDK off (safe:
+# the native --pq / --pq-only / password modes work on every build).
+def _get_caps():
+    sdk = False
+    pqonly = False
+    default_kdf = "PBKDF2-SHA256"
+    blob = ZUPT_VER_FULL or ""
+    for line in blob.splitlines():
+        low = line.lower()
+        if low.startswith("build:"):
+            sdk = ("full" in low) and ("libzuptsdk" in low)
+        elif low.startswith("kdf:"):
+            default_kdf = "Argon2id" if "argon2id (default)" in low else "PBKDF2-SHA256"
+        if "--pq-only" in line:
+            pqonly = True
+    if not pqonly:
+        try:
+            h = subprocess.run([VAPTVUPT, "help"], capture_output=True, text=True, timeout=5)
+            txt = (h.stdout or "") + (h.stderr or "")
+            if "--pq-only" in txt:
+                pqonly = True
+        except Exception:
+            pass
+    return sdk, pqonly, default_kdf
+
+SDK_AVAILABLE, PQONLY_AVAILABLE, DEFAULT_KDF = _get_caps()
+
+# Post-quantum recipient modes offered in the UI, keyed to CLI flags.
+#   token -> (label, keygen-flag-list, compress/extract-flag)
+# keygen-flags are extra flags added to `keygen` (private) and `keygen --pub`.
+def pq_mode_options(include_auto=False):
+    """Return [(label, token)] for a PQ-mode dropdown given this build."""
+    opts = []
+    if include_auto:
+        opts.append(("Auto-detect from archive", "auto"))
+    opts.append(("Hybrid — ML-KEM-768 + X25519 (recommended)", "pq"))
+    if PQONLY_AVAILABLE:
+        opts.append(("Full PQ — ML-KEM-768 only", "pqonly"))
+    if SDK_AVAILABLE:
+        opts.append(("SDK v2 — HKDF + commitment + HPKE", "sdk"))
+    return opts
+
+# token -> (extra keygen flags, encrypt/decrypt flag)
+_PQ_FLAG = {
+    "pq":     ([],           "--pq"),
+    "pqonly": (["--pq-only"], "--pq-only"),
+    "sdk":    (["--sdk"],     "--pq-sdk"),
+}
+
+def _detect_archive_pq(archive):
+    """Inspect an archive's `info` and return the matching PQ token, or None."""
+    try:
+        r = subprocess.run([VAPTVUPT, "info", archive], capture_output=True, text=True, timeout=15)
+        txt = (r.stdout or "") + (r.stderr or "")
+    except Exception:
+        return None
+    low = txt.lower()
+    if "ml-kem-768 only" in low or "no classical" in low:
+        return "pqonly"
+    if "sdk v2" in low or "hpke" in low:
+        return "sdk"
+    if "ml-kem-768" in low or "hybrid" in low or "x25519" in low:
+        return "pq"
+    return None
+
 # ── Find icon file ──
 def _find_icon():
     here = Path(getattr(sys, '_MEIPASS', Path(__file__).parent))
@@ -328,14 +403,22 @@ def run_async(parent, cmd, btn, log, progress=None):
     if progress: progress.show()
     t = QThread(); w = Worker(cmd); w.moveToThread(t)
     w.log.connect(log.append)
+    # Keep a LIST of live (thread, worker) refs on the parent. Tabs with more
+    # than one action button (Disk: backup + restore) previously shared a
+    # single _thread/_worker slot, so starting a second op dropped the only
+    # Python reference to the first still-running QThread — Python GC'd it
+    # mid-run and aborted the operation. A list holds every in-flight thread.
+    if not hasattr(parent, "_jobs"):
+        parent._jobs = []
+    parent._jobs.append((t, w))
     def finish(code, out, err):
         btn.setEnabled(True)
         if progress: progress.hide()
         log.append("\nDone." if code == 0 else f"\nFailed (exit {code}).")
         t.quit()
+        parent._jobs = [(th, wk) for (th, wk) in parent._jobs if th is not t]
     w.done.connect(finish)
     t.started.connect(w.run); t.start()
-    parent._thread, parent._worker = t, w
 
 # ── Tabs ──
 
@@ -345,21 +428,31 @@ class KeysTab(QWidget):
         inner = QWidget()
         v = QVBoxLayout(inner); v.setContentsMargins(24,24,24,24); v.setSpacing(10)
 
-        v.addWidget(QLabel("Generate or export ML-KEM-768 + X25519 hybrid keys."))
+        v.addWidget(QLabel("Generate or export post-quantum keys (ML-KEM-768)."))
+        v.addWidget(Sep())
+
+        # Key type governs both generate and export so the two stay consistent.
+        v.addWidget(H("Key type"))
+        self.mode = QComboBox()
+        self._modes = pq_mode_options()
+        for label, _tok in self._modes:
+            self.mode.addItem(label)
+        self.mode.setToolTip("Hybrid (--pq) is recommended. Full PQ (--pq-only) drops the\n"
+                             "classical X25519 layer for PQ-only compliance postures. Both use\n"
+                             "in-tree crypto and work on every build.")
+        v.addWidget(self.mode)
         v.addWidget(Sep())
 
         # Section 1: Generate new keypair
         v.addWidget(H("Generate new keypair"))
-        v.addWidget(QLabel("Creates both private and public key files."))
+        v.addWidget(QLabel("Writes a private key and its matching public key."))
 
         v.addWidget(H("Private key output"))
-        self.gen_priv = PathField("e.g. ~/zupt_private.key", "save", "Key (*.key);;All (*)")
+        self.gen_priv = PathField("e.g. ~/vaptvupt_private.key", "save", "Key (*.key);;All (*)")
         v.addWidget(self.gen_priv)
-
-        self.gen_sdk = QCheckBox("SDK v2 format (HKDF combiner + commitment + HPKE — recommended)")
-        self.gen_sdk.setChecked(True)
-        self.gen_sdk.setToolTip("Generates a libzuptsdk-format keypair. Use --pq-sdk in CLI or 'SDK v2' checkbox in compress to use these keys. Disable for legacy --pq compatibility.")
-        v.addWidget(self.gen_sdk)
+        v.addWidget(H("Public key output"))
+        self.gen_pub = PathField("e.g. ~/vaptvupt_public.key", "save", "Key (*.key);;All (*)")
+        v.addWidget(self.gen_pub)
 
         self.gen_btn = QPushButton("Generate Keypair")
         self.gen_btn.clicked.connect(self._generate)
@@ -370,14 +463,15 @@ class KeysTab(QWidget):
 
         # Section 2: Export public key from existing private key
         v.addWidget(H("Export public key from private key"))
-        v.addWidget(QLabel("Extract the public key from an existing private key file."))
+        v.addWidget(QLabel("Extract the public key from an existing private key file "
+                           "(uses the key type selected above)."))
 
         v.addWidget(H("Existing private key"))
         self.exp_priv = PathField("Select private key", "open", "Key (*.key);;All (*)")
         v.addWidget(self.exp_priv)
 
         v.addWidget(H("Public key output"))
-        self.exp_pub = PathField("e.g. ~/zupt_public.key", "save", "Key (*.key);;All (*)")
+        self.exp_pub = PathField("e.g. ~/vaptvupt_public.key", "save", "Key (*.key);;All (*)")
         v.addWidget(self.exp_pub)
 
         self.exp_btn = QPushButton("Export Public Key")
@@ -389,27 +483,32 @@ class KeysTab(QWidget):
         v.addStretch()
         lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0); lay.addWidget(scrollable(inner))
 
+    def _token(self):
+        return self._modes[self.mode.currentIndex()][1]
+
+    def _default_pub(self, priv):
+        return (priv.rsplit(".", 1)[0] + "_public.key") if "." in priv else priv + ".pub"
+
     def _generate(self):
-        p = self.gen_priv.path() or str(Path.home() / "zupt_private.key")
+        p = self.gen_priv.path() or str(Path.home() / "vaptvupt_private.key")
         self.gen_priv.edit.setText(p)
+        pub = self.gen_pub.path() or self._default_pub(p)
+        self.gen_pub.edit.setText(pub)
+        tok = self._token()
+        kflags, _ = _PQ_FLAG[tok]
         self.gen_log.clear(); self.gen_btn.setEnabled(False)
-        if self.gen_sdk.isChecked():
-            # SDK keygen creates both files in one step.
+        if tok == "sdk":
+            # SDK keygen writes the private key and <priv>.pub in one step.
             code, _, err = run_zupt(["keygen", "--sdk", "-o", p])
             self.gen_log.append(err.strip())
-            if code == 0:
-                self.gen_log.append(f"\nPrivate key:  {p}\nPublic key:   {p}.pub")
-            else:
-                self.gen_log.append("\nFailed.")
+            self.gen_log.append(f"\nPrivate key:  {p}\nPublic key:   {p}.pub" if code == 0 else "\nFailed.")
         else:
-            code, _, err = run_zupt(["keygen", "-o", p])
+            code, _, err = run_zupt(["keygen"] + kflags + ["-o", p])
             self.gen_log.append(err.strip())
             if code == 0:
-                pub = p.rsplit(".", 1)[0] + "_public.key" if "." in p else p + ".pub"
-                c2, _, e2 = run_zupt(["keygen", "--pub", "-o", pub, "-k", p])
+                c2, _, e2 = run_zupt(["keygen", "--pub"] + kflags + ["-o", pub, "-k", p])
                 self.gen_log.append(e2.strip())
-                if c2 == 0:
-                    self.gen_log.append(f"\nPrivate key:  {p}\nPublic key:   {pub}")
+                self.gen_log.append(f"\nPrivate key:  {p}\nPublic key:   {pub}" if c2 == 0 else "\nFailed to export public key.")
             else:
                 self.gen_log.append("\nFailed.")
         self.gen_btn.setEnabled(True)
@@ -419,15 +518,13 @@ class KeysTab(QWidget):
         pub = self.exp_pub.path()
         if not priv: QMessageBox.warning(self, "VaptVupt", "Select the private key file."); return
         if not pub:
-            pub = priv.rsplit(".", 1)[0] + "_public.key" if "." in priv else priv + ".pub"
-            self.exp_pub.edit.setText(pub)
+            pub = self._default_pub(priv); self.exp_pub.edit.setText(pub)
+        tok = self._token()
+        kflags, _ = _PQ_FLAG[tok]
         self.exp_log.clear(); self.exp_btn.setEnabled(False)
-        code, _, err = run_zupt(["keygen", "--pub", "-o", pub, "-k", priv])
+        code, _, err = run_zupt(["keygen", "--pub"] + kflags + ["-o", pub, "-k", priv])
         self.exp_log.append(err.strip())
-        if code == 0:
-            self.exp_log.append(f"\nPublic key:  {pub}")
-        else:
-            self.exp_log.append("\nFailed.")
+        self.exp_log.append(f"\nPublic key:  {pub}" if code == 0 else "\nFailed.")
         self.exp_btn.setEnabled(True)
 
 
@@ -454,10 +551,14 @@ class CompressTab(QWidget):
         enc = QHBoxLayout(); enc.setSpacing(16)
         pw = QVBoxLayout(); pw.addWidget(H("Password")); self.pw = PwField("AES-256"); pw.addWidget(self.pw); enc.addLayout(pw)
         pq = QVBoxLayout(); pq.addWidget(H("PQ public key")); self.pq = PathField("Optional .key", filters="Key (*.key *.pub);;All (*)"); pq.addWidget(self.pq); enc.addLayout(pq)
-        sdk_box = QVBoxLayout(); sdk_box.addWidget(H("Mode"))
-        self.sdk = QCheckBox("Use SDK v2 (HKDF + commitment + HPKE)"); self.sdk.setChecked(True)
-        self.sdk.setToolTip("v2.2+ uses libzuptsdk: HKDF-SHA3 combiner, key commitment, HPKE binding, Argon2id. Disable for legacy --pq compatibility.")
-        sdk_box.addWidget(self.sdk); sdk_box.addStretch(); enc.addLayout(sdk_box)
+        mode_box = QVBoxLayout(); mode_box.addWidget(H("PQ mode"))
+        self.pqmode = QComboBox()
+        self._pqmodes = pq_mode_options()
+        for label, _tok in self._pqmodes:
+            self.pqmode.addItem(label)
+        self.pqmode.setToolTip("Applies when a PQ public key is set. Must match the key type\n"
+                               "you generated. Hybrid (--pq) is recommended.")
+        mode_box.addWidget(self.pqmode); mode_box.addStretch(); enc.addLayout(mode_box)
         v.addLayout(enc)
         self.btn = QPushButton("Compress"); self.btn.clicked.connect(self._run); v.addWidget(self.btn)
         self.progress = QProgressBar(); self.progress.setRange(0,0); self.progress.hide(); v.addWidget(self.progress)
@@ -481,7 +582,8 @@ class CompressTab(QWidget):
         if self.solid.isChecked(): cmd.append("--solid")
         if self.pw.text(): cmd += ["-p", self.pw.text()]
         if self.pq.path():
-            flag = "--pq-sdk" if self.sdk.isChecked() else "--pq"
+            tok = self._pqmodes[self.pqmode.currentIndex()][1]
+            _, flag = _PQ_FLAG[tok]
             cmd += [flag, self.pq.path()]
         cmd.append(dst); cmd.extend(srcs)
         run_async(self, cmd, self.btn, self.log, self.progress)
@@ -500,10 +602,14 @@ class ExtractTab(QWidget):
         enc = QHBoxLayout(); enc.setSpacing(16)
         pw = QVBoxLayout(); pw.addWidget(H("Password")); self.pw = PwField(); pw.addWidget(self.pw); enc.addLayout(pw)
         pq = QVBoxLayout(); pq.addWidget(H("PQ private key")); self.pq = PathField("Optional .key", filters="Key (*.key);;All (*)"); pq.addWidget(self.pq); enc.addLayout(pq)
-        sdk_box = QVBoxLayout(); sdk_box.addWidget(H("Mode"))
-        self.sdk = QCheckBox("Auto-detect (SDK or legacy)"); self.sdk.setChecked(True)
-        self.sdk.setToolTip("Tries --pq-sdk first, falls back to --pq for legacy archives.")
-        sdk_box.addWidget(self.sdk); sdk_box.addStretch(); enc.addLayout(sdk_box)
+        mode_box = QVBoxLayout(); mode_box.addWidget(H("PQ mode"))
+        self.pqmode = QComboBox()
+        self._pqmodes = pq_mode_options(include_auto=True)
+        for label, _tok in self._pqmodes:
+            self.pqmode.addItem(label)
+        self.pqmode.setToolTip("Auto-detect reads the archive header (vaptvupt info) to pick the\n"
+                               "right mode. Or choose it explicitly to match your private key.")
+        mode_box.addWidget(self.pqmode); mode_box.addStretch(); enc.addLayout(mode_box)
         v.addLayout(enc)
         self.btn = QPushButton("Extract"); self.btn.setObjectName("green"); self.btn.clicked.connect(self._run); v.addWidget(self.btn)
         self.progress = QProgressBar(); self.progress.setRange(0,0); self.progress.hide(); v.addWidget(self.progress)
@@ -518,10 +624,13 @@ class ExtractTab(QWidget):
         if self.out.path(): cmd += ["-o", self.out.path()]
         if self.pw.text(): cmd += ["-p", self.pw.text()]
         if self.pq.path():
-            # Auto-detect: zupt's extract auto-discovers enc type from header,
-            # so passing --pq-sdk works for both SDK and legacy keyfiles when
-            # the archive is SDK-encoded; --pq is needed for legacy archives.
-            flag = "--pq-sdk" if self.sdk.isChecked() else "--pq"
+            tok = self._pqmodes[self.pqmode.currentIndex()][1]
+            if tok == "auto":
+                # The private-key format must match how the archive was encrypted;
+                # inspect the header (vaptvupt info) to choose the right flag.
+                tok = _detect_archive_pq(arc) or "pq"
+                self.log.append(f"[auto-detect] using {_PQ_FLAG[tok][1]}")
+            _, flag = _PQ_FLAG[tok]
             cmd += [flag, self.pq.path()]
         cmd.append(arc)
         run_async(self, cmd, self.btn, self.log, self.progress)
@@ -536,8 +645,16 @@ class VerifyTab(QWidget):
         v.addWidget(Sep())
         v.addWidget(H("Verify integrity"))
         self.varc = PathField("Archive to verify", filters="VaptVupt archive (*.zupt);;All (*)"); v.addWidget(self.varc)
-        v.addWidget(H("Password (if encrypted)"))
-        self.vpw = PwField("Leave empty if not encrypted"); v.addWidget(self.vpw)
+        enc = QHBoxLayout(); enc.setSpacing(16)
+        pw = QVBoxLayout(); pw.addWidget(H("Password (if encrypted)")); self.vpw = PwField("Leave empty if not encrypted"); pw.addWidget(self.vpw); enc.addLayout(pw)
+        pq = QVBoxLayout(); pq.addWidget(H("PQ private key")); self.vpq = PathField("For --pq / --pq-only archives", filters="Key (*.key);;All (*)"); pq.addWidget(self.vpq); enc.addLayout(pq)
+        mode_box = QVBoxLayout(); mode_box.addWidget(H("PQ mode"))
+        self.vpqmode = QComboBox()
+        self._vpqmodes = pq_mode_options(include_auto=True)
+        for label, _tok in self._vpqmodes:
+            self.vpqmode.addItem(label)
+        mode_box.addWidget(self.vpqmode); mode_box.addStretch(); enc.addLayout(mode_box)
+        v.addLayout(enc)
         self.vbtn = QPushButton("Verify"); self.vbtn.setObjectName("amber"); self.vbtn.clicked.connect(self._verify); v.addWidget(self.vbtn)
         self.vlog = Log(120); v.addWidget(self.vlog)
         v.addWidget(Sep())
@@ -552,7 +669,15 @@ class VerifyTab(QWidget):
         if not arc: return
         cmd = ["test"]
         if self.vpw.text(): cmd += ["-p", self.vpw.text()]
-        cmd.append(arc); self.vlog.clear()
+        self.vlog.clear()
+        if self.vpq.path():
+            tok = self._vpqmodes[self.vpqmode.currentIndex()][1]
+            if tok == "auto":
+                tok = _detect_archive_pq(arc) or "pq"
+                self.vlog.append(f"[auto-detect] using {_PQ_FLAG[tok][1]}")
+            _, flag = _PQ_FLAG[tok]
+            cmd += [flag, self.vpq.path()]
+        cmd.append(arc)
         code, out, err = run_zupt(cmd, timeout=600)
         self.vlog.append((err + "\n" + out).strip())
         self.vlog.append("\nAll checksums passed." if code == 0 else "\nVerification failed.")
@@ -621,30 +746,32 @@ class AboutTab(QWidget):
             ("VAPTVUPT", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
             (ZUPT_VER_NUMBER, "color:white;font-size:28px;font-weight:800;font-family:monospace;"),
             ("", ""),
-            ("Post-quantum backup compression with ML-KEM-768 + X25519", "color:#6a8898;font-size:13px;"),
-            ("hybrid encryption, Argon2id KDF, and block deduplication.", "color:#6a8898;font-size:13px;"),
+            ("Post-quantum backup compression with ML-KEM-768: --pq hybrid", "color:#6a8898;font-size:13px;"),
+            (f"(+ X25519) or --pq-only (pure). {DEFAULT_KDF} password KDF,", "color:#6a8898;font-size:13px;"),
+            ("block deduplication, and full-disk backup.", "color:#6a8898;font-size:13px;"),
             ("Renamed from Zupt in v3.0.0 (INPI Brasil trademark); .zupt", "color:#6a8898;font-size:13px;"),
             ("archive extension and v1.6 wire format are unchanged.", "color:#6a8898;font-size:13px;"),
             ("", ""),
             ("CRYPTOGRAPHIC STACK", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
             ("ML-KEM-768     FIPS 203     Post-Quantum KEM", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("X25519         RFC 7748     Elliptic Curve DH (hybrid w/ ML-KEM)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("AES-256-CTR    FIPS 197     Symmetric Cipher", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("AES-256-CTR    FIPS 197     Symmetric Cipher (fresh per-block nonce)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("HMAC-SHA256    RFC 2104     Authentication (Encrypt-then-MAC)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("Argon2id       RFC 9106     Password KDF (default since 2.4.1)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("PBKDF2         RFC 8018     Password KDF (legacy; --kdf pbkdf2)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("PBKDF2-SHA256  RFC 8018     Password KDF (default, 600k iterations)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("Argon2id       RFC 9106     Password KDF (WITH_SDK=1 builds only)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("SHA3-512       FIPS 202     PQ key derivation (--pq / --pq-only)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("HKDF           RFC 5869     Key Derivation Function", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("SHA3/SHAKE     FIPS 202     Hash / XOF", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("XXH64          (non-crypto) Per-block checksum (inside AEAD)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("", ""),
             ("COMPRESSION CODEC", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
-            ("VaptVupt LZ + ANS  2.48.5  LZ77 + tabled ANS entropy", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("AVX2 / NEON SIMD acceleration; 1.27x zstd-3 decode aggregate", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("VaptVupt LZ + ANS  2.60.4  LZ77 + tabled ANS entropy", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("AVX2 / NEON SIMD acceleration; CBMC-verified BCJ filters", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("", ""),
             ("CREDITS", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
             ("VaptVupt application                    Cristian Cezar Moisés", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("    License: AGPL-3.0-or-later (commercial license available)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("    git.securityops.co/cristiancmoises/zupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
+            ("    git.securityops.co/cristiancmoises/vaptvupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
             ("", ""),
             ("VaptVupt LZ + ANS codec                 Cristian Cezar Moisés", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("    License: GPL-3.0-or-later (commercial license available)", "color:#5a7a88;font-size:12px;font-family:monospace;"),

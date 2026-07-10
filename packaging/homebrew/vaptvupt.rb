@@ -22,8 +22,8 @@
 
 class Vaptvupt < Formula
   desc "Post-quantum backup compression utility (ML-KEM-768 + AES-256-CTR + HMAC-SHA256)"
-  homepage "https://git.securityops.co/cristiancmoises/zupt"
-  url "https://git.securityops.co/cristiancmoises/zupt/releases/download/v4.2.1/vaptvupt-4.2.1.tar.gz"
+  homepage "https://git.securityops.co/cristiancmoises/vaptvupt"
+  url "https://git.securityops.co/cristiancmoises/vaptvupt/releases/download/v4.2.1/vaptvupt-4.2.1.tar.gz"
   version "4.2.1"
   sha256 "REPLACE_WITH_SHA256_OF_RELEASE_TARBALL"
   license "AGPL-3.0-or-later"
@@ -31,30 +31,16 @@ class Vaptvupt < Formula
   depends_on "python@3.12" => :test  # only for test-suite tamper harness
 
   def install
-    # macOS build: no Jasmin, C-fallback crypto paths are used.
-    # The Makefile auto-detects Jasmin availability and falls back cleanly.
+    # Source-only build (WITH_SDK=0): native crypto only, no vendored libraries.
+    # macOS uses the C-fallback crypto paths (no Jasmin); the Makefile detects
+    # this and falls back cleanly.
     ENV["CFLAGS"] = "#{ENV.cflags} -O2 -std=c11 -Wall -Wextra"
 
-    system "make", "-j#{ENV.make_jobs}"
-    system "make", "DESTDIR=#{prefix}", "PREFIX=", "install"
+    system "make", "WITH_SDK=0", "-j#{ENV.make_jobs}"
+    system "make", "DESTDIR=#{prefix}", "PREFIX=", "WITH_SDK=0", "install"
 
-    # Vendored libzuptsdk goes into lib/zupt/ with @loader_path rpath.
-    # Note: Linux ships .so.2.0.0; macOS .dylib equivalent must be built
-    # separately by the vendored makefile. For the initial Homebrew
-    # submission this assumes the upstream tarball includes a .dylib build;
-    # if not, build it here.
-    lib_zupt = lib/"zupt"
-    lib_zupt.mkpath
-    if File.exist?("vendor/zuptsdk/libzuptsdk.dylib")
-      cp "vendor/zuptsdk/libzuptsdk.dylib", lib_zupt
-    elsif File.exist?("vendor/zuptsdk/libzuptsdk.so.2.0.0")
-      # Fallback: link Linux-style .so on macOS (works for direct loads but
-      # not for dlopen-on-Darwin scenarios). Upstream is tracking this.
-      cp "vendor/zuptsdk/libzuptsdk.so.2.0.0", lib_zupt
-    end
-
-    # Docs
-    doc.install "README.md", "SECURITY.md", "CHANGELOG.md", "AUDIT.md"
+    # Docs (no vendored .so/.dylib in the source-only build).
+    doc.install "README.md", "SECURITY.md", "CHANGELOG.md"
   end
 
   test do
