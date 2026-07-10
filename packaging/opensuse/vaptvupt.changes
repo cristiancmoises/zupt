@@ -1,5 +1,5 @@
 -------------------------------------------------------------------
-Wed Jul  9 12:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+Thu Jul  9 12:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
 
 - Update to 4.2.0:
   * New native full (pure) post-quantum mode --pq-only: ML-KEM-768

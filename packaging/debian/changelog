@@ -20,7 +20,7 @@ vaptvupt (4.2.0-1) UNRELEASED; urgency=high
     message pointing to native --pq / --pq-only (or a WITH_SDK=1 build).
   * Wire format v1.6 unchanged; the 0x06 envelope is additive.
 
- -- Cristian Cezar Moisés <sac@securityops.co>  Wed, 09 Jul 2026 12:00:00 +0000
+ -- Cristian Cezar Moisés <sac@securityops.co>  Thu, 09 Jul 2026 12:00:00 +0000
 
 vaptvupt (4.1.0-1) UNRELEASED; urgency=high
 

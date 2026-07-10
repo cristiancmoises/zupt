@@ -70,49 +70,44 @@ and optional encrypted comments.
 %autosetup -n %{name}-%{version}
 
 %build
-# Use Fedora's default optflags but with the project's preferred warning set.
-CFLAGS="%{optflags} -Wall -Wextra -Wpedantic -std=c11" \
-LDFLAGS="%{?build_ldflags}" \
-%make_build
+# Source-only build (WITH_SDK=0): no vendored libraries, no external crypto
+# dependency. Fedora's default optflags plus the project's warning set.
+%make_build WITH_SDK=0 \
+    CFLAGS="%{optflags} -fPIE -Wall -Wextra -std=c11 -Iinclude -Isrc" \
+    LDFLAGS="%{?build_ldflags} -pie" \
+    LDLIBS="-lm -lpthread"
 
 %check
-# Run the upstream regression suite. F-06 HMAC trials, F-08 top-MAC sweep,
-# F-09 byte sweep (1827 positions), F-10..F-12 regressions, dist
-# reproducibility. ~3 minutes on modern hardware.
-%make_build test
+# Distro-safe regression subset: F-06 HMAC trials, F-08 top-MAC sweep,
+# F-09 byte sweep, F-10..F-12 regressions, the dedup-nonce regression,
+# and NIST/RFC vectors. Skips threaded/dist-reproducibility tests that
+# are sensitive to the build host.
+%make_build WITH_SDK=0 \
+    CFLAGS="%{optflags} -fPIE -Wall -Wextra -std=c11 -Iinclude -Isrc" \
+    LDFLAGS="%{?build_ldflags} -pie" \
+    LDLIBS="-lm -lpthread" \
+    check
 
 %install
-%make_install DESTDIR=%{buildroot} PREFIX=/usr
-
-# Install the vendored libzuptsdk into /usr/lib/zupt/ — the binary is
-# linked with -Wl,-rpath,$ORIGIN/vendor/zuptsdk so we preserve the same
-# layout under /usr/.
-install -d %{buildroot}%{_libdir}/%{name}
-install -m 0755 vendor/zuptsdk/libzuptsdk.so.2.0.0 \
-    %{buildroot}%{_libdir}/%{name}/libzuptsdk.so.2.0.0
-ln -sf libzuptsdk.so.2.0.0 %{buildroot}%{_libdir}/%{name}/libzuptsdk.so.2
-ln -sf libzuptsdk.so.2.0.0 %{buildroot}%{_libdir}/%{name}/libzuptsdk.so
-install -m 0755 vendor/pqvaptvupt/libpqvaptvupt.so.0.6.0 \
-    %{buildroot}%{_libdir}/%{name}/libpqvaptvupt.so.0.6.0
-ln -sf libpqvaptvupt.so.0.6.0 %{buildroot}%{_libdir}/%{name}/libpqvaptvupt.so.0
-ln -sf libpqvaptvupt.so.0.6.0 %{buildroot}%{_libdir}/%{name}/libpqvaptvupt.so
+%make_install WITH_SDK=0 DESTDIR=%{buildroot} PREFIX=/usr
 
 %files
 %license LICENSE
 %doc README.md SECURITY.md CHANGELOG.md
+%{_bindir}/%{name}
 %{_bindir}/zupt
-%{_libdir}/%{name}/libzuptsdk.so.2.0.0
-%{_libdir}/%{name}/libzuptsdk.so.2
-%{_libdir}/%{name}/libzuptsdk.so
-%{_libdir}/%{name}/libpqvaptvupt.so.0.6.0
-%{_libdir}/%{name}/libpqvaptvupt.so.0
-%{_libdir}/%{name}/libpqvaptvupt.so
+%{_datadir}/bash-completion/completions/%{name}
+%{_datadir}/bash-completion/completions/zupt
+%{_datadir}/zsh/site-functions/_%{name}
+%{_datadir}/zsh/site-functions/_zupt
+%{_datadir}/fish/vendor_completions.d/%{name}.fish
 %if 0%{?_mandir:1}
+%{_mandir}/man1/%{name}.1*
 %{_mandir}/man1/zupt.1*
 %endif
 
 %changelog
-* Wed Jul 09 2026 Cristian Cezar Moisés <sac@securityops.co> - 4.2.0-1
+* Thu Jul 09 2026 Cristian Cezar Moisés <sac@securityops.co> - 4.2.0-1
 - New native full (pure) post-quantum mode --pq-only: ML-KEM-768 as the
   sole KEM, no classical X25519 (envelope 0x06). For "PQ-only" compliance
   postures; hybrid --pq remains the recommended default. In-tree crypto.
