@@ -1,6 +1,35 @@
 # VaptVupt Changelog
 
 
+## [5.0.0] — unreleased — genuine FIPS 203 ML-KEM-768 (breaking PQ change)
+
+### Security / correctness — ML-KEM-768 is now FIPS 203-conformant
+
+- The in-tree ML-KEM-768 was **round-3 CRYSTALS-Kyber, not final FIPS 203**, and
+  therefore not interoperable with a compliant ML-KEM despite the "FIPS 203"
+  label. Three deviations were found and fixed:
+  1. **Matrix Â transpose convention** — K-PKE.KeyGen must use `SampleNTT(ρ‖j‖i)`
+     and K-PKE.Encrypt `SampleNTT(ρ‖i‖j)`; the implementation had both swapped.
+     Self-consistent (round-trips passed) but non-standard, which is exactly why
+     a self-consistency-only test never caught it.
+  2. **Encaps/decaps KDF** — FIPS 203 outputs `K` from `G(m‖H(ek))` directly; the
+     round-3 final `K = KDF(K̄‖H(c))` step was removed.
+  3. **Implicit rejection** — now `K̄ = J(z‖c)` (SHAKE256 over the full
+     ciphertext) instead of `KDF(z‖H(c))`.
+- **Validated for genuine conformance against OpenSSL 3.5's FIPS 203 ML-KEM-768**
+  (`tests/test_mlkem_fips203.sh`, wired into `make check`): deterministic keygen
+  produces byte-identical `ek`, and the shared secret matches in **both**
+  cross-decapsulation directions (our encaps ↔ OpenSSL decaps, and vice-versa).
+  This replaces the previous self-consistency-only round-trip test.
+
+### BREAKING
+
+- **`--pq` and `--pq-only` keys and archives created by ≤ 4.2.1 are not
+  readable by this release** (the KEM math changed). Regenerate keys
+  (`keygen`/`keygen --pq-only`) and re-encrypt affected archives. Password mode
+  (`-p`) and plain compression are unaffected. Wire format stays v1.6.
+
+
 ## [4.2.1] — 2026-07-10 — `info` correctly reports the post-quantum mode
 
 ### Fixed

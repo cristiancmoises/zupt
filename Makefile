@@ -418,6 +418,7 @@ test: $(TARGET)
 	$(Q)bash tests/test_arg_order.sh
 	$(Q)bash tests/test_block_swap.sh
 	$(Q)bash tests/test_dedup_nonce.sh
+	$(Q)bash tests/test_mlkem_fips203.sh
 	$(Q)bash tests/test_f08_topmac.sh
 	$(Q)bash tests/test_f09_preface.sh
 	$(Q)bash tests/test_f10_kdf_default.sh
@@ -477,6 +478,7 @@ check: $(TARGET) test-vectors
 	$(Q)bash tests/test_arg_order.sh
 	$(Q)bash tests/test_block_swap.sh
 	$(Q)bash tests/test_dedup_nonce.sh
+	$(Q)bash tests/test_mlkem_fips203.sh
 	$(Q)bash tests/test_f08_topmac.sh
 	$(Q)bash tests/test_f10_kdf_default.sh
 	$(Q)bash tests/test_f11_authfail_message.sh

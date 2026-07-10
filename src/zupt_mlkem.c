@@ -339,9 +339,11 @@ static void kpke_keygen(uint8_t pk[1184], uint8_t sk_pke[1152], const uint8_t d[
 
     /* Generate matrix A (in NTT domain) from rho */
     polyvec Ahat[MLKEM_K];
+    /* FIPS 203 Algorithm 13 (K-PKE.KeyGen): Â[i][j] ← SampleNTT(XOF(ρ, j, i)).
+     * The XOF seed appends the COLUMN index j then the ROW index i. */
     for (int i = 0; i < MLKEM_K; i++)
         for (int j = 0; j < MLKEM_K; j++)
-            poly_uniform(Ahat[i][j], rho, (uint8_t)i, (uint8_t)j);
+            poly_uniform(Ahat[i][j], rho, (uint8_t)j, (uint8_t)i);
 
     /* Sample secret vector s */
     polyvec s;
@@ -392,9 +394,11 @@ static void kpke_encrypt(uint8_t ct[1088], const uint8_t pk[1184],
 
     /* Regenerate A^T from rho (transposed) */
     polyvec AT[MLKEM_K];
+    /* FIPS 203 Algorithm 14 (K-PKE.Encrypt): Â[i][j] ← SampleNTT(XOF(ρ, i, j)).
+     * Encrypt uses the transpose of KeyGen's matrix: seed appends ROW i then COL j. */
     for (int i = 0; i < MLKEM_K; i++)
         for (int j = 0; j < MLKEM_K; j++)
-            poly_uniform(AT[i][j], rho, (uint8_t)j, (uint8_t)i);
+            poly_uniform(AT[i][j], rho, (uint8_t)i, (uint8_t)j);
 
     /* Sample r_vec, e1, e2 */
     polyvec r_vec;
@@ -541,18 +545,14 @@ int zupt_mlkem768_encaps(uint8_t ct[1088], uint8_t ss[32],
     /* Encrypt m under pk with randomness r */
     kpke_encrypt(ct, pk, m, kr + 32);
 
-    /* K = KDF(kr[0:32] ‖ H(ct)) */
-    uint8_t h_ct[32];
-    zupt_sha3_256(ct, 1088, h_ct);
-    uint8_t kdf_in[64];
-    memcpy(kdf_in, kr, 32);
-    memcpy(kdf_in + 32, h_ct, 32);
-    zupt_shake256(kdf_in, 64, ss, 32);
+    /* FIPS 203, Algorithm 17 (ML-KEM.Encaps_internal): the shared secret K is
+     * the first 32 bytes of (K, r) = G(m ‖ H(ek)) DIRECTLY. Round-3 Kyber
+     * applied a final K = KDF(K̄ ‖ H(c)); FIPS 203 removed that step. */
+    memcpy(ss, kr, 32);
 
     zupt_secure_wipe(m, 32);
     zupt_secure_wipe(kr, 64);
     zupt_secure_wipe(kr_input, 64);
-    zupt_secure_wipe(kdf_in, 64);
     return 0;
 }
 
@@ -601,22 +601,20 @@ int zupt_mlkem768_decaps(uint8_t ss[32], const uint8_t ct[1088],
      * equal (ct matches → success), 0 otherwise. */
     int ct_equal = zupt_ct_memeq(ct, ct_prime, 1088);
 
-    /* Compute success key: K = KDF(kr[0:32] ‖ H(ct)) */
-    uint8_t h_ct[32];
-    zupt_sha3_256(ct, 1088, h_ct);
-
-    uint8_t kdf_success[64];
-    memcpy(kdf_success, kr, 32);
-    memcpy(kdf_success + 32, h_ct, 32);
+    /* FIPS 203, Algorithm 18 (ML-KEM.Decaps_internal):
+     *   success key K' = first 32 bytes of (K', r') = G(m' ‖ h)   [no final KDF]
+     *   reject  key K̄  = J(z ‖ c) = SHAKE256(z ‖ full-ciphertext, 32)
+     * Both are computed unconditionally; the constant-time select below picks
+     * the reject key iff the re-encryption comparison fails. (Round-3 Kyber
+     * used K = KDF(K̄' ‖ H(c)) and K̄ = KDF(z ‖ H(c)); FIPS 203 changed both.) */
     uint8_t ss_success[32];
-    zupt_shake256(kdf_success, 64, ss_success, 32);
+    memcpy(ss_success, kr, 32);
 
-    /* Compute rejection key: K_bar = KDF(z ‖ H(ct)) */
-    uint8_t kdf_reject[64];
+    uint8_t kdf_reject[32 + 1088];
     memcpy(kdf_reject, z, 32);
-    memcpy(kdf_reject + 32, h_ct, 32);
+    memcpy(kdf_reject + 32, ct, 1088);
     uint8_t ss_reject[32];
-    zupt_shake256(kdf_reject, 64, ss_reject, 32);
+    zupt_shake256(kdf_reject, 32 + 1088, ss_reject, 32);
 
     /* CT-REQUIRED: Select success or reject key without branching.
      * ct_equal == 1 (ct matches): use ss_success → fail = 0.
@@ -635,8 +633,7 @@ int zupt_mlkem768_decaps(uint8_t ss[32], const uint8_t ct[1088],
     zupt_secure_wipe(kr, 64);
     zupt_secure_wipe(kr_input, 64);
     zupt_secure_wipe(ct_prime, sizeof(ct_prime));
-    zupt_secure_wipe(kdf_success, 64);
-    zupt_secure_wipe(kdf_reject, 64);
+    zupt_secure_wipe(kdf_reject, sizeof(kdf_reject));
     zupt_secure_wipe(ss_success, 32);
     zupt_secure_wipe(ss_reject, 32);
     return 0;
