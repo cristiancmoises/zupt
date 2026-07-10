@@ -19,7 +19,7 @@
 
 
 Name:           vaptvupt
-Version:        4.2.1
+Version:        5.0.0
 Release:        0
 Summary:        Post-quantum backup compression with AES-256 + ML-KEM-768 hybrid encryption
 License:        AGPL-3.0-or-later

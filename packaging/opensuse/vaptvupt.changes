@@ -1,4 +1,22 @@
 -------------------------------------------------------------------
+Fri Jul 10 18:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 5.0.0:
+  * ML-KEM-768 is now genuinely FIPS 203-conformant (was round-3
+    CRYSTALS-Kyber): fixed a transposed matrix-A sampling convention,
+    the round-3 KDF, and the implicit-rejection domain. Validated
+    byte-for-byte against OpenSSL 3.5's FIPS 203 ML-KEM-768
+    (tests/test_mlkem_fips203.sh, run in %check).
+  * BREAKING: --pq / --pq-only keys and archives from <= 4.2.1 no
+    longer decrypt (the KEM math changed). Regenerate keys and
+    re-encrypt. Password mode and plain compression are unaffected;
+    wire format stays v1.6.
+  * Security: compress data-loss and silent-plaintext guards; heap
+    OOB read in the AVX2 decoder bounded; overflow-safe solid-mode
+    test path; secret-wipe on hybrid-decrypt key-read error.
+  * GUI reworked for the source-only build; truthful banner/help.
+
+-------------------------------------------------------------------
 Fri Jul 10 12:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
 
 - Update to 4.2.1:

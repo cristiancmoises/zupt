@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: zupt
 Upstream-Contact: Cristian Cezar Moisés <sac@securityops.co>
-Source: https://git.securityops.co/cristiancmoises/zupt
+Source: https://git.securityops.co/cristiancmoises/vaptvupt
 
 Files: *
 Copyright: 2025-2026 Cristian Cezar Moisés

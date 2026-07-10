@@ -17,44 +17,40 @@ License: AGPL-3.0-or-later (dual-licensed AGPL + commercial).
 > command is preserved as a symlink to `vaptvupt` for one major version
 > cycle.
 
-## What's new in 4.2.1 / 4.2.0
+## What's new in 5.0.0
 
-- **4.2.1 (patch):** `vaptvupt info` now correctly reports the post-quantum
-  mode — a `--pq-only` archive reads "ML-KEM-768 only, no classical layer"
-  instead of being mislabelled as hybrid. Reader-side only; no wire-format
-  change, and existing 4.2.0 archives are relabelled with no re-encryption.
-
-The 4.2.0 feature set (all included in 4.2.1):
-
-- **Full (pure) post-quantum mode — `--pq-only`.** ML-KEM-768 (FIPS 203) as
-  the *sole* key-establishment mechanism, with no classical X25519 component.
-  For compliance postures that mandate a single NIST-standardised PQ primitive
-  with no classical KEM in the envelope (CNSA 2.0-style "PQ-only"). Envelope
-  type `0x06`; archive key `SHA3-512(ml_ss ‖ ml_ct ‖ "ZUPT-PQ-ONLY-v1")`.
-  In-tree crypto, available in the default build.
-  - **Hybrid `--pq` stays the default recommendation.** `--pq-only` trades away
-    the hybrid safety net: a future break of ML-KEM-768 *alone* would break a
-    `--pq-only` archive, whereas `--pq` would still require breaking X25519 too.
-    Use `--pq-only` only when a policy forbids the classical component.
-- **Security fix (critical): AES-CTR keystream reuse under `--dedup`.** Dedup
-  blocks all share sequence 0, and the old nonce (`base_nonce XOR seq`)
-  therefore collapsed to one value across blocks — reusing the CTR keystream
-  (a many-time-pad). Every block now uses a **fresh random 128-bit nonce**.
-  Re-encrypt any `--dedup` + encrypted archives written by ≤ 4.1.0. Regression
-  test: `tests/test_dedup_nonce.sh`.
-- **Clearer SDK keygen guidance.** `keygen --sdk`/`--box` on the source-only
-  build now points you to native `--pq`/`--pq-only` (or a `WITH_SDK=1` build).
-- **Wire/on-disk format is v1.6, unchanged.** All 4.x archives interoperate;
-  the new `0x06` envelope is additive.
+- **Genuine FIPS 203 ML-KEM-768 — validated against OpenSSL.** Earlier releases
+  shipped round-3 CRYSTALS-Kyber under a "FIPS 203" label; it was secure but
+  **not interoperable** with a compliant ML-KEM. Three deviations (a transposed
+  matrix-`Â` sampling convention, the round-3 KDF, and the implicit-rejection
+  domain) are fixed, and the result is now **byte-for-byte interoperable with
+  OpenSSL 3.5's FIPS 203 ML-KEM-768** in both directions — checked on every
+  `make check` (`tests/test_mlkem_fips203.sh`). Hybrid `--pq` (ML-KEM-768 +
+  X25519) remains the recommended flagship; `--pq-only` is pure ML-KEM-768.
+- **⚠ Breaking:** because the KEM math changed, `--pq`/`--pq-only` **keys and
+  archives from ≤ 4.2.1 no longer decrypt** — regenerate keys and re-encrypt.
+  Password mode (`-p`) and plain compression are unaffected; wire format is still v1.6.
+- **CLI security fixes.** A `compress -p out.zupt file1 file2` **data-loss** bug
+  (the archive name was eaten as the password and overwrote `file1`) and a
+  `compress out.zupt dir -p pw` **silent-plaintext** bug are both guarded now; a
+  **heap OOB read** in the AVX2 decoder on crafted archives is bounded; banners
+  report the build's real KDF.
+- **GUI reworked so it actually works.** It used to default every encryption
+  path to SDK modes absent from the source-only build (key generation failed out
+  of the box). Now a build-aware Hybrid/Full-PQ selector, PQ-key auto-detect on
+  Extract/Verify, and About/threading fixes.
+- **Cross-platform.** A portable GUI package (Windows/macOS/Linux/BSD, needs
+  Python + PySide6) and a CI workflow that builds native Windows `.exe`/installer
+  and macOS `.dmg` on real runners.
 
 > **F-16 (data loss):** archives created by **≤ 3.8.0** at `-l 8`/`-l 9`
 > whose inputs included x86/ELF/PE executables may be **undecodable by any
 > version** (write-time defect in the old in-tree BCJ encoder). Re-create
-> such archives with 4.2.1 and verify extraction before deleting source
+> such archives with 5.0.0 and verify extraction before deleting source
 > data. Details in [CHANGELOG.md](CHANGELOG.md).
 
-Binaries for the CLI (4.2.1) and GUI (1.3.0) are on the
-[release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v4.2.1).
+Binaries for the CLI (5.0.0) and GUI (1.3.0) are on the
+[release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.0.0).
 
 ---
 
@@ -129,18 +125,18 @@ Argon2id KDF.
 ### Pre-built packages
 
 Assets are published on the
-[v4.2.1 release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v4.2.1)
+[v5.0.0 release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.0.0)
 and verifiable against the published `SHA256SUMS.txt`.
 
-**Command-line tool (`vaptvupt` 4.2.1):**
+**Command-line tool (`vaptvupt` 5.0.0):**
 
 | Format | File | Distros |
 |---|---|---|
-| Debian/Ubuntu | `vaptvupt_4.2.1_amd64.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
-| RPM | `vaptvupt-4.2.1-1.x86_64.rpm` | Fedora 38+, RHEL 9+, openSUSE, AlmaLinux, Rocky, other RPM-based distributions |
-| AppDir tarball | `vaptvupt-4.2.1-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run, no FUSE) |
-| Source tarball | `vaptvupt-4.2.1.tar.gz` | Build from source on any platform |
-| openSUSE OBS | `vaptvupt-4.2.1-opensuse-obs.tar.gz` | Open Build Service source bundle |
+| Debian/Ubuntu | `vaptvupt_5.0.0_amd64.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
+| RPM | `vaptvupt-5.0.0-1.x86_64.rpm` | Fedora 38+, RHEL 9+, openSUSE, AlmaLinux, Rocky, other RPM-based distributions |
+| AppDir tarball | `vaptvupt-5.0.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run, no FUSE) |
+| Source tarball | `vaptvupt-5.0.0.tar.gz` | Build from source on any platform |
+| openSUSE OBS | `vaptvupt-5.0.0-opensuse-obs.tar.gz` | Open Build Service source bundle |
 
 **Graphical front-end (`vaptvupt-gui` 1.3.0):**
 
@@ -151,22 +147,36 @@ and verifiable against the published `SHA256SUMS.txt`.
 | AppImage | `VaptVupt-GUI-1.3.0-x86_64.AppImage` | Any glibc 2.28+ (single-file, no install) |
 | AppDir tarball | `VaptVupt-GUI-1.3.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run) |
 
+**Windows / macOS / BSD:**
+
+| Platform | File | Notes |
+|---|---|---|
+| Windows | `VaptVupt-Setup-5.0.0.exe`, `vaptvupt-gui-5.0.0-windows-x86_64.exe`, `vaptvupt-5.0.0-windows-x86_64.exe` | Native installer + standalone GUI + CLI, built on a Windows runner by CI |
+| macOS | `VaptVupt-5.0.0.dmg`, `vaptvupt-5.0.0-macos` | `.dmg` GUI bundle + CLI, built on a macOS runner by CI |
+| Any OS (portable GUI) | `vaptvupt-gui-5.0.0-portable.zip` | Python GUI + launchers for Windows/macOS/Linux/BSD; needs Python 3.8+ and PySide6 (or PyQt6), plus the `vaptvupt` CLI on PATH |
+| BSD / others | `vaptvupt-5.0.0.tar.gz` | Build the CLI from source (`make`); run the portable GUI |
+
+The native Windows/macOS installers are produced by the project's CI
+(`.github/workflows/cross-platform.yml`) on real Windows and macOS runners — see
+the GitHub release. The portable GUI package runs the same GUI everywhere Python
+and Qt are available.
+
 ```bash
 # Verify downloads first
 sha256sum -c SHA256SUMS.txt
 
 # Debian / Ubuntu / Mint
-sudo dpkg -i vaptvupt_4.2.1_amd64.deb
+sudo dpkg -i vaptvupt_5.0.0_amd64.deb
 sudo apt-get install -f       # resolve any missing deps
 
 # Fedora / RHEL / openSUSE / AlmaLinux / Rocky and other RPM-based distros
-sudo rpm -i vaptvupt-4.2.1-1.x86_64.rpm
+sudo rpm -i vaptvupt-5.0.0-1.x86_64.rpm
 # or
-sudo dnf install ./vaptvupt-4.2.1-1.x86_64.rpm
+sudo dnf install ./vaptvupt-5.0.0-1.x86_64.rpm
 
 # AppDir tarball (no install, no FUSE required)
-tar xzf vaptvupt-4.2.1-x86_64.AppDir.tar.gz
-./vaptvupt-4.2.1-x86_64.AppDir/AppRun --help
+tar xzf vaptvupt-5.0.0-x86_64.AppDir.tar.gz
+./vaptvupt-5.0.0-x86_64.AppDir/AppRun --help
 
 # GUI AppImage (single executable)
 chmod +x VaptVupt-GUI-1.3.0-x86_64.AppImage
@@ -176,10 +186,10 @@ chmod +x VaptVupt-GUI-1.3.0-x86_64.AppImage
 ### Building from SRPM (Fedora / RHEL / RPM-based distributions)
 
 ```bash
-tar xzf vaptvupt-4.2.1.srpm.tar.gz
+tar xzf vaptvupt-5.0.0.srpm.tar.gz
 cd ~/rpmbuild  # or use rpmbuild --define "_topdir $(pwd)"
 rpmbuild -bb SPECS/vaptvupt.spec
-sudo rpm -i RPMS/x86_64/vaptvupt-4.2.1-1.*.rpm
+sudo rpm -i RPMS/x86_64/vaptvupt-5.0.0-1.*.rpm
 ```
 
 ### Basic usage
@@ -680,6 +690,7 @@ VaptVupt archives require VaptVupt v2.0+.
 | v4.1.0 | Source-only tree (prebuilt libzuptsdk/libpqvaptvupt removed); default build needs only a C compiler + make; native `--pq` is the default PQ mode; `--pq-sdk`/`--pq-box`/Argon2id gated behind `make WITH_SDK=1`. Wire format stays v1.6 |
 | v4.2.0 | Full (pure) post-quantum mode `--pq-only` (ML-KEM-768 only, envelope 0x06); critical fix for AES-CTR keystream reuse under `--dedup` (fresh random per-block nonce); clearer SDK keygen guidance. Wire format stays v1.6 |
 | v4.2.1 | `vaptvupt info` now reports the real post-quantum mode (`--pq-only` no longer mislabelled as hybrid); reader-side only, no wire-format change |
+| v5.0.0 | Genuine FIPS 203 ML-KEM-768 (validated vs OpenSSL); CLI data-loss/plaintext guards; AVX2 decoder OOB-read fix; GUI reworked for native PQ modes; cross-platform packaging. **Breaking:** `--pq`/`--pq-only` keys+archives from ≤4.2.1 do not decrypt |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.
 

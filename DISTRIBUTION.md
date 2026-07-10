@@ -10,7 +10,7 @@ Every packaging recipe expects an upstream tarball `vaptvupt-VERSION.tar.gz` pro
 
 ```sh
 make dist
-# → /tmp/vaptvupt-4.2.1.tar.gz
+# → /tmp/vaptvupt-5.0.0.tar.gz
 ```
 
 Re-running `make dist` on the same source tree produces an identical sha256 (verified by `tests/test_dist_reproducible.sh`, wired into `make test`). This lets distros pin a stable hash in their recipes.
@@ -56,13 +56,13 @@ Maintainer flow:
 ```sh
 # 1. Produce the upstream tarball
 make dist
-# → /tmp/vaptvupt-4.2.1.tar.gz
+# → /tmp/vaptvupt-5.0.0.tar.gz
 
 # 2. Upload to a stable URL (e.g. git.securityops.co releases)
 
 # 3. Update packaging/aur/PKGBUILD:
-#    - Set pkgver=4.2.1
-#    - Set sha256sums=("$(sha256sum /tmp/vaptvupt-4.2.1.tar.gz | awk '{print $1}')")
+#    - Set pkgver=5.0.0
+#    - Set sha256sums=("$(sha256sum /tmp/vaptvupt-5.0.0.tar.gz | awk '{print $1}')")
 
 # 4. Generate .SRCINFO
 cd packaging/aur && makepkg --printsrcinfo > .SRCINFO
@@ -73,7 +73,7 @@ makepkg -s
 # 6. Push to AUR
 git clone ssh://aur@aur.archlinux.org/vaptvupt.git aur-vaptvupt
 cp packaging/aur/PKGBUILD packaging/aur/.SRCINFO aur-vaptvupt/
-cd aur-vaptvupt && git add -A && git commit -m "v4.2.1" && git push
+cd aur-vaptvupt && git add -A && git commit -m "v5.0.0" && git push
 ```
 
 User install:
@@ -117,10 +117,10 @@ The `packaging/debian/` tree is a Debian source-package layout. Maintainer flow:
 # 1. Produce the upstream tarball with the standard Debian
 #    orig.tar.gz naming convention:
 make dist
-cp /tmp/vaptvupt-4.2.1.tar.gz /tmp/vaptvupt_4.2.1.orig.tar.gz
+cp /tmp/vaptvupt-5.0.0.tar.gz /tmp/vaptvupt_5.0.0.orig.tar.gz
 
 # 2. Unpack and overlay the debian/ tree:
-cd /tmp && tar xzf vaptvupt_4.2.1.orig.tar.gz && cd vaptvupt-4.2.1
+cd /tmp && tar xzf vaptvupt_5.0.0.orig.tar.gz && cd vaptvupt-5.0.0
 cp -a /path/to/vaptvupt/packaging/debian ./debian
 
 # 3. Build the source package:
@@ -128,7 +128,7 @@ dpkg-buildpackage -S -us -uc       # source-only
 dpkg-buildpackage -b -us -uc       # binary
 
 # 4. Lint:
-lintian vaptvupt_4.2.1-1_*.deb
+lintian vaptvupt_5.0.0-1_*.deb
 
 # 5. Submit via the standard Debian mentors process:
 #    https://mentors.debian.net/intro-maintainers/
@@ -145,7 +145,7 @@ sudo apt install vaptvupt
 ```sh
 # 1. Produce the tarball
 make dist
-cp /tmp/vaptvupt-4.2.1.tar.gz ~/rpmbuild/SOURCES/
+cp /tmp/vaptvupt-5.0.0.tar.gz ~/rpmbuild/SOURCES/
 
 # 2. Drop the .spec into the SPECS directory:
 cp packaging/rpm/vaptvupt.spec ~/rpmbuild/SPECS/
@@ -154,7 +154,7 @@ cp packaging/rpm/vaptvupt.spec ~/rpmbuild/SPECS/
 cd ~/rpmbuild && rpmbuild -ba SPECS/vaptvupt.spec
 
 # 4. Lint:
-rpmlint RPMS/x86_64/vaptvupt-4.2.1-1.fc*.rpm
+rpmlint RPMS/x86_64/vaptvupt-5.0.0-1.fc*.rpm
 
 # 5. Submit via the Fedora new-package review process:
 #    https://docs.fedoraproject.org/en-US/package-maintainers/Package_Review_Process/
@@ -177,7 +177,7 @@ The `packaging/opensuse/` tree carries an RPM `.spec` suited to the Open Build S
 make dist
 
 # 2. In an OBS package checkout (osc), stage the sources and spec:
-cp /tmp/vaptvupt-4.2.1.tar.gz .
+cp /tmp/vaptvupt-5.0.0.tar.gz .
 cp /path/to/vaptvupt/packaging/opensuse/vaptvupt.spec .
 
 # 3. Build locally against a target repository:
@@ -230,7 +230,7 @@ nix build github:cristiancmoises/vaptvupt#vaptvupt
 nix run github:cristiancmoises/vaptvupt#vaptvupt -- version
 
 # 2. To consume from another flake:
-#    inputs.vaptvupt.url = "github:cristiancmoises/vaptvupt?ref=v4.2.1";
+#    inputs.vaptvupt.url = "github:cristiancmoises/vaptvupt?ref=v5.0.0";
 #    packages.x86_64-linux.default = inputs.vaptvupt.packages.x86_64-linux.vaptvupt;
 
 # 3. To submit to nixpkgs (https://github.com/NixOS/nixpkgs):

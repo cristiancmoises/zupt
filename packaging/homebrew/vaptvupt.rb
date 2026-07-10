@@ -17,14 +17,13 @@
 # Notes for macOS:
 #   * Jasmin assembly is disabled at build time on Darwin (no jasminc dep);
 #     the C fallback for AES-256-CTR / HMAC compare paths is shipped.
-#   * libzuptsdk is vendored and installed alongside the binary; the binary
-#     uses @loader_path rpath so users don't have to set DYLD paths.
+#   * Source-only build: no vendored libraries; native crypto only.
 
 class Vaptvupt < Formula
   desc "Post-quantum backup compression utility (ML-KEM-768 + AES-256-CTR + HMAC-SHA256)"
   homepage "https://git.securityops.co/cristiancmoises/vaptvupt"
-  url "https://git.securityops.co/cristiancmoises/vaptvupt/releases/download/v4.2.1/vaptvupt-4.2.1.tar.gz"
-  version "4.2.1"
+  url "https://git.securityops.co/cristiancmoises/vaptvupt/releases/download/v5.0.0/vaptvupt-5.0.0.tar.gz"
+  version "5.0.0"
   sha256 "REPLACE_WITH_SHA256_OF_RELEASE_TARBALL"
   license "AGPL-3.0-or-later"
 

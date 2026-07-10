@@ -1,33 +1,78 @@
 # VaptVupt Changelog
 
 
-## [5.0.0] — unreleased — genuine FIPS 203 ML-KEM-768 (breaking PQ change)
+## [5.0.0] — 2026-07-10 — genuine FIPS 203 ML-KEM-768; GUI + CLI hardening
 
 ### Security / correctness — ML-KEM-768 is now FIPS 203-conformant
 
-- The in-tree ML-KEM-768 was **round-3 CRYSTALS-Kyber, not final FIPS 203**, and
-  therefore not interoperable with a compliant ML-KEM despite the "FIPS 203"
-  label. Three deviations were found and fixed:
-  1. **Matrix Â transpose convention** — K-PKE.KeyGen must use `SampleNTT(ρ‖j‖i)`
-     and K-PKE.Encrypt `SampleNTT(ρ‖i‖j)`; the implementation had both swapped.
-     Self-consistent (round-trips passed) but non-standard, which is exactly why
-     a self-consistency-only test never caught it.
-  2. **Encaps/decaps KDF** — FIPS 203 outputs `K` from `G(m‖H(ek))` directly; the
-     round-3 final `K = KDF(K̄‖H(c))` step was removed.
+- The in-tree ML-KEM-768 was **round-3 CRYSTALS-Kyber, not final FIPS 203**, so
+  it was **not interoperable** with a compliant ML-KEM despite the "FIPS 203"
+  label. Found by validating against OpenSSL 3.5's ML-KEM-768. Three deviations,
+  all fixed in `src/zupt_mlkem.c`:
+  1. **Matrix Â transpose convention** — FIPS 203 K-PKE.KeyGen samples
+     `Â[i][j] = SampleNTT(XOF(ρ, j, i))` and K-PKE.Encrypt uses `(ρ, i, j)`; both
+     index orders were swapped. Self-consistent (round-trips passed) but
+     transposed vs the standard — precisely why a self-consistency-only test
+     never caught it.
+  2. **Encaps/decaps KDF** — the shared secret is now `K` from `G(m‖H(ek))`
+     directly; the round-3 final `K = KDF(K̄‖H(c))` step was removed.
   3. **Implicit rejection** — now `K̄ = J(z‖c)` (SHAKE256 over the full
      ciphertext) instead of `KDF(z‖H(c))`.
-- **Validated for genuine conformance against OpenSSL 3.5's FIPS 203 ML-KEM-768**
-  (`tests/test_mlkem_fips203.sh`, wired into `make check`): deterministic keygen
-  produces byte-identical `ek`, and the shared secret matches in **both**
-  cross-decapsulation directions (our encaps ↔ OpenSSL decaps, and vice-versa).
-  This replaces the previous self-consistency-only round-trip test.
+- **Validated for genuine conformance against OpenSSL 3.5's FIPS 203
+  ML-KEM-768** (`tests/test_mlkem_fips203.sh`, wired into `make check`):
+  deterministic keygen produces a byte-identical `ek`, and the shared secret
+  matches in **both** cross-decapsulation directions. This permanent conformance
+  test replaces the previous self-consistency-only round-trip.
+
+### Security — CLI
+
+- **Data-loss guard.** `compress -p out.zupt file1 file2` used to let `-p`
+  swallow the archive name as the password, then overwrite `file1` with the
+  archive (silent, exit 0). Now refuses to overwrite an existing non-`.zupt`
+  file as the output archive (override with `-y`/`--force`), plus a
+  self-overwrite guard.
+- **Silent-plaintext guard.** `compress out.zupt dir -p pw` used to write an
+  **unencrypted** archive (exit 0) because options after the first positional
+  were treated as files. Now errors on a misplaced option (`--` escapes a real
+  dashed filename).
+- **Heap OOB read** in the AVX2 decoder fast path on crafted archives: the 2-/3-
+  byte match-offset read is now bounded like the scalar tail path.
+- Wipe ML-KEM/X25519 secret buffers on hybrid-decrypt key-read failure; bound
+  the attacker-controlled `encryption_header_off` in the `info` reader.
+- `version`/`help`/banners now state the build's real KDF (PBKDF2-SHA256 on the
+  source-only build) and repo URL.
+
+### GUI — reworked for the source-only build
+
+- The GUI defaulted every encryption path to the libzuptsdk "SDK v2" modes,
+  which are absent from the source-only build and fail — so key generation and
+  encryption failed out of the box. Reworked around the native modes: a
+  build-aware **PQ-mode selector** (Hybrid `--pq` default · Full-PQ `--pq-only` ·
+  SDK v2 only when the binary reports `WITH_SDK` support), detected from
+  `version`. Extract/Verify gained a PQ private-key input with **auto-detect**
+  (reads the archive via `info` to pick `--pq` vs `--pq-only`); Verify could not
+  check any PQ archive before. Fixed a DiskTab QThread-lifetime bug (two buttons
+  shared one slot); corrected the About tab (codec, default KDF, `--pq-only`,
+  repo URL). Guix packaging: put Shiboken6 on the launcher path so PySide6
+  actually imports.
+
+### Packaging & cross-platform
+
+- `debian/rules`, `aur`, `nix`, `homebrew` no longer install the removed
+  vendored `.so`/`AUDIT.md` or use stale `/zupt` URLs; `opensuse` `%files` now
+  ships the shell completions (no more "unpackaged files" rpmbuild failure).
+- New **portable cross-platform GUI package** (`packaging/portable/`) that runs
+  on Windows/macOS/Linux/BSD with Python + PySide6, and a **GitHub Actions
+  workflow** (`.github/workflows/cross-platform.yml`) that builds native
+  Windows (`.exe` + Inno Setup installer) and macOS (`.dmg`) artifacts on real
+  runners and attaches them to the release.
 
 ### BREAKING
 
 - **`--pq` and `--pq-only` keys and archives created by ≤ 4.2.1 are not
   readable by this release** (the KEM math changed). Regenerate keys
-  (`keygen`/`keygen --pq-only`) and re-encrypt affected archives. Password mode
-  (`-p`) and plain compression are unaffected. Wire format stays v1.6.
+  (`keygen` / `keygen --pq-only`) and re-encrypt affected archives. Password
+  mode (`-p`) and plain compression are unaffected. Wire format stays v1.6.
 
 
 ## [4.2.1] — 2026-07-10 — `info` correctly reports the post-quantum mode

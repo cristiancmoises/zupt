@@ -11,7 +11,7 @@
 # zupt-VERSION.tar.gz alongside the PKGBUILD.
 
 pkgname=vaptvupt
-pkgver=4.2.1
+pkgver=5.0.0
 pkgrel=1
 provides=('zupt')
 replaces=('zupt')

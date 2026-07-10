@@ -21,10 +21,10 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [master]
     tags: ['v*']
   pull_request:
-    branches: [main, develop]
+    branches: [master]
 
 jobs:
   # ─── Plain build + test, exactly as a user would do it ───
@@ -76,15 +76,18 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential python3
       - name: Build with ASAN + UBSAN
         run: make test-asan
-      - name: PQ-SDK byte-exact roundtrip under ASAN
+      - name: Native --pq byte-exact roundtrip under ASAN
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: |
-          ./zupt_asan keygen --sdk -o /tmp/k.priv
-          ./zupt_asan compress --pq-sdk /tmp/k.priv.pub /tmp/a.zupt include/
+          # Native hybrid ML-KEM-768 + X25519 (the source-only default; --pq-sdk
+          # needs a WITH_SDK=1 build and is unavailable here).
+          ./zupt_asan keygen -o /tmp/k.priv
+          ./zupt_asan keygen --pub -o /tmp/k.pub -k /tmp/k.priv
+          ./zupt_asan compress --pq /tmp/k.pub /tmp/a.zupt include/
           mkdir -p /tmp/extracted
-          ./zupt_asan extract --pq-sdk /tmp/k.priv -o /tmp/extracted /tmp/a.zupt
+          ./zupt_asan extract --pq /tmp/k.priv -o /tmp/extracted /tmp/a.zupt
           diff -qr include /tmp/extracted/include
 
   # ─── PIE hardening build — verifies no runtime breakage from -fPIE ───
@@ -147,7 +150,7 @@ jobs:
         id: sha1
         run: |
           VER=$(grep '^#define ZUPT_VERSION_STRING' include/zupt.h | awk -F'"' '{print $2}')
-          SHA=$(sha256sum /tmp/zupt-$VER.tar.gz | awk '{print $1}')
+          SHA=$(sha256sum /tmp/vaptvupt-$VER.tar.gz | awk '{print $1}')
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "ver=$VER" >> "$GITHUB_OUTPUT"
           echo "Run 1: $SHA"
@@ -156,7 +159,7 @@ jobs:
       - name: Verify reproducibility
         run: |
           VER="${{ steps.sha1.outputs.ver }}"
-          SHA2=$(sha256sum /tmp/zupt-$VER.tar.gz | awk '{print $1}')
+          SHA2=$(sha256sum /tmp/vaptvupt-$VER.tar.gz | awk '{print $1}')
           if [ "$SHA2" != "${{ steps.sha1.outputs.sha }}" ]; then
             echo "::error::make dist is NOT reproducible"
             echo "  run 1: ${{ steps.sha1.outputs.sha }}"
@@ -168,7 +171,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: zupt-source-tarball
-          path: /tmp/zupt-*.tar.gz
+          path: /tmp/vaptvupt-*.tar.gz
 
   # ─── Packaging-recipe syntax (cross-distro) ───
   packaging-syntax:
@@ -214,15 +217,15 @@ jobs:
         id: sha
         run: |
           VER="${{ steps.ver.outputs.version }}"
-          SHA=$(sha256sum /tmp/zupt-$VER.tar.gz | awk '{print $1}')
+          SHA=$(sha256sum /tmp/vaptvupt-$VER.tar.gz | awk '{print $1}')
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "$SHA  zupt-$VER.tar.gz" > /tmp/zupt-$VER.tar.gz.sha256
+          echo "$SHA  vaptvupt-$VER.tar.gz" > /tmp/vaptvupt-$VER.tar.gz.sha256
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            /tmp/zupt-${{ steps.ver.outputs.version }}.tar.gz
-            /tmp/zupt-${{ steps.ver.outputs.version }}.tar.gz.sha256
+            /tmp/vaptvupt-${{ steps.ver.outputs.version }}.tar.gz
+            /tmp/vaptvupt-${{ steps.ver.outputs.version }}.tar.gz.sha256
           body: |
             ## Zupt v${{ steps.ver.outputs.version }}
 

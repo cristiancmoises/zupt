@@ -2797,7 +2797,11 @@ zupt_error_t zupt_test_archive(const char *arc, zupt_options_t *opts) {
             uint64_t sz = e->uncompressed_size;
             int fok = 1;
 
-            if (off + sz > total_size) {
+            /* Overflow-safe bound: off+sz can wrap (both are attacker-controlled
+             * index fields), so `off + sz > total_size` could pass falsely and
+             * feed a wild pointer / oversized length to zupt_xxh64. Match the
+             * hardened extract path. */
+            if (off > (uint64_t)total_size || sz > (uint64_t)total_size - off) {
                 fok = 0;
             } else if (sz > 0) {
                 uint64_t ck = zupt_xxh64(solid_buf + off, (size_t)sz, 0);

@@ -20,7 +20,7 @@
 # in the base.
 
 Name:           vaptvupt
-Version:        4.2.1
+Version:        5.0.0
 Release:        1%{?dist}
 Summary:        Post-quantum backup compression utility (AES-256 + ML-KEM-768 + Argon2id, formerly Zupt)
 
@@ -48,10 +48,12 @@ Requires:       glibc
 %description
 Zupt is a pure-C11 backup compression utility featuring:
 
-  * Post-quantum hybrid encryption (ML-KEM-768 + X25519, FIPS 203)
+  * Post-quantum hybrid encryption (ML-KEM-768 + X25519, FIPS 203,
+    validated byte-for-byte against OpenSSL's ML-KEM-768) and full
+    pure ML-KEM-768 (--pq-only)
   * AES-256-CTR + HMAC-SHA256 authenticated encryption (Encrypt-then-MAC)
-  * Argon2id password-based key derivation (default since 2.4.1)
-  * Multi-threaded compression with the VaptVupt LZ codec
+  * PBKDF2-SHA256 password key derivation (Argon2id in WITH_SDK=1 builds)
+  * Multi-threaded compression with the VaptVupt LZ + ANS codec
   * Full-disk backup and restore with sparse-region detection
   * End-to-end byte-level tamper detection on encrypted archives
     (0 silent-accept positions in the v1.6 exhaustive byte sweep)
@@ -107,6 +109,17 @@ and optional encrypted comments.
 %endif
 
 %changelog
+* Fri Jul 10 2026 Cristian Cezar Moisés <sac@securityops.co> - 5.0.0-1
+- ML-KEM-768 is now genuinely FIPS 203-conformant (was round-3 CRYSTALS-Kyber):
+  fixed a transposed matrix-A sampling convention, the round-3 KDF, and the
+  implicit-rejection domain. Validated byte-for-byte against OpenSSL 3.5's
+  FIPS 203 ML-KEM-768 (tests/test_mlkem_fips203.sh, run in %%check).
+- BREAKING: --pq / --pq-only keys and archives from <= 4.2.1 no longer decrypt.
+  Regenerate keys and re-encrypt. Password mode / plain compression unaffected.
+- Security: compress data-loss + silent-plaintext guards; AVX2 decoder heap
+  OOB-read bound; overflow-safe solid-mode test path; secret-wipe on error.
+- GUI reworked for the source-only build; truthful banner/help.
+
 * Fri Jul 10 2026 Cristian Cezar Moisés <sac@securityops.co> - 4.2.1-1
 - Fix: "vaptvupt info" mislabelled full post-quantum (--pq-only) archives as
   "PQ Hybrid (ML-KEM-768 + X25519)". info now reads the real enc_type from the

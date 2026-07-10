@@ -398,10 +398,14 @@ class PathField(QWidget):
 def scrollable(w):
     sa = QScrollArea(); sa.setWidgetResizable(True); sa.setWidget(w); sa.setFrameShape(QFrame.Shape.NoFrame); return sa
 
-def run_async(parent, cmd, btn, log, progress=None):
-    log.clear(); btn.setEnabled(False)
+def run_async(parent, cmd, btn, log, progress=None, info=None):
+    log.clear()
+    if info:  # e.g. an auto-detect note; appended AFTER the clear so it survives
+        log.append(info)
+    btn.setEnabled(False)
     if progress: progress.show()
     t = QThread(); w = Worker(cmd); w.moveToThread(t)
+    # log.append targets a main-thread QObject -> Qt queues it to the GUI thread.
     w.log.connect(log.append)
     # Keep a LIST of live (thread, worker) refs on the parent. Tabs with more
     # than one action button (Disk: backup + restore) previously shared a
@@ -417,7 +421,10 @@ def run_async(parent, cmd, btn, log, progress=None):
         log.append("\nDone." if code == 0 else f"\nFailed (exit {code}).")
         t.quit()
         parent._jobs = [(th, wk) for (th, wk) in parent._jobs if th is not t]
-    w.done.connect(finish)
+    # `done` is emitted from the worker thread and `finish` touches GUI widgets;
+    # a bare functor would connect DirectConnection and run OFF the GUI thread.
+    # QueuedConnection marshals it onto the GUI event loop.
+    w.done.connect(finish, Qt.ConnectionType.QueuedConnection)
     t.started.connect(w.run); t.start()
 
 # ── Tabs ──
@@ -621,6 +628,7 @@ class ExtractTab(QWidget):
         arc = self.arc.path()
         if not arc: QMessageBox.warning(self, "VaptVupt", "Select an archive."); return
         cmd = ["extract"]
+        info = None
         if self.out.path(): cmd += ["-o", self.out.path()]
         if self.pw.text(): cmd += ["-p", self.pw.text()]
         if self.pq.path():
@@ -629,11 +637,11 @@ class ExtractTab(QWidget):
                 # The private-key format must match how the archive was encrypted;
                 # inspect the header (vaptvupt info) to choose the right flag.
                 tok = _detect_archive_pq(arc) or "pq"
-                self.log.append(f"[auto-detect] using {_PQ_FLAG[tok][1]}")
+                info = f"[auto-detect] using {_PQ_FLAG[tok][1]}"
             _, flag = _PQ_FLAG[tok]
             cmd += [flag, self.pq.path()]
         cmd.append(arc)
-        run_async(self, cmd, self.btn, self.log, self.progress)
+        run_async(self, cmd, self.btn, self.log, self.progress, info=info)
 
 
 class VerifyTab(QWidget):

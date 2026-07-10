@@ -1,4 +1,4 @@
-# Security Policy — VaptVupt 4.2.1
+# Security Policy — VaptVupt 5.0.0
 
 ## Reporting Vulnerabilities
 
@@ -61,7 +61,7 @@ build and are not defaults.
 | Authentication | HMAC-SHA256 | RFC 2104 | 256-bit | 128-bit post-quantum (Grover) |
 | Password KDF (default) | PBKDF2-SHA256 | RFC 8018 | 600K iterations | Password-dependent |
 | Password KDF (WITH_SDK=1 option) | Argon2id | RFC 9106 | OWASP minimums | Password-dependent, memory-hard |
-| Post-quantum KEM | ML-KEM-768 | FIPS 203 | 1184B pk / 2400B sk | NIST Level 3 |
+| Post-quantum KEM | ML-KEM-768 | FIPS 203 (validated vs OpenSSL 3.5) | 1184B ek / 2400B dk | NIST Level 3 |
 | Classical KEM | X25519 | RFC 7748 | 32B scalar | ~128-bit classical |
 | Hybrid KDF (`--pq`) | SHA3-512 | FIPS 202 | 512-bit output | Secure if either KEM holds |
 | PQ-only KDF (`--pq-only`) | SHA3-512 | FIPS 202 | 512-bit output | Secure if ML-KEM-768 holds (no classical fallback) |
@@ -111,6 +111,14 @@ decryption. This prevents:
 - Processing of tampered data
 
 ### Hybrid Post-Quantum KEM (`--pq`)
+
+> **FIPS 203 conformance (v5.0.0).** The ML-KEM-768 implementation is validated
+> byte-for-byte against OpenSSL 3.5's FIPS 203 ML-KEM-768: deterministic keygen
+> produces an identical `ek`, and the shared secret agrees in both
+> cross-decapsulation directions (our encaps ↔ OpenSSL decaps, and vice-versa).
+> This is checked on every `make check` by `tests/test_mlkem_fips203.sh`.
+> Releases ≤ 4.2.1 used round-3 CRYSTALS-Kyber (secure, but not interoperable);
+> 5.0.0's `--pq`/`--pq-only` archives are therefore not backward-compatible.
 
 ```
 Encapsulation:

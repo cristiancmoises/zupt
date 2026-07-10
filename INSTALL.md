@@ -5,13 +5,13 @@ If you're seeing the error:
 ```
 vaptvupt-gui depende de python3-pyqt6 | python3-pyside6; porém:
   Pacote python3-pyqt6 não está instalado.
-vaptvupt-gui depende de vaptvupt (>= 4.2.1); porém:
+vaptvupt-gui depende de vaptvupt (>= 5.0.0); porém:
   Versão de vaptvupt no sistema é 2.1.7-1.
 ```
 
 This is correct behavior. The `vaptvupt-gui` deb requires:
 - Python 3 with **PyQt6** or **PySide6** (the GUI toolkit)
-- The **vaptvupt CLI 4.2.1** or newer
+- The **vaptvupt CLI 5.0.0** or newer
 
 ## The fastest fix — one command (Linux Mint, Ubuntu, Debian)
 
@@ -33,8 +33,8 @@ the right order.
 sudo apt update
 sudo apt install -y python3-pyqt6
 
-# 2. Upgrade vaptvupt CLI to 4.2.1
-sudo dpkg -i vaptvupt_4.2.1_amd64.deb
+# 2. Upgrade vaptvupt CLI to 5.0.0
+sudo dpkg -i vaptvupt_5.0.0_amd64.deb
 
 # 3. Install the GUI
 sudo dpkg -i vaptvupt-gui_1.3.0_all.deb
@@ -50,7 +50,7 @@ sudo apt --fix-broken install
 
 ```bash
 sudo dnf install -y python3-pyqt6
-sudo dnf install -y vaptvupt-4.2.1-1.x86_64.rpm vaptvupt-gui-1.3.0-1.noarch.rpm
+sudo dnf install -y vaptvupt-5.0.0-1.x86_64.rpm vaptvupt-gui-1.3.0-1.noarch.rpm
 ```
 
 (Or build the RPM from the SRPM tarball with `rpmbuild -bb SPECS/vaptvupt.spec`)
@@ -98,7 +98,7 @@ Qt6 inside the deb because:
 - Bundling would make the deb 80 MB+ instead of 35 KB
 - Distribution-managed Qt gets security updates automatically
 
-## Why does the GUI need vaptvupt 4.2.1?
+## Why does the GUI need vaptvupt 5.0.0?
 
 The GUI calls `vaptvupt --pq` and `vaptvupt keygen` for native
 post-quantum encryption (ML-KEM-768 + X25519, in-tree implementation).
@@ -108,7 +108,7 @@ fail against them.
 ## After installing — verify
 
 ```bash
-vaptvupt version       # should show: 4.2.1
+vaptvupt version       # should show: 5.0.0
 vaptvupt-gui           # should launch the GUI window
 ```
 
@@ -178,8 +178,8 @@ sudo zypper install gcc make     # openSUSE
 ### Build VaptVupt itself
 
 ```bash
-tar -xzf vaptvupt-4.2.1-source.tar.gz
-cd vaptvupt-4.2.1
+tar -xzf vaptvupt-5.0.0-source.tar.gz
+cd vaptvupt-5.0.0
 
 make                 # build the `./vaptvupt` binary
 sudo make install    # install to /usr/local/bin (override with PREFIX=/usr)

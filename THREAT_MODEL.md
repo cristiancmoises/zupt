@@ -108,10 +108,10 @@ machines under the user's own control.
 
 ### 5. Post-quantum forward secrecy (`--pq`, `--pq-only`, and optional `--pq-sdk`)
 
-The native `--pq` mode uses ML-KEM-768 (FIPS 203) hybridized with
-X25519 via an HKDF combiner. Archives encrypted today cannot be
-decrypted by a future quantum adversary holding only the ciphertext,
-assuming:
+The native `--pq` mode uses ML-KEM-768 (FIPS 203 — validated byte-for-byte
+against OpenSSL 3.5's ML-KEM-768; see AUDIT.md) hybridized with X25519 via an
+HKDF combiner. Archives encrypted today cannot be decrypted by a future quantum
+adversary holding only the ciphertext, assuming:
 
 - ML-KEM-768 retains its claimed security level (NIST Category 3,
   192-bit classical / 96-bit quantum strength)
@@ -323,6 +323,6 @@ normally.
 ## Document version
 
 This threat model covers archive format v1.6 as shipped in VaptVupt
-4.2.1. It is part of the source tree (`THREAT_MODEL.md`) and
+5.0.0. It is part of the source tree (`THREAT_MODEL.md`) and
 versioned with the project; this section will be updated as the
 format evolves.

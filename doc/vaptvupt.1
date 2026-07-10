@@ -1,7 +1,7 @@
 .\" Manpage for vaptvupt (formerly zupt; INPI Brasil trademark rename in v3.0.0)
 .\" SPDX-License-Identifier: AGPL-3.0-or-later
 .\" Copyright (c) 2025-2026 Cristian Cezar Moisés
-.TH VAPTVUPT 1 "July 2026" "vaptvupt 4.2.1" "User Commands"
+.TH VAPTVUPT 1 "July 2026" "vaptvupt 5.0.0" "User Commands"
 
 .SH NAME
 vaptvupt \- post-quantum backup compression utility (formerly zupt)
@@ -72,7 +72,7 @@ every byte of the archive — header, footer, per-block metadata, comments — i
 .PP
 The compression layer is the
 .B VaptVupt LZ + ANS
-codec (version 2.53.3), which prioritises decode speed and ratio over
+codec (version 2.60.4), which prioritises decode speed and ratio over
 encode speed. Aggregate decode throughput on this build is 1.27\(mu
 zstd\-3; encode throughput is 0.2\(mu\(en0.5\(mu zstd\-3 depending on
 content. See
@@ -239,9 +239,10 @@ Read password from file descriptor N.
 
 .TP
 .B --kdf \fIalgo\fR
-Choose key-derivation function for password mode:
-.BR argon2id " (default since v2.4.1; memory-hard) or "
-.BR pbkdf2 " (SHA-256, 600 000 iter; needed for compatibility with v2.4.0 and earlier readers)."
+Choose key-derivation function for password mode. In the default source-only
+build the only KDF is
+.BR pbkdf2 " (SHA-256, 600 000 iter), which is the default;"
+.BR argon2id " (memory-hard) is available only in a " WITH_SDK=1 " build."
 
 .TP
 .B --keyfile \fIpath\fR

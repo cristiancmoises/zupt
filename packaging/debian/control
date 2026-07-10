@@ -25,7 +25,7 @@ Description: Post-quantum backup compression utility (formerly Zupt)
   * Post-quantum hybrid encryption (ML-KEM-768 + X25519, FIPS 203)
   * AES-256-CTR + HMAC-SHA256 authenticated encryption (Encrypt-then-MAC)
   * PBKDF2-SHA256 password key derivation (Argon2id in WITH_SDK=1 builds)
-  * Multi-threaded compression with the VaptVupt LZ + ANS codec 2.48.5
+  * Multi-threaded compression with the VaptVupt LZ + ANS codec 2.60.4
   * Full-disk backup and restore with sparse-region detection
   * End-to-end byte-level tamper detection on encrypted archives
     (0 silent-accept positions in the v1.6 exhaustive byte sweep)
