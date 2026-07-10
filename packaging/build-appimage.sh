@@ -6,7 +6,7 @@
 set -e
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-3.0.0}"
+VERSION="${VERSION:-4.2.0}"
 ARCH="${ARCH:-x86_64}"
 PKGNAME="vaptvupt"
 LEGACY="zupt"
@@ -14,21 +14,16 @@ NAME="$PKGNAME-$VERSION-$ARCH"
 OUT="/tmp/${NAME}.AppDir"
 
 rm -rf "$OUT"
-mkdir -p "$OUT/usr/bin" "$OUT/usr/lib" "$OUT/usr/share/applications" "$OUT/usr/share/icons/hicolor/256x256/apps"
+mkdir -p "$OUT/usr/bin" "$OUT/usr/share/applications" "$OUT/usr/share/icons/hicolor/256x256/apps"
 
+# Source-only build: the binary links only libc/libm/pthread from the host,
+# so the AppDir ships no bundled libraries.
 install -m 755 $PKGNAME "$OUT/usr/bin/$PKGNAME"
 ln -sf $PKGNAME "$OUT/usr/bin/$LEGACY"
-install -m 644 vendor/zuptsdk/libzuptsdk.so.2.0.0 "$OUT/usr/lib/"
-ln -sf libzuptsdk.so.2.0.0 "$OUT/usr/lib/libzuptsdk.so.2"
-ln -sf libzuptsdk.so.2 "$OUT/usr/lib/libzuptsdk.so"
-install -m 644 vendor/pqvaptvupt/libpqvaptvupt.so.0.6.0 "$OUT/usr/lib/"
-ln -sf libpqvaptvupt.so.0.6.0 "$OUT/usr/lib/libpqvaptvupt.so.0"
-ln -sf libpqvaptvupt.so.0 "$OUT/usr/lib/libpqvaptvupt.so"
 
 cat > "$OUT/AppRun" <<APPRUN
 #!/bin/bash
 HERE="\$(dirname "\$(readlink -f "\${0}")")"
-export LD_LIBRARY_PATH="\$HERE/usr/lib:\$LD_LIBRARY_PATH"
 export PATH="\$HERE/usr/bin:\$PATH"
 exec "\$HERE/usr/bin/$PKGNAME" "\$@"
 APPRUN
