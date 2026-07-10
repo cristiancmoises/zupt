@@ -323,6 +323,6 @@ normally.
 ## Document version
 
 This threat model covers archive format v1.6 as shipped in VaptVupt
-4.2.0. It is part of the source tree (`THREAT_MODEL.md`) and
+4.2.1. It is part of the source tree (`THREAT_MODEL.md`) and
 versioned with the project; this section will be updated as the
 format evolves.

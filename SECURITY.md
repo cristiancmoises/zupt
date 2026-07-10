@@ -1,4 +1,4 @@
-# Security Policy — VaptVupt 4.2.0
+# Security Policy — VaptVupt 4.2.1
 
 ## Reporting Vulnerabilities
 

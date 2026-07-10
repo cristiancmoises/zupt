@@ -6,7 +6,7 @@
 set -e
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-4.2.0}"
+VERSION="${VERSION:-4.2.1}"
 ARCH="${ARCH:-x86_64}"
 PKGNAME="vaptvupt"
 LEGACY="zupt"

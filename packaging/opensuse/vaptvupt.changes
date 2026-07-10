@@ -1,4 +1,15 @@
 -------------------------------------------------------------------
+Fri Jul 10 12:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
+
+- Update to 4.2.1:
+  * Fix: "vaptvupt info" mislabelled full post-quantum (--pq-only)
+    archives as "PQ Hybrid (ML-KEM-768 + X25519)". info now reads the
+    real enc_type from the encryption-header block and reports the
+    actual mode ("ML-KEM-768 only, no classical layer" for --pq-only).
+    Reader-side only; no wire-format change, existing 4.2.0 archives are
+    relabelled with no re-encryption.
+
+-------------------------------------------------------------------
 Thu Jul  9 12:00:00 UTC 2026 - Alessandro de Oliveira Faria <cabelo@opensuse.org>
 
 - Update to 4.2.0:

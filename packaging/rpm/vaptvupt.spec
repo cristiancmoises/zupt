@@ -20,7 +20,7 @@
 # in the base.
 
 Name:           vaptvupt
-Version:        4.2.0
+Version:        4.2.1
 Release:        1%{?dist}
 Summary:        Post-quantum backup compression utility (AES-256 + ML-KEM-768 + Argon2id, formerly Zupt)
 
@@ -107,6 +107,12 @@ and optional encrypted comments.
 %endif
 
 %changelog
+* Fri Jul 10 2026 Cristian Cezar Moisés <sac@securityops.co> - 4.2.1-1
+- Fix: "vaptvupt info" mislabelled full post-quantum (--pq-only) archives as
+  "PQ Hybrid (ML-KEM-768 + X25519)". info now reads the real enc_type from the
+  encryption-header block and reports the actual mode ("ML-KEM-768 only, no
+  classical layer" for --pq-only). Reader-side only; no wire-format change.
+
 * Thu Jul 09 2026 Cristian Cezar Moisés <sac@securityops.co> - 4.2.0-1
 - New native full (pure) post-quantum mode --pq-only: ML-KEM-768 as the
   sole KEM, no classical X25519 (envelope 0x06). For "PQ-only" compliance

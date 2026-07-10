@@ -17,7 +17,14 @@ License: AGPL-3.0-or-later (dual-licensed AGPL + commercial).
 > command is preserved as a symlink to `vaptvupt` for one major version
 > cycle.
 
-## What's new in 4.2.0
+## What's new in 4.2.1 / 4.2.0
+
+- **4.2.1 (patch):** `vaptvupt info` now correctly reports the post-quantum
+  mode — a `--pq-only` archive reads "ML-KEM-768 only, no classical layer"
+  instead of being mislabelled as hybrid. Reader-side only; no wire-format
+  change, and existing 4.2.0 archives are relabelled with no re-encryption.
+
+The 4.2.0 feature set (all included in 4.2.1):
 
 - **Full (pure) post-quantum mode — `--pq-only`.** ML-KEM-768 (FIPS 203) as
   the *sole* key-establishment mechanism, with no classical X25519 component.
@@ -43,11 +50,11 @@ License: AGPL-3.0-or-later (dual-licensed AGPL + commercial).
 > **F-16 (data loss):** archives created by **≤ 3.8.0** at `-l 8`/`-l 9`
 > whose inputs included x86/ELF/PE executables may be **undecodable by any
 > version** (write-time defect in the old in-tree BCJ encoder). Re-create
-> such archives with 4.2.0 and verify extraction before deleting source
+> such archives with 4.2.1 and verify extraction before deleting source
 > data. Details in [CHANGELOG.md](CHANGELOG.md).
 
-Binaries for the CLI (4.2.0) and GUI (1.3.0) are on the
-[release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v4.2.0).
+Binaries for the CLI (4.2.1) and GUI (1.3.0) are on the
+[release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v4.2.1).
 
 ---
 
@@ -122,18 +129,18 @@ Argon2id KDF.
 ### Pre-built packages
 
 Assets are published on the
-[v4.2.0 release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v4.2.0)
+[v4.2.1 release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v4.2.1)
 and verifiable against the published `SHA256SUMS.txt`.
 
-**Command-line tool (`vaptvupt` 4.2.0):**
+**Command-line tool (`vaptvupt` 4.2.1):**
 
 | Format | File | Distros |
 |---|---|---|
-| Debian/Ubuntu | `vaptvupt_4.2.0_amd64.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
-| RPM | `vaptvupt-4.2.0-1.x86_64.rpm` | Fedora 38+, RHEL 9+, openSUSE, AlmaLinux, Rocky, other RPM-based distributions |
-| AppDir tarball | `vaptvupt-4.2.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run, no FUSE) |
-| Source tarball | `vaptvupt-4.2.0.tar.gz` | Build from source on any platform |
-| openSUSE OBS | `vaptvupt-4.2.0-opensuse-obs.tar.gz` | Open Build Service source bundle |
+| Debian/Ubuntu | `vaptvupt_4.2.1_amd64.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
+| RPM | `vaptvupt-4.2.1-1.x86_64.rpm` | Fedora 38+, RHEL 9+, openSUSE, AlmaLinux, Rocky, other RPM-based distributions |
+| AppDir tarball | `vaptvupt-4.2.1-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run, no FUSE) |
+| Source tarball | `vaptvupt-4.2.1.tar.gz` | Build from source on any platform |
+| openSUSE OBS | `vaptvupt-4.2.1-opensuse-obs.tar.gz` | Open Build Service source bundle |
 
 **Graphical front-end (`vaptvupt-gui` 1.3.0):**
 
@@ -149,17 +156,17 @@ and verifiable against the published `SHA256SUMS.txt`.
 sha256sum -c SHA256SUMS.txt
 
 # Debian / Ubuntu / Mint
-sudo dpkg -i vaptvupt_4.2.0_amd64.deb
+sudo dpkg -i vaptvupt_4.2.1_amd64.deb
 sudo apt-get install -f       # resolve any missing deps
 
 # Fedora / RHEL / openSUSE / AlmaLinux / Rocky and other RPM-based distros
-sudo rpm -i vaptvupt-4.2.0-1.x86_64.rpm
+sudo rpm -i vaptvupt-4.2.1-1.x86_64.rpm
 # or
-sudo dnf install ./vaptvupt-4.2.0-1.x86_64.rpm
+sudo dnf install ./vaptvupt-4.2.1-1.x86_64.rpm
 
 # AppDir tarball (no install, no FUSE required)
-tar xzf vaptvupt-4.2.0-x86_64.AppDir.tar.gz
-./vaptvupt-4.2.0-x86_64.AppDir/AppRun --help
+tar xzf vaptvupt-4.2.1-x86_64.AppDir.tar.gz
+./vaptvupt-4.2.1-x86_64.AppDir/AppRun --help
 
 # GUI AppImage (single executable)
 chmod +x VaptVupt-GUI-1.3.0-x86_64.AppImage
@@ -169,10 +176,10 @@ chmod +x VaptVupt-GUI-1.3.0-x86_64.AppImage
 ### Building from SRPM (Fedora / RHEL / RPM-based distributions)
 
 ```bash
-tar xzf vaptvupt-4.2.0.srpm.tar.gz
+tar xzf vaptvupt-4.2.1.srpm.tar.gz
 cd ~/rpmbuild  # or use rpmbuild --define "_topdir $(pwd)"
 rpmbuild -bb SPECS/vaptvupt.spec
-sudo rpm -i RPMS/x86_64/vaptvupt-4.2.0-1.*.rpm
+sudo rpm -i RPMS/x86_64/vaptvupt-4.2.1-1.*.rpm
 ```
 
 ### Basic usage
@@ -672,6 +679,7 @@ VaptVupt archives require VaptVupt v2.0+.
 | v4.0.0 | Codec 2.60.4 security release (OOB heap write fixed in AVX2 decode fast path), `--pq-box` sealed-box mode, F-16 data-loss disclosure + fix (old in-tree BCJ encoder), CBMC-verified BCJ filters with auto ELF/PE/Mach-O detection, SHA-NI acceleration. Wire format v1.6 |
 | v4.1.0 | Source-only tree (prebuilt libzuptsdk/libpqvaptvupt removed); default build needs only a C compiler + make; native `--pq` is the default PQ mode; `--pq-sdk`/`--pq-box`/Argon2id gated behind `make WITH_SDK=1`. Wire format stays v1.6 |
 | v4.2.0 | Full (pure) post-quantum mode `--pq-only` (ML-KEM-768 only, envelope 0x06); critical fix for AES-CTR keystream reuse under `--dedup` (fresh random per-block nonce); clearer SDK keygen guidance. Wire format stays v1.6 |
+| v4.2.1 | `vaptvupt info` now reports the real post-quantum mode (`--pq-only` no longer mislabelled as hybrid); reader-side only, no wire-format change |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.
 
