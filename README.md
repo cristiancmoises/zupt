@@ -49,7 +49,7 @@ License: AGPL-3.0-or-later (dual-licensed AGPL + commercial).
 > such archives with 5.0.0 and verify extraction before deleting source
 > data. Details in [CHANGELOG.md](CHANGELOG.md).
 
-Binaries for the CLI (5.0.0) and GUI (1.3.0) are on the
+Binaries for the CLI (5.0.0) and GUI (5.0.0) are on the
 [release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.0.0).
 
 ---
@@ -138,14 +138,14 @@ and verifiable against the published `SHA256SUMS.txt`.
 | Source tarball | `vaptvupt-5.0.0.tar.gz` | Build from source on any platform |
 | openSUSE OBS | `vaptvupt-5.0.0-opensuse-obs.tar.gz` | Open Build Service source bundle |
 
-**Graphical front-end (`vaptvupt-gui` 1.3.0):**
+**Graphical front-end (`vaptvupt-gui` 5.0.0):**
 
 | Format | File | Distros |
 |---|---|---|
-| Debian/Ubuntu | `vaptvupt-gui_1.3.0_all.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
-| RPM | `vaptvupt-gui-1.3.0-1.noarch.rpm` | RPM-based distributions |
-| AppImage | `VaptVupt-GUI-1.3.0-x86_64.AppImage` | Any glibc 2.28+ (single-file, no install) |
-| AppDir tarball | `VaptVupt-GUI-1.3.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run) |
+| Debian/Ubuntu | `vaptvupt-gui_5.0.0_all.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
+| RPM | `vaptvupt-gui-5.0.0-1.noarch.rpm` | RPM-based distributions |
+| AppImage | `VaptVupt-GUI-5.0.0-x86_64.AppImage` | Any glibc 2.28+ (single-file, no install) |
+| AppDir tarball | `VaptVupt-GUI-5.0.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run) |
 
 **Windows / macOS / BSD:**
 
@@ -179,8 +179,8 @@ tar xzf vaptvupt-5.0.0-x86_64.AppDir.tar.gz
 ./vaptvupt-5.0.0-x86_64.AppDir/AppRun --help
 
 # GUI AppImage (single executable)
-chmod +x VaptVupt-GUI-1.3.0-x86_64.AppImage
-./VaptVupt-GUI-1.3.0-x86_64.AppImage
+chmod +x VaptVupt-GUI-5.0.0-x86_64.AppImage
+./VaptVupt-GUI-5.0.0-x86_64.AppImage
 ```
 
 ### Building from SRPM (Fedora / RHEL / RPM-based distributions)
