@@ -31,7 +31,8 @@ jobs:
   windows:
     runs-on: windows-latest
     defaults:
-      run: { shell: msys2 {0} }
+      run:
+        shell: 'msys2 {0}'
     steps:
       - uses: actions/checkout@v4
       - name: Set up MSYS2 (mingw gcc + make)
