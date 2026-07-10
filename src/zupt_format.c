@@ -2903,6 +2903,23 @@ zupt_error_t zupt_archive_info(const char *path) {
             has_footer = 1;
         }
     }
+
+    /* Read the real enc_type from the encryption-header block so `info` can
+     * distinguish hybrid --pq (0x02) from full --pq-only (0x06), the SDK-v2
+     * (0x03) and sealed-box (0x05) modes — the ZUPT_FLAG_PQ_HYBRID header flag
+     * is a generic PQ indicator set by all of them. Block layout from
+     * write_enc_header: 7-byte prefix (magic0,magic1,block_type,codec u16,
+     * flags u16) + varint(len) + varint(len) + u64 xxh64 + enc_hdr[0]=enc_type. */
+    uint8_t enc_type = 0;
+    if ((hdr.global_flags & ZUPT_FLAG_ENCRYPTED) && hdr.encryption_header_off != 0 &&
+        fseeko(f, (off_t)hdr.encryption_header_off + 7, SEEK_SET) == 0) {
+        uint64_t l1 = 0, l2 = 0;
+        if (zupt_read_varint(f, &l1) > 0 && zupt_read_varint(f, &l2) > 0 &&
+            fseeko(f, 8, SEEK_CUR) == 0) {
+            uint8_t b;
+            if (fread(&b, 1, 1, f) == 1) enc_type = b;
+        }
+    }
     fclose(f);
 
     /* UUID */
@@ -2938,8 +2955,23 @@ zupt_error_t zupt_archive_info(const char *path) {
     if (has_footer)
         printf("  Blocks:        %llu\n", (unsigned long long)total_blocks);
     printf("  Encrypted:     %s\n", (fl & ZUPT_FLAG_ENCRYPTED) ? "YES" : "no");
-    if (fl & ZUPT_FLAG_PQ_HYBRID)
-        printf("  PQ Hybrid:     YES (ML-KEM-768 + X25519)\n");
+    if (fl & ZUPT_FLAG_PQ_HYBRID) {
+        switch (enc_type) {
+            case ZUPT_ENC_PQ_ONLY:
+                printf("  Post-quantum:  YES (ML-KEM-768 only, no classical layer)\n");
+                break;
+            case ZUPT_ENC_PQ_SDK_V2:
+                printf("  Post-quantum:  YES (ML-KEM-768 + X25519, SDK v2 + HPKE)\n");
+                break;
+            case ZUPT_ENC_PQ_BOX_V1:
+                printf("  Post-quantum:  YES (ML-KEM-768 + X25519, sealed box)\n");
+                break;
+            case ZUPT_ENC_PQ_HYBRID:
+            default:
+                printf("  Post-quantum:  YES (ML-KEM-768 + X25519, hybrid)\n");
+                break;
+        }
+    }
     if (fl & ZUPT_FLAG_SOLID)
         printf("  Solid:         YES\n");
     if (fl & ZUPT_FLAG_MULTITHREADED)

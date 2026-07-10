@@ -1,6 +1,22 @@
 # VaptVupt Changelog
 
 
+## [4.2.1] — 2026-07-10 — `info` correctly reports the post-quantum mode
+
+### Fixed
+
+- **`vaptvupt info` mislabelled `--pq-only` archives as hybrid.** Full
+  post-quantum archives set the generic `ZUPT_FLAG_PQ_HYBRID` header flag (the
+  `enc_type` byte is what distinguishes hybrid `0x02` from pure `0x06`), but
+  `info` only checked the flag and always printed "PQ Hybrid: YES (ML-KEM-768 +
+  X25519)". It now reads the real `enc_type` from the encryption-header block
+  and reports the actual mode: "ML-KEM-768 only, no classical layer" for
+  `--pq-only`, and hybrid / SDK-v2 / sealed-box for the others. Reader-side only
+  — no wire-format change; existing 4.2.0 archives are relabelled correctly with
+  no re-encryption. The crypto was always correct; only the `info` label was
+  wrong.
+
+
 ## [4.2.0] — 2026-07-09 — Full (pure) post-quantum mode; dedup keystream-reuse fix
 
 ### Added — full post-quantum encryption (`--pq-only`)
