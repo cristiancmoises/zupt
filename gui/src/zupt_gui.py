@@ -338,11 +338,17 @@ def run_zupt(args, timeout=30):
 class Worker(QObject):
     done = Signal(int, str, str)
     log = Signal(str)
-    def __init__(self, args): super().__init__(); self.args = args
+    def __init__(self, args):
+        super().__init__(); self.args = args; self.proc = None; self._cancelled = False
     def run(self):
         self.log.emit(f"$ {Path(VAPTVUPT).name} {' '.join(self.args)}")
         try:
-            proc = subprocess.Popen([ZUPT]+self.args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            # errors="replace": the CLI can echo non-UTF-8 bytes (foreign
+            # filenames on mounted drives); strict decoding would raise mid-read
+            # and the job would never report done.
+            self.proc = proc = subprocess.Popen([ZUPT]+self.args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace")
+            if self._cancelled:   # cancel() ran before Popen finished (see below)
+                proc.kill()
             err_lines = []
             for line in proc.stderr:
                 line = line.rstrip('\n')
@@ -351,6 +357,20 @@ class Worker(QObject):
             self.done.emit(proc.returncode, stdout or "", "\n".join(err_lines))
         except FileNotFoundError: self.done.emit(-1, "", f"vaptvupt not found: {VAPTVUPT}")
         except subprocess.TimeoutExpired: proc.kill(); self.done.emit(-1, "", "Timed out")
+        except Exception as exc:
+            # Any escape from this slot would strand the job forever (done never
+            # fires -> button stays disabled; fatal under PyQt6). Always report.
+            self.done.emit(-1, "", f"{type(exc).__name__}: {exc}")
+    def cancel(self):
+        """Kill the child CLI process (called from the GUI thread on window
+        close). run() then sees EOF/exit and finishes the thread normally.
+        The flag closes the startup race: if cancel() runs before run() has
+        assigned self.proc, run() kills the child right after spawning it."""
+        self._cancelled = True
+        p = self.proc
+        if p is not None and p.poll() is None:
+            try: p.kill()
+            except OSError: pass
 
 # ── Widgets ──
 
@@ -422,11 +442,22 @@ def run_async(parent, cmd, btn, log, progress=None, info=None):
         if progress: progress.hide()
         log.append("\nDone." if code == 0 else f"\nFailed (exit {code}).")
         t.quit()
+    def release():
+        # Runs (queued onto the GUI thread) only after QThread emitted
+        # finished. t.wait() then joins the last few instructions of the OS
+        # thread, so by the time the refs are dropped the thread is truly
+        # dead. Dropping them in finish() — right after t.quit() — crashed
+        # the app: the still-running QThread wrapper became garbage, and
+        # collecting a live QThread aborts the process ("QThread: Destroyed
+        # while thread is still running"). Reproduced on every
+        # compress-with-key run; this ordering is the fix.
+        t.wait()
         parent._jobs = [(th, wk) for (th, wk) in parent._jobs if th is not t]
     # `done` is emitted from the worker thread and `finish` touches GUI widgets;
     # a bare functor would connect DirectConnection and run OFF the GUI thread.
     # QueuedConnection marshals it onto the GUI event loop.
     w.done.connect(finish, Qt.ConnectionType.QueuedConnection)
+    t.finished.connect(release, Qt.ConnectionType.QueuedConnection)
     t.started.connect(w.run); t.start()
 
 # ── Tabs ──
@@ -540,7 +571,6 @@ class KeysTab(QWidget):
 class CompressTab(QWidget):
     def __init__(self, initial=None):
         super().__init__()
-        self._thread = self._worker = None
         inner = QWidget()
         v = QVBoxLayout(inner); v.setContentsMargins(24,24,24,24); v.setSpacing(10)
         v.addWidget(QLabel("Compress files into an encrypted .zupt archive."))
@@ -601,7 +631,6 @@ class CompressTab(QWidget):
 class ExtractTab(QWidget):
     def __init__(self, initial=None):
         super().__init__()
-        self._thread = self._worker = None
         inner = QWidget()
         v = QVBoxLayout(inner); v.setContentsMargins(24,24,24,24); v.setSpacing(10)
         v.addWidget(QLabel("Extract and decrypt a .zupt archive."))
@@ -703,7 +732,6 @@ class VerifyTab(QWidget):
 class DiskTab(QWidget):
     def __init__(self):
         super().__init__()
-        self._thread = self._worker = None
         inner = QWidget()
         v = QVBoxLayout(inner); v.setContentsMargins(24,24,24,24); v.setSpacing(10)
         v.addWidget(QLabel("Full-disk or partition backup and restore."))
@@ -857,6 +885,39 @@ class ZuptWindow(QMainWindow):
             self.extract_tab.arc.edit.setText(ps[0]); self.tabs.setCurrentIndex(2)
         else:
             self.compress_tab.src.edit.setText("|".join(ps)); self.tabs.setCurrentIndex(1)
+
+    def closeEvent(self, e):
+        # Join in-flight worker threads before the window goes away: kill each
+        # child CLI process (the worker then sees EOF and finishes) and wait
+        # for its QThread. Otherwise interpreter teardown collects live
+        # QThreads and aborts the process instead of exiting cleanly.
+        jobs = [(t, w) for i in range(self.tabs.count())
+                for (t, w) in getattr(self.tabs.widget(i), "_jobs", [])]
+        if jobs:
+            # Aborting mid-job can be destructive (a killed `disk restore`
+            # leaves the target half-written), so never do it silently.
+            SB = QMessageBox.StandardButton
+            if QMessageBox.warning(
+                    self, "VaptVupt",
+                    "An operation is still running.\nQuit and abort it?",
+                    SB.Yes | SB.Cancel) != SB.Yes:
+                e.ignore(); return
+        for t, w in jobs:
+            w.cancel()
+            t.quit()
+            if not t.wait(3000):
+                # Thread stuck past the kill (child in D-state / pipe held by a
+                # grandchild). Letting teardown destroy a live QThread aborts
+                # with SIGABRT; exiting hard here is the clean way out.
+                if sys.stderr is not None:
+                    try:
+                        sys.stderr.write("A worker did not stop in time; "
+                                         "forcing exit.\n")
+                        sys.stderr.flush()
+                    except OSError:
+                        pass
+                os._exit(0)
+        super().closeEvent(e)
 
 
 def main():
