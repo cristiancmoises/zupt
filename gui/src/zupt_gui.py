@@ -23,7 +23,7 @@ try:
         QTextEdit, QProgressBar, QTabWidget, QFrame, QCheckBox,
         QSpinBox, QMessageBox, QStatusBar, QScrollArea
     )
-    from PySide6.QtCore import Qt, Signal, QObject, QThread
+    from PySide6.QtCore import Qt, Signal, QObject, QThread, QTimer
     from PySide6.QtGui import QPalette, QColor, QIcon, QPixmap
     QT_BINDING = "PySide6"
 except ImportError:
@@ -34,7 +34,7 @@ except ImportError:
             QTextEdit, QProgressBar, QTabWidget, QFrame, QCheckBox,
             QSpinBox, QMessageBox, QStatusBar, QScrollArea
         )
-        from PyQt6.QtCore import Qt, pyqtSignal as Signal, QObject, QThread
+        from PyQt6.QtCore import Qt, pyqtSignal as Signal, QObject, QThread, QTimer
         from PyQt6.QtGui import QPalette, QColor, QIcon, QPixmap
         QT_BINDING = "PyQt6"
     except ImportError:
@@ -858,9 +858,26 @@ class ZuptWindow(QMainWindow):
 
 
 def main():
-    compress_files = extract_file = None
     args = sys.argv[1:]
-    if args:
+
+    # Lightweight non-GUI flags first, so `vaptvupt-gui --version|--help|--selftest`
+    # work with no display and aren't mistaken for files to compress. `--selftest`
+    # is a headless-friendly smoke test: it builds the whole UI and spins the event
+    # loop once, then exits 0 — the reliable way to confirm the GUI stack launches
+    # on a machine where the window itself is hard to see (tiling WM, remote, CI).
+    if args and args[0] in ("--version", "-V", "version"):
+        print(f"vaptvupt-gui {ZUPT_VER_NUMBER} ({QT_BINDING})  |  CLI: {VAPTVUPT}")
+        return 0
+    if args and args[0] in ("--help", "-h", "help"):
+        print("usage: vaptvupt-gui [ARCHIVE.zupt | --extract ARCHIVE.zupt |\n"
+              "                     --compress FILE [FILE ...]]\n"
+              "       vaptvupt-gui --selftest   # verify the GUI launches (no window kept)\n"
+              "       vaptvupt-gui --version")
+        return 0
+
+    compress_files = extract_file = None
+    selftest = ("--selftest" in args[:1])
+    if args and not selftest:
         if args[0] == "--compress" and len(args) > 1: compress_files = args[1:]
         elif args[0] == "--extract" and len(args) > 1: extract_file = args[1]
         elif args[0].endswith(".zupt"): extract_file = args[0]
@@ -882,8 +899,34 @@ def main():
         pal.setColor(role, QColor(c))
     app.setPalette(pal)
     win = ZuptWindow(compress_files=compress_files, extract_file=extract_file)
+
+    if selftest:
+        win.show()
+        QTimer.singleShot(400, app.quit)
+        rc = app.exec()
+        print(f"selftest OK — {QT_BINDING}: window + {win.tabs.count()} tabs built, "
+              f"event loop ran (rc={rc}); CLI={VAPTVUPT}")
+        return rc
+
+    # Center on the active screen and force focus. Without this the window can
+    # open off-screen or behind the last-focused frame on a tiling compositor
+    # (Sway/i3/Hyprland) — the usual cause of "the GUI won't start / is stuck":
+    # it launched, but you can't see it.
+    scr = app.primaryScreen()
+    if scr is not None:
+        fg = win.frameGeometry()
+        fg.moveCenter(scr.availableGeometry().center())
+        win.move(fg.topLeft())
     win.show()
-    sys.exit(app.exec())
+    win.raise_()
+    win.activateWindow()
+
+    # A GUI blocks the launching shell, so a working launch otherwise looks like
+    # a "stuck" terminal. Emit one line to stderr so it's unambiguous.
+    sys.stderr.write(f"VaptVupt {ZUPT_VER_NUMBER} GUI started — window open "
+                     f"(close it to exit).\n")
+    sys.stderr.flush()
+    return app.exec()
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
