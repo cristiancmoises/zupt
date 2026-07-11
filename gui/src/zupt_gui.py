@@ -23,7 +23,7 @@ try:
         QTextEdit, QProgressBar, QTabWidget, QFrame, QCheckBox,
         QSpinBox, QMessageBox, QStatusBar, QScrollArea
     )
-    from PySide6.QtCore import Qt, Signal, QObject, QThread, QTimer
+    from PySide6.QtCore import Qt, Signal, QObject, QThread, QTimer, QEvent
     from PySide6.QtGui import QPalette, QColor, QIcon, QPixmap
     QT_BINDING = "PySide6"
 except ImportError:
@@ -34,7 +34,7 @@ except ImportError:
             QTextEdit, QProgressBar, QTabWidget, QFrame, QCheckBox,
             QSpinBox, QMessageBox, QStatusBar, QScrollArea
         )
-        from PyQt6.QtCore import Qt, pyqtSignal as Signal, QObject, QThread, QTimer
+        from PyQt6.QtCore import Qt, pyqtSignal as Signal, QObject, QThread, QTimer, QEvent
         from PyQt6.QtGui import QPalette, QColor, QIcon, QPixmap
         QT_BINDING = "PyQt6"
     except ImportError:
@@ -930,6 +930,66 @@ def main():
     if is_x11:
         win.raise_()
         win.activateWindow()
+
+    # Wayland map watchdog. On some compositor/toolkit combos (seen live on
+    # Sway 1.12 + Qt 6.9: a handshake deadlock where Qt never sends the initial
+    # wl_surface.commit, so the compositor never sends configure) the event
+    # loop runs but the window NEVER maps — the app looks "started" yet nothing
+    # appears. In that state no Expose event is ever delivered, so LATCH the
+    # first expose; do NOT sample isExposed() at the deadline (a healthy window
+    # that is merely hidden — other workspace, scratchpad, locker — reads
+    # unexposed ~100 ms after frame callbacks stop and would misfire). If no
+    # expose ever arrived, relaunch this same process on XWayland (xcb), which
+    # is unaffected. The sentinel env var prevents any relaunch loop (e.g.
+    # "-platform wayland" in argv outranks the env override and would come up
+    # wayland again). Nothing auto-starts jobs before the deadline, so the exec
+    # cannot interrupt real work. Opt out with VAPTVUPT_NO_XCB_FALLBACK=1.
+    if app.platformName().startswith("wayland"):
+        class _ExposeLatch(QObject):
+            exposed_once = False
+            def eventFilter(self, obj, ev):
+                if ev.type() == QEvent.Type.Expose and obj.isExposed():
+                    self.exposed_once = True
+                return False
+        latch = _ExposeLatch()
+        handle = win.windowHandle()
+        if handle is not None:
+            handle.installEventFilter(latch)
+        def _wayland_map_check():
+            if latch.exposed_once or (handle is not None and handle.isExposed()):
+                return
+            can_fallback = (os.environ.get("DISPLAY")
+                            and sys.executable
+                            and os.environ.get("VAPTVUPT_NO_XCB_FALLBACK") != "1"
+                            and os.environ.get("VAPTVUPT_XCB_FALLBACK_DONE") != "1")
+            if sys.stderr is not None:
+                try:
+                    sys.stderr.write(
+                        "Window was not exposed within 4 s (the compositor may "
+                        "never have mapped it); "
+                        + ("relaunching on XWayland (xcb)...\n" if can_fallback
+                           else "leaving the Wayland window as-is (no X11 "
+                                "fallback: DISPLAY unset, opted out, or "
+                                "already tried).\n"))
+                    sys.stderr.flush()
+                except OSError:
+                    pass
+            if can_fallback:
+                env = dict(os.environ, QT_QPA_PLATFORM="xcb",
+                           VAPTVUPT_XCB_FALLBACK_DONE="1")
+                argv = (list(sys.argv) if getattr(sys, "frozen", False)
+                        else [sys.executable] + sys.argv)
+                try:
+                    os.execve(sys.executable, argv, env)
+                except OSError as exc:
+                    if sys.stderr is not None:
+                        try:
+                            sys.stderr.write(f"XWayland relaunch failed ({exc});"
+                                             " window will not appear.\n")
+                            sys.stderr.flush()
+                        except OSError:
+                            pass
+        QTimer.singleShot(4000, _wayland_map_check)
 
     # A GUI blocks the launching shell, so a working launch otherwise looks like
     # a "stuck" terminal. Emit one line to stderr so it's unambiguous. Guarded:
