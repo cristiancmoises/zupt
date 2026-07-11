@@ -38,12 +38,13 @@ except ImportError:
         from PyQt6.QtGui import QPalette, QColor, QIcon, QPixmap
         QT_BINDING = "PyQt6"
     except ImportError:
-        sys.stderr.write(
-            "ERROR: vaptvupt-gui requires PySide6 or PyQt6. Install one of:\n"
-            "  Debian/Ubuntu:  sudo apt install python3-pyqt6\n"
-            "  Fedora/RHEL:    sudo dnf install python3-pyqt6\n"
-            "  pip (any OS):   pip install PySide6\n"
-        )
+        if sys.stderr is not None:   # None under PyInstaller --windowed
+            sys.stderr.write(
+                "ERROR: vaptvupt-gui requires PySide6 or PyQt6. Install one of:\n"
+                "  Debian/Ubuntu:  sudo apt install python3-pyqt6\n"
+                "  Fedora/RHEL:    sudo dnf install python3-pyqt6\n"
+                "  pip (any OS):   pip install PySide6\n"
+            )
         sys.exit(1)
 
 # ── Find vaptvupt binary ──
@@ -64,7 +65,8 @@ _DISCOVERY_LOG = []
 def _discovery_log(msg):
     _DISCOVERY_LOG.append(msg)
     # Echo to stderr if VAPTVUPT_DEBUG or ZUPT_DEBUG is set
-    if os.environ.get("VAPTVUPT_DEBUG") or os.environ.get("ZUPT_DEBUG"):
+    if ((os.environ.get("VAPTVUPT_DEBUG") or os.environ.get("ZUPT_DEBUG"))
+            and sys.stderr is not None):   # None under PyInstaller --windowed
         sys.stderr.write(f"  [discovery] {msg}\n")
 
 def _is_runnable(path):
@@ -908,24 +910,39 @@ def main():
               f"event loop ran (rc={rc}); CLI={VAPTVUPT}")
         return rc
 
-    # Center on the active screen and force focus. Without this the window can
-    # open off-screen or behind the last-focused frame on a tiling compositor
-    # (Sway/i3/Hyprland) — the usual cause of "the GUI won't start / is stuck":
-    # it launched, but you can't see it.
-    scr = app.primaryScreen()
-    if scr is not None:
-        fg = win.frameGeometry()
-        fg.moveCenter(scr.availableGeometry().center())
-        win.move(fg.topLeft())
+    # Center + raise + focus ONLY on X11 (xcb), where a stacking WM may place
+    # the window off-screen or leave it unfocused. On Wayland the compositor
+    # owns placement and focus, and these calls (self-move / xdg restack /
+    # xdg-activation) SEGFAULT some Qt-Wayland builds — including PySide6 6.9 as
+    # shipped on Guix — so they must not run there. Plain show() is what
+    # --selftest exercises and is stable; the compositor maps and focuses the
+    # new toplevel itself. On Windows/macOS Qt's automatic placement centers
+    # first windows and the OS foregrounds a freshly launched app, so skipping
+    # is safe there too. Strict == "xcb" keeps wayland-egl etc. on the safe path.
+    is_x11 = app.platformName() == "xcb"
+    if is_x11:
+        scr = app.primaryScreen()
+        if scr is not None:
+            fg = win.frameGeometry()
+            fg.moveCenter(scr.availableGeometry().center())
+            win.move(fg.topLeft())
     win.show()
-    win.raise_()
-    win.activateWindow()
+    if is_x11:
+        win.raise_()
+        win.activateWindow()
 
     # A GUI blocks the launching shell, so a working launch otherwise looks like
-    # a "stuck" terminal. Emit one line to stderr so it's unambiguous.
-    sys.stderr.write(f"VaptVupt {ZUPT_VER_NUMBER} GUI started — window open "
-                     f"(close it to exit).\n")
-    sys.stderr.flush()
+    # a "stuck" terminal. Emit one line to stderr so it's unambiguous. Guarded:
+    # PyInstaller --windowed sets sys.stderr to None (any write would raise and
+    # kill the window we just showed), and a dead pipe raises OSError on flush —
+    # a courtesy notice must never take the GUI down.
+    if sys.stderr is not None:
+        try:
+            sys.stderr.write(f"VaptVupt {ZUPT_VER_NUMBER} GUI started — "
+                             f"window open (close it to exit).\n")
+            sys.stderr.flush()
+        except OSError:
+            pass
     return app.exec()
 
 if __name__ == "__main__":
