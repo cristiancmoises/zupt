@@ -20,7 +20,7 @@
 # in the base.
 
 Name:           vaptvupt
-Version:        5.2.0
+Version:        5.2.1
 Release:        1%{?dist}
 Summary:        Post-quantum backup compression utility (AES-256 + ML-KEM-768 + Argon2id, formerly Zupt)
 

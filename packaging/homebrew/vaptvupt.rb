@@ -22,8 +22,8 @@
 class Vaptvupt < Formula
   desc "Post-quantum backup compression utility (ML-KEM-768 + AES-256-CTR + HMAC-SHA256)"
   homepage "https://git.securityops.co/cristiancmoises/vaptvupt"
-  url "https://git.securityops.co/cristiancmoises/vaptvupt/releases/download/v5.2.0/vaptvupt-5.2.0.tar.gz"
-  version "5.2.0"
+  url "https://git.securityops.co/cristiancmoises/vaptvupt/releases/download/v5.2.1/vaptvupt-5.2.1.tar.gz"
+  version "5.2.1"
   sha256 "REPLACE_WITH_SHA256_OF_RELEASE_TARBALL"
   license "AGPL-3.0-or-later"
 

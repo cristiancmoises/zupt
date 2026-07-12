@@ -1,6 +1,48 @@
 # VaptVupt Changelog
 
 
+## [5.2.1] — 2026-07-12 — GUI Verify/Extract robustness; refreshed comparison + audit tables
+
+Backward-compatible; no format, key, or codec change (codec stays 2.65.3, wire
+format v1.6). GUI-only fix + documentation.
+
+### GUI — Verify and Extract no longer error on a mis-set mode / missing credential
+
+- Verifying an encrypted archive required picking the correct PQ mode from a
+  dropdown and supplying the matching key; a wrong pick produced a raw CLI
+  decrypt error ("Error: Archive uses post-quantum encryption. Use --pq" /
+  "Authentication failed"), and Verify ran synchronously on the GUI thread
+  (freezing the window on a large archive).
+- New `_detect_archive_enc()` reads the archive header via `info` (no credential)
+  and classifies it none / password / pq / pqonly / sdk. The Verify tab now
+  auto-detects the encryption, uses the matching decrypt flag automatically (a
+  wrong-mode mismatch is impossible — the PQ-mode dropdown was removed), and if
+  the required password or key is missing it shows a clear instruction instead
+  of a raw error. Verify runs through the async job runner (own progress bar),
+  so it never freezes; results print "All checksums passed." / "Verification
+  failed."
+- The same header-detection + missing-credential guidance is applied to the
+  Extract tab (it had the identical footgun).
+
+### Documentation
+
+- Refreshed the README **Compression comparison** tables (ratio + throughput vs
+  zstd/gzip/lz4) on codec 2.65.3, every round-trip byte-exact.
+- Added an **Audit status** table: `make check` 16/16, NIST/RFC KAT 16/16,
+  ML-KEM-768 FIPS 203 conformance 3/3, path-traversal 5/5, block-swap 6/6,
+  dedup-nonce 1/1, arg-order 8/8, decode-slack 7/7, SHA-NI + incremental HMAC
+  9/9, exact-size decode 80/80, GUI branding 11/11.
+
+### Validation
+
+Full GUI function matrix on a real X display with thread-safety instrumentation
+(zero cross-thread widget access): compress/extract (hybrid + full-PQ + password,
+byte-exact), Verify (plain/password/hybrid/pq-only pass; missing password and
+missing PQ key each produce guidance; wrong credential and non-archive fail
+cleanly), Info, Disk backup+restore, two concurrent jobs, close-mid-job.
+
+
+
 ## [5.2.0] — 2026-07-12 — GUI compress-crash fix; codec 2.65.3; libvuptsdk
 
 Backward-compatible with 5.0.x/5.1.0: `.zupt` wire format unchanged (v1.6),

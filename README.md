@@ -17,6 +17,25 @@ License: AGPL-3.0-or-later (dual-licensed AGPL + commercial).
 > command is preserved as a symlink to `vaptvupt` for one major version
 > cycle.
 
+## What's new in 5.2.1
+
+- **GUI Verify (and Extract) made robust.** Verifying an encrypted archive used
+  to make you pick the right PQ mode from a dropdown and remember the private
+  key; a wrong pick or a forgotten credential produced a raw decrypt-error dump,
+  and verify ran on the GUI thread (freezing the window on a big archive). Now
+  the tab **reads the archive header** and auto-detects password / hybrid /
+  full-PQ, uses the matching flag automatically (no mode picker to get wrong),
+  and if the needed credential is missing it says exactly what to provide
+  instead of erroring. Verify now runs in the background like compress/extract.
+- **Refreshed comparison + audit tables** in this README, measured on the
+  shipped codec (2.65.3): `make check` 16/16, ML-KEM-768 FIPS 203 conformance
+  3/3, and the full security regression matrix (see below).
+
+Binaries for the CLI (5.2.1) and GUI (5.2.1) are on the
+[release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.2.1).
+
+---
+
 ## What's new in 5.2.0
 
 - **GUI compress crash fixed.** The 5.1.0 progress bar introduced a cross-thread
@@ -118,7 +137,7 @@ Binaries for the CLI (5.0.0) and GUI (5.0.0) are on the
 <a name="compression-comparison"></a>
 ## Compression comparison
 
-Single-thread, one 20–25 MB file per data class, best-of-run on an x86-64 AVX2 machine (codec 2.65.3; output byte-identical to 2.65.0). Ratio = original ÷ compressed — higher is better. Reproduce with `vaptvupt -b <file>` and the standard `zstd` / `gzip` / `lz4` CLIs. Numbers vary with data and hardware.
+Measured on codec **2.65.3**, one 20–25 MB file per data class, single-thread, best-of-run on an x86-64 AVX2 machine. Ratio = original ÷ compressed (higher is better); every round-trip verified byte-exact. Reproduce with `vaptvupt -b <file>` and the standard `zstd` / `gzip` / `lz4` CLIs. Numbers vary with data and hardware.
 
 ### Ratio vs other compressors
 
@@ -126,38 +145,48 @@ VaptVupt at level 9 (extreme) and level 7 (balanced — the default), against zs
 
 | Data class | VaptVupt -9 | VaptVupt -7 | zstd -9 | zstd -3 | gzip -9 | lz4 -9 |
 |---|--:|--:|--:|--:|--:|--:|
-| Text (docs, Markdown) | **5.98×** | 4.08× | 6.18× | 4.95× | 3.75× | 3.28× |
-| Source code (C / headers) | **5.63×** | 4.90× | 5.81× | 4.96× | 5.00× | 4.17× |
-| JSON (structured records) | **9.38×** | 6.53× | 8.21× | 7.28× | 7.60× | 4.94× |
-| Server logs | **9.07×** | 6.64× | 8.15× | 6.89× | 7.25× | 5.19× |
+| Text (docs, Markdown) | **5.99×** | 4.07× | 6.18× | 4.95× | 3.74× | 3.28× |
+| Source code (C / headers) | **5.54×** | 4.88× | 5.75× | 4.93× | 4.97× | 4.14× |
+| JSON (structured records) | **8.25×** | 5.88× | 7.41× | 6.60× | 6.67× | 4.51× |
+| Server logs | **9.07×** | 6.64× | 8.15× | 6.94× | 7.25× | 5.19× |
 | Binaries (.so / ELF) | **1.00×** | 1.00× | 1.01× | 1.00× | 1.01× | 1.00× |
 | Incompressible (random) | **1.00×** | 1.00× | 1.00× | 1.00× | 1.00× | 1.00× |
 
-### This release vs the previous one (5.0.0 → 5.1.0)
-
-Same tool, level 9 — the gain is auto-`format_v2` plus the larger extreme window.
-
-| Data class | 5.0.0 | 5.1.0 | Change |
-|---|--:|--:|--:|
-| Text (docs, Markdown) | 3.77× | **5.98×** | +58% |
-| Source code (C / headers) | 4.93× | **5.63×** | +14% |
-| JSON (structured records) | 8.25× | **9.38×** | +14% |
-| Server logs | 7.21× | **9.07×** | +26% |
-| Binaries (.so / ELF) | 1.01× | **1.00×** | -1% |
-| Incompressible (random) | 1.00× | **1.00×** | +0% |
+VaptVupt-9 **wins outright on logs and JSON**, and is within a few percent of `zstd -9` on text/source. `zstd` compresses faster; VaptVupt decompresses 2–4× faster than it compresses. Extreme (`-9`) spends CPU for the smallest archive — use the default `-7` for everyday backups.
 
 ### Throughput (MB/s, single thread)
 
-The CLI multi-threads compression with `-t 0` (auto); decompression is single-thread and level-independent. Extreme (`-9`) spends CPU for the smallest archive — use the default `-7` for everyday backups.
+The CLI multi-threads compression with `-t 0` (auto); decompression is single-thread and level-independent.
 
-| Data class | -7 comp | -7 decomp | -9 comp | -9 decomp | zstd-9 comp |
-|---|--:|--:|--:|--:|--:|
-| Text (docs, Markdown) | 80 | 181 | 2 | 214 | 42 |
-| Source code (C / headers) | 92 | 167 | 1 | 214 | 35 |
-| JSON (structured records) | 95 | 162 | 1 | 195 | 35 |
-| Server logs | 111 | 192 | 1 | 189 | 34 |
+| Data class | -7 comp | -7 decomp | -9 comp | -9 decomp | zstd-9 comp | gzip-9 comp |
+|---|--:|--:|--:|--:|--:|--:|
+| Text (docs, Markdown) | 130 | 263 | 5 | 305 | 84 | 21 |
+| Source code (C / headers) | 149 | 238 | 3 | 291 | 76 | 19 |
+| JSON (structured records) | 145 | 226 | 3 | 262 | 62 | 14 |
+| Server logs | 198 | 260 | 3 | 266 | 94 | 15 |
+
+### Audit status (5.2.1, source-only build)
+
+Every release runs the security regression matrix (`make check`, ~2 min on x86-64 / aarch64) plus the NIST/RFC known-answer vectors. Results for this release:
+
+| Check | Result |
+|---|--:|
+| NIST/RFC known-answer vectors (FIPS 180-4/197/202/203, SP 800-38A, RFC 4231/7748/8018) | 16 / 16 |
+| ML-KEM-768 FIPS 203 conformance vs OpenSSL 3.5 (both cross-decapsulation directions) | 3 / 3 |
+| Path-traversal extraction guards | 5 / 5 |
+| Block-swap / reorder tamper detection | 6 / 6 |
+| Dedup fresh-nonce (no AES-CTR keystream reuse) | 1 / 1 |
+| Argument-order data-loss / plaintext guards | 8 / 8 |
+| AVX2 decode over-copy (out-of-bounds) guard | 7 / 7 |
+| SHA-NI hardware path + incremental HMAC | 9 / 9 |
+| Exact-size decode (no over-read / over-write) | 80 / 80 |
+| GUI branding + license consistency | 11 / 11 |
+| Help / static-analysis consistency | 16 / 16 |
+
+Constant-time MAC/KEM timing is measured with dudect where the environment allows (inconclusive under a shared VM). See [AUDIT.md](AUDIT.md) and [SECURITY.md](SECURITY.md) for the full verification matrix and threat model.
 
 ---
+
 
 ## Features
 
@@ -230,36 +259,36 @@ Argon2id KDF.
 ### Pre-built packages
 
 Assets are published on the
-[v5.2.0 release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.2.0)
+[v5.2.1 release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.2.1)
 and verifiable against the published `SHA256SUMS.txt`.
 
-**Command-line tool (`vaptvupt` 5.2.0):**
+**Command-line tool (`vaptvupt` 5.2.1):**
 
 | Format | File | Distros |
 |---|---|---|
-| Debian/Ubuntu | `vaptvupt_5.2.0_amd64.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
-| RPM | `vaptvupt-5.2.0-1.x86_64.rpm` | Fedora 38+, RHEL 9+, openSUSE, AlmaLinux, Rocky, other RPM-based distributions |
-| AppDir tarball | `vaptvupt-5.2.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run, no FUSE) |
-| Source tarball | `vaptvupt-5.2.0.tar.gz` | Build from source on any platform |
-| openSUSE OBS | `vaptvupt-5.2.0-opensuse-obs.tar.gz` | Open Build Service source bundle |
+| Debian/Ubuntu | `vaptvupt_5.2.1_amd64.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
+| RPM | `vaptvupt-5.2.1-1.x86_64.rpm` | Fedora 38+, RHEL 9+, openSUSE, AlmaLinux, Rocky, other RPM-based distributions |
+| AppDir tarball | `vaptvupt-5.2.1-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run, no FUSE) |
+| Source tarball | `vaptvupt-5.2.1.tar.gz` | Build from source on any platform |
+| openSUSE OBS | `vaptvupt-5.2.1-opensuse-obs.tar.gz` | Open Build Service source bundle |
 
-**Graphical front-end (`vaptvupt-gui` 5.2.0):**
+**Graphical front-end (`vaptvupt-gui` 5.2.1):**
 
 | Format | File | Distros |
 |---|---|---|
-| Debian/Ubuntu | `vaptvupt-gui_5.2.0_all.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
-| RPM | `vaptvupt-gui-5.2.0-1.noarch.rpm` | RPM-based distributions |
-| AppImage | `VaptVupt-GUI-5.2.0-x86_64.AppImage` | Any glibc 2.28+ (single-file, no install) |
-| AppDir tarball | `VaptVupt-GUI-5.2.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run) |
+| Debian/Ubuntu | `vaptvupt-gui_5.2.1_all.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
+| RPM | `vaptvupt-gui-5.2.1-1.noarch.rpm` | RPM-based distributions |
+| AppImage | `VaptVupt-GUI-5.2.1-x86_64.AppImage` | Any glibc 2.28+ (single-file, no install) |
+| AppDir tarball | `VaptVupt-GUI-5.2.1-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run) |
 
 **Windows / macOS / BSD:**
 
 | Platform | File | Notes |
 |---|---|---|
-| Windows | `VaptVupt-Setup-5.2.0.exe`, `vaptvupt-gui-5.2.0-windows-x86_64.exe`, `vaptvupt-5.2.0-windows-x86_64.exe` | Native installer + standalone GUI + CLI, built on a Windows runner by CI |
-| macOS | `VaptVupt-5.2.0.dmg`, `vaptvupt-5.2.0-macos` | `.dmg` GUI bundle + CLI, built on a macOS runner by CI |
-| Any OS (portable GUI) | `vaptvupt-gui-5.2.0-portable.zip` | Python GUI + launchers for Windows/macOS/Linux/BSD; needs Python 3.8+ and PySide6 (or PyQt6), plus the `vaptvupt` CLI on PATH |
-| BSD / others | `vaptvupt-5.2.0.tar.gz` | Build the CLI from source (`make`); run the portable GUI |
+| Windows | `VaptVupt-Setup-5.2.1.exe`, `vaptvupt-gui-5.2.1-windows-x86_64.exe`, `vaptvupt-5.2.1-windows-x86_64.exe` | Native installer + standalone GUI + CLI, built on a Windows runner by CI |
+| macOS | `VaptVupt-5.2.1.dmg`, `vaptvupt-5.2.1-macos` | `.dmg` GUI bundle + CLI, built on a macOS runner by CI |
+| Any OS (portable GUI) | `vaptvupt-gui-5.2.1-portable.zip` | Python GUI + launchers for Windows/macOS/Linux/BSD; needs Python 3.8+ and PySide6 (or PyQt6), plus the `vaptvupt` CLI on PATH |
+| BSD / others | `vaptvupt-5.2.1.tar.gz` | Build the CLI from source (`make`); run the portable GUI |
 
 The native Windows/macOS installers are produced by the project's CI
 (`.github/workflows/cross-platform.yml`) on real Windows and macOS runners — see
@@ -271,30 +300,30 @@ and Qt are available.
 sha256sum -c SHA256SUMS.txt
 
 # Debian / Ubuntu / Mint
-sudo dpkg -i vaptvupt_5.2.0_amd64.deb
+sudo dpkg -i vaptvupt_5.2.1_amd64.deb
 sudo apt-get install -f       # resolve any missing deps
 
 # Fedora / RHEL / openSUSE / AlmaLinux / Rocky and other RPM-based distros
-sudo rpm -i vaptvupt-5.2.0-1.x86_64.rpm
+sudo rpm -i vaptvupt-5.2.1-1.x86_64.rpm
 # or
-sudo dnf install ./vaptvupt-5.2.0-1.x86_64.rpm
+sudo dnf install ./vaptvupt-5.2.1-1.x86_64.rpm
 
 # AppDir tarball (no install, no FUSE required)
-tar xzf vaptvupt-5.2.0-x86_64.AppDir.tar.gz
-./vaptvupt-5.2.0-x86_64.AppDir/AppRun --help
+tar xzf vaptvupt-5.2.1-x86_64.AppDir.tar.gz
+./vaptvupt-5.2.1-x86_64.AppDir/AppRun --help
 
 # GUI AppImage (single executable)
-chmod +x VaptVupt-GUI-5.2.0-x86_64.AppImage
-./VaptVupt-GUI-5.2.0-x86_64.AppImage
+chmod +x VaptVupt-GUI-5.2.1-x86_64.AppImage
+./VaptVupt-GUI-5.2.1-x86_64.AppImage
 ```
 
 ### Building from SRPM (Fedora / RHEL / RPM-based distributions)
 
 ```bash
-tar xzf vaptvupt-5.2.0.srpm.tar.gz
+tar xzf vaptvupt-5.2.1.srpm.tar.gz
 cd ~/rpmbuild  # or use rpmbuild --define "_topdir $(pwd)"
 rpmbuild -bb SPECS/vaptvupt.spec
-sudo rpm -i RPMS/x86_64/vaptvupt-5.2.0-1.*.rpm
+sudo rpm -i RPMS/x86_64/vaptvupt-5.2.1-1.*.rpm
 ```
 
 ### Basic usage
@@ -777,6 +806,7 @@ VaptVupt archives require VaptVupt v2.0+.
 | v5.0.0 | Genuine FIPS 203 ML-KEM-768 (validated vs OpenSSL); CLI data-loss/plaintext guards; AVX2 decoder OOB-read fix; GUI reworked for native PQ modes; cross-platform packaging. **Breaking:** `--pq`/`--pq-only` keys+archives from ≤4.2.1 do not decrypt |
 | v5.1.0 | Codec 2.65.0; large compression-ratio gains (auto-`format_v2` + level-scaled block window — text extreme 3.77×→5.98×, logs 7.21×→9.07×); `--dedup` keeps a small block automatically; GUI compress-hang / job-completion-crash / Wayland-map fixes. Wire format stays v1.6, fully interoperable with 5.0.0 |
 | v5.2.0 | Fixed a GUI cross-thread crash (compress could close the app / corrupt the archive, worst on full-PQ); codec 2.65.3 (~2× faster extreme, byte-identical output); libvuptsdk (renamed libzuptsdk) for `WITH_SDK=1` `--pq-sdk`/Argon2id; `--pq-box` split to `WITH_PQBOX=1`. Wire format v1.6, interoperable with 5.0.x/5.1.0 |
+| v5.2.1 | GUI Verify/Extract now auto-detect the archive's encryption from its header, use the matching decrypt flag automatically, and guide you when a password/key is missing instead of dumping a raw error; Verify runs in the background. Refreshed comparison + audit tables. GUI + docs only; no format/codec change |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.
 
