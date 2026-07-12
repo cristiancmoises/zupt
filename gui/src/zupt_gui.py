@@ -457,6 +457,74 @@ class PathField(QWidget):
 def scrollable(w):
     sa = QScrollArea(); sa.setWidgetResizable(True); sa.setWidget(w); sa.setFrameShape(QFrame.Shape.NoFrame); return sa
 
+class _Job(QObject):
+    """Controller for one async CLI run.
+
+    CRITICAL threading contract: this object is parented to a GUI-thread widget,
+    so it LIVES in the GUI thread, and every slot below (on_log/on_pct/on_done/
+    on_finished) is a bound method of a GUI-thread QObject. Qt therefore auto-
+    marshals the worker's signals to the GUI thread (QueuedConnection).
+
+    The previous design connected plain Python CLOSURES (finish/on_pct/release)
+    to signals emitted from the worker thread. PySide6 runs a plain-closure slot
+    in the EMITTING thread regardless of the requested connection type — even an
+    explicit Qt.QueuedConnection — because a bare functor has no receiver QObject
+    to give it thread affinity (verified empirically). Those closures then
+    touched QProgressBar / QPushButton / QTextEdit internals from the worker
+    thread: cross-thread QWidget access, which is undefined behaviour and crashed
+    the app under real X11/Wayland rendering ("the app closes when I compress").
+    It only survived offscreen tests, which tolerate the race. Bound methods of a
+    GUI-thread QObject are the fix."""
+    def __init__(self, parent, cmd, btn, log, progress):
+        super().__init__(parent)
+        self._parent = parent
+        self.btn, self.log, self.progress = btn, log, progress
+        self.thread = QThread(self)          # QThread object lives in GUI thread
+        self.worker = Worker(cmd)            # no parent — it moves to self.thread
+        self.worker.moveToThread(self.thread)
+        self.worker.log.connect(self.on_log)
+        self.worker.pct.connect(self.on_pct)
+        self.worker.done.connect(self.on_done)
+        self.thread.finished.connect(self.on_finished)
+        self.thread.started.connect(self.worker.run)
+
+    def start(self):
+        self.thread.start()
+
+    def on_log(self, line):
+        self.log.append(line)
+
+    def on_pct(self, p):
+        if self.progress is not None:
+            if self.progress.maximum() != 100:
+                self.progress.setRange(0, 100)
+            self.progress.setValue(p)
+
+    def on_done(self, code, out, err):
+        self.btn.setEnabled(True)
+        if self.progress is not None:
+            self.progress.hide()
+        self.log.append("\nDone." if code == 0 else f"\nFailed (exit {code}).")
+        self.thread.quit()
+
+    def on_finished(self):
+        # Runs on the GUI thread AFTER the QThread has emitted finished(); the
+        # wait() joins the last native teardown so dropping the last Python ref
+        # can't collect a still-running QThread (that aborts with "QThread:
+        # Destroyed while thread is still running").
+        self.thread.wait()
+        try:
+            self._parent._jobs.remove(self)
+        except (AttributeError, ValueError):
+            pass
+
+    def cancel_and_join(self, ms=3000):
+        """GUI thread: kill the child CLI and join the worker thread."""
+        self.worker.cancel()
+        self.thread.quit()
+        return self.thread.wait(ms)
+
+
 def run_async(parent, cmd, btn, log, progress=None, info=None):
     log.clear()
     if info:  # e.g. an auto-detect note; appended AFTER the clear so it survives
@@ -464,46 +532,18 @@ def run_async(parent, cmd, btn, log, progress=None, info=None):
     btn.setEnabled(False)
     if progress:
         progress.setRange(0, 0)   # indeterminate until the CLI reports a %
+        progress.setValue(0)
         progress.show()
-    t = QThread(); w = Worker(cmd); w.moveToThread(t)
-    # log.append targets a main-thread QObject -> Qt queues it to the GUI thread.
-    w.log.connect(log.append)
-    if progress:
-        def on_pct(p):
-            if progress.maximum() != 100:
-                progress.setRange(0, 100)
-            progress.setValue(p)
-        w.pct.connect(on_pct)
-    # Keep a LIST of live (thread, worker) refs on the parent. Tabs with more
-    # than one action button (Disk: backup + restore) previously shared a
-    # single _thread/_worker slot, so starting a second op dropped the only
-    # Python reference to the first still-running QThread — Python GC'd it
-    # mid-run and aborted the operation. A list holds every in-flight thread.
+    # Keep a LIST of live jobs on the parent. Tabs with more than one action
+    # button (Disk: backup + restore) previously shared a single slot, so
+    # starting a second op dropped the only Python reference to the first
+    # still-running QThread and Python GC'd it mid-run. The list holds every
+    # in-flight job (and keeps the QThread alive).
     if not hasattr(parent, "_jobs"):
         parent._jobs = []
-    parent._jobs.append((t, w))
-    def finish(code, out, err):
-        btn.setEnabled(True)
-        if progress: progress.hide()
-        log.append("\nDone." if code == 0 else f"\nFailed (exit {code}).")
-        t.quit()
-    def release():
-        # Runs (queued onto the GUI thread) only after QThread emitted
-        # finished. t.wait() then joins the last few instructions of the OS
-        # thread, so by the time the refs are dropped the thread is truly
-        # dead. Dropping them in finish() — right after t.quit() — crashed
-        # the app: the still-running QThread wrapper became garbage, and
-        # collecting a live QThread aborts the process ("QThread: Destroyed
-        # while thread is still running"). Reproduced on every
-        # compress-with-key run; this ordering is the fix.
-        t.wait()
-        parent._jobs = [(th, wk) for (th, wk) in parent._jobs if th is not t]
-    # `done` is emitted from the worker thread and `finish` touches GUI widgets;
-    # a bare functor would connect DirectConnection and run OFF the GUI thread.
-    # QueuedConnection marshals it onto the GUI event loop.
-    w.done.connect(finish, Qt.ConnectionType.QueuedConnection)
-    t.finished.connect(release, Qt.ConnectionType.QueuedConnection)
-    t.started.connect(w.run); t.start()
+    job = _Job(parent, cmd, btn, log, progress)
+    parent._jobs.append(job)
+    job.start()
 
 # ── Tabs ──
 
@@ -936,8 +976,8 @@ class ZuptWindow(QMainWindow):
         # child CLI process (the worker then sees EOF and finishes) and wait
         # for its QThread. Otherwise interpreter teardown collects live
         # QThreads and aborts the process instead of exiting cleanly.
-        jobs = [(t, w) for i in range(self.tabs.count())
-                for (t, w) in getattr(self.tabs.widget(i), "_jobs", [])]
+        jobs = [j for i in range(self.tabs.count())
+                for j in list(getattr(self.tabs.widget(i), "_jobs", []))]
         if jobs:
             # Aborting mid-job can be destructive (a killed `disk restore`
             # leaves the target half-written), so never do it silently.
@@ -947,10 +987,8 @@ class ZuptWindow(QMainWindow):
                     "An operation is still running.\nQuit and abort it?",
                     SB.Yes | SB.Cancel) != SB.Yes:
                 e.ignore(); return
-        for t, w in jobs:
-            w.cancel()
-            t.quit()
-            if not t.wait(3000):
+        for j in jobs:
+            if not j.cancel_and_join(3000):
                 # Thread stuck past the kill (child in D-state / pipe held by a
                 # grandchild). Letting teardown destroy a live QThread aborts
                 # with SIGABRT; exiting hard here is the clean way out.
