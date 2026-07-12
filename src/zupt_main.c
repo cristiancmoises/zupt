@@ -92,8 +92,8 @@ static void usage(void) {
         "  --comment-file <FILE>     Read comment from file (max 4096 bytes).\n"
         "  --pq <pubkey>         Post-quantum HYBRID encryption (ML-KEM-768 + X25519) [recommended]\n"
         "  --pq-only <pubkey>    FULL post-quantum encryption (ML-KEM-768 only, no classical layer)\n"
-        "  --pq-sdk <pubkey>     Post-quantum encryption via libzuptsdk (WITH_SDK=1 builds only)\n"
-        "  --pq-box <pubkey>     Post-quantum sealed box via libpqvaptvupt (WITH_SDK=1 builds only)\n"
+        "  --pq-sdk <pubkey>     Post-quantum encryption via libvuptsdk (WITH_SDK=1 builds only)\n"
+        "  --pq-box <pubkey>     Post-quantum sealed box via libpqvaptvupt (WITH_PQBOX=1 builds only)\n"
         "  --dedup, -D           Block-level deduplication\n"
         "  --solid               Solid mode (single stream)\n"
         "  -y, --force           Overwrite an existing non-.zupt file as the output archive\n"
@@ -108,7 +108,7 @@ static void usage(void) {
         "  -p, --password <PW>   Decryption password\n"
         "  --pq <privkey>        Post-quantum HYBRID decryption (ML-KEM-768 + X25519)\n"
         "  --pq-only <privkey>   FULL post-quantum decryption (ML-KEM-768 only)\n"
-        "  --pq-sdk <privkey>    Post-quantum decryption via libzuptsdk (WITH_SDK=1 builds only)\n"
+        "  --pq-sdk <privkey>    Post-quantum decryption via libvuptsdk (WITH_SDK=1 builds only)\n"
         "  --pq-box <privkey>    Post-quantum sealed-box decryption (libpqvaptvupt)\n"
         "  -v, --verbose         Verbose output\n"
         "  -t, --threads <N>     Thread count for decompression\n"
@@ -119,8 +119,8 @@ static void usage(void) {
         "  -k <privkey>          Source private keyfile (with --pub)\n"
         "  (default)             Generate HYBRID keypair (ML-KEM-768 + X25519) for --pq\n"
         "  --pq-only             Generate FULL post-quantum keypair (ML-KEM-768 only) for --pq-only\n"
-        "  --sdk, --pq-sdk       Generate SDK v2 keypair (libzuptsdk; WITH_SDK=1 builds only)\n"
-        "  --box, --pq-box       Generate pq-box keypair (libpqvaptvupt; WITH_SDK=1 builds only)\n"
+        "  --sdk, --pq-sdk       Generate SDK v2 keypair (libvuptsdk; WITH_SDK=1 builds only)\n"
+        "  --box, --pq-box       Generate pq-box keypair (libpqvaptvupt; WITH_PQBOX=1 builds only)\n"
         "                          Use each key with its matching mode.\n"
         "\n"
         "Directories are traversed recursively.\n"
@@ -219,8 +219,16 @@ int main(int argc, char **argv) {
                "Encryption: AES-256-CTR + HMAC-SHA256\n"
 #ifdef ZUPT_WITH_SDK
                "KDF: Argon2id (default) / PBKDF2-SHA256 %d iter (--kdf pbkdf2)\n"
-               "Post-quantum: --pq hybrid (ML-KEM-768 + X25519), --pq-only (ML-KEM-768), --pq-sdk/--pq-box (libzuptsdk)\n"
-               "Build: full (libzuptsdk: Argon2id, --pq-sdk, --pq-box available)\n"
+               "Post-quantum: --pq hybrid (ML-KEM-768 + X25519), --pq-only (ML-KEM-768), --pq-sdk (libvuptsdk)"
+#ifdef ZUPT_WITH_PQBOX
+               ", --pq-box (libpqvaptvupt)"
+#endif
+               "\n"
+               "Build: full (libvuptsdk: Argon2id, --pq-sdk"
+#ifdef ZUPT_WITH_PQBOX
+               ", --pq-box"
+#endif
+               " available)\n"
 #else
                "KDF: PBKDF2-SHA256 %d iter (default; Argon2id needs WITH_SDK=1)\n"
                "Post-quantum: --pq hybrid (ML-KEM-768 + X25519), --pq-only (ML-KEM-768 only) — FIPS 203 + RFC 7748\n"
@@ -976,7 +984,7 @@ int main(int argc, char **argv) {
             if (zupt_sdk_hybrid_keygen(outfile, pubfile) != 0) {
                 fprintf(stderr,
                     "Error: SDK-v2 key generation is unavailable in this build.\n"
-                    "       --pq-sdk needs libzuptsdk, which is not part of the source-only\n"
+                    "       --pq-sdk needs libvuptsdk, which is not part of the source-only\n"
                     "       build. For post-quantum keys use one of the native modes:\n"
                     "         vaptvupt keygen -o key            # hybrid ML-KEM-768 + X25519 (--pq)\n"
                     "         vaptvupt keygen --pq-only -o key  # full PQ, ML-KEM-768 only (--pq-only)\n"

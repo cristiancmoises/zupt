@@ -63,7 +63,7 @@ ZUPT_SOURCES = src/zupt_main.c src/zupt_format.c src/zupt_lz.c src/zupt_lzh.c \
                src/zupt_x25519.c src/zupt_mlkem.c src/zupt_cpuid.c src/zupt_mlock.c \
                src/zupt_filetype.c src/zupt_disk.c src/zupt_dedup.c
 
-# --- Optional vendored libraries (libzuptsdk + libpqvaptvupt) ---
+# --- Optional vendored libraries (libvuptsdk + libpqvaptvupt) ---
 #
 # These are PREBUILT shared libraries shipped only as binaries (no source), so
 # they are NOT part of the source tree and a distro/source build must not need
@@ -72,20 +72,37 @@ ZUPT_SOURCES = src/zupt_main.c src/zupt_format.c src/zupt_lz.c src/zupt_lzh.c \
 # ML-KEM-768 + X25519 via --pq). The SDK-backed modes (--pq-sdk, --pq-box, and
 # the Argon2id password KDF) compile to "unsupported" stubs in that case.
 #
-# Set WITH_SDK=1 (with the vendored libs present under vendor/) to enable them.
+# libvuptsdk is the renamed libzuptsdk (git.securityops.co/cristiancmoises/
+# libvuptsdk); only the .so filename/SONAME changed (libzuptsdk.so.2 ->
+# libvuptsdk.so.2), the C API (zuptsdk_* symbols, zuptsdk.h) is unchanged.
+#
+# WITH_SDK=1 links libvuptsdk (--pq-sdk + Argon2id password KDF). WITH_PQBOX=1
+# links the SEPARATE libpqvaptvupt (--pq-box sealed box); it is independent of
+# WITH_SDK because the two are different upstream libraries. Enable either or
+# both, given the corresponding vendored .so is present.
 WITH_SDK ?= 0
 ifeq ($(WITH_SDK),1)
-ZUPTSDK_DIR ?= vendor/zuptsdk
+ZUPTSDK_DIR ?= vendor/vuptsdk
 ZUPTSDK_ABS := $(abspath $(ZUPTSDK_DIR))
 CFLAGS  += -DZUPT_WITH_SDK -I$(ZUPTSDK_DIR)/include
-PQVV_DIR ?= vendor/pqvaptvupt
-CFLAGS  += -I$(PQVV_DIR)/include
 LDFLAGS += -L$(ZUPTSDK_DIR) -Wl,-rpath,$(ZUPTSDK_ABS) -Wl,-rpath,'$$ORIGIN/$(ZUPTSDK_DIR)'
-LDLIBS  += -lzuptsdk
-PQVV_ABS := $(abspath $(PQVV_DIR))
-LDFLAGS += -L$(PQVV_DIR) -Wl,-rpath,$(PQVV_ABS) -Wl,-rpath,'$$ORIGIN/$(PQVV_DIR)'
+# libvuptsdk pulls in OpenSSL 3 (libcrypto) and Argon2; the final link must be
+# able to resolve those transitive symbols. On a distro they are on the default
+# library path; on Guix pass their -L via `guix shell openssl argon2`. Override
+# SDK_DEPLIBS= if your SDK build has different runtime deps.
+SDK_DEPLIBS ?= -lcrypto -largon2
+LDLIBS  += -lvuptsdk $(SDK_DEPLIBS)
 # Installed layout: vendored libs live in $(PREFIX)/lib/$(TARGET)/ — give the
 # binary a matching relative rpath so `make install` is self-contained.
+LDFLAGS += -Wl,-rpath,'$$ORIGIN/../lib/vaptvupt'
+endif
+
+WITH_PQBOX ?= 0
+ifeq ($(WITH_PQBOX),1)
+PQVV_DIR ?= vendor/pqvaptvupt
+PQVV_ABS := $(abspath $(PQVV_DIR))
+CFLAGS  += -DZUPT_WITH_PQBOX -I$(PQVV_DIR)/include
+LDFLAGS += -L$(PQVV_DIR) -Wl,-rpath,$(PQVV_ABS) -Wl,-rpath,'$$ORIGIN/$(PQVV_DIR)'
 LDFLAGS += -Wl,-rpath,'$$ORIGIN/../lib/vaptvupt'
 LDLIBS  += -lpqvaptvupt
 endif
@@ -218,7 +235,7 @@ audit-licenses:
 	             -not -path './build/*' \
 	             -not -path './build_obj/*' \
 	             -not -path './sdk/build/*' \
-	             -not -path './vendor/zuptsdk/include/*'); do \
+	             -not -path './vendor/vuptsdk/include/*'); do \
 	    BASE=$$(basename "$$f"); \
 	    case "$$BASE" in \
 	        vv_*|vaptvupt*) \
@@ -331,9 +348,12 @@ install: $(TARGET)
 	# the source tree).
 ifeq ($(WITH_SDK),1)
 	$(Q)mkdir -p $(DESTDIR)$(PREFIX)/lib/vaptvupt
-	$(Q)install -m 755 vendor/zuptsdk/libzuptsdk.so.2.0.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libzuptsdk.so.2.0.0
-	$(Q)ln -sf libzuptsdk.so.2.0.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libzuptsdk.so.2
-	$(Q)ln -sf libzuptsdk.so.2.0.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libzuptsdk.so
+	$(Q)install -m 755 vendor/vuptsdk/libvuptsdk.so.2.0.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libvuptsdk.so.2.0.0
+	$(Q)ln -sf libvuptsdk.so.2.0.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libvuptsdk.so.2
+	$(Q)ln -sf libvuptsdk.so.2.0.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libvuptsdk.so
+endif
+ifeq ($(WITH_PQBOX),1)
+	$(Q)mkdir -p $(DESTDIR)$(PREFIX)/lib/vaptvupt
 	$(Q)install -m 755 vendor/pqvaptvupt/libpqvaptvupt.so.0.6.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libpqvaptvupt.so.0.6.0
 	$(Q)ln -sf libpqvaptvupt.so.0.6.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libpqvaptvupt.so.0
 	$(Q)ln -sf libpqvaptvupt.so.0.6.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libpqvaptvupt.so

@@ -21,6 +21,7 @@
 #define ZUPT_MLKEM_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 #define MLKEM_K     3
 #define MLKEM_N     256
@@ -46,7 +47,8 @@ int zupt_mlkem768_keygen(uint8_t pk[MLKEM_PUBLICKEYBYTES],
  * ct: output ciphertext (1088 bytes)
  * ss: output shared secret (32 bytes)
  * pk: input public key (1184 bytes)
- * Returns 0 on success. */
+ * Returns 0 on success, non-zero if pk fails the FIPS 203 §7.2
+ * encapsulation-key modulus check (malformed key). */
 int zupt_mlkem768_encaps(uint8_t ct[MLKEM_CIPHERTEXTBYTES],
                           uint8_t ss[MLKEM_SSBYTES],
                           const uint8_t pk[MLKEM_PUBLICKEYBYTES]);
@@ -61,5 +63,15 @@ int zupt_mlkem768_encaps(uint8_t ct[MLKEM_CIPHERTEXTBYTES],
 int zupt_mlkem768_decaps(uint8_t ss[MLKEM_SSBYTES],
                           const uint8_t ct[MLKEM_CIPHERTEXTBYTES],
                           const uint8_t sk[MLKEM_SECRETKEYBYTES]);
+
+/* FIPS 203 §7.2 encapsulation-key check (modulus check).
+ * Returns 0 iff `ek` is `len`==1184 bytes and every 12-bit coefficient is
+ * reduced mod q. Non-zero => malformed key; do not encapsulate against it. */
+int zupt_mlkem768_check_ek(const uint8_t *ek, size_t len);
+
+/* FIPS 203 §7.3 decapsulation-key check (hash check).
+ * Returns 0 iff `dk` is `len`==2400 bytes and the embedded H(ek) matches the
+ * SHA3-256 of the embedded encapsulation key. Non-zero => corrupt/forged key. */
+int zupt_mlkem768_check_dk(const uint8_t *dk, size_t len);
 
 #endif

@@ -1,10 +1,10 @@
 /*
- * libzuptsdk — Public C ABI for the Zupt backup compression library
+ * libvuptsdk — Public C ABI for the Zupt backup compression library
  *
  * Copyright (c) 2026 Cristian Cezar Moisés
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
- * Repository: https://git.securityops.co/cristiancmoises/zupt
+ * Repository: https://github.com/cristiancmoises/zupt
  * Website:    https://zupt.securityops.co
  * Contact:    zupt@riseup.net
  *
@@ -15,7 +15,7 @@
  * is gated behind the linker version tag ZUPTSDK_1.0. New symbols may be
  * added in minor versions (1.1, 1.2, ...) under new tags (ZUPTSDK_1.1, ...).
  * Existing symbols will never change signature within v1.x. Breaking
- * changes require a major version bump (libzuptsdk.so.2).
+ * changes require a major version bump (libvuptsdk.so.2).
  *
  * No symbol prefixed with anything other than `zuptsdk_` or `ZUPTSDK_` is
  * part of this ABI. Do not link against internal `zupt_*` symbols even if

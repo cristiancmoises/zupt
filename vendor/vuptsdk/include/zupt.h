@@ -30,7 +30,7 @@
   #define zupt_mkdir(p) mkdir(p, 0755)
 #endif
 
-#define ZUPT_VERSION_STRING "2.2.3"
+#define ZUPT_VERSION_STRING "2.2.2"
 #define ZUPT_FORMAT_MAJOR   1
 #define ZUPT_FORMAT_MINOR   4
 
@@ -62,8 +62,8 @@
 /* Encryption types (stored in encryption header block) */
 #define ZUPT_ENC_PBKDF2     0x01  /* Password-based: PBKDF2 → AES-256-CTR + HMAC */
 #define ZUPT_ENC_PQ_HYBRID  0x02  /* ML-KEM-768 + X25519 hybrid KEM (legacy XOR+SHA3) */
-#define ZUPT_ENC_PQ_SDK_V2  0x03  /* libzuptsdk v2 header: HKDF combiner + commitment + HPKE binding */
-#define ZUPT_ENC_PW_ARGON2  0x04  /* Password-based via libzuptsdk: Argon2id + XChaCha20-Poly1305 */
+#define ZUPT_ENC_PQ_SDK_V2  0x03  /* libvuptsdk v2 header: HKDF combiner + commitment + HPKE binding */
+#define ZUPT_ENC_PW_ARGON2  0x04  /* Password-based via libvuptsdk: Argon2id + XChaCha20-Poly1305 */
 
 /* Block types */
 #define ZUPT_BLOCK_DATA       0x00
@@ -173,7 +173,7 @@ typedef struct {
     int level; uint32_t block_size; uint16_t codec_id;
     int verbose, encrypt, quiet, solid, threads;
     int pq_mode;           /* 1 = post-quantum hybrid KEM mode */
-    int sdk_mode;          /* 1 = use libzuptsdk-backed v3 crypto (HKDF combiner + commitment + HPKE) */
+    int sdk_mode;          /* 1 = use libvuptsdk-backed v3 crypto (HKDF combiner + commitment + HPKE) */
     int dedup;             /* 1 = block-level deduplication enabled */
     char password[256];
     char keyfile[ZUPT_MAX_PATH]; /* Path to .zupt-key file */
@@ -329,7 +329,7 @@ int zupt_hybrid_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
 int zupt_hybrid_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
                               const uint8_t *enc_hdr, size_t enc_hdr_len);
 
-/* ─── SDK-backed crypto (zupt v2.2+, libzuptsdk under the hood) ─── */
+/* ─── SDK-backed crypto (zupt v2.2+, libvuptsdk under the hood) ─── */
 int zupt_sdk_hybrid_keygen(const char *privkeyfile, const char *pubkeyfile);
 int zupt_sdk_hybrid_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
                                   uint8_t *enc_hdr, size_t *enc_hdr_len);

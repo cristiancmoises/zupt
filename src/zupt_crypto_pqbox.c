@@ -33,7 +33,7 @@
  */
 #include "zupt.h"
 
-#ifdef ZUPT_WITH_SDK
+#ifdef ZUPT_WITH_PQBOX
 #include "zupt_keccak.h"
 #include "pqvaptvupt.h"
 #include <stdio.h>
@@ -182,7 +182,7 @@ int zupt_pqbox_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
     return 0;
 }
 
-#else  /* !ZUPT_WITH_SDK */
+#else  /* !ZUPT_WITH_PQBOX */
 
 /* Source-only build (no vendored libpqvaptvupt binary). The --pq-box sealed-box
  * mode is unavailable; use native --pq (ML-KEM-768 + X25519) instead, or rebuild
@@ -212,4 +212,4 @@ int zupt_pqbox_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
     return pqbox_unavailable("--pq-box decryption (this archive needs it)");
 }
 
-#endif /* ZUPT_WITH_SDK */
+#endif /* ZUPT_WITH_PQBOX */

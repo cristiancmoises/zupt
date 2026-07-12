@@ -194,7 +194,7 @@ ZUPT_VER_SHORT, ZUPT_VER_NUMBER, ZUPT_VER_FULL = _get_version()
 
 # ── Detect build capabilities from `version` (and `help` as fallback) ──
 #
-# The default build is SOURCE-ONLY: the libzuptsdk-backed modes (Argon2id
+# The default build is SOURCE-ONLY: the libvuptsdk-backed modes (Argon2id
 # KDF, --pq-sdk, --pq-box) are absent and fail with exit 1. Offering them in
 # the UI is the #1 reason "functions don't work". We detect what THIS binary
 # actually supports and build the encryption UI around it:
@@ -212,7 +212,7 @@ def _get_caps():
     for line in blob.splitlines():
         low = line.lower()
         if low.startswith("build:"):
-            sdk = ("full" in low) and ("libzuptsdk" in low)
+            sdk = ("full" in low) and ("vuptsdk" in low)
         elif low.startswith("kdf:"):
             default_kdf = "Argon2id" if "argon2id (default)" in low else "PBKDF2-SHA256"
         if "--pq-only" in line:

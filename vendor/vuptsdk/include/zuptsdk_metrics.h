@@ -1,4 +1,4 @@
-/* zuptsdk observability — metrics & structured logging hooks
+/* vuptsdk observability — metrics & structured logging hooks
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #ifndef ZUPTSDK_METRICS_H

@@ -4,7 +4,7 @@
  * Provides unified abstractions for compiler intrinsics used throughout
  * the codebase. Supports GCC, Clang, MSVC, and Intel compilers.
  *
- * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
 #ifndef VV_PLATFORM_H

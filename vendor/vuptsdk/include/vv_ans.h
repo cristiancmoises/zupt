@@ -1,5 +1,5 @@
 /*
- * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * VaptVupt — tANS Entropy Codec (v2: sparse header + 4-way interleaved)
  *
