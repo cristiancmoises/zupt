@@ -85,8 +85,23 @@ static inline void br_init(br_t *r, const uint8_t *src, size_t len) {
     r->bits = 0; r->nbits = 0; r->src = src; r->pos = 0; r->len = len;
 }
 
-/* Refill: load bytes until accumulator is full (≥56 bits) */
+/* Refill: load bytes until accumulator is full (≥56 bits).
+ * SPRINT 124: bulk 8-byte fast path. The byte-at-a-time loop was up
+ * to 7 dependent load-shift-or iterations firing every 3-4 symbols
+ * per stream — measured as the top cost of Huffman literal decode.
+ * One unaligned 8-byte load + mask absorbs the same bytes; the tail
+ * (<8 bytes left) keeps the exact byte loop. */
 static inline void br_refill(br_t *r) {
+    if (r->pos + 8 <= r->len) {
+        unsigned absorbed = (63u - (unsigned)r->nbits) >> 3;   /* 0..7 */
+        uint64_t chunk;
+        memcpy(&chunk, r->src + r->pos, 8);
+        chunk &= ((uint64_t)1 << (absorbed * 8)) - 1;
+        r->bits |= chunk << r->nbits;
+        r->pos += absorbed;
+        r->nbits += (int)(absorbed * 8);
+        return;
+    }
     while (r->nbits <= 56 && r->pos < r->len) {
         r->bits |= (uint64_t)r->src[r->pos++] << r->nbits;
         r->nbits += 8;
@@ -767,13 +782,69 @@ vvh_error_t vvh_decode4(const uint8_t *src, size_t src_len,
         } \
     } while (0)
 
+    /* Variant without the per-symbol refill check, for rounds where a
+     * bulk refill has already guaranteed enough bits (see below). */
+    #define DEC_ONE_NR(R, OUT) do { \
+        uint32_t peek = br_peek(&(R), VVH_DECODE_BITS); \
+        uint32_t entry = dec->table[peek]; \
+        int sym = (int)(entry & 0xFF); \
+        int len = (int)((entry >> 8) & 0xF); \
+        if (VV_LIKELY(len > 0)) { \
+            br_consume(&(R), len); \
+            (OUT) = (uint8_t)sym; \
+        } else { \
+            int found = 0; \
+            for (int s = 0; s < dec->slow_count; s++) { \
+                int slen = dec->slow_len[s]; \
+                uint32_t mask = (1u << slen) - 1; \
+                if ((br_peek(&(R), slen) & mask) == dec->slow_code[s]) { \
+                    br_consume(&(R), slen); \
+                    (OUT) = dec->slow_sym[s]; \
+                    found = 1; \
+                    break; \
+                } \
+            } \
+            if (!found) { free(dec); return VVH_ERR_CORRUPT; } \
+        } \
+    } while (0)
+
     /* ─── 7. Hot loop: decode 4 symbols per iteration ─── */
     /* Each iteration's 4 decodes are fully independent — different
      * readers, different table peeks, different output positions.
      * Modern OoO engines can pipeline 4 independent decode chains
-     * achieving ~1.8-2.2× speedup over single-stream. */
+     * achieving ~1.8-2.2× speedup over single-stream.
+     *
+     * SPRINT 127: refill-hoisted fast rounds. One bulk refill per lane
+     * guarantees >= 56 accumulator bits (its 8-byte fast path applies
+     * whenever pos + 8 <= len, which the loop guard checks per lane),
+     * and three symbols consume at most 3 x VVH_MAX_CODE_LEN = 45 bits
+     * — so each round decodes 3 symbols per lane (12 outputs) with a
+     * single refill branch per lane instead of one per symbol. Bit
+     * consumption and decode order are identical to the per-symbol
+     * loop; corrupt input still bottoms out at the same slow-path
+     * check, and nbits cannot underflow (56 - 45 >= 0). The tail and
+     * the last rounds fall back to the checked DEC_ONE loop. */
     size_t out_idx = 0;
-    for (size_t i = 0; i < Q; i++) {
+    size_t i = 0;
+    while (i + 3 <= Q &&
+           r0.pos + 8 <= r0.len && r1.pos + 8 <= r1.len &&
+           r2.pos + 8 <= r2.len && r3.pos + 8 <= r3.len) {
+        br_refill(&r0); br_refill(&r1); br_refill(&r2); br_refill(&r3);
+        for (int k = 0; k < 3; k++) {
+            uint8_t y0, y1, y2, y3;
+            DEC_ONE_NR(r0, y0);
+            DEC_ONE_NR(r1, y1);
+            DEC_ONE_NR(r2, y2);
+            DEC_ONE_NR(r3, y3);
+            dst[out_idx + 0] = y0;
+            dst[out_idx + 1] = y1;
+            dst[out_idx + 2] = y2;
+            dst[out_idx + 3] = y3;
+            out_idx += 4;
+        }
+        i += 3;
+    }
+    for (; i < Q; i++) {
         uint8_t y0, y1, y2, y3;
         DEC_ONE(r0, y0);
         DEC_ONE(r1, y1);
@@ -793,6 +864,7 @@ vvh_error_t vvh_decode4(const uint8_t *src, size_t src_len,
     if (tail >= 3) { uint8_t y; DEC_ONE(r2, y); dst[out_idx++] = y; }
 
     #undef DEC_ONE
+    #undef DEC_ONE_NR
 
     /* Total bytes consumed: header + stream-size header + all 4 streams */
     *src_consumed = streams_off + s0 + s1 + s2 + s3;

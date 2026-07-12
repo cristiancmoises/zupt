@@ -1,9 +1,9 @@
 /*
- * VaptVupt — Zupt Integration API
+ * VaptVupt — VaptVupt Integration API
  * SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright 2026 Cristian.
  *
- * ZUPT-COMPAT: This is the API that Zupt calls. It wraps the internal
+ * EMBED-COMPAT: This is the API that a host application calls. It wraps the internal
  * VaptVupt API with sensible defaults for backup workloads:
  *   - Checksum always enabled (data integrity is critical for backups)
  *   - Adaptive window selection (auto-detect optimal wlog per file)

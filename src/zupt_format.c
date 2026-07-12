@@ -118,11 +118,33 @@ uint16_t zupt_resolve_auto_codec(void) {
 }
 
 static uint32_t auto_block_size(int level) {
-    if (level <= 2) return 131072;
-    if (level <= 4) return 131072;
-    if (level <= 6) return 262144;
-    if (level <= 7) return 262144;
-    return 524288;
+    /* The block IS the codec's LZ window: matches never cross a block
+     * boundary, so a small block throttles the "large-window extreme"
+     * parser (512 KiB gave text 3.75x where a whole-file window gives
+     * 7.6x — measured on codec 2.65.0). Higher levels therefore get a
+     * larger block. Trade-offs held in mind: (a) block size also sets
+     * --dedup granularity, so the speed-first low levels (where dedup is
+     * most used) stay small; and (b) extreme's optimal DP is ~O(block),
+     * so the extreme block is bounded at 8 MiB — 16 MiB bought only a few
+     * more percent of ratio for ~2.5x the encode time, not worth it as a
+     * default (raise it explicitly with -b for archival runs). Decode
+     * speed and memory are unaffected by block size. */
+    if (level <= 2) return   131072;   /* fast: speed + MT + dedup granularity */
+    if (level <= 4) return  1u << 20;  /* 1 MiB */
+    if (level <= 6) return  2u << 20;  /* 2 MiB */
+    if (level <= 7) return  4u << 20;  /* 4 MiB balanced: ~free, big ratio win */
+    return                  8u << 20;  /* 8 MiB extreme: large usable window */
+}
+
+/* Block size when --dedup is active. Dedup detects duplicate BLOCKS, so a
+ * large block almost never finds a duplicate (an 8 MiB block rarely repeats
+ * byte-exactly), collapsing the dedup ratio to 1.0x — directly opposed to the
+ * large-window compression goal, which they share the one block_size knob for.
+ * With --dedup the user has chosen block-level dup detection, so pick a small
+ * block that actually finds repeats (256 KiB is the classic dedup granularity;
+ * finer than that costs index memory for little gain on real backups). */
+static uint32_t auto_block_size_dedup(int level) {
+    return level <= 2 ? 131072u : 262144u;
 }
 void zupt_format_size(uint64_t b, char *buf, size_t cap) {
     if (b < 1024) snprintf(buf, cap, "%llu B", (unsigned long long)b);
@@ -768,7 +790,7 @@ zupt_error_t zupt_compress_files(const char *output_path,
                                  const char **disk_paths,
                                  int num_files,
                                  zupt_options_t *opts) {
-    if (opts->block_size == 0) opts->block_size = auto_block_size(opts->level);
+    if (opts->block_size == 0) opts->block_size = opts->dedup ? auto_block_size_dedup(opts->level) : auto_block_size(opts->level);
 
     /* Resolve AUTO codec before compression */
     if (opts->codec_id == ZUPT_CODEC_AUTO)
@@ -1307,7 +1329,7 @@ zupt_error_t zupt_compress_solid(const char *output_path,
                                   const char **disk_paths,
                                   int num_files,
                                   zupt_options_t *opts) {
-    if (opts->block_size == 0) opts->block_size = auto_block_size(opts->level);
+    if (opts->block_size == 0) opts->block_size = opts->dedup ? auto_block_size_dedup(opts->level) : auto_block_size(opts->level);
     if (opts->block_size < 524288) opts->block_size = 524288;
 
     /* Resolve AUTO codec before compression */

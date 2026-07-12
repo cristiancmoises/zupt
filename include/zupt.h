@@ -50,10 +50,10 @@
 #define ZUPT_PRODUCT_EXTENSION ".zupt"           /* on-disk archive extension (kept stable) */
 #define ZUPT_PRODUCT_TAGLINE   "Post-quantum backup compression"
 
-#define ZUPT_VERSION_STRING "5.0.0"
+#define ZUPT_VERSION_STRING "5.1.0"
 /* Vendored codec release (upstream tag) — single source for display strings.
  * The codec's own VV_VERSION_* is its internal API version, not the release. */
-#define ZUPT_CODEC_RELEASE "2.60.4"
+#define ZUPT_CODEC_RELEASE "2.65.0"
 #define ZUPT_FORMAT_MAJOR   1
 #define ZUPT_FORMAT_MINOR   6
 

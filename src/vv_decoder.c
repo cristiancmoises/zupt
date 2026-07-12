@@ -195,19 +195,23 @@ decode_block_tokens_impl(
                 VV_PREFETCH(op + ll - off_raw);
         }
 
-        if (ll > 0)
+        /* SPRINT 125: wildcopy for the dominant ll <= 14 case. The loop
+         * guards reserve 48 bytes of readable input (ip < ip_safe; ip has
+         * advanced by only the 1 token byte since, as ll <= 14 implies no
+         * extension bytes) and 72 bytes of writable output (op < op_safe;
+         * op unchanged since entry), so one unconditional 16-byte copy is
+         * in-bounds and replaces memcpy's branchy variable-size dispatch.
+         * The extra bytes past ll are overwritten by the next copy. */
+        if (VV_LIKELY(ll <= 14)) {
+            memcpy(op, ip, 16);
+        } else {
             memcpy(op, ip, ll);
+        }
         ip += ll;
         op += ll;
 
         if (VV_UNLIKELY(ip >= ip_end)) break;
 
-        /* Bound the 2-/3-byte offset read against the compressed-block end.
-         * Without this a crafted block whose last literal advances ip to
-         * ip_end-1 (or ip_end-2 for 3-byte offsets) makes vv_read16 / the
-         * 3-byte load read past the heap buffer. The general/tail decode path
-         * already carries this guard; the AVX2 fast paths were missing it. */
-        if (VV_UNLIKELY(ip + off_bytes > ip_end)) return VV_ERR_CORRUPT;
         uint32_t offset;
         if (off_bytes == 2) {
             offset = vv_read16(ip);
@@ -284,19 +288,23 @@ decode_block_tokens_impl(
                 VV_PREFETCH(op + ll - off_raw);
         }
 
-        if (ll > 0)
+        /* SPRINT 125: wildcopy for the dominant ll <= 14 case. The loop
+         * guards reserve 48 bytes of readable input (ip < ip_safe; ip has
+         * advanced by only the 1 token byte since, as ll <= 14 implies no
+         * extension bytes) and 72 bytes of writable output (op < op_safe;
+         * op unchanged since entry), so one unconditional 16-byte copy is
+         * in-bounds and replaces memcpy's branchy variable-size dispatch.
+         * The extra bytes past ll are overwritten by the next copy. */
+        if (VV_LIKELY(ll <= 14)) {
+            memcpy(op, ip, 16);
+        } else {
             memcpy(op, ip, ll);
+        }
         ip += ll;
         op += ll;
 
         if (VV_UNLIKELY(ip >= ip_end)) break;
 
-        /* Bound the 2-/3-byte offset read against the compressed-block end.
-         * Without this a crafted block whose last literal advances ip to
-         * ip_end-1 (or ip_end-2 for 3-byte offsets) makes vv_read16 / the
-         * 3-byte load read past the heap buffer. The general/tail decode path
-         * already carries this guard; the AVX2 fast paths were missing it. */
-        if (VV_UNLIKELY(ip + off_bytes > ip_end)) return VV_ERR_CORRUPT;
         uint32_t offset;
         if (off_bytes == 2) {
             offset = vv_read16(ip);

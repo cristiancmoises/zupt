@@ -4,15 +4,22 @@
  * Copyright (c) 2025-2026 Cristian Cezar Moisés
  *
  * ZUPT-COMPAT: thin wrapper over vv_compress/vv_decompress with
- * backup-optimized defaults for VaptVupt 2.60.4.
+ * backup-optimized defaults for VaptVupt 2.65.0.
  *
  * Defaults applied here (per ZUPT_INTEGRATION.md, Sprint 122):
  *   - opts.checksum = 0      (Zupt's HMAC-SHA256 / AES-GCM-SIV outer
  *                             already authenticates the compressed
  *                             bytes; XXH64 footer is redundant work
  *                             and saves ~10% encode time)
- *   - opts.format_v2 = 1     (4-7% better binary ratio; v2.33.0+
- *                             decoders read v2 frames transparently)
+ *   - opts.format_v2 = 0     (AUTO). Since codec v2.61.0 the encoder
+ *                             auto-enables min_match=3 ('T' blocks) for
+ *                             binary-detected input and keeps 'S' blocks
+ *                             for text. FORCING format_v2=1 routes text
+ *                             through the binary/greedy path and HALVES the
+ *                             extreme-mode ratio (text 7.6x -> 3.7x,
+ *                             measured on codec 2.65.0); auto keeps the
+ *                             optimal parser on text and still wins on
+ *                             binary. Never force it here.
  *   - VV_DECOMPRESS_SKIP_CHECKSUM on decode (matched pair to
  *                             checksum=0 on encode; saves ~30% on real
  *                             fixtures, 2-5x on AEAD-wrapped data)
@@ -43,14 +50,15 @@ int64_t vvz_compress(const uint8_t *src, size_t src_len,
         opts.format_v2 = 0;
     } else if (level <= 7) {
         opts.mode = VV_MODE_BALANCED;
-        opts.format_v2 = 1;  /* 4-7% better binary ratio (v2.33.0+ decoders) */
+        opts.format_v2 = 0;  /* AUTO: v2 for binary, optimal 'S' for text.
+                              * Forcing v2 halves text ratio — see header. */
         opts.filter_auto = 1; /* BCJ on recognised ELF/PE/Mach-O input
                                * (codec 2.55.0): no-op on everything else.
                                * Blocks where a filter fired need a
                                * v2.54.0+ decoder (tool >= 3.9.0). */
     } else {
         opts.mode = VV_MODE_EXTREME;
-        opts.format_v2 = 1;  /* 4-7% better binary ratio (v2.33.0+ decoders) */
+        opts.format_v2 = 0;  /* AUTO (see BALANCED / header note) */
         opts.filter_auto = 1; /* see BALANCED note above */
     }
 
