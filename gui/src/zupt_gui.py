@@ -79,7 +79,7 @@ def _is_runnable(path):
     # Liveness check — catches missing shared libraries, broken rpath,
     # ABI mismatch, etc. 3-second cap so we never hang the GUI startup.
     try:
-        r = subprocess.run([p, "version"], capture_output=True, timeout=3)
+        r = subprocess.run([p, "version"], capture_output=True, stdin=subprocess.DEVNULL, timeout=3)
         if r.returncode != 0:
             err = r.stderr.decode("utf-8", errors="replace").strip()
             return False, f"exit {r.returncode}: {err.splitlines()[0] if err else 'no stderr'}"
@@ -178,7 +178,7 @@ def _get_version():
     number = "?"
     full = ""
     try:
-        r = subprocess.run([VAPTVUPT, "version"], capture_output=True, text=True, timeout=5)
+        r = subprocess.run([VAPTVUPT, "version"], capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=5)
         if r.returncode == 0:
             full = r.stdout.strip()
             lines = full.split("\n")
@@ -219,7 +219,7 @@ def _get_caps():
             pqonly = True
     if not pqonly:
         try:
-            h = subprocess.run([VAPTVUPT, "help"], capture_output=True, text=True, timeout=5)
+            h = subprocess.run([VAPTVUPT, "help"], capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=5)
             txt = (h.stdout or "") + (h.stderr or "")
             if "--pq-only" in txt:
                 pqonly = True
@@ -254,7 +254,7 @@ _PQ_FLAG = {
 def _detect_archive_pq(archive):
     """Inspect an archive's `info` and return the matching PQ token, or None."""
     try:
-        r = subprocess.run([VAPTVUPT, "info", archive], capture_output=True, text=True, timeout=15)
+        r = subprocess.run([VAPTVUPT, "info", archive], capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=15)
         txt = (r.stdout or "") + (r.stderr or "")
     except Exception:
         return None
@@ -330,7 +330,8 @@ QFrame#sep { background: #1a2a30; max-height: 1px; }
 
 def run_zupt(args, timeout=30):
     try:
-        r = subprocess.run([ZUPT]+list(args), capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run([ZUPT]+list(args), capture_output=True, text=True,
+                           stdin=subprocess.DEVNULL, timeout=timeout)
         return r.returncode, r.stdout, r.stderr
     except FileNotFoundError: return -1, "", f"vaptvupt not found: {VAPTVUPT}\n\nDiscovery log:\n" + "\n".join(_DISCOVERY_LOG[-10:])
     except subprocess.TimeoutExpired: return -1, "", "Timed out"
@@ -338,23 +339,59 @@ def run_zupt(args, timeout=30):
 class Worker(QObject):
     done = Signal(int, str, str)
     log = Signal(str)
+    pct = Signal(int)
+
+    # The CLI paints live progress as "\r  <path> [#####     ]  42%" frames —
+    # carriage returns only, no newline until 100%. A line-based reader yields
+    # NOTHING for the entire job, so the GUI looked frozen on any file larger
+    # than one block ("app is stuck"). Parse the \r frames into a percentage.
+    _PCT_RE = re.compile(r"(\d{1,3})%\s*$")
+
     def __init__(self, args):
         super().__init__(); self.args = args; self.proc = None; self._cancelled = False
     def run(self):
         self.log.emit(f"$ {Path(VAPTVUPT).name} {' '.join(self.args)}")
         try:
-            # errors="replace": the CLI can echo non-UTF-8 bytes (foreign
-            # filenames on mounted drives); strict decoding would raise mid-read
-            # and the job would never report done.
-            self.proc = proc = subprocess.Popen([ZUPT]+self.args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace")
+            # stdin=DEVNULL: the CLI prompts on a terminal for some inputs
+            # (e.g. bare -p); a child that reads stdin inherited from the GUI's
+            # terminal would block forever. /dev/null makes prompts fail fast.
+            # stderr is merged into stdout so ONE stream carries everything
+            # (the CLI's human output is on stderr; stdout is empty) — no
+            # second pipe that could fill while we drain the first.
+            self.proc = proc = subprocess.Popen(
+                [ZUPT]+self.args, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
             if self._cancelled:   # cancel() ran before Popen finished (see below)
                 proc.kill()
-            err_lines = []
-            for line in proc.stderr:
-                line = line.rstrip('\n')
-                if line: err_lines.append(line); self.log.emit(line)
-            stdout, _ = proc.communicate(timeout=7200)
-            self.done.emit(proc.returncode, stdout or "", "\n".join(err_lines))
+            lines = []
+            buf = ""
+            last_pct = -1
+            while True:
+                # read1: return whatever bytes are available (>=1) instead of
+                # blocking for a full buffer — required for live \r progress.
+                chunk = proc.stdout.read1(65536)
+                if not chunk:
+                    break
+                buf += chunk.decode("utf-8", errors="replace")
+                # Split on BOTH \n (real lines) and \r (progress frames);
+                # keep the trailing partial segment in the buffer.
+                segs = re.split(r"(\r\n|\n|\r)", buf)
+                buf = segs[-1]
+                for i in range(0, len(segs) - 1, 2):
+                    seg, sep = segs[i], segs[i + 1]
+                    if sep == "\r" or (seg and self._PCT_RE.search(seg) and "[" in seg):
+                        m = self._PCT_RE.search(seg)
+                        if m:
+                            p = min(100, int(m.group(1)))
+                            if p != last_pct:
+                                last_pct = p; self.pct.emit(p)
+                        continue          # progress frames stay out of the log
+                    if seg.strip():
+                        lines.append(seg); self.log.emit(seg)
+            proc.wait(timeout=7200)
+            if buf.strip() and not self._PCT_RE.search(buf):
+                lines.append(buf); self.log.emit(buf)
+            self.done.emit(proc.returncode, "", "\n".join(lines))
         except FileNotFoundError: self.done.emit(-1, "", f"vaptvupt not found: {VAPTVUPT}")
         except subprocess.TimeoutExpired: proc.kill(); self.done.emit(-1, "", "Timed out")
         except Exception as exc:
@@ -425,10 +462,18 @@ def run_async(parent, cmd, btn, log, progress=None, info=None):
     if info:  # e.g. an auto-detect note; appended AFTER the clear so it survives
         log.append(info)
     btn.setEnabled(False)
-    if progress: progress.show()
+    if progress:
+        progress.setRange(0, 0)   # indeterminate until the CLI reports a %
+        progress.show()
     t = QThread(); w = Worker(cmd); w.moveToThread(t)
     # log.append targets a main-thread QObject -> Qt queues it to the GUI thread.
     w.log.connect(log.append)
+    if progress:
+        def on_pct(p):
+            if progress.maximum() != 100:
+                progress.setRange(0, 100)
+            progress.setValue(p)
+        w.pct.connect(on_pct)
     # Keep a LIST of live (thread, worker) refs on the parent. Tabs with more
     # than one action button (Disk: backup + restore) previously shared a
     # single _thread/_worker slot, so starting a second op dropped the only
