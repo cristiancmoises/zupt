@@ -53,7 +53,7 @@
 #define ZUPT_VERSION_STRING "5.1.0"
 /* Vendored codec release (upstream tag) — single source for display strings.
  * The codec's own VV_VERSION_* is its internal API version, not the release. */
-#define ZUPT_CODEC_RELEASE "2.65.0"
+#define ZUPT_CODEC_RELEASE "2.65.3"
 #define ZUPT_FORMAT_MAJOR   1
 #define ZUPT_FORMAT_MINOR   6
 

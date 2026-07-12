@@ -868,6 +868,9 @@ static size_t emit_seq(uint8_t *dst, const uint8_t *lits,
  * ═══════════════════════════════════════════════════════════════ */
 
 #define VV_OPT_MAX_CAND  16
+#ifndef VV_OPT_LONG_MATCH
+#define VV_OPT_LONG_MATCH 512   /* take immediately; skip interior DP */
+#endif
 #define VV_OPT_PRICE_INF 0x3FFFFFFF
 
 typedef struct { uint32_t off; int32_t len; } opt_cand_t;
@@ -920,6 +923,32 @@ static inline int32_t opt_lit_price(void) { return 8; }
 #ifndef VV_OPT_LIT_BLEND
 #define VV_OPT_LIT_BLEND 6
 #endif
+/* SPRINT 131: OF-code price blend. The old match price decomposes as
+ * 8 + code_bits + extra_bits with prior code costs {rep: 2, explicit:
+ * 6}; blend 0/8 therefore reproduces the v2.65.0 model exactly. The
+ * measured distribution comes from the same greedy prepass that feeds
+ * literal pricing, classified with the wire's exact rep rules. */
+#ifndef VV_OPT_OF_BLEND
+#define VV_OPT_OF_BLEND 0
+#endif
+static void opt_build_of_prices(const uint32_t of_hist[27], size_t nseq,
+                                int32_t of_bits[27]) {
+    for (int x = 0; x < 27; x++) {
+        int prior = (x < 3) ? 2 : 6;
+        int bits;
+        if (!nseq || !of_hist[x]) {
+            bits = 12;   /* unseen code: expensive if the DP tries it */
+        } else {
+            uint32_t ratio8 = (uint32_t)(((uint64_t)nseq << 8) / of_hist[x]);
+            int t = enc_ilog2(ratio8);
+            bits = t - 8;
+            if (t >= 1 && ((ratio8 >> (t - 1)) & 1)) bits++;
+            if (bits < 1) bits = 1;
+            if (bits > 12) bits = 12;
+        }
+        of_bits[x] = (VV_OPT_OF_BLEND * bits + (8 - VV_OPT_OF_BLEND) * prior) / 8;
+    }
+}
 /* fwd decl: the greedy parser (defined below) doubles as the residual-
  * literal estimator for the optimal parser's pricing prepass. */
 static size_t compress_block(const uint8_t *src, size_t start_pos, size_t block_len,
@@ -932,9 +961,11 @@ static size_t compress_block(const uint8_t *src, size_t start_pos, size_t block_
  * literal count, or 0 on a malformed stream (caller falls back to the
  * raw-block histogram). */
 static size_t tok_lit_hist(const uint8_t *tokens, size_t tok_len,
-                           int off_bytes, uint32_t hist[256]) {
+                           int off_bytes, uint32_t hist[256],
+                           uint32_t of_hist[27], size_t *nseq_out) {
     const uint8_t *tp = tokens, *tp_end = tokens + tok_len;
-    size_t total = 0;
+    size_t total = 0, nseq = 0;
+    uint32_t rep[3] = {0, 0, 0};   /* wire-exact per-block rep tracking */
     while (tp < tp_end) {
         uint8_t token = *tp++;
         size_t ll = token >> 4;
@@ -953,7 +984,23 @@ static size_t tok_lit_hist(const uint8_t *tokens, size_t tok_len,
         tp += ll;
         if (tp >= tp_end) break;
         if ((size_t)(tp_end - tp) < (size_t)off_bytes) return 0;
+        uint32_t off = (off_bytes == 3)
+            ? ((uint32_t)tp[0] | ((uint32_t)tp[1] << 8) | ((uint32_t)tp[2] << 16))
+            : ((uint32_t)tp[0] | ((uint32_t)tp[1] << 8));
         tp += off_bytes;
+        /* SPRINT 131: wire-exact OF code classification (mirrors the SEQ
+         * encoder's rep detection order and push rule). */
+        if (off != 0) {
+            int x;
+            if (off == rep[0]) x = 0;
+            else if (off == rep[1]) x = 1;
+            else if (off == rep[2]) x = 2;
+            else x = 3 + enc_ilog2(off);
+            if (x > 26) x = 26;
+            of_hist[x]++;
+            nseq++;
+            if (off != rep[0]) { rep[2] = rep[1]; rep[1] = rep[0]; rep[0] = off; }
+        }
         if (mc == 15) {
             do {
                 if (tp >= tp_end) return 0;
@@ -962,6 +1009,7 @@ static size_t tok_lit_hist(const uint8_t *tokens, size_t tok_len,
             } while (tp < tp_end);
         }
     }
+    *nseq_out = nseq;
     return total;
 }
 
@@ -1005,14 +1053,19 @@ static void opt_build_lit_prices_from_hist(const uint32_t hist[256], size_t n,
 #ifndef VV_OPT_REP_BITS
 #define VV_OPT_REP_BITS 10
 #endif
-static inline int32_t opt_match_price(const uint32_t reps[3], uint32_t off, int32_t len) {
-    int is_rep = (off == reps[0] || off == reps[1] || off == reps[2]);
-    int32_t log2_off = 0; uint32_t o = off;
-    while (o > 1) { o >>= 1; log2_off++; }
-    int32_t off_bits = is_rep ? VV_OPT_REP_BITS : (14 + log2_off);
+static inline int32_t opt_match_price(const uint32_t reps[3], uint32_t off, int32_t len,
+                                      const int32_t of_bits[27]) {
+    int32_t log2_off = enc_ilog2(off);
+    int x;
+    if (off == reps[0]) x = 0;
+    else if (off == reps[1]) x = 1;
+    else if (off == reps[2]) x = 2;
+    else { x = 3 + log2_off; if (x > 26) x = 26; }
+    /* 8 = LL+ML sequence overhead; extras only for explicit offsets. */
+    int32_t off_cost = 8 + of_bits[x] + ((x >= 3) ? log2_off : 0);
     int32_t ml_extra = 0, v = len - VV_MIN_MATCH;
     if (v >= 15) ml_extra = 8 * (v / 255 + 1);
-    return off_bits + ml_extra;
+    return off_cost + ml_extra;
 }
 
 /* Wire rep-history update rule — must mirror vva_encode_sequences'
@@ -1042,9 +1095,12 @@ static int opt_collect(const matcher_t *m, const uint8_t *data,
     for (int r = 0; r < 3; r++) {
         uint32_t roff = reps[r];
         if (roff == 0 || (int32_t)roff > pos) continue;
-        const uint8_t *a = data + pos, *b = data + pos - roff;
-        int32_t l = 0; while (l < max && a[l] == b[l]) l++;
+        /* SPRINT 132: extend_match (8-byte stride) instead of the
+         * byte-at-a-time loop — identical result, and this runs three
+         * times at every DP position. */
+        int32_t l = extend_match(data + pos, data + pos - roff, max);
         if (l >= VV_MIN_MATCH && n < VV_OPT_MAX_CAND) { cands[n].off = roff; cands[n].len = l; n++; }
+        if (l >= VV_OPT_LONG_MATCH) return n;   /* caller short-circuits on it */
     }
     uint32_t h = hash_safe(data + pos, end - pos);
     int32_t ref = m->table[h];
@@ -1058,6 +1114,10 @@ static int opt_collect(const matcher_t *m, const uint8_t *data,
             int dup = 0;
             for (int k = 0; k < n; k++) if (cands[k].off == off) { if (cands[k].len < l) cands[k].len = l; dup = 1; break; }
             if (!dup && l >= VV_MIN_MATCH) { cands[n].off = off; cands[n].len = l; n++; }
+            /* SPRINT 132: a LONG_MATCH-class hit makes the caller take
+             * it immediately and ignore other candidates — the rest of
+             * the walk (up to depth 256 with extends) is wasted work. */
+            if (l >= VV_OPT_LONG_MATCH) return n;
         }
         ref = chain_arr[ref & chain_mask];
     }
@@ -1100,12 +1160,28 @@ static size_t compress_block_optimal(const uint8_t *src, size_t start_pos,
      * and discarded. Falls back to the raw-block histogram if the
      * prepass cannot run. */
     int32_t lit_bits[256];
+    int32_t of_bits[27];
     {
         uint32_t hist[256];
+        uint32_t of_hist[27];
         memset(hist, 0, sizeof(hist));
-        size_t nlit = 0;
+        memset(of_hist, 0, sizeof(of_hist));
+        size_t nlit = 0, nseq_pp = 0;
         matcher_t mp;
-        if (matcher_init(&mp, m->wlog, 4)) {
+        /* SPRINT 133: the prepass compresses ONE block (<= VV_MAX_BLOCK_SIZE
+         * = 2^20) with a fresh matcher, so every match it can find is
+         * intra-block: distance < block_len <= 2^20. A wlog-20 window
+         * covers that exactly, and its chain index (pos & (2^20-1)) is
+         * non-aliasing across a <= 2^20-wide position span — so the
+         * prepass finds the identical match set and emits the identical
+         * tokens/histogram/prices as it would at the real encode's wlog.
+         * Capping here avoids allocating and zeroing the full extreme
+         * window (up to 2 x 2^24 x 4 = 128 MB of chain arrays per block
+         * at wlog=24) when 2 x 2^20 x 4 = 8 MB suffices. off_bytes is
+         * unaffected: both >16 wlogs emit 3-byte offsets. Output-
+         * identical — verified by the ratio gate at +-0. */
+        uint32_t pp_wlog = (m->wlog < 20) ? m->wlog : 20;
+        if (matcher_init(&mp, pp_wlog, 4)) {
             mp.accel = 2;
             mp.max_match = m->max_match;
             size_t pcap = block_len + block_len / 255 + 1024;
@@ -1114,7 +1190,7 @@ static size_t compress_block_optimal(const uint8_t *src, size_t start_pos,
                 size_t pcsz = compress_block(src, start_pos, block_len, ptok,
                                              pcap, &mp, VV_MODE_ULTRA_FAST, min_match);
                 if (pcsz > 0)
-                    nlit = tok_lit_hist(ptok, pcsz, off_bytes, hist);
+                    nlit = tok_lit_hist(ptok, pcsz, off_bytes, hist, of_hist, &nseq_pp);
                 free(ptok);
             }
             matcher_free(&mp);
@@ -1126,6 +1202,7 @@ static size_t compress_block_optimal(const uint8_t *src, size_t start_pos,
             nlit = (size_t)N;
         }
         opt_build_lit_prices_from_hist(hist, nlit, lit_bits);
+        opt_build_of_prices(of_hist, nseq_pp, of_bits);
     }
 
     /* Forward DP. We also must keep the matcher hash chains populated as we
@@ -1140,7 +1217,7 @@ static size_t compress_block_optimal(const uint8_t *src, size_t start_pos,
      * via the raw-store path is NOT what we want — instead we cap by
      * short-circuiting long matches, which both bounds work AND is the
      * correct optimal choice (a very long match is never beaten). */
-    const int32_t LONG_MATCH = 512;   /* take immediately, skip interior DP */
+    const int32_t LONG_MATCH = VV_OPT_LONG_MATCH;
 
     for (int32_t i = 0; i < N; i++) {
         if (price[i] >= VV_OPT_PRICE_INF) {
@@ -1174,7 +1251,7 @@ static size_t compress_block_optimal(const uint8_t *src, size_t start_pos,
                  * the whole match. */
                 int32_t use = best_len;
                 if (i + use > N) use = N - i;
-                int32_t np = price[i] + opt_match_price(prep[i], best_off, use);
+                int32_t np = price[i] + opt_match_price(prep[i], best_off, use, of_bits);
                 int32_t j = i + use;
                 if (np < price[j]) {
                     price[j] = np; plen[j] = use; poff[j] = best_off;
@@ -1196,7 +1273,7 @@ static size_t compress_block_optimal(const uint8_t *src, size_t start_pos,
                 if (i + mlen > N) mlen = N - i;
                 if (mlen < min_match) continue;
                 for (int32_t L = mlen; L >= min_match; L--) {
-                    int32_t np = price[i] + opt_match_price(prep[i], moff, L);
+                    int32_t np = price[i] + opt_match_price(prep[i], moff, L, of_bits);
                     int32_t j = i + L;
                     if (np < price[j]) {
                         price[j] = np; plen[j] = L; poff[j] = moff;
