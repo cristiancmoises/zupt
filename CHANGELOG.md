@@ -1,6 +1,64 @@
 # VaptVupt Changelog
 
 
+## [5.2.0] — 2026-07-12 — GUI compress-crash fix; codec 2.65.3; libvuptsdk
+
+Backward-compatible with 5.0.x/5.1.0: `.zupt` wire format unchanged (v1.6),
+archives interoperate in both directions, and `--pq` / `--pq-only` keys keep
+working.
+
+### GUI — the compress crash / corruption / "nothing happens" is fixed
+
+The 5.1.0 progress-bar work introduced a cross-thread bug that made compress
+crash the app ("app closes"), hang ("nothing happens"), or leave a truncated
+(corrupt) archive — worst on the full-PQ path.
+
+- Root cause: `run_async` connected plain Python CLOSURES (`finish`/`on_pct`/
+  `release`) to signals emitted from the worker `QThread`. PySide6 runs a
+  plain-closure slot in the EMITTING thread regardless of the requested
+  connection type — even an explicit `Qt.QueuedConnection` — because a bare
+  functor has no receiver QObject to give it GUI-thread affinity. Those closures
+  then called `QProgressBar.setValue/setRange/hide`, `QPushButton.setEnabled`
+  and `QTextEdit.append` from the worker thread. Cross-thread QWidget access is
+  undefined behaviour and crashed the app under real X11/Wayland rendering; it
+  only survived offscreen tests, so prior automated runs missed it.
+- Fix: a `_Job(QObject)` controller parented to a GUI-thread widget, so every
+  slot is a bound method Qt auto-marshals to the GUI thread.
+- Verified on a real X display (window shown, progress bar rendering) with a
+  QProgressBar/QPushButton instrumentation that flags any worker-thread call:
+  zero cross-thread calls after the fix, and hybrid + full-PQ + password
+  compress/extract all byte-exact round-trip; Verify/Info/Disk backup+restore/
+  two-concurrent-jobs/close-mid-job all pass.
+
+### Codec — VaptVupt 2.65.3
+
+Byte-identical output to 2.65.0 (same ratio, wire format v1.6) but extreme-mode
+encode is ~1.6–2× faster (Sprint 132) and the extreme prepass window
+reservation is capped at 8 MiB instead of up to 128 MiB (Sprint 133 memory
+hygiene). Our AVX2 decoder offset-read guard is now upstream; the ANS
+safe-zone reserve patch is re-applied on top.
+
+### SDK — libvuptsdk (renamed from libzuptsdk)
+
+`libvuptsdk` (git.securityops.co/cristiancmoises/libvuptsdk) is the renamed
+`libzuptsdk`; only the shared-object filename/SONAME changed
+(`libzuptsdk.so.2` → `libvuptsdk.so.2`), the C API is unchanged. A `WITH_SDK=1`
+build now links `-lvuptsdk` and enables `--pq-sdk` + the Argon2id password KDF.
+`--pq-box` needs the SEPARATE `libpqvaptvupt`, which `libvuptsdk` does not
+provide, so it is now behind its own `WITH_PQBOX=1` flag rather than folded into
+`WITH_SDK`. The default distributed build stays source-only (`WITH_SDK=0`):
+native `--pq` / `--pq-only` + PBKDF2, no external libraries. Validated:
+`WITH_SDK=1` links libvuptsdk + libcrypto + libargon2, `keygen --sdk` and
+`--pq-sdk` encrypt/decrypt round-trip byte-exact.
+
+### Validation
+
+`make check` 16/16 (source-only); codec KAT 16/16; ML-KEM-768 FIPS 203
+conformance 3/3; full GUI function matrix on real X with zero cross-thread
+access; SDK round-trip on a `WITH_SDK=1` build.
+
+
+
 ## [5.1.0] — 2026-07-11 — codec 2.65.0; large ratio gains; GUI compress fixes
 
 Backward-compatible with 5.0.0: the `.zupt` wire format is unchanged (v1.6) and
@@ -53,10 +111,12 @@ is ~30 MB per thread.
   still-running `QThread` and Qt aborted the process ("QThread: Destroyed while
   thread is still running"). References are now released from a slot on
   `QThread.finished` after `wait()`.
-- **"App stuck" during compress.** The CLI paints live progress as `` frames
+- **"App stuck" during compress.** The CLI paints live progress as `
+` frames
   (no newline until 100%); the worker read line-by-line and so emitted nothing
   for the whole job — the window looked frozen on any file larger than one block.
-  The worker now parses `` progress frames and drives the progress bar, and
+  The worker now parses `
+` progress frames and drives the progress bar, and
   runs the child with `stdin=/dev/null` so a prompt can never block it.
 - **Window never appeared on Wayland** (Sway 1.12 + Qt 6.9): the toolkit never
   sent the initial `wl_surface.commit`, so the compositor never mapped the

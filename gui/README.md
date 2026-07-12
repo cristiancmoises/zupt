@@ -116,7 +116,7 @@ The GUI calls the vaptvupt CLI binary — all cryptography runs in native C, not
 
 ## Credits
 
-- **vaptvupt** v5.1.0 — Cristian Cezar Moisés ([github](https://git.securityops.co/cristiancmoises/vaptvupt))
+- **vaptvupt** v5.2.0 — Cristian Cezar Moisés ([github](https://git.securityops.co/cristiancmoises/vaptvupt))
 
 ## License
 

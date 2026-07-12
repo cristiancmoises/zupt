@@ -17,6 +17,27 @@ License: AGPL-3.0-or-later (dual-licensed AGPL + commercial).
 > command is preserved as a symlink to `vaptvupt` for one major version
 > cycle.
 
+## What's new in 5.2.0
+
+- **GUI compress crash fixed.** The 5.1.0 progress bar introduced a cross-thread
+  bug that could crash the app, hang it, or leave a corrupt archive when
+  compressing (worst on the full post-quantum path). Worker callbacks now run on
+  the GUI thread via a `_Job` controller; verified on a real X display with zero
+  cross-thread widget access and byte-exact round-trips across hybrid, full-PQ,
+  and password modes plus Verify/Info/Disk/concurrent/close-mid-job.
+- **Codec VaptVupt 2.65.3** — byte-identical output to 2.65.0 (same ratios) but
+  ~1.6–2× faster extreme-mode encode and lower peak virtual memory.
+- **libvuptsdk** (renamed from `libzuptsdk`) is now the SDK library a
+  `WITH_SDK=1` build links for `--pq-sdk` + the Argon2id password KDF; `--pq-box`
+  moved to its own `WITH_PQBOX=1` flag (separate `libpqvaptvupt`). The default
+  distributed build stays source-only (native `--pq`/`--pq-only` + PBKDF2, no
+  external libraries).
+
+Binaries for the CLI (5.2.0) and GUI (5.2.0) are on the
+[release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.2.0).
+
+---
+
 ## What's new in 5.1.0
 
 - **Codec upgraded to VaptVupt 2.65.0** (from 2.60.4). Same on-disk format
@@ -97,7 +118,7 @@ Binaries for the CLI (5.0.0) and GUI (5.0.0) are on the
 <a name="compression-comparison"></a>
 ## Compression comparison
 
-Single-thread, one 20–25 MB file per data class, best-of-run on an x86-64 AVX2 machine (codec 2.65.0). Ratio = original ÷ compressed — higher is better. Reproduce with `vaptvupt -b <file>` and the standard `zstd` / `gzip` / `lz4` CLIs. Numbers vary with data and hardware.
+Single-thread, one 20–25 MB file per data class, best-of-run on an x86-64 AVX2 machine (codec 2.65.3; output byte-identical to 2.65.0). Ratio = original ÷ compressed — higher is better. Reproduce with `vaptvupt -b <file>` and the standard `zstd` / `gzip` / `lz4` CLIs. Numbers vary with data and hardware.
 
 ### Ratio vs other compressors
 
@@ -209,36 +230,36 @@ Argon2id KDF.
 ### Pre-built packages
 
 Assets are published on the
-[v5.1.0 release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.1.0)
+[v5.2.0 release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.2.0)
 and verifiable against the published `SHA256SUMS.txt`.
 
-**Command-line tool (`vaptvupt` 5.1.0):**
+**Command-line tool (`vaptvupt` 5.2.0):**
 
 | Format | File | Distros |
 |---|---|---|
-| Debian/Ubuntu | `vaptvupt_5.1.0_amd64.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
-| RPM | `vaptvupt-5.1.0-1.x86_64.rpm` | Fedora 38+, RHEL 9+, openSUSE, AlmaLinux, Rocky, other RPM-based distributions |
-| AppDir tarball | `vaptvupt-5.1.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run, no FUSE) |
-| Source tarball | `vaptvupt-5.1.0.tar.gz` | Build from source on any platform |
-| openSUSE OBS | `vaptvupt-5.1.0-opensuse-obs.tar.gz` | Open Build Service source bundle |
+| Debian/Ubuntu | `vaptvupt_5.2.0_amd64.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
+| RPM | `vaptvupt-5.2.0-1.x86_64.rpm` | Fedora 38+, RHEL 9+, openSUSE, AlmaLinux, Rocky, other RPM-based distributions |
+| AppDir tarball | `vaptvupt-5.2.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run, no FUSE) |
+| Source tarball | `vaptvupt-5.2.0.tar.gz` | Build from source on any platform |
+| openSUSE OBS | `vaptvupt-5.2.0-opensuse-obs.tar.gz` | Open Build Service source bundle |
 
-**Graphical front-end (`vaptvupt-gui` 5.1.0):**
+**Graphical front-end (`vaptvupt-gui` 5.2.0):**
 
 | Format | File | Distros |
 |---|---|---|
-| Debian/Ubuntu | `vaptvupt-gui_5.1.0_all.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
-| RPM | `vaptvupt-gui-5.1.0-1.noarch.rpm` | RPM-based distributions |
-| AppImage | `VaptVupt-GUI-5.1.0-x86_64.AppImage` | Any glibc 2.28+ (single-file, no install) |
-| AppDir tarball | `VaptVupt-GUI-5.1.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run) |
+| Debian/Ubuntu | `vaptvupt-gui_5.2.0_all.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
+| RPM | `vaptvupt-gui-5.2.0-1.noarch.rpm` | RPM-based distributions |
+| AppImage | `VaptVupt-GUI-5.2.0-x86_64.AppImage` | Any glibc 2.28+ (single-file, no install) |
+| AppDir tarball | `VaptVupt-GUI-5.2.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run) |
 
 **Windows / macOS / BSD:**
 
 | Platform | File | Notes |
 |---|---|---|
-| Windows | `VaptVupt-Setup-5.1.0.exe`, `vaptvupt-gui-5.1.0-windows-x86_64.exe`, `vaptvupt-5.1.0-windows-x86_64.exe` | Native installer + standalone GUI + CLI, built on a Windows runner by CI |
-| macOS | `VaptVupt-5.1.0.dmg`, `vaptvupt-5.1.0-macos` | `.dmg` GUI bundle + CLI, built on a macOS runner by CI |
-| Any OS (portable GUI) | `vaptvupt-gui-5.1.0-portable.zip` | Python GUI + launchers for Windows/macOS/Linux/BSD; needs Python 3.8+ and PySide6 (or PyQt6), plus the `vaptvupt` CLI on PATH |
-| BSD / others | `vaptvupt-5.1.0.tar.gz` | Build the CLI from source (`make`); run the portable GUI |
+| Windows | `VaptVupt-Setup-5.2.0.exe`, `vaptvupt-gui-5.2.0-windows-x86_64.exe`, `vaptvupt-5.2.0-windows-x86_64.exe` | Native installer + standalone GUI + CLI, built on a Windows runner by CI |
+| macOS | `VaptVupt-5.2.0.dmg`, `vaptvupt-5.2.0-macos` | `.dmg` GUI bundle + CLI, built on a macOS runner by CI |
+| Any OS (portable GUI) | `vaptvupt-gui-5.2.0-portable.zip` | Python GUI + launchers for Windows/macOS/Linux/BSD; needs Python 3.8+ and PySide6 (or PyQt6), plus the `vaptvupt` CLI on PATH |
+| BSD / others | `vaptvupt-5.2.0.tar.gz` | Build the CLI from source (`make`); run the portable GUI |
 
 The native Windows/macOS installers are produced by the project's CI
 (`.github/workflows/cross-platform.yml`) on real Windows and macOS runners — see
@@ -250,30 +271,30 @@ and Qt are available.
 sha256sum -c SHA256SUMS.txt
 
 # Debian / Ubuntu / Mint
-sudo dpkg -i vaptvupt_5.1.0_amd64.deb
+sudo dpkg -i vaptvupt_5.2.0_amd64.deb
 sudo apt-get install -f       # resolve any missing deps
 
 # Fedora / RHEL / openSUSE / AlmaLinux / Rocky and other RPM-based distros
-sudo rpm -i vaptvupt-5.1.0-1.x86_64.rpm
+sudo rpm -i vaptvupt-5.2.0-1.x86_64.rpm
 # or
-sudo dnf install ./vaptvupt-5.1.0-1.x86_64.rpm
+sudo dnf install ./vaptvupt-5.2.0-1.x86_64.rpm
 
 # AppDir tarball (no install, no FUSE required)
-tar xzf vaptvupt-5.1.0-x86_64.AppDir.tar.gz
-./vaptvupt-5.1.0-x86_64.AppDir/AppRun --help
+tar xzf vaptvupt-5.2.0-x86_64.AppDir.tar.gz
+./vaptvupt-5.2.0-x86_64.AppDir/AppRun --help
 
 # GUI AppImage (single executable)
-chmod +x VaptVupt-GUI-5.1.0-x86_64.AppImage
-./VaptVupt-GUI-5.1.0-x86_64.AppImage
+chmod +x VaptVupt-GUI-5.2.0-x86_64.AppImage
+./VaptVupt-GUI-5.2.0-x86_64.AppImage
 ```
 
 ### Building from SRPM (Fedora / RHEL / RPM-based distributions)
 
 ```bash
-tar xzf vaptvupt-5.1.0.srpm.tar.gz
+tar xzf vaptvupt-5.2.0.srpm.tar.gz
 cd ~/rpmbuild  # or use rpmbuild --define "_topdir $(pwd)"
 rpmbuild -bb SPECS/vaptvupt.spec
-sudo rpm -i RPMS/x86_64/vaptvupt-5.1.0-1.*.rpm
+sudo rpm -i RPMS/x86_64/vaptvupt-5.2.0-1.*.rpm
 ```
 
 ### Basic usage
@@ -390,7 +411,7 @@ VaptVupt combines LZ77 dictionary matching with tANS (table-based
 Asymmetric Numeral Systems) entropy coding and SIMD-accelerated
 decompression.
 
-This release embeds VaptVupt codec 2.65.0 (from the
+This release embeds VaptVupt codec 2.65.3 (from the
 [vaptvupt-codec](https://git.securityops.co/cristiancmoises/vaptvupt-codec)
 repository, tag v2.65.0). Over the previous 2.60.4 it adds a faster balanced
 encoder and the Sprint 124–130 extreme-mode literal-pricing improvements. Two
@@ -755,6 +776,7 @@ VaptVupt archives require VaptVupt v2.0+.
 | v4.2.1 | `vaptvupt info` now reports the real post-quantum mode (`--pq-only` no longer mislabelled as hybrid); reader-side only, no wire-format change |
 | v5.0.0 | Genuine FIPS 203 ML-KEM-768 (validated vs OpenSSL); CLI data-loss/plaintext guards; AVX2 decoder OOB-read fix; GUI reworked for native PQ modes; cross-platform packaging. **Breaking:** `--pq`/`--pq-only` keys+archives from ≤4.2.1 do not decrypt |
 | v5.1.0 | Codec 2.65.0; large compression-ratio gains (auto-`format_v2` + level-scaled block window — text extreme 3.77×→5.98×, logs 7.21×→9.07×); `--dedup` keeps a small block automatically; GUI compress-hang / job-completion-crash / Wayland-map fixes. Wire format stays v1.6, fully interoperable with 5.0.0 |
+| v5.2.0 | Fixed a GUI cross-thread crash (compress could close the app / corrupt the archive, worst on full-PQ); codec 2.65.3 (~2× faster extreme, byte-identical output); libvuptsdk (renamed libzuptsdk) for `WITH_SDK=1` `--pq-sdk`/Argon2id; `--pq-box` split to `WITH_PQBOX=1`. Wire format v1.6, interoperable with 5.0.x/5.1.0 |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.
 
