@@ -20,7 +20,7 @@
 # in the base.
 
 Name:           vaptvupt
-Version:        5.0.0
+Version:        5.1.0
 Release:        1%{?dist}
 Summary:        Post-quantum backup compression utility (AES-256 + ML-KEM-768 + Argon2id, formerly Zupt)
 
@@ -109,6 +109,11 @@ and optional encrypted comments.
 %endif
 
 %changelog
+* Sat Jul 11 2026 Cristian Cezar Moisés <sac@securityops.co> - 5.1.0-1
+- Codec 2.65.0; large compression-ratio gains (auto format_v2 + level-scaled
+  block window); --dedup keeps a small block; GUI compress-hang and
+  job-completion-crash fixes. Wire format unchanged (v1.6).
+
 * Fri Jul 10 2026 Cristian Cezar Moisés <sac@securityops.co> - 5.0.0-1
 - ML-KEM-768 is now genuinely FIPS 203-conformant (was round-3 CRYSTALS-Kyber):
   fixed a transposed matrix-A sampling convention, the round-3 KDF, and the

@@ -1,6 +1,87 @@
 # VaptVupt Changelog
 
 
+## [5.1.0] — 2026-07-11 — codec 2.65.0; large ratio gains; GUI compress fixes
+
+Backward-compatible with 5.0.0: the `.zupt` wire format is unchanged (v1.6) and
+archives interoperate in both directions. `--pq` / `--pq-only` keys and archives
+from 5.0.0 continue to work — no key regeneration needed.
+
+### Compression — much better ratio (two settings were leaving it on the table)
+
+- **Vendored codec upgraded 2.60.4 → 2.65.0** (`git.securityops.co/cristiancmoises/vaptvupt-codec`,
+  tag v2.65.0): faster balanced encoder and the Sprint 124–130 extreme-mode
+  literal-pricing work. The two in-tree audit patches (ANS decode safe-zone
+  `2*SAFEZONE_MAX_RUN` reserve against a crafted-sequence heap overflow, and the
+  AVX2 offset-read bound in `vv_decoder.c`) are re-applied on top; the safe-zone
+  fix is not yet upstream.
+- **`format_v2` is no longer forced** in the integration wrapper (`src/vaptvupt_api.c`).
+  Forcing the binary-oriented `format_v2`/min_match=3 path on *every* input routed
+  text through the greedy parser and **halved the extreme-mode ratio on text**
+  (7.6× → 3.7× at the codec level). Since codec v2.61.0 the encoder auto-enables
+  `format_v2` for binary-detected input and keeps the optimal parser for text, so
+  the wrapper now leaves it on auto — text gets the optimal parser, binary still
+  gets v2.
+- **Block size scales with level** (`auto_block_size` in `src/zupt_format.c`). The
+  block is the codec's LZ window; the old flat 512 KiB extreme block meant the
+  "large-window extreme" parser could never match beyond 512 KiB. New defaults:
+  ≤2 → 128 KiB, ≤4 → 1 MiB, ≤6 → 2 MiB, 7 (balanced) → 4 MiB, ≥8 (extreme) → 8 MiB.
+- **`--dedup` keeps a small block automatically** (256 KiB). Block size also sets
+  dedup granularity, and a large block almost never finds a byte-exact duplicate,
+  so dedup + large-window are mutually exclusive; `--dedup` now picks the small
+  block regardless of level, restoring dedup ratios that the block bump broke.
+
+Measured, level 9 (extreme), 20–25 MB per class, single thread (full tables in
+README → *Compression comparison*):
+
+| Data class | 5.0.0 | 5.1.0 | Change |
+|---|--:|--:|--:|
+| Text (docs, Markdown)      | 3.77× | 5.98× | +58% |
+| Server logs                | 7.21× | 9.07× | +26% |
+| JSON (structured records)  | 8.25× | 9.38× | +14% |
+| Source code (C / headers)  | 4.93× | 5.63× | +14% |
+
+Extreme mode trades encode speed for the larger window (its optimal DP now runs
+over a bigger block); balanced (`-l 7`, the default) also improves and stays
+fast. Decode speed and memory are unaffected by block size; peak RSS at extreme
+is ~30 MB per thread.
+
+### GUI — "app closes / gets stuck when I compress" fixed
+
+- **Crash on every job completion.** `run_async` dropped its `QThread`/`Worker`
+  references immediately after `quit()`; Python's cyclic GC then collected the
+  still-running `QThread` and Qt aborted the process ("QThread: Destroyed while
+  thread is still running"). References are now released from a slot on
+  `QThread.finished` after `wait()`.
+- **"App stuck" during compress.** The CLI paints live progress as `` frames
+  (no newline until 100%); the worker read line-by-line and so emitted nothing
+  for the whole job — the window looked frozen on any file larger than one block.
+  The worker now parses `` progress frames and drives the progress bar, and
+  runs the child with `stdin=/dev/null` so a prompt can never block it.
+- **Window never appeared on Wayland** (Sway 1.12 + Qt 6.9): the toolkit never
+  sent the initial `wl_surface.commit`, so the compositor never mapped the
+  surface. The GUI now watches for its first expose and, if none arrives, relaunches
+  itself on XWayland (`QT_QPA_PLATFORM=xcb`). Earlier: a Wayland-launch SIGSEGV
+  from self-`raise()`/`activateWindow()` (gated to X11 now).
+- Worker exceptions can no longer strand a job (catch-all → failure report;
+  `errors="replace"` on pipes); closing the window mid-job asks for confirmation
+  then aborts cleanly; added `vaptvupt-gui --version` / `--help` / `--selftest`
+  for headless launch verification.
+
+### Validation
+
+- `make check` 16/16; codec KAT vectors 16/16; ML-KEM-768 FIPS 203 conformance
+  3/3 (still byte-exact vs OpenSSL 3.5); path-traversal, block-swap, dedup-nonce,
+  arg-order, decode-slack suites green.
+- Cross-version interop: 5.0.0 ↔ 5.1.0 archives (password + `--pq` hybrid +
+  `--pq-only`) extract byte-identically in both directions, all levels.
+- Full GUI function matrix (keygen / compress with PQ key / password / pq-only /
+  extract all modes with byte-identical round-trips / verify / info / concurrent
+  jobs / close-mid-job) 16/16 on offscreen and X11; big-file (300 MB) extreme
+  round-trips clean, peak RSS 761 MB at 24 threads.
+
+
+
 ## [5.0.0] — 2026-07-10 — genuine FIPS 203 ML-KEM-768; GUI + CLI hardening
 
 ### Security / correctness — ML-KEM-768 is now FIPS 203-conformant

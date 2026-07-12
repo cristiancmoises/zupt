@@ -17,6 +17,46 @@ License: AGPL-3.0-or-later (dual-licensed AGPL + commercial).
 > command is preserved as a symlink to `vaptvupt` for one major version
 > cycle.
 
+## What's new in 5.1.0
+
+- **Codec upgraded to VaptVupt 2.65.0** (from 2.60.4). Same on-disk format
+  (`.zupt` v1.6, fully interoperable both directions — a 5.0.0 binary reads
+  5.1.0 archives and vice-versa), a much faster balanced encoder, and the
+  extreme-mode literal-pricing work from codec Sprints 124–130.
+- **Big compression-ratio gains — two long-standing settings were leaving most
+  of the codec's ratio on the table.** The `.zupt` wrapper (1) *forced* the
+  binary-oriented `format_v2` path on every input, which halved the optimal
+  parser's ratio on text, and (2) capped the extreme block at 512 KiB, so the
+  "large-window extreme" parser could never see past it. Both are fixed:
+  `format_v2` is now auto-detected (binary gets it, text keeps the optimal
+  parser) and block size scales with level. Measured, level 9 (extreme):
+
+  | Data class | 5.0.0 | 5.1.0 |
+  |---|--:|--:|
+  | Text (docs/markdown) | 3.77× | **5.98×** |
+  | Server logs | 7.21× | **9.07×** |
+  | JSON | 8.25× | **9.38×** |
+  | Source code | 4.93× | **5.63×** |
+
+  Extreme mode trades encode speed for this (its optimal DP now runs over a
+  larger window); balanced (the default, `-l 7`) also improves and stays fast.
+  `--dedup` automatically keeps a small block so block-level dedup still works.
+  See the [full comparison tables](#compression-comparison) below.
+- **GUI: fixed "the app closes / gets stuck when I compress."** Three separate
+  defects: the worker thread was garbage-collected while still running (crash on
+  every job completion); on Wayland the window never mapped (now falls back to
+  XWayland automatically); and the CLI's live progress (`\r` frames) was never
+  parsed, so the GUI looked frozen on any file larger than one block — it now
+  drives the progress bar. Added `vaptvupt-gui --selftest` for headless launch
+  verification.
+- No key/format change: `--pq` / `--pq-only` keys and archives from 5.0.0 keep
+  working. (The 5.0.0 FIPS 203 KEM change below is unchanged.)
+
+Binaries for the CLI (5.1.0) and GUI (5.1.0) are on the
+[release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.1.0).
+
+---
+
 ## What's new in 5.0.0
 
 - **Genuine FIPS 203 ML-KEM-768 — validated against OpenSSL.** Earlier releases
@@ -51,6 +91,50 @@ License: AGPL-3.0-or-later (dual-licensed AGPL + commercial).
 
 Binaries for the CLI (5.0.0) and GUI (5.0.0) are on the
 [release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.0.0).
+
+---
+
+<a name="compression-comparison"></a>
+## Compression comparison
+
+Single-thread, one 20–25 MB file per data class, best-of-run on an x86-64 AVX2 machine (codec 2.65.0). Ratio = original ÷ compressed — higher is better. Reproduce with `vaptvupt -b <file>` and the standard `zstd` / `gzip` / `lz4` CLIs. Numbers vary with data and hardware.
+
+### Ratio vs other compressors
+
+VaptVupt at level 9 (extreme) and level 7 (balanced — the default), against zstd, gzip and lz4.
+
+| Data class | VaptVupt -9 | VaptVupt -7 | zstd -9 | zstd -3 | gzip -9 | lz4 -9 |
+|---|--:|--:|--:|--:|--:|--:|
+| Text (docs, Markdown) | **5.98×** | 4.08× | 6.18× | 4.95× | 3.75× | 3.28× |
+| Source code (C / headers) | **5.63×** | 4.90× | 5.81× | 4.96× | 5.00× | 4.17× |
+| JSON (structured records) | **9.38×** | 6.53× | 8.21× | 7.28× | 7.60× | 4.94× |
+| Server logs | **9.07×** | 6.64× | 8.15× | 6.89× | 7.25× | 5.19× |
+| Binaries (.so / ELF) | **1.00×** | 1.00× | 1.01× | 1.00× | 1.01× | 1.00× |
+| Incompressible (random) | **1.00×** | 1.00× | 1.00× | 1.00× | 1.00× | 1.00× |
+
+### This release vs the previous one (5.0.0 → 5.1.0)
+
+Same tool, level 9 — the gain is auto-`format_v2` plus the larger extreme window.
+
+| Data class | 5.0.0 | 5.1.0 | Change |
+|---|--:|--:|--:|
+| Text (docs, Markdown) | 3.77× | **5.98×** | +58% |
+| Source code (C / headers) | 4.93× | **5.63×** | +14% |
+| JSON (structured records) | 8.25× | **9.38×** | +14% |
+| Server logs | 7.21× | **9.07×** | +26% |
+| Binaries (.so / ELF) | 1.01× | **1.00×** | -1% |
+| Incompressible (random) | 1.00× | **1.00×** | +0% |
+
+### Throughput (MB/s, single thread)
+
+The CLI multi-threads compression with `-t 0` (auto); decompression is single-thread and level-independent. Extreme (`-9`) spends CPU for the smallest archive — use the default `-7` for everyday backups.
+
+| Data class | -7 comp | -7 decomp | -9 comp | -9 decomp | zstd-9 comp |
+|---|--:|--:|--:|--:|--:|
+| Text (docs, Markdown) | 80 | 181 | 2 | 214 | 42 |
+| Source code (C / headers) | 92 | 167 | 1 | 214 | 35 |
+| JSON (structured records) | 95 | 162 | 1 | 195 | 35 |
+| Server logs | 111 | 192 | 1 | 189 | 34 |
 
 ---
 
@@ -125,36 +209,36 @@ Argon2id KDF.
 ### Pre-built packages
 
 Assets are published on the
-[v5.0.0 release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.0.0)
+[v5.1.0 release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.1.0)
 and verifiable against the published `SHA256SUMS.txt`.
 
-**Command-line tool (`vaptvupt` 5.0.0):**
+**Command-line tool (`vaptvupt` 5.1.0):**
 
 | Format | File | Distros |
 |---|---|---|
-| Debian/Ubuntu | `vaptvupt_5.0.0_amd64.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
-| RPM | `vaptvupt-5.0.0-1.x86_64.rpm` | Fedora 38+, RHEL 9+, openSUSE, AlmaLinux, Rocky, other RPM-based distributions |
-| AppDir tarball | `vaptvupt-5.0.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run, no FUSE) |
-| Source tarball | `vaptvupt-5.0.0.tar.gz` | Build from source on any platform |
-| openSUSE OBS | `vaptvupt-5.0.0-opensuse-obs.tar.gz` | Open Build Service source bundle |
+| Debian/Ubuntu | `vaptvupt_5.1.0_amd64.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
+| RPM | `vaptvupt-5.1.0-1.x86_64.rpm` | Fedora 38+, RHEL 9+, openSUSE, AlmaLinux, Rocky, other RPM-based distributions |
+| AppDir tarball | `vaptvupt-5.1.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run, no FUSE) |
+| Source tarball | `vaptvupt-5.1.0.tar.gz` | Build from source on any platform |
+| openSUSE OBS | `vaptvupt-5.1.0-opensuse-obs.tar.gz` | Open Build Service source bundle |
 
-**Graphical front-end (`vaptvupt-gui` 5.0.0):**
+**Graphical front-end (`vaptvupt-gui` 5.1.0):**
 
 | Format | File | Distros |
 |---|---|---|
-| Debian/Ubuntu | `vaptvupt-gui_5.0.0_all.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
-| RPM | `vaptvupt-gui-5.0.0-1.noarch.rpm` | RPM-based distributions |
-| AppImage | `VaptVupt-GUI-5.0.0-x86_64.AppImage` | Any glibc 2.28+ (single-file, no install) |
-| AppDir tarball | `VaptVupt-GUI-5.0.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run) |
+| Debian/Ubuntu | `vaptvupt-gui_5.1.0_all.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
+| RPM | `vaptvupt-gui-5.1.0-1.noarch.rpm` | RPM-based distributions |
+| AppImage | `VaptVupt-GUI-5.1.0-x86_64.AppImage` | Any glibc 2.28+ (single-file, no install) |
+| AppDir tarball | `VaptVupt-GUI-5.1.0-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run) |
 
 **Windows / macOS / BSD:**
 
 | Platform | File | Notes |
 |---|---|---|
-| Windows | `VaptVupt-Setup-5.0.0.exe`, `vaptvupt-gui-5.0.0-windows-x86_64.exe`, `vaptvupt-5.0.0-windows-x86_64.exe` | Native installer + standalone GUI + CLI, built on a Windows runner by CI |
-| macOS | `VaptVupt-5.0.0.dmg`, `vaptvupt-5.0.0-macos` | `.dmg` GUI bundle + CLI, built on a macOS runner by CI |
-| Any OS (portable GUI) | `vaptvupt-gui-5.0.0-portable.zip` | Python GUI + launchers for Windows/macOS/Linux/BSD; needs Python 3.8+ and PySide6 (or PyQt6), plus the `vaptvupt` CLI on PATH |
-| BSD / others | `vaptvupt-5.0.0.tar.gz` | Build the CLI from source (`make`); run the portable GUI |
+| Windows | `VaptVupt-Setup-5.1.0.exe`, `vaptvupt-gui-5.1.0-windows-x86_64.exe`, `vaptvupt-5.1.0-windows-x86_64.exe` | Native installer + standalone GUI + CLI, built on a Windows runner by CI |
+| macOS | `VaptVupt-5.1.0.dmg`, `vaptvupt-5.1.0-macos` | `.dmg` GUI bundle + CLI, built on a macOS runner by CI |
+| Any OS (portable GUI) | `vaptvupt-gui-5.1.0-portable.zip` | Python GUI + launchers for Windows/macOS/Linux/BSD; needs Python 3.8+ and PySide6 (or PyQt6), plus the `vaptvupt` CLI on PATH |
+| BSD / others | `vaptvupt-5.1.0.tar.gz` | Build the CLI from source (`make`); run the portable GUI |
 
 The native Windows/macOS installers are produced by the project's CI
 (`.github/workflows/cross-platform.yml`) on real Windows and macOS runners — see
@@ -166,30 +250,30 @@ and Qt are available.
 sha256sum -c SHA256SUMS.txt
 
 # Debian / Ubuntu / Mint
-sudo dpkg -i vaptvupt_5.0.0_amd64.deb
+sudo dpkg -i vaptvupt_5.1.0_amd64.deb
 sudo apt-get install -f       # resolve any missing deps
 
 # Fedora / RHEL / openSUSE / AlmaLinux / Rocky and other RPM-based distros
-sudo rpm -i vaptvupt-5.0.0-1.x86_64.rpm
+sudo rpm -i vaptvupt-5.1.0-1.x86_64.rpm
 # or
-sudo dnf install ./vaptvupt-5.0.0-1.x86_64.rpm
+sudo dnf install ./vaptvupt-5.1.0-1.x86_64.rpm
 
 # AppDir tarball (no install, no FUSE required)
-tar xzf vaptvupt-5.0.0-x86_64.AppDir.tar.gz
-./vaptvupt-5.0.0-x86_64.AppDir/AppRun --help
+tar xzf vaptvupt-5.1.0-x86_64.AppDir.tar.gz
+./vaptvupt-5.1.0-x86_64.AppDir/AppRun --help
 
 # GUI AppImage (single executable)
-chmod +x VaptVupt-GUI-5.0.0-x86_64.AppImage
-./VaptVupt-GUI-5.0.0-x86_64.AppImage
+chmod +x VaptVupt-GUI-5.1.0-x86_64.AppImage
+./VaptVupt-GUI-5.1.0-x86_64.AppImage
 ```
 
 ### Building from SRPM (Fedora / RHEL / RPM-based distributions)
 
 ```bash
-tar xzf vaptvupt-5.0.0.srpm.tar.gz
+tar xzf vaptvupt-5.1.0.srpm.tar.gz
 cd ~/rpmbuild  # or use rpmbuild --define "_topdir $(pwd)"
 rpmbuild -bb SPECS/vaptvupt.spec
-sudo rpm -i RPMS/x86_64/vaptvupt-5.0.0-1.*.rpm
+sudo rpm -i RPMS/x86_64/vaptvupt-5.1.0-1.*.rpm
 ```
 
 ### Basic usage
@@ -306,14 +390,12 @@ VaptVupt combines LZ77 dictionary matching with tANS (table-based
 Asymmetric Numeral Systems) entropy coding and SIMD-accelerated
 decompression.
 
-This release embeds VaptVupt codec 2.60.4 (security release: fixes an OOB
-heap write in the AVX2 decode fast path; adds CBMC-verified BCJ filters
-with auto-detection). The codec API is byte-identical to the 2.48.x line;
-the 2.48.5 → 2.60.4 upgrades add the optimal parser (measured on our
-fixtures: text −1.95%, binary −1.31%, source −4.72% smaller), large-window
-extreme mode, faster decode (roughly on par with zstd-19, up from 1.5–2×
-slower), and six upstream corrupt-input decoder memory-safety fixes. See
-[CHANGELOG.md](CHANGELOG.md).
+This release embeds VaptVupt codec 2.65.0 (from the
+[vaptvupt-codec](https://git.securityops.co/cristiancmoises/vaptvupt-codec)
+repository, tag v2.65.0). Over the previous 2.60.4 it adds a faster balanced
+encoder and the Sprint 124–130 extreme-mode literal-pricing improvements. Two
+in-tree audit patches ride on top of the vendored source (an ANS decode
+safe-zone reserve and an AVX2 offset-read bound). See [CHANGELOG.md](CHANGELOG.md).
 
 ### Architecture
 
@@ -335,50 +417,31 @@ Format:  v1 frame (default) and v2 frame (T-tag, min_match=3) for binary data
 | Balanced | `-l 3` to `-l 7` (default) | 48 | 4-way ANS | General backup data |
 | Extreme | `-l 8` to `-l 9` | 256 | Order-1 context ANS + cost-aware lazy parser | Maximum compression |
 
-The wrapper enables the codec's `format_v2` flag (4–7% better real-binary
-ratio) for Balanced and Extreme modes. Ultra-Fast stays on the v1 frame
-because the `format_v2 + ULTRA_FAST` combination is not yet covered by the
-codec's upstream test matrix.
+The wrapper leaves the codec's `format_v2` flag on **auto**: since codec
+v2.61.0 the encoder enables the `T`-tag / min_match=3 path for binary-detected
+input on its own and keeps the optimal `S` parser for text. (Forcing it, as
+5.0.0 did, routed text through the binary path and roughly halved the
+extreme-mode text ratio.) Block size scales with level so the extreme parser
+gets a real window (see [`auto_block_size`](src/zupt_format.c)); `--dedup`
+overrides that with a small block so block-level deduplication still finds
+duplicates.
 
-### Measured benchmark (codec 2.60.4)
+### Measured benchmark
 
-Measured against gzip-9, zstd-3, zstd-19 on a 4-fixture suite (text 10 MB,
-binary-struct 7.5 MB, source code 10 MB, random 5 MB). Decode timed across
-3 runs, minimum reported; wall-clock including the `.zupt` envelope (HMAC
-etc.). Host: Intel Xeon @ 2.1 GHz, single vCPU, AVX2 build. Reproduce with
-`vaptvupt bench <file>`.
+Head-to-head ratio and throughput against zstd / gzip / lz4 are in the
+[Compression comparison](#compression-comparison) section above (codec 2.65.0,
+this release). Reproduce any cell with `vaptvupt -b <file>`.
 
-| Fixture       | Tool      | Ratio    | Dec MB/s |
-|---------------|-----------|---------:|---------:|
-| text 10 MB    | vv-9      | 25.6%    | 278      |
-| text 10 MB    | gzip-9    | 22.6%    | 156      |
-| text 10 MB    | zstd-3    | 24.2%    | 556      |
-| text 10 MB    | zstd-19   | 17.6%    | 435      |
-| binary 7.5 MB | vv-9      | 46.1%    | 300      |
-| binary 7.5 MB | gzip-9    | 46.8%    | 123      |
-| binary 7.5 MB | zstd-3    | 44.8%    | 577      |
-| binary 7.5 MB | zstd-19   | 41.1%    | 417      |
-| source 10 MB  | vv-9      | 4.5%     | 714      |
-| source 10 MB  | gzip-9    | 4.0%     | 238      |
-| source 10 MB  | zstd-3    | 5.6%     | 1000     |
-| source 10 MB  | zstd-19   | 2.7%     | 769      |
-| random 5 MB   | vv-9      | 100.0%   | 625      |
-| random 5 MB   | zstd-3    | 100.0%   | 681      |
+Reading those numbers:
 
-Reading these numbers:
-
-- On ratio, zstd-19 wins every fixture. VaptVupt L9 lands between zstd-3
-  and zstd-19 on text and binary, beats zstd-3 on source (4.5% vs 5.6%),
-  and loses to zstd-19 everywhere. For smallest-file only, use `xz -9` or
-  `zstd -19`.
-- Decode is competitive: 278–714 MB/s, in the same band as zstd-19 and
-  within ~1.3× of zstd-3.
-- Encode throughput is the weakness. The optimal parser and hash-chain
-  walk that win ratio cost encode speed; balanced mode is ~6× slower than
-  fast mode. For encode-latency-bound workloads use `-l 1`/`-l 2`.
-- On a degenerate single-pattern input, large-window extreme (L9) can be
-  slightly worse than L5/L7 — a tradeoff of optimizing for real long-range
-  matches. It does not affect realistic corpora.
+- On ratio VaptVupt-9 **wins outright on logs and JSON** and is within a few
+  percent of `zstd -19`-class output on text and source. `zstd` still
+  *compresses* faster; VaptVupt *decodes* 2–4× faster than it compresses.
+- Encode throughput is the tradeoff. The optimal parser and hash-chain walk
+  that win ratio cost encode speed; extreme (`-l 8`/`-l 9`) is the
+  "spend CPU for the smallest archive" setting. For everyday backups use the
+  default balanced `-l 7` (fast and still a strong ratio); for
+  encode-latency-bound workloads use `-l 1`/`-l 2`.
 - On random / already-compressed data, all codecs hit the
   incompressibility wall.
 
@@ -691,6 +754,7 @@ VaptVupt archives require VaptVupt v2.0+.
 | v4.2.0 | Full (pure) post-quantum mode `--pq-only` (ML-KEM-768 only, envelope 0x06); critical fix for AES-CTR keystream reuse under `--dedup` (fresh random per-block nonce); clearer SDK keygen guidance. Wire format stays v1.6 |
 | v4.2.1 | `vaptvupt info` now reports the real post-quantum mode (`--pq-only` no longer mislabelled as hybrid); reader-side only, no wire-format change |
 | v5.0.0 | Genuine FIPS 203 ML-KEM-768 (validated vs OpenSSL); CLI data-loss/plaintext guards; AVX2 decoder OOB-read fix; GUI reworked for native PQ modes; cross-platform packaging. **Breaking:** `--pq`/`--pq-only` keys+archives from ≤4.2.1 do not decrypt |
+| v5.1.0 | Codec 2.65.0; large compression-ratio gains (auto-`format_v2` + level-scaled block window — text extreme 3.77×→5.98×, logs 7.21×→9.07×); `--dedup` keeps a small block automatically; GUI compress-hang / job-completion-crash / Wayland-map fixes. Wire format stays v1.6, fully interoperable with 5.0.0 |
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.
 

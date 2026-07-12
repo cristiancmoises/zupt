@@ -62,7 +62,7 @@
         xcb-util-renderutil xcb-util-wm xcb-util-cursor
         libinput-minimal mtdev libevdev eudev))
 
-(define %vaptvupt-version "5.0.0")
+(define %vaptvupt-version "5.1.0")
 
 (define %vaptvupt-source
   (origin

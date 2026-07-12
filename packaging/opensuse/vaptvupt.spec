@@ -19,7 +19,7 @@
 
 
 Name:           vaptvupt
-Version:        5.0.0
+Version:        5.1.0
 Release:        0
 Summary:        Post-quantum backup compression with AES-256 + ML-KEM-768 hybrid encryption
 License:        AGPL-3.0-or-later
@@ -106,3 +106,8 @@ chmod +x tests/*.sh
 %{_mandir}/man1/zupt.1%{?ext_man}
 
 %changelog
+* Sat Jul 11 2026 Cristian Cezar Moisés <sac@securityops.co> - 5.1.0-1
+- Codec 2.65.0; large compression-ratio gains (auto format_v2 + level-scaled
+  block window); --dedup keeps a small block; GUI compress-hang and
+  job-completion-crash fixes. Wire format unchanged (v1.6).
+
