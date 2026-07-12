@@ -251,14 +251,18 @@ _PQ_FLAG = {
     "sdk":    (["--sdk"],     "--pq-sdk"),
 }
 
+def _archive_info_text(archive):
+    """Return the `info` output for an archive (no password/key needed), or ""."""
+    try:
+        r = subprocess.run([VAPTVUPT, "info", archive], capture_output=True,
+                           stdin=subprocess.DEVNULL, text=True, timeout=15)
+        return (r.stdout or "") + (r.stderr or "")
+    except Exception:
+        return ""
+
 def _detect_archive_pq(archive):
     """Inspect an archive's `info` and return the matching PQ token, or None."""
-    try:
-        r = subprocess.run([VAPTVUPT, "info", archive], capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=15)
-        txt = (r.stdout or "") + (r.stderr or "")
-    except Exception:
-        return None
-    low = txt.lower()
+    low = _archive_info_text(archive).lower()
     if "ml-kem-768 only" in low or "no classical" in low:
         return "pqonly"
     if "sdk v2" in low or "hpke" in low:
@@ -266,6 +270,34 @@ def _detect_archive_pq(archive):
     if "ml-kem-768" in low or "hybrid" in low or "x25519" in low:
         return "pq"
     return None
+
+def _detect_archive_enc(archive):
+    """Detect how an archive is protected, reading only its header (`info`, no
+    credential). Returns (kind, human_label):
+      kind: "none" | "password" | "pq" | "pqonly" | "sdk" | "unknown"
+    Used to guide the user (which credential to supply) and to pick the right
+    decrypt flag automatically instead of relying on a mode dropdown."""
+    txt = _archive_info_text(archive)
+    if not txt:
+        return "unknown", "unknown"
+    low = txt.lower()
+    # The `info` "Encrypted:" line is authoritative: "no" vs "YES".
+    encrypted = None
+    for line in low.splitlines():
+        if "encrypted:" in line:
+            encrypted = ("yes" in line)
+            break
+    if encrypted is False:
+        return "none", "not encrypted"
+    if "ml-kem-768 only" in low or "no classical" in low:
+        return "pqonly", "full post-quantum (ML-KEM-768)"
+    if "sdk v2" in low or "hpke" in low:
+        return "sdk", "SDK v2 (HKDF + HPKE)"
+    if "ml-kem-768" in low or "hybrid" in low or "x25519" in low:
+        return "pq", "hybrid post-quantum (ML-KEM-768 + X25519)"
+    if encrypted:
+        return "password", "password (AES-256)"
+    return "unknown", "unknown"
 
 # ── Find icon file ──
 def _find_icon():
@@ -475,10 +507,11 @@ class _Job(QObject):
     the app under real X11/Wayland rendering ("the app closes when I compress").
     It only survived offscreen tests, which tolerate the race. Bound methods of a
     GUI-thread QObject are the fix."""
-    def __init__(self, parent, cmd, btn, log, progress):
+    def __init__(self, parent, cmd, btn, log, progress, ok_msg="Done.", fail_msg=None):
         super().__init__(parent)
         self._parent = parent
         self.btn, self.log, self.progress = btn, log, progress
+        self.ok_msg, self.fail_msg = ok_msg, fail_msg
         self.thread = QThread(self)          # QThread object lives in GUI thread
         self.worker = Worker(cmd)            # no parent — it moves to self.thread
         self.worker.moveToThread(self.thread)
@@ -504,7 +537,10 @@ class _Job(QObject):
         self.btn.setEnabled(True)
         if self.progress is not None:
             self.progress.hide()
-        self.log.append("\nDone." if code == 0 else f"\nFailed (exit {code}).")
+        if code == 0:
+            self.log.append("\n" + self.ok_msg)
+        else:
+            self.log.append("\n" + (self.fail_msg or f"Failed (exit {code})."))
         self.thread.quit()
 
     def on_finished(self):
@@ -525,8 +561,10 @@ class _Job(QObject):
         return self.thread.wait(ms)
 
 
-def run_async(parent, cmd, btn, log, progress=None, info=None):
-    log.clear()
+def run_async(parent, cmd, btn, log, progress=None, info=None,
+              ok_msg="Done.", fail_msg=None, clear=True):
+    if clear:
+        log.clear()
     if info:  # e.g. an auto-detect note; appended AFTER the clear so it survives
         log.append(info)
     btn.setEnabled(False)
@@ -541,7 +579,7 @@ def run_async(parent, cmd, btn, log, progress=None, info=None):
     # in-flight job (and keeps the QThread alive).
     if not hasattr(parent, "_jobs"):
         parent._jobs = []
-    job = _Job(parent, cmd, btn, log, progress)
+    job = _Job(parent, cmd, btn, log, progress, ok_msg=ok_msg, fail_msg=fail_msg)
     parent._jobs.append(job)
     job.start()
 
@@ -743,21 +781,37 @@ class ExtractTab(QWidget):
     def _run(self):
         arc = self.arc.path()
         if not arc: QMessageBox.warning(self, "VaptVupt", "Select an archive."); return
+        if not os.path.isfile(arc):
+            self.log.clear(); self.log.append(f"No such file: {arc}"); return
+        # Read the header (no credential) so we can guide the user instead of
+        # letting the CLI dump a raw decrypt error for a missing password/key.
+        kind, label = _detect_archive_enc(arc)
+        if kind == "password" and not self.pw.text():
+            self.log.clear()
+            self.log.append("This archive is password-encrypted.\n"
+                            "Enter the password above, then click Extract again.")
+            return
+        if kind in ("pq", "pqonly", "sdk") and not self.pq.path():
+            self.log.clear()
+            self.log.append(f"This archive uses {label} encryption.\n"
+                            "Select the matching private key above, then click Extract again.")
+            return
         cmd = ["extract"]
         info = None
         if self.out.path(): cmd += ["-o", self.out.path()]
         if self.pw.text(): cmd += ["-p", self.pw.text()]
         if self.pq.path():
-            tok = self._pqmodes[self.pqmode.currentIndex()][1]
+            # Prefer the header-detected mode; fall back to the dropdown for an
+            # unreadable header. Auto-detect can't pick the wrong flag this way.
+            tok = kind if kind in ("pq", "pqonly", "sdk") else self._pqmodes[self.pqmode.currentIndex()][1]
             if tok == "auto":
-                # The private-key format must match how the archive was encrypted;
-                # inspect the header (vaptvupt info) to choose the right flag.
                 tok = _detect_archive_pq(arc) or "pq"
-                info = f"[auto-detect] using {_PQ_FLAG[tok][1]}"
             _, flag = _PQ_FLAG[tok]
+            info = f"[detected] {label}"
             cmd += [flag, self.pq.path()]
         cmd.append(arc)
-        run_async(self, cmd, self.btn, self.log, self.progress, info=info)
+        run_async(self, cmd, self.btn, self.log, self.progress, info=info,
+                  ok_msg="Done.", fail_msg="Extraction failed.")
 
 
 class VerifyTab(QWidget):
@@ -771,15 +825,14 @@ class VerifyTab(QWidget):
         self.varc = PathField("Archive to verify", filters="VaptVupt archive (*.zupt);;All (*)"); v.addWidget(self.varc)
         enc = QHBoxLayout(); enc.setSpacing(16)
         pw = QVBoxLayout(); pw.addWidget(H("Password (if encrypted)")); self.vpw = PwField("Leave empty if not encrypted"); pw.addWidget(self.vpw); enc.addLayout(pw)
-        pq = QVBoxLayout(); pq.addWidget(H("PQ private key")); self.vpq = PathField("For --pq / --pq-only archives", filters="Key (*.key);;All (*)"); pq.addWidget(self.vpq); enc.addLayout(pq)
-        mode_box = QVBoxLayout(); mode_box.addWidget(H("PQ mode"))
-        self.vpqmode = QComboBox()
-        self._vpqmodes = pq_mode_options(include_auto=True)
-        for label, _tok in self._vpqmodes:
-            self.vpqmode.addItem(label)
-        mode_box.addWidget(self.vpqmode); mode_box.addStretch(); enc.addLayout(mode_box)
+        pq = QVBoxLayout(); pq.addWidget(H("PQ private key (if post-quantum)")); self.vpq = PathField("Auto-detected; needed for --pq / --pq-only archives", filters="Key (*.key);;All (*)"); pq.addWidget(self.vpq); enc.addLayout(pq)
         v.addLayout(enc)
+        # The encryption type is read from the archive header (no PQ-mode picker
+        # to get wrong): Verify auto-detects password vs hybrid vs full-PQ and
+        # uses the matching flag; it only asks for the credential the archive
+        # actually needs.
         self.vbtn = QPushButton("Verify"); self.vbtn.setObjectName("amber"); self.vbtn.clicked.connect(self._verify); v.addWidget(self.vbtn)
+        self.vprogress = QProgressBar(); self.vprogress.setRange(0,0); self.vprogress.hide(); v.addWidget(self.vprogress)
         self.vlog = Log(120); v.addWidget(self.vlog)
         v.addWidget(Sep())
         v.addWidget(H("Archive info (no password needed)"))
@@ -790,21 +843,43 @@ class VerifyTab(QWidget):
 
     def _verify(self):
         arc = self.varc.path()
-        if not arc: return
-        cmd = ["test"]
-        if self.vpw.text(): cmd += ["-p", self.vpw.text()]
+        if not arc:
+            QMessageBox.warning(self, "VaptVupt", "Select an archive to verify."); return
+        if not os.path.isfile(arc):
+            self.vlog.clear(); self.vlog.append(f"No such file: {arc}"); return
         self.vlog.clear()
-        if self.vpq.path():
-            tok = self._vpqmodes[self.vpqmode.currentIndex()][1]
-            if tok == "auto":
-                tok = _detect_archive_pq(arc) or "pq"
-                self.vlog.append(f"[auto-detect] using {_PQ_FLAG[tok][1]}")
-            _, flag = _PQ_FLAG[tok]
+        # Read the header (no credential) to decide what Verify needs, so the
+        # user can't pick the wrong PQ mode and doesn't get a raw decrypt error
+        # for a missing password/key.
+        kind, label = _detect_archive_enc(arc)
+        cmd = ["test"]
+        info = None
+        if kind == "password":
+            if not self.vpw.text():
+                self.vlog.append("This archive is password-encrypted.\n"
+                                 "Enter the password above, then click Verify again.")
+                return
+            cmd += ["-p", self.vpw.text()]
+        elif kind in ("pq", "pqonly", "sdk"):
+            if not self.vpq.path():
+                self.vlog.append(f"This archive uses {label} encryption.\n"
+                                 "Select the matching private key above, then click Verify again.")
+                return
+            _, flag = _PQ_FLAG[kind]
             cmd += [flag, self.vpq.path()]
+            info = f"[detected] {label} — verifying with {flag}"
+        elif kind == "unknown":
+            # Couldn't read the header (not a .zupt? truncated?). Fall back to a
+            # plain test using whatever the user supplied, and let the CLI speak.
+            if self.vpw.text(): cmd += ["-p", self.vpw.text()]
+            if self.vpq.path():
+                tok = _detect_archive_pq(arc) or "pq"
+                _, flag = _PQ_FLAG[tok]; cmd += [flag, self.vpq.path()]
+        # kind == "none": not encrypted, no credential needed.
         cmd.append(arc)
-        code, out, err = run_zupt(cmd, timeout=600)
-        self.vlog.append((err + "\n" + out).strip())
-        self.vlog.append("\nAll checksums passed." if code == 0 else "\nVerification failed.")
+        # Run asynchronously so a large archive doesn't freeze the window.
+        run_async(self, cmd, self.vbtn, self.vlog, self.vprogress, info=info,
+                  ok_msg="All checksums passed.", fail_msg="Verification failed.")
 
     def _info(self):
         arc = self.iarc.path()
