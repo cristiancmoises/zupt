@@ -1,0 +1,22 @@
+VAPTVUPT COMMERCIAL LICENSING NOTICE
+
+First-party VaptVupt code is publicly licensed under the per-file terms:
+AGPL-3.0-or-later for the application/GUI/cryptographic tool code and
+GPL-3.0-or-later for the separately identified compression codec code.
+
+The applicable copyright holder may also offer those first-party rights under
+a separate written commercial agreement executed with the licensee.
+
+THIS FILE IS NOT A COMMERCIAL LICENSE GRANT. It provides no permission outside
+the applicable AGPL or GPL public option. Commercial-option rights, including
+any proprietary redistribution right, exist only in an executed agreement that
+identifies its exact files, version, use, and licensee. This notice promises no
+support, warranty, patent, indemnification, trademark, pricing, or sublicensing
+term.
+
+Vendored, generated, contributed, and separately noticed material is not
+relicensed by this option unless the executed agreement expressly covers
+rights owned or controlled by the licensor. See THIRD-PARTY-NOTICES.md and all
+per-file SPDX notices.
+
+Commercial licensing inquiries: sac@securityops.co

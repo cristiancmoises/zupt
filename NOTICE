@@ -1,0 +1,22 @@
+VaptVupt licensing notice
+=========================
+
+Copyright in first-party code remains with the copyright holders identified in
+file notices and repository history.
+
+VaptVupt intentionally has two public source-license scopes:
+
+- AGPL-3.0-or-later for application, GUI, SDK integration, and cryptographic
+  tool code identified by that SPDX expression;
+- GPL-3.0-or-later for the VaptVupt compression codec files identified by that
+  SPDX expression.
+
+The unmodified public license texts are in LICENSE-AGPL-3.0 and the applicable
+GPL files/notices. The copyright holder may separately license controlled
+first-party rights through an individually executed commercial agreement.
+LICENSE-COMMERCIAL is an inquiry and scope notice, not such an agreement.
+
+No option relabels vendored or third-party material. Per-file notices and
+THIRD-PARTY-NOTICES.md control component scope.
+
+Commercial licensing contact: sac@securityops.co

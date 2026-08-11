@@ -236,9 +236,8 @@ audit-licenses:
 	             -not -path './build_obj/*' \
 	             -not -path './sdk/build/*' \
 	             -not -path './vendor/vuptsdk/include/*'); do \
-	    BASE=$$(basename "$$f"); \
-	    case "$$BASE" in \
-	        vv_*|vaptvupt*) \
+	    case "$$f" in \
+	        ./src/vv_*.c|./src/vaptvupt_api.c|./include/vv_*.h|./include/vaptvupt*.h) \
 	            EXPECTED="SPDX-License-Identifier: GPL-3.0-or-later" ;; \
 	        *) \
 	            EXPECTED="SPDX-License-Identifier: AGPL-3.0-or-later" ;; \

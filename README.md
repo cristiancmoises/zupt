@@ -821,12 +821,15 @@ VaptVupt is dual-licensed:
 - **GPL-3.0-or-later** — the VaptVupt LZ codec only (`src/vv_*.c`,
   `src/vaptvupt_api.c` and headers), so it can be considered for
   upstreaming into the Linux/BSD kernels.
-- **Commercial license** available for relief from AGPL/GPL terms. Contact
-  `sac@securityops.co`.
+- **Separate commercial agreement** may be available for first-party rights
+  when the applicable AGPL/GPL option does not fit. Rights exist only in an
+  agreement signed by the copyright holder and licensee; `LICENSE-COMMERCIAL`
+  is not itself a grant. Contact `sac@securityops.co`.
 
 Every source file carries an explicit SPDX header. See
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for full attribution.
-VaptVupt contains no third-party source code.
+Per-file notices control and no commercial agreement relabels third-party or
+vendored material.
 
 ## Acknowledgements
 
