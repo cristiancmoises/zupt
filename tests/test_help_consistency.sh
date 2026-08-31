@@ -2,16 +2,17 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
 #
-# Regression test for the `vaptvupt help` output.
+# Regression test for the `zupt help` output.
 #
 # History:
 #   F-13 (v3.0.2): the usage() string literal exceeded C99's 4095-char
 #   limit (4121 chars), triggering -Woverlength-strings. Also, the
-#   help text had drifted out of date during the v3.0.0 rename:
-#     - Examples still said `zupt compress`, `zupt extract`, etc.
+#   help text had drifted out of date during the former v3.0.0 rename.
+#   Release 5.2.2 restores ZUPT/zupt as the public product and command:
 #     - "Compression: LZ77 (1MB window) + Huffman entropy coding" —
 #       false; the default codec is now VaptVupt LZ + ANS 2.48.5
-#     - "License: AGPL-3.0-or-later (Zupt)" — should be (VaptVupt)
+#     - the first-party license label must say ZUPT while retaining the
+#       separately attributed VaptVupt codec name.
 #
 # This test asserts the help output stays consistent with reality.
 # Run from repo root after a build.
@@ -21,8 +22,7 @@ PASS=0; FAIL=0
 P() { echo "  ✓ $1"; PASS=$((PASS+1)); }
 F() { echo "  ✗ $1"; FAIL=$((FAIL+1)); }
 
-BIN=./vaptvupt
-[ -x ./vaptvupt ] || BIN=./zupt
+BIN=${1:-${ZUPT_BIN:-./zupt}}
 [ -x "$BIN" ] || { echo "ERROR: no built binary found"; exit 2; }
 
 HELP=$("$BIN" help 2>&1)
@@ -62,20 +62,20 @@ else
 fi
 
 # ─── Brand consistency ───
-# The help output must use the new binary name in examples, not the old one.
-if echo "$HELP" | grep -qE '^\s+vaptvupt (compress|extract|list|test|bench|keygen|info|disk)'; then
-    P "examples use 'vaptvupt' command name"
+# The help output must use the restored primary binary name in examples.
+if echo "$HELP" | grep -qE '^\s+zupt (compress|extract|list|test|bench|keygen|info|disk)'; then
+    P "examples use 'zupt' command name"
 else
-    F "examples don't use 'vaptvupt' — still saying 'zupt'?"
+    F "examples don't use the primary 'zupt' command"
 fi
 
-# Conversely, the example lines shouldn't start with `zupt ` (the
-# bare legacy name in example commands is the drift we just fixed).
-LEGACY_EX=$(echo "$HELP" | grep -cE '^\s{1,4}zupt (compress|extract|list|test|bench|keygen) ')
+# The former public command may be offered as a compatibility symlink, but
+# current examples must not make it the primary interface.
+LEGACY_EX=$(echo "$HELP" | grep -cE '^\s{1,4}vaptvupt (compress|extract|list|test|bench|keygen) ')
 if [ "$LEGACY_EX" -eq 0 ]; then
-    P "no examples use the bare legacy 'zupt' command name"
+    P "no examples use the former 'vaptvupt' command name"
 else
-    F "$LEGACY_EX example lines still use the legacy 'zupt' command name"
+    F "$LEGACY_EX example lines still use the former 'vaptvupt' command name"
 fi
 
 # ─── Codec consistency ───
@@ -95,10 +95,10 @@ else
 fi
 
 # ─── License consistency ───
-if echo "$HELP" | grep -q "AGPL-3.0-or-later (VaptVupt)"; then
-    P "help shows the correct license attribution (VaptVupt)"
+if echo "$HELP" | grep -q "AGPL-3.0-or-later (ZUPT)"; then
+    P "help shows the correct first-party license attribution (ZUPT)"
 else
-    F "help has wrong license attribution — should say AGPL-3.0-or-later (VaptVupt)"
+    F "help has wrong license attribution — should say AGPL-3.0-or-later (ZUPT)"
 fi
 
 # Commercial-licensing contact visible.
@@ -133,9 +133,9 @@ fi
 
 # ─── Functional check: help command works ───
 if "$BIN" help >/dev/null 2>&1; then
-    P "vaptvupt help exits successfully"
+    P "zupt help exits successfully"
 else
-    F "vaptvupt help exits with non-zero status"
+    F "zupt help exits with non-zero status"
 fi
 
 echo ""

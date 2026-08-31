@@ -13,13 +13,13 @@
  * then compresses well. The inverse runs on decode, before the bytes are
  * handed back to the caller.
  *
- * This is a clean-room reimplementation of the well-known x86 branch-
- * converter algorithm (the same transform used by 7-Zip/xz and described
- * in the LZMA SDK). The algorithm is exactly reversible on ARBITRARY input
- * — it is a bijection, so applying the filter to non-x86 data and then
- * inverting it reproduces the input byte-for-byte. That property is
- * fuzz-verified in tests; do not "optimize" the masking logic without
- * re-checking inverse(forward(x)) == x on random and adversarial inputs.
+ * The x86 transform is adapted from Igor Pavlov's public-domain LZMA SDK
+ * Bra86.c state machine. The exact SDK revision used by the original
+ * integration was not retained; see THIRD-PARTY-NOTICES.md. The algorithm is
+ * exactly reversible on arbitrary input: applying the filter and then its
+ * inverse reproduces the input byte-for-byte. Deterministic randomized and
+ * adversarial regressions exercise inverse(forward(x)) == x; do not "optimize"
+ * the masking logic without rerunning them.
  *
  * The buffer is transformed in place. `encoding` is non-zero for the
  * forward (compress-side) transform, zero for the inverse (decode-side).

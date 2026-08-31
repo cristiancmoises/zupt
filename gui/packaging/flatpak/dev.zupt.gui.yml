@@ -1,39 +1,42 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2026 Cristian Cezar Moisés
+
+# Offline build manifest for the integrated source tree. The Qt/Python base and
+# SDK are resolved by Flatpak before the build; no command below uses pip or
+# downloads project dependencies.
 app-id: dev.zupt.gui
-runtime: org.freedesktop.Platform
-runtime-version: '24.08'
-sdk: org.freedesktop.Sdk
+runtime: org.kde.Platform
+runtime-version: '6.8'
+sdk: org.kde.Sdk
+base: io.qt.PySide.BaseApp
+base-version: '6.8'
 command: zupt-gui
 
 finish-args:
   - --share=ipc
-  - --socket=x11
+  - --socket=fallback-x11
   - --socket=wayland
   - --filesystem=home
-  - --device=all  # For disk backup (block devices)
 
 modules:
-  - name: python3-pyside6
-    buildsystem: simple
-    build-commands:
-      - pip3 install --prefix=/app PySide6
-
   - name: zupt
     buildsystem: simple
     build-commands:
-      - make
-      - install -Dm755 zupt /app/bin/zupt
-    sources:
-      - type: git
-        url: https://git.securityops.co/cristiancmoises/zupt
-        tag: v2.1.6
-
-  - name: zupt-gui
-    buildsystem: simple
-    build-commands:
-      - install -Dm755 src/zupt_gui.py /app/bin/zupt-gui
-      - install -Dm644 packaging/zupt-gui.desktop /app/share/applications/dev.zupt.gui.desktop
+      - make -j${FLATPAK_BUILDER_N_JOBS} WITH_SDK=0 WITH_PQBOX=0
+      - make WITH_SDK=0 WITH_PQBOX=0 check
+      - make PREFIX=/app WITH_SDK=0 WITH_PQBOX=0 INSTALL_LEGACY_ALIAS=0 install
+      - install -Dm644 gui/src/zupt_gui.py /app/bin/zupt_gui.py
+      - install -Dm755 packaging/portable/zupt-gui.sh /app/bin/zupt-gui
+      - install -Dm644 gui/packaging/zupt-gui.desktop /app/share/applications/dev.zupt.gui.desktop
+      - sed -i 's/^Icon=.*/Icon=dev.zupt.gui/' /app/share/applications/dev.zupt.gui.desktop
+      - install -Dm644 gui/assets/zupt-icon.png /app/share/icons/hicolor/256x256/apps/dev.zupt.gui.png
+      - install -Dm644 doc/zupt-gui.1 /app/share/man/man1/zupt-gui.1
+      - install -d /app/share/licenses/zupt
+      - install -m 0644 LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 NOTICE THIRD-PARTY-NOTICES.md /app/share/licenses/zupt/
+      - install -d /app/share/licenses/zupt-gui
+      - install -m 0644 LICENSE-AGPL-3.0 /app/share/licenses/zupt-gui/LICENSE-AGPL-3.0
+      - install -m 0644 gui/LICENSE-GUI /app/share/licenses/zupt-gui/LICENSE-GUI
+      - install -m 0644 gui/assets/README.md /app/share/licenses/zupt-gui/ASSET-PROVENANCE.md
     sources:
       - type: dir
-        path: .
+        path: ../../..

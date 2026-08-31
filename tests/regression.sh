@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
 # ZUPT v2.0.0 — Comprehensive Regression Test Suite
@@ -6,7 +6,7 @@
 # Run: sh tests/regression.sh
 
 set +e  # Don't exit on failure — we track pass/fail ourselves
-ZUPT="./zupt"
+ZUPT="${1:-./zupt}"
 T="/tmp/zupt_regression_$$"
 PASS=0; FAIL=0; TOTAL=0
 
@@ -233,15 +233,17 @@ N_SZ=$(stat -c%s "$T/normal.zupt" 2>/dev/null || stat -f%z "$T/normal.zupt" 2>/d
 tar cf - -C "$T" data/ 2>/dev/null | gzip -9 > "$T/gz.tar.gz"
 G_SZ=$(stat -c%s "$T/gz.tar.gz" 2>/dev/null || stat -f%z "$T/gz.tar.gz" 2>/dev/null)
 
-SR=$(echo "scale=2; $TOTAL_SZ / $S_SZ" | bc)
-NR=$(echo "scale=2; $TOTAL_SZ / $N_SZ" | bc)
-GR=$(echo "scale=2; $TOTAL_SZ / $G_SZ" | bc)
+SR=$(awk -v total="$TOTAL_SZ" -v size="$S_SZ" 'BEGIN { printf "%.2f", total / size }')
+NR=$(awk -v total="$TOTAL_SZ" -v size="$N_SZ" 'BEGIN { printf "%.2f", total / size }')
+GR=$(awk -v total="$TOTAL_SZ" -v size="$G_SZ" 'BEGIN { printf "%.2f", total / size }')
 
 echo "  gzip -9:     $G_SZ bytes  ${GR}:1"
 echo "  ZUPT normal: $N_SZ bytes  ${NR}:1"
 echo "  ZUPT solid:  $S_SZ bytes  ${SR}:1"
 if [ "$S_SZ" -le "$G_SZ" ]; then
-    pass "Solid beats gzip ($(echo "scale=1; ($G_SZ-$S_SZ)*100/$G_SZ" | bc)% smaller)"
+    SAVING=$(awk -v gzip="$G_SZ" -v solid="$S_SZ" \
+        'BEGIN { printf "%.1f", (gzip - solid) * 100 / gzip }')
+    pass "Solid beats gzip (${SAVING}% smaller)"
 else
     echo "  NOTE: gzip wins (normal for small non-backup corpus)"
     pass "Compression comparison complete"

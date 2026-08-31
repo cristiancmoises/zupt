@@ -2,19 +2,20 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
 #
-# Regression test for GUI branding + licensing.
+# Regression test for ZUPT GUI branding + licensing.
 #
-# History: in v3.0.0 the GUI shipped with two real bugs:
-#   1. An MIT license credit line in the about panel — the GUI is
-#      AGPL-3.0-or-later with commercial dual-licensing; "MIT" was
-#      false and inherited from an early templating mistake.
+# History: in v3.0.0 the GUI shipped with two documentation/code bugs:
+#   1. The about panel described the current GUI simply as MIT even though the
+#      current source carried AGPL-3.0-or-later notices. Published earlier MIT
+#      grants remain valid for the exact historical material covered by them.
 #   2. A version-string parser using `replace("zupt ", "")` which
 #      matched the wrong substring after the v3.0.0 rename. The
 #      version banner became `vaptvupt 3.0.0 (formerly zupt;
 #      renamed in v3.0.0 — INPI Brasil trademark)` and that
 #      `replace` chewed up "zupt " inside the parenthetical too.
 #
-# This test asserts both classes of bug stay fixed.
+# This test keeps the current about-panel statement aligned with current SPDX
+# notices without denying the historical license record, and covers the parser.
 
 set -u
 PASS=0; FAIL=0
@@ -26,13 +27,14 @@ GUI=gui/src/zupt_gui.py
 
 echo "GUI branding + licensing"
 
-# ─── MIT reference checks ───
-# Any MIT credit line in the GUI source is a bug.
+# ─── Current and historical license checks ───
+# The current about-panel implementation must not advertise the current GUI as
+# MIT-only. Historical license information belongs in the license notice.
 if grep -nE '"MIT"|"MIT [Ll]icense"|        MIT[^A-Za-z]' "$GUI" >/dev/null 2>&1; then
-    F "GUI source contains an MIT reference"
+    F "GUI source advertises the current GUI as MIT"
     grep -nE '"MIT"|"MIT [Ll]icense"|        MIT[^A-Za-z]' "$GUI" | sed 's/^/    /'
 else
-    P "GUI source contains no MIT references"
+    P "GUI source does not advertise the current GUI as MIT"
 fi
 
 # The GUI's own LICENSE-GUI file must be AGPL (or pointed to AGPL).
@@ -42,11 +44,18 @@ if [ -f gui/LICENSE-GUI ]; then
     else
         F "gui/LICENSE-GUI is not AGPL — got: $(head -1 gui/LICENSE-GUI)"
     fi
-    # Specifically, it shouldn't START with "MIT License"
+    # The current notice starts with AGPL, while retaining the factual erratum.
     if head -1 gui/LICENSE-GUI | grep -qE "^MIT License"; then
-        F "gui/LICENSE-GUI starts with 'MIT License' — that's the bug we just fixed"
+        F "gui/LICENSE-GUI presents MIT as the current license"
     else
-        P "gui/LICENSE-GUI does not start with 'MIT License'"
+        P "gui/LICENSE-GUI presents AGPL as the current license"
+    fi
+    if grep -q 'd4660e6539c8b6eeba81751c018217d978fdd618' gui/LICENSE-GUI &&
+       grep -q 'v2.2.2' gui/LICENSE-GUI &&
+       grep -q 'does not revoke or reinterpret a historical grant' gui/LICENSE-GUI; then
+        P "gui/LICENSE-GUI preserves the evidenced historical MIT grant"
+    else
+        F "gui/LICENSE-GUI is missing the factual historical-license erratum"
     fi
 fi
 
@@ -78,12 +87,12 @@ else
 fi
 
 # ─── Brand-string check ───
-# Splash and about-panel headers should say VAPTVUPT (the v3.0.0 name),
-# not ZUPT.
-if grep -q 'QLabel("ZUPT")' "$GUI"; then
-    F "GUI still uses QLabel(\"ZUPT\") — should be QLabel(\"VAPTVUPT\")"
+# Release 5.2.2 restores the original ZUPT identity in every current panel.
+if grep -q 'QLabel("ZUPT")' "$GUI" &&
+   ! grep -q 'QLabel("VAPTVUPT")' "$GUI"; then
+    P "GUI uses ZUPT in current QLabel headers"
 else
-    P "GUI uses VAPTVUPT (not ZUPT) in QLabel headers"
+    F "GUI current headers are not consistently branded ZUPT"
 fi
 
 # Crypto stack should include Argon2id (the default since v2.4.1).
@@ -109,9 +118,8 @@ fi
 
 # ─── Functional check ───
 # If the CLI binary is available, exercise _VERSION_RE end-to-end.
-if [ -x ./vaptvupt ] || [ -x ./zupt ]; then
-    BIN=./vaptvupt
-    [ ! -x "$BIN" ] && BIN=./zupt
+BIN=${1:-${ZUPT_BIN:-./zupt}}
+if [ -x "$BIN" ]; then
     OUT=$("$BIN" version 2>&1 | head -1)
     EXTRACTED=$(python3 -c "
 import re, sys
@@ -126,7 +134,7 @@ print(m.group(1) if m else 'NONE')
         F "version regex extracted '$EXTRACTED', expected '$EXPECTED'"
     fi
 else
-    echo "  - skipped: ./vaptvupt not built — skipping functional version test"
+    echo "  - skipped: ZUPT binary not built — skipping functional version test"
 fi
 
 echo ""

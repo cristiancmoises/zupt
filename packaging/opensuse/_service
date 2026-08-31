@@ -1,16 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <services>
-        <service name="tar_scm" mode="manual">
-                <param name="url">https://github.com/cristiancmoises/vaptvupt</param>
-                <param name="scm">git</param>
-                <param name="revision">v5.0.0</param>
-                <param name="versionformat">@PARENT_TAG@</param>
-                <param name="versionrewrite-pattern">v(.*)</param>
-                <param name="submodules">enable</param>
-                <param name="filename">vaptvupt</param>
-        </service>
-        <service name="recompress" mode="manual">
-                <param name="file">*.tar</param>
-                <param name="compression">gz</param>
-        </service>
-        <service name="set_version" mode="manual"/>
+  <service name="obs_scm" mode="manual">
+    <param name="url">https://github.com/cristiancmoises/zupt.git</param>
+    <param name="scm">git</param>
+    <param name="revision">refs/tags/v5.2.2</param>
+    <param name="versionformat">@PARENT_TAG@</param>
+    <param name="versionrewrite-pattern">^v(.*)$</param>
+    <param name="versionrewrite-replacement">\1</param>
+    <param name="filename">zupt</param>
+    <param name="submodules">disable</param>
+    <param name="lfs">disable</param>
+  </service>
+  <service name="tar" mode="buildtime"/>
+  <service name="recompress" mode="buildtime">
+    <param name="file">*.tar</param>
+    <param name="compression">gz</param>
+  </service>
 </services>

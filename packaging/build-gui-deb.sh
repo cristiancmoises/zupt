@@ -1,181 +1,113 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
-# Build zupt-gui .deb (Python/Qt GUI). Works with PyQt6 OR PySide6.
-set -e
-cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.2.0}"
-ARCH="all"
-PKG="vaptvupt-gui_${VERSION}_${ARCH}"
-ROOT="/tmp/$PKG"
+# Build the architecture-independent GUI package from tracked source. The CLI
+# dependency is built and tested in baseline mode but is packaged separately.
 
-rm -rf "$ROOT"
-mkdir -p "$ROOT/DEBIAN" \
-         "$ROOT/usr/bin" \
-         "$ROOT/usr/lib/vaptvupt-gui" \
-         "$ROOT/usr/share/applications" \
-         "$ROOT/usr/share/icons/hicolor/256x256/apps" \
-         "$ROOT/usr/share/man/man1" \
-         "$ROOT/usr/share/doc/vaptvupt-gui"
+set -Eeuo pipefail
+umask 022
+export LC_ALL=C
 
-# Source files
-install -m 644 gui/src/zupt_gui.py "$ROOT/usr/lib/vaptvupt-gui/"
+die() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
-# Wrapper script in /usr/bin
-cat > "$ROOT/usr/bin/vaptvupt-gui" <<'WRAP'
-#!/bin/sh
-exec python3 /usr/lib/vaptvupt-gui/zupt_gui.py "$@"
-WRAP
-chmod 755 "$ROOT/usr/bin/vaptvupt-gui"
-# v3.0.0: legacy zupt-gui symlink
-ln -sf vaptvupt-gui "$ROOT/usr/bin/zupt-gui"
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+cd -- "$repo_root"
 
-# Desktop entry
-cat > "$ROOT/usr/share/applications/vaptvupt-gui.desktop" <<'DESKTOP'
-[Desktop Entry]
-Type=Application
-Name=VaptVupt GUI
-GenericName=Backup and Compression Utility
-Comment=Post-quantum backup with HKDF combiner, key commitment, HPKE binding
-Exec=vaptvupt-gui %f
-Icon=vaptvupt-gui
-Terminal=false
-Categories=Utility;Archiving;Compression;Security;
-StartupNotify=true
-MimeType=application/x-zupt;
-Keywords=archive;compression;encryption;post-quantum;backup;
-DESKTOP
+header_version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+version=${VERSION:-$header_version}
+[[ $version == "$header_version" && $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || \
+    die "VERSION '$version' does not match include/zupt.h '$header_version'"
 
-# Man page
-if [ -f doc/vaptvupt-gui.1 ]; then
-    install -m 644 doc/vaptvupt-gui.1 "$ROOT/usr/share/man/man1/vaptvupt-gui.1"
-    gzip -9n "$ROOT/usr/share/man/man1/vaptvupt-gui.1"
-fi
+dist_dir=${DIST_DIR:-${TMPDIR:-/tmp}/zupt-release}
+mkdir -p -- "$dist_dir"
+dist_dir=$(cd -- "$dist_dir" && pwd -P)
+case $dist_dir/ in "$repo_root"/*) die 'DIST_DIR must be outside the repository' ;; esac
+output=$dist_dir/zupt-gui_${version}_all.deb
+[[ ! -e $output ]] || die "refusing to overwrite existing output: $output"
 
-# Icon
-if [ -f gui/assets/zupt-icon.png ]; then
-    cp gui/assets/zupt-icon.png "$ROOT/usr/share/icons/hicolor/256x256/apps/vaptvupt-gui.png"
-else
-    python3 -c "
-import struct, zlib
-def png(w, h, color):
-    raw = b''.join(b'\\0' + bytes(color) * w for _ in range(h))
-    def chunk(t, d): return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t+d) & 0xffffffff)
-    return b'\\x89PNG\\r\\n\\x1a\\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b'')
-open('$ROOT/usr/share/icons/hicolor/256x256/apps/zupt-gui.png','wb').write(png(256, 256, (88, 92, 215)))
-"
-fi
+for command_name in make python3 dpkg-deb gzip sha256sum; do
+    command -v -- "$command_name" >/dev/null 2>&1 || \
+        die "required command not found: $command_name"
+done
 
-# Docs
-install -m 644 gui/README.md "$ROOT/usr/share/doc/vaptvupt-gui/" 2>/dev/null || true
-gzip -9n -c CHANGELOG.md > "$ROOT/usr/share/doc/vaptvupt-gui/changelog.gz"
+jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1')}
+work=$(mktemp -d "${TMPDIR:-/tmp}/zupt-gui-deb.XXXXXXXX")
+stage=$work/stage
+extract=$work/extract
+cleanup() {
+    make -C "$repo_root" clean >/dev/null 2>&1 || true
+    chmod -R u+rwX "$work" 2>/dev/null || true
+    rm -rf -- "$work"
+}
+trap cleanup EXIT HUP INT TERM
 
-cat > "$ROOT/usr/share/doc/vaptvupt-gui/copyright" <<'COPYRIGHT'
-Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: vaptvupt-gui
-Upstream-Contact: Cristian Cezar Moisés <zupt@riseup.net>
-Source: https://git.securityops.co/cristiancmoises/zupt
+printf '[GUI deb] validating source-only CLI dependency %s\n' "$version"
+make clean
+make -j"$jobs" V=1 WITH_SDK=0 WITH_PQBOX=0 INSTALL_LEGACY_ALIAS=0
+make V=1 WITH_SDK=0 WITH_PQBOX=0 INSTALL_LEGACY_ALIAS=0 check
+./zupt version | grep -Fq "zupt $version" || die 'CLI version check failed'
 
-Files: *
-Copyright: 2025-2026 Cristian Cezar Moisés
-License: AGPL-3.0+
- This program is free software: you can redistribute it and/or modify
- it under the terms of the GNU Affero General Public License as
- published by the Free Software Foundation, either version 3 of the
- License, or (at your option) any later version.
- .
- On Debian systems, the complete text of the GNU Affero General Public
- License version 3 can be found in /usr/share/common-licenses/AGPL-3.
-COPYRIGHT
+PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
+from pathlib import Path
+source = Path("gui/src/zupt_gui.py").read_text(encoding="utf-8")
+compile(source, "gui/src/zupt_gui.py", "exec")
+PY
 
-# Control
-INSTALLED_SIZE=$(du -sk "$ROOT" | cut -f1)
-cat > "$ROOT/DEBIAN/control" <<EOF
-Package: vaptvupt-gui
-Version: $VERSION
+mkdir -p -- "$stage"
+bash gui/install.sh --destdir "$stage" --prefix /usr
+[[ ! -e $stage/usr/bin/vaptvupt-gui ]] || die 'legacy vaptvupt-gui alias must not be packaged'
+
+install -d -- "$stage/usr/share/doc/zupt-gui" "$stage/DEBIAN"
+install -m 0644 -- gui/README.md "$stage/usr/share/doc/zupt-gui/README.md"
+gzip -9n -c CHANGELOG.md >"$stage/usr/share/doc/zupt-gui/changelog.gz"
+install -m 0644 -- LICENSE-AGPL-3.0 "$stage/usr/share/doc/zupt-gui/copyright"
+gzip -9n -- "$stage/usr/share/man/man1/zupt-gui.1"
+
+installed_kib=$(du -sk "$stage/usr" | awk '{print $1}')
+cat >"$stage/DEBIAN/control" <<EOF
+Package: zupt-gui
+Version: $version
 Section: utils
 Priority: optional
-Architecture: $ARCH
-Depends: python3 (>= 3.9), python3-pyqt6 | python3-pyside6, vaptvupt (>= 3.0.0) | zupt (>= 2.2.3)
-Provides: zupt-gui (= ${VERSION})
-Replaces: zupt-gui (<< 1.2.0)
-Conflicts: zupt-gui (<< 1.2.0)
-Maintainer: Cristian Cezar Moisés <zupt@riseup.net>
-Installed-Size: $INSTALLED_SIZE
-Homepage: https://git.securityops.co/cristiancmoises/zupt
-Description: Graphical interface for VaptVupt post-quantum backup utility
- PySide6/PyQt6 frontend for VaptVupt (formerly zupt-gui in 1.x). Supports compression, extraction, key
- management, and full disk backup/restore. Exposes both legacy --pq
- and new --pq-sdk (libzuptsdk: HKDF combiner, key commitment, HPKE
- binding, Argon2id) encryption modes.
+Architecture: all
+Depends: python3 (>= 3.9), python3-pyqt6 | python3-pyside6.qtwidgets, zupt (= $version)
+Installed-Size: $installed_kib
+Maintainer: Cristian Cezar Moisés <sac@securityops.co>
+Homepage: https://github.com/cristiancmoises/zupt
+Description: Qt graphical interface for the ZUPT backup utility
+ The GUI creates, inspects, verifies, and extracts .zupt archives through the
+ separately packaged zupt command. Optional SDK and PQ-box controls are
+ shown only when the installed command reports those integrations enabled.
 EOF
 
-# Postinst: refresh icon cache + desktop database, print first-run guidance
-cat > "$ROOT/DEBIAN/postinst" <<'POSTINST'
-#!/bin/sh
-set -e
-if [ -x /usr/bin/update-desktop-database ]; then
-    update-desktop-database -q /usr/share/applications || true
-fi
-if [ -x /usr/bin/gtk-update-icon-cache ]; then
-    gtk-update-icon-cache -q /usr/share/icons/hicolor || true
-fi
+forbidden=$(find "$stage" -type f \( \
+    -name '*.o' -o -name '*.obj' -o -name '*.a' -o -name '*.so' -o \
+    -name '*.so.*' -o -name '*.dll' -o -name '*.dylib' -o -name '*.exe' \
+    \) -print)
+[[ -z $forbidden ]] || { printf '%s\n' "$forbidden" >&2; die 'compiled artifact in GUI package'; }
 
-# Friendly first-run check: warn the user if no Qt6 binding is installed.
-# We don't fail the install (deb deps already enforce this); we just print
-# clear guidance for users who saw "unmet dependencies" earlier.
-if ! python3 -c 'import PyQt6.QtWidgets' 2>/dev/null \
-   && ! python3 -c 'import PySide6.QtWidgets' 2>/dev/null; then
-    cat << 'MSG'
-
-──────────────────────────────────────────────────────────────────────
-vaptvupt-gui installed, but no Qt6 Python binding is available.
-
-Install one of the following to enable the GUI:
-
-  Debian/Ubuntu/Mint:   sudo apt install python3-pyqt6
-  Fedora/RHEL/Rocky:    sudo dnf install python3-pyqt6
-  Arch/Manjaro:         sudo pacman -S python-pyqt6
-  pip (any distro):     pip install --user PySide6
-
-After installing the binding, launch with:   vaptvupt-gui
-──────────────────────────────────────────────────────────────────────
-
-MSG
+package_tmp=$work/$(basename -- "$output")
+source_epoch=${SOURCE_DATE_EPOCH:-$(sed -n '1p' .source-date-epoch 2>/dev/null || true)}
+[[ $source_epoch =~ ^[0-9]+$ ]] || die 'SOURCE_DATE_EPOCH is not available'
+SOURCE_DATE_EPOCH=$source_epoch dpkg-deb -Zxz --build --root-owner-group \
+    "$stage" "$package_tmp" >/dev/null
+dpkg-deb --info "$package_tmp" >/dev/null
+dpkg-deb --contents "$package_tmp" >"$work/contents.txt"
+grep -q './usr/bin/zupt-gui' "$work/contents.txt" || die 'GUI launcher missing from .deb'
+if grep -Eq '(/usr/bin/vaptvupt-gui|\.(o|obj|a|so|so\.[^/]+|dll|dylib|exe)$)' "$work/contents.txt"; then
+    cat "$work/contents.txt" >&2
+    die 'forbidden compatibility alias or compiled artifact in .deb'
 fi
 
-# Same friendly warning if zupt CLI not installed.
-if ! command -v vaptvupt >/dev/null 2>&1 && ! command -v zupt >/dev/null 2>&1; then
-    cat << 'MSG'
+mkdir -p -- "$extract"
+dpkg-deb --extract "$package_tmp" "$extract"
+PYTHONDONTWRITEBYTECODE=1 python3 - <<PY
+from pathlib import Path
+p = Path("$extract/usr/lib/zupt-gui/zupt_gui.py")
+compile(p.read_text(encoding="utf-8"), str(p), "exec")
+PY
 
-──────────────────────────────────────────────────────────────────────
-vaptvupt-gui needs the 'vaptvupt' CLI to function. Install it:
-
-  Debian/Ubuntu/Mint:   sudo dpkg -i vaptvupt_3.0.0_amd64.deb
-                        (followed by: sudo apt --fix-broken install)
-──────────────────────────────────────────────────────────────────────
-
-MSG
-fi
-exit 0
-POSTINST
-chmod 755 "$ROOT/DEBIAN/postinst"
-
-cat > "$ROOT/DEBIAN/postrm" <<'POSTRM'
-#!/bin/sh
-set -e
-if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
-    if [ -x /usr/bin/update-desktop-database ]; then
-        update-desktop-database -q /usr/share/applications || true
-    fi
-    if [ -x /usr/bin/gtk-update-icon-cache ]; then
-        gtk-update-icon-cache -q /usr/share/icons/hicolor || true
-    fi
-fi
-POSTRM
-chmod 755 "$ROOT/DEBIAN/postrm"
-
-dpkg-deb -Zxz --build --root-owner-group "$ROOT" "/tmp/$PKG.deb"
-echo "Built: /tmp/$PKG.deb"
-dpkg-deb --info "/tmp/$PKG.deb" | head -12
+mv -- "$package_tmp" "$output"
+sha256sum "$output"
+printf 'PASS: built and content-validated %s\n' "$output"

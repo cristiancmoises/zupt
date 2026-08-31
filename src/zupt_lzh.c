@@ -216,15 +216,16 @@ static void huff_build(const uint32_t *freq, int ns, hcode_t *codes) {
 
     int ni=0;
     while(hn>1){
-        hnode_t a=hp[0];hp[0]=hp[--hn];if(hn>0)h_down(hp,hn,0);
+        hnode_t a=hp[0];hp[0]=hp[--hn];h_down(hp,hn,0);
         hnode_t b=hp[0];hp[0]=hp[--hn];if(hn>0)h_down(hp,hn,0);
         L[ni]=a.s; R[ni]=b.s;
         hnode_t in; in.f=a.f+b.f; in.s=-(ni+1); ni++;
         hp[hn]=in; h_up(hp,hn); hn++;
     }
 
-    uint8_t *dp=(uint8_t*)calloc(ns,1);
-    if(dp && hn==1) tree_depths(hp[0].s,0,L,R,dp,ns);
+    uint8_t *dp=(uint8_t*)calloc((size_t)ns, 1);
+    if (!dp) { free(hp); free(L); free(R); return; }
+    if(hn==1) tree_depths(hp[0].s,0,L,R,dp,ns);
 
     /* Enforce max code length using Kraft-sum based redistribution.
      *
@@ -375,7 +376,7 @@ static size_t cl_encode(const uint8_t *lens, int count, uint8_t *out, size_t oca
                     out[op++] = (uint8_t)(r - 11);
                     i += r; run -= r;
                 } else if (run >= 3) {
-                    int r = run > 10 ? 10 : run;
+                    int r = run;
                     if (op + 2 > ocap) return 0;
                     out[op++] = 17;
                     out[op++] = (uint8_t)(r - 3);
@@ -670,6 +671,8 @@ size_t zupt_lzh_compress(const uint8_t *src, size_t slen,
 
     /* Compress code lengths with RLE */
     uint8_t ll_lens[LZH_MAX_LITLEN], d_lens[LZH_MAX_DIST];
+    memset(ll_lens, 0, sizeof(ll_lens));
+    memset(d_lens, 0, sizeof(d_lens));
     for (int i = 0; i < ll_cnt; i++) ll_lens[i] = ll_codes[i].len;
     for (int i = 0; i < d_cnt; i++) d_lens[i] = d_codes[i].len;
 
@@ -741,7 +744,6 @@ size_t zupt_lzh_decompress(const uint8_t *src, size_t slen,
     int rle_on = (flags & 0x01);
     uint32_t rle_orig = 0;
     if (rle_on) {
-        if (ip + 4 > slen) return 0;
         memcpy(&rle_orig, src + ip, 4); ip += 4;
     }
 

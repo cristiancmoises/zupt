@@ -1,8 +1,9 @@
 /*
- * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-or-later AND BSD-2-Clause
+ * Copyright (c) 2012-2021 Yann Collet
  *
  * VaptVupt — XXH64 checksum (simplified, standalone)
- * Based on xxHash by Yann Collet. Public domain.
+ * Based on xxHash by Yann Collet. See LICENSE-BSD-2-Clause.
  */
 
 #include "vaptvupt.h"

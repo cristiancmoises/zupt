@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * Copyright (c) 2025-2026 Cristian Cezar Moisés
- * Zupt — ACSL Custom Predicates for Frama-C/WP
+ * ZUPT — ACSL Custom Predicates for Frama-C/WP
  * Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-or-later
  *
  * Usage: frama-c -wp -wp-rte -wp-model Typed+Cast

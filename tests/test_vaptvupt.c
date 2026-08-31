@@ -2,7 +2,7 @@
  * ZUPT v2.0.0 — VaptVupt Codec Unit Tests
  *
  * Tests VaptVupt roundtrip in all 3 modes, incompressible fallback,
- * and validates integration with Zupt's XXH64 alias.
+ * and validates integration with ZUPT's XXH64 alias.
  *
  * VAPTVUPT: Integration test suite
  * Copyright (c) 2026 Cristian Cezar Moisés

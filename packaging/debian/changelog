@@ -1,3 +1,30 @@
+zupt (5.2.2-1) UNRELEASED; urgency=medium
+
+  * Prepare a source-only upstream release and remove incomplete vendored SDK
+    and PQBOX inputs together with every precompiled-library fallback.
+  * Make optional integrations explicit system dependencies, disabled by
+    default, and preserve distribution compiler/linker flags and DESTDIR.
+  * Add the reusable source scanner and openSUSE/OBS source packaging.
+  * Restore the ZUPT/zupt application, package, executable, documentation, and
+    artifact names; build and test with WITH_SDK=0 WITH_PQBOX=0.
+  * Add explicit password prompt, file, and inherited-descriptor inputs.
+  * Correct the licensing record without revoking historical MIT grants present
+    in earlier repository revisions; current files follow current SPDX notices.
+  * Preserve Yann Collet's BSD-2-Clause notice for the two xxHash-derived
+    XXH64 source units and include it in package license metadata.
+  * Record the CC0-1.0 option for pq-crystals/kyber-derived ML-KEM portions
+    and ship the complete license text in every binary bundle.
+  * Preserve the BSD-3-Clause notice for curve25519-donna-derived X25519
+    portions and document their provenance without inventing a revision.
+  * Promote only license-complete release assets: Windows is ZIP-only and the
+    AppImage remains downstream-only pending a complete runtime source/relink
+    compliance handoff.
+  * Qualify older changelog statements about formally verified or
+    constant-time assembly: 5.2.2 retains source, generated output and runtime
+    regressions, but no reproducible formal-proof certificate for those paths.
+
+ -- Cristian Cezar Moisés <sac@securityops.co>  Mon, 31 Aug 2026 00:00:00 +0000
+
 vaptvupt (5.0.0-1) UNRELEASED; urgency=high
 
   * ML-KEM-768 is now genuinely FIPS 203-conformant. Earlier releases shipped
@@ -377,12 +404,10 @@ vaptvupt (3.0.2-1) UNRELEASED; urgency=medium
 
 vaptvupt (3.0.1-1) UNRELEASED; urgency=medium
 
-  * GUI license cleanup: removed MIT-license credit line from the
-    about panel (the GUI is AGPL-3.0-or-later with commercial dual-
-    licensing; the MIT reference was a templating mistake). Replaced
-    gui/LICENSE-GUI (was MIT) with AGPL-3.0-or-later, mirroring the
-    top-level LICENSE. Top-level LICENSE preamble updated to reflect
-    the v3.0.0 Zupt → VaptVupt rename.
+  * GUI license metadata changed to AGPL-3.0-or-later for the then-current
+    source. The original entry incorrectly called earlier MIT notices a
+    templating mistake; the 5.2.2 erratum records that historical grants remain
+    valid for the exact material distributed under them.
   * GUI version-string parsing bug fix: the v3.0.0 GUI used
     `replace("zupt ", "")` to peel the product name out of the CLI's
     version banner, but that substring also appears inside the v3.0.0

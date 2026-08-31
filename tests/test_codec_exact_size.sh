@@ -11,7 +11,11 @@
 set -u
 ARCH=$(uname -m)
 SIMD=""
-[ "$ARCH" = "x86_64" ] && SIMD="-mavx2"
+if [[ $ARCH == x86_64 ]] && grep -qiw avx2 /proc/cpuinfo 2>/dev/null; then
+    SIMD="-mavx2"
+else
+    echo "  SKIP: AVX2-specific subpath unavailable; scalar exact-size test remains enabled"
+fi
 
 TMP=$(mktemp -d)
 rc=0
@@ -31,12 +35,12 @@ fi
 # Tool-level BCJ roundtrip: real binary fixture at L5 (BALANCED+auto-filter)
 # and L9 (EXTREME+auto-filter); byte-exact extraction required. Guards the
 # F-16 defect class (old in-tree BCJ wrote undecodable streams).
-FX=/tmp/bench/fixtures/binary.dat
-if [ -f "$FX" ] && [ -x ./vaptvupt ]; then
+FX=${ZUPT_BIN:-./zupt}
+if [ -f "$FX" ] && [ -x ./zupt ]; then
     for L in 5 9; do
         rm -rf "$TMP/o$L"; mkdir -p "$TMP/o$L"
-        ./vaptvupt c -l $L "$TMP/a$L.zupt" "$FX" >/dev/null 2>&1
-        ./vaptvupt x -o "$TMP/o$L" "$TMP/a$L.zupt" >/dev/null 2>&1
+        ./zupt c -l $L "$TMP/a$L.zupt" "$FX" >/dev/null 2>&1
+        ./zupt x -o "$TMP/o$L" "$TMP/a$L.zupt" >/dev/null 2>&1
         F=$(find "$TMP/o$L" -type f | head -1)
         if [ -n "$F" ] && diff -q "$F" "$FX" >/dev/null 2>&1; then
             echo "  ✓ BCJ roundtrip L$L (binary fixture) byte-exact"
@@ -45,7 +49,7 @@ if [ -f "$FX" ] && [ -x ./vaptvupt ]; then
         fi
     done
 else
-    echo "  - BCJ tool roundtrip skipped (fixture or binary missing)"
+    echo "  - BCJ tool roundtrip skipped (source-built executable missing)"
 fi
 
 rm -rf "$TMP"

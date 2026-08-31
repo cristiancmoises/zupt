@@ -23,7 +23,11 @@
 #   3. Verifies extract REJECTS the swapped archive (auth failure)
 #   4. Also verifies normal extract still works (regression guard)
 
-ZUPT_BIN="$(realpath ./zupt)"
+ZUPT_BIN=${1:-./zupt}
+case $ZUPT_BIN in
+    /*) ;;
+    *) ZUPT_BIN=$PWD/${ZUPT_BIN#./} ;;
+esac
 TMPDIR=$(mktemp -d)
 trap "rm -rf $TMPDIR" EXIT
 cd "$TMPDIR"
@@ -135,7 +139,8 @@ if [ $swap_status -eq 0 ]; then
     fi
     chk "Block-swap attack rejected (cross-file reorder)"
 else
-    echo "  ⊘ Block-swap attack test skipped (couldn't locate block boundaries)"
+    false
+    chk "Block-swap attack rejected (test archive could not be constructed)"
 fi
 
 # P3: Single-block file (boundary case — empty seq_AAD doesn't degenerate)

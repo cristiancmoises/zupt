@@ -1,853 +1,444 @@
-<!-- Logo: rehost on git.securityops.co/cristiancmoises/vaptvupt or zupt.securityops.co; old GitHub user-attachments URL no longer in use -->
-<!-- <img width="493" height="173" alt="logo" src="https://zupt.securityops.co/assets/logo.png"/> -->
+# ZUPT 5.2.2
 
-# VaptVupt
+ZUPT is a command-line backup archiver written in C11. It combines the
+bundled VaptVupt compression codec with authenticated AES-256-CTR +
+HMAC-SHA256 encryption, native ML-KEM-768/X25519 hybrid encryption, archive
+integrity checks, multithreaded operation, and a Python/Qt graphical frontend.
 
-Backup compression with hardware-adaptive codec selection, AES-256
-authenticated encryption, post-quantum key encapsulation, and full-disk
-backup. Pure C11, ~13,000 lines. Builds and runs on x86_64, aarch64,
-armhf, ppc64le, s390x, and riscv64.
+Version 5.2.2 restores the original ZUPT product name and the `zupt` command.
+The `.zupt` archive extension, format v1.6, magic bytes, codec identifiers, and
+SDK ABI remain unchanged. An optional `vaptvupt` command alias may be provided
+for scripts written against versions 3.0.0 through 5.2.1.
 
-License: AGPL-3.0-or-later (dual-licensed AGPL + commercial).
+## What changed in 5.2.2
 
-> **Renamed from "Zupt" in v3.0.0** because of a prior INPI Brasil
-> trademark registration on the name "Zupt" for unrelated software.
-> The `.zupt` archive extension and `ZUPT` header magic bytes are
-> unchanged — v2.x and v3.0.0 archives remain compatible. The `zupt`
-> command is preserved as a symlink to `vaptvupt` for one major version
-> cycle.
+This patch release makes the upstream and distribution path auditable from
+source and tightens archive integrity handling:
 
-## What's new in 5.2.1
+- removed incomplete vendored SDK/PQBOX header snapshots and every fallback to
+  local precompiled libraries;
+- made WITH_SDK and WITH_PQBOX opt-in system integrations with explicit failure
+  when their development dependencies are unavailable;
+- removed build-tree RPATH/RUNPATH injection and architecture-wide AVX2 flags;
+- made compiler target detection, packager flags, staged installation and
+  cleanup portable;
+- hardened extraction against traversal components, symlinks, hardlinks,
+  Windows reparse points, and pre-existing output files; verified data is
+  published from a private temporary file only after size and checksum checks;
+- made normal, solid, and disk-image compression publish archives atomically
+  without opening a symlink or hardlink target at the requested leaf; POSIX
+  canonicalizes a user-selected parent once and then pins its physical
+  directory, while Windows rejects reparse-point parents; compression also
+  rejects an output that resolves to the input itself, including alternate
+  path spellings, hardlinks, and symlinks, even when `--force` is used;
+- made disk restore validate and consume one private snapshot of the input
+  archive before opening its destructive destination; raw-device capacity is
+  queried before the first write and an unknown or undersized target fails
+  closed;
+- require both XXH64 and an independent SHA-256/128 digest match in the writer
+  before a block is replaced with a deduplication reference;
+- bind every encrypted data or dedup-reference frame to its logical position;
+  an authenticated reference also carries the position needed to authenticate
+  the original data frame, so neither a data frame nor an otherwise equivalent
+  reference can be moved silently;
+- require an archive-integrity trailer (AIT) for every validating content-read
+  path by default, without trusting unauthenticated header flags; the explicit
+  legacy override is only for a known, trusted archive created before AIT
+  existed;
+- authenticate reference offsets in new encrypted+dedup archives, and bind the
+  encrypted disk index to its archive metadata;
+- store and verify a chained whole-image content hash in new disk archives;
+  this XXH64 value detects corruption but is not a cryptographic authenticator
+  in an unencrypted archive;
+- serialize fixed-width format values explicitly as little-endian and reject
+  non-canonical or overflowing uint64 varints;
+- reject unexpected frame types wherever decoded DATA is required, including
+  multithreaded, serial, solid, test, and disk-image readers;
+- retain narrow reader paths for the fixed-width disk index and encrypted
+  deduplication AAD sequence published by 5.2.1; an actual password-encrypted
+  DATA/DATA/REF/DATA disk fixture is tested byte-exact without claiming that older
+  readers accept the new 5.2.2 records;
+- use a randomly created private directory for benchmark scratch files and
+  remove it without following links, instead of deriving a writable path only
+  from the process ID;
+- added a reusable source-only scanner, adversarial scanner tests and CI gates;
+- added current openSUSE/OBS packaging under packaging/opensuse;
+- restored ZUPT/`zupt` as the product, command, package, GUI, documentation,
+  and release-artifact identity without changing the archive or SDK formats;
+- added explicit `--password-prompt`, `--pass-file`, and `--pass-fd` inputs so a
+  password need not be placed in process arguments;
+- create native private-key files without replacement using POSIX mode `0600`
+  or a Windows current-user-only DACL, and strictly validate ZKEY/ZPQK checksum,
+  version, flags, reserved bytes, exact size, and public/private role before use;
+- restore POSIX terminal state after handled password-prompt interruptions and
+  render archive comments without emitting raw terminal-control sequences;
+- make the regression interpreter explicitly Bash and add bounded nested-
+  archive resource handling to the source-only scanner;
+- documented the bundled codec, GUI data assets and all applicable license scopes;
+- added gated, source-built release-package workflows without committing
+  package artifacts or compiled code to Git.
 
-- **GUI Verify (and Extract) made robust.** Verifying an encrypted archive used
-  to make you pick the right PQ mode from a dropdown and remember the private
-  key; a wrong pick or a forgotten credential produced a raw decrypt-error dump,
-  and verify ran on the GUI thread (freezing the window on a big archive). Now
-  the tab **reads the archive header** and auto-detects password / hybrid /
-  full-PQ, uses the matching flag automatically (no mode picker to get wrong),
-  and if the needed credential is missing it says exactly what to provide
-  instead of erroring. Verify now runs in the background like compress/extract.
-- **Refreshed comparison + audit tables** in this README, measured on the
-  shipped codec (2.65.3): `make check` 16/16, ML-KEM-768 FIPS 203 conformance
-  3/3, and the full security regression matrix (see below).
+See [CHANGELOG.md](CHANGELOG.md) for the release record.
 
-Binaries for the CLI (5.2.1) and GUI (5.2.1) are on the
-[release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.2.1).
+## Canonical source
 
----
+- Canonical: https://github.com/cristiancmoises/zupt
 
-## What's new in 5.2.0
+Release tags and source archives are published from this repository.
 
-- **GUI compress crash fixed.** The 5.1.0 progress bar introduced a cross-thread
-  bug that could crash the app, hang it, or leave a corrupt archive when
-  compressing (worst on the full post-quantum path). Worker callbacks now run on
-  the GUI thread via a `_Job` controller; verified on a real X display with zero
-  cross-thread widget access and byte-exact round-trips across hybrid, full-PQ,
-  and password modes plus Verify/Info/Disk/concurrent/close-mid-job.
-- **Codec VaptVupt 2.65.3** — byte-identical output to 2.65.0 (same ratios) but
-  ~1.6–2× faster extreme-mode encode and lower peak virtual memory.
-- **libvuptsdk** (renamed from `libzuptsdk`) is now the SDK library a
-  `WITH_SDK=1` build links for `--pq-sdk` + the Argon2id password KDF; `--pq-box`
-  moved to its own `WITH_PQBOX=1` flag (separate `libpqvaptvupt`). The default
-  distributed build stays source-only (native `--pq`/`--pq-only` + PBKDF2, no
-  external libraries).
+## Source-only policy
 
-Binaries for the CLI (5.2.0) and GUI (5.2.0) are on the
-[release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.2.0).
+Tracked Git state and source archives contain source/build/packaging files,
+documentation, tests, and necessary non-executable data only. They do not
+contain object files, shared or static libraries, compiled executables,
+RPM/DEB/AppImage packages, unresolved Git LFS pointers, or release binaries.
 
----
+Release pages may provide separately generated packages requested for end
+users. Those assets must be built from the tagged source, tested on their target
+environment, and kept outside Git and the source archive. A format that was not
+built and tested is not presented as supported.
 
-## What's new in 5.1.0
+## 5.2.2 release artifacts
 
-- **Codec upgraded to VaptVupt 2.65.0** (from 2.60.4). Same on-disk format
-  (`.zupt` v1.6, fully interoperable both directions — a 5.0.0 binary reads
-  5.1.0 archives and vice-versa), a much faster balanced encoder, and the
-  extreme-mode literal-pricing work from codec Sprints 124–130.
-- **Big compression-ratio gains — two long-standing settings were leaving most
-  of the codec's ratio on the table.** The `.zupt` wrapper (1) *forced* the
-  binary-oriented `format_v2` path on every input, which halved the optimal
-  parser's ratio on text, and (2) capped the extreme block at 512 KiB, so the
-  "large-window extreme" parser could never see past it. Both are fixed:
-  `format_v2` is now auto-detected (binary gets it, text keeps the optimal
-  parser) and block size scales with level. Measured, level 9 (extreme):
+The 5.2.2 release workflow is defined to produce the following files only after
+the corresponding target gate succeeds. `SHA256SUMS` records the exact promoted
+filenames and digests. The release notes identify the tested commit and the
+manually dispatched CI run; that run's job definitions and logs are the runtime
+evidence for runner image, architecture, toolchain, results, and explicit
+skips. This table is not a substitute for that evidence.
 
-  | Data class | 5.0.0 | 5.1.0 |
-  |---|--:|--:|
-  | Text (docs/markdown) | 3.77× | **5.98×** |
-  | Server logs | 7.21× | **9.07×** |
-  | JSON | 8.25× | **9.38×** |
-  | Source code | 4.93× | **5.63×** |
+| Format | Intended target and validation boundary |
+| --- | --- |
+| `zupt-5.2.2.tar.gz` | Reproducible, source-only archive; scanned twice-built input plus SHA-256. |
+| `zupt_5.2.2_amd64.deb` | Ubuntu 24.04 amd64 package; install, functional round trip, and uninstall gate. |
+| `zupt-5.2.2-*.x86_64.rpm` and `.src.rpm` | openSUSE Tumbleweed x86_64 source/binary RPM gate; package inspection, install, round trip, and uninstall. |
+| `zupt-5.2.2-linux-x86_64.tar.xz` | Linux x86_64 CLI plus the complete public license/notice payload; dependency allowlist and extracted-package functional gate. |
+| `zupt-gui_5.2.2_all.deb` | Architecture-independent Python/Qt GUI package; exact dependency/payload checks plus installed off-screen GUI/CLI integration gate. |
+| `zupt-gui-5.2.2-1.noarch.rpm` | Architecture-independent Python/Qt GUI RPM; package inspection plus installed off-screen GUI/CLI integration gate. |
+| `zupt-gui-5.2.2-1.src.rpm` | Source RPM corresponding exactly to the gated noarch GUI RPM. |
+| `zupt-gui-5.2.2-portable.zip` | Source-only GUI and launchers with licenses/provenance; source scan, exact member allowlist, and extracted off-screen GUI/CLI gate. |
+| `zupt-5.2.2-windows-x86_64.zip` | Native Windows x86_64 executable with notices; extracted-ZIP round-trip gate. |
+| `ZUPT-5.2.2-macOS-*.dmg` | Native macOS image; mounted packaged executable round-trip gate, with the actual architecture in the filename. |
 
-  Extreme mode trades encode speed for this (its optimal DP now runs over a
-  larger window); balanced (the default, `-l 7`) also improves and stays fast.
-  `--dedup` automatically keeps a small block so block-level dedup still works.
-  See the [full comparison tables](#compression-comparison) below.
-- **GUI: fixed "the app closes / gets stuck when I compress."** Three separate
-  defects: the worker thread was garbage-collected while still running (crash on
-  every job completion); on Wayland the window never mapped (now falls back to
-  XWayland automatically); and the CLI's live progress (`\r` frames) was never
-  parsed, so the GUI looked frozen on any file larger than one block — it now
-  drives the progress bar. Added `vaptvupt-gui --selftest` for headless launch
-  verification.
-- No key/format change: `--pq` / `--pq-only` keys and archives from 5.0.0 keep
-  working. (The 5.0.0 FIPS 203 KEM change below is unchanged.)
+An asset absent from the release was not promoted through its mandatory gate.
+Do not infer support for another distribution release, OS version, CPU
+architecture, raw UNC/SMB destination, or package manager from a similarly
+named file. Binary assets are release outputs, never source-build inputs.
 
-Binaries for the CLI (5.1.0) and GUI (5.1.0) are on the
-[release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.1.0).
+No AppImage is promised for 5.2.2. The inspected upstream type-2 runtime lacked
+a complete notice/source-relink handoff for every statically linked component,
+so redistributing it would not meet this release's provenance gate. AppDir and
+Flatpak bundles and GUI platform installers are likewise outside the promoted
+set because their runtime, license, or target gates are incomplete. A bare
+Linux executable or Windows `.exe` is not promoted: each CLI executable is
+carried only inside its notice-bearing archive. The Windows ZIP and macOS DMG
+remain CLI-only.
 
----
+The promoted GUI artifacts are the gated architecture-independent DEB,
+noarch/source RPM, and source-only portable ZIP listed above. The portable ZIP
+does not bundle Python, Qt, or the ZUPT CLI; its launchers select compatible
+software already installed on the target. Other historical GUI packages and
+platform installers are not carried forward implicitly.
 
-## What's new in 5.0.0
+The canonical source repository is
+<https://github.com/cristiancmoises/zupt>. Release assets referenced by the AUR,
+Homebrew, Guix, or generic RPM recipes must exist in the canonical GitHub
+release at their recorded URL before those recipes are published.
 
-- **Genuine FIPS 203 ML-KEM-768 — validated against OpenSSL.** Earlier releases
-  shipped round-3 CRYSTALS-Kyber under a "FIPS 203" label; it was secure but
-  **not interoperable** with a compliant ML-KEM. Three deviations (a transposed
-  matrix-`Â` sampling convention, the round-3 KDF, and the implicit-rejection
-  domain) are fixed, and the result is now **byte-for-byte interoperable with
-  OpenSSL 3.5's FIPS 203 ML-KEM-768** in both directions — checked on every
-  `make check` (`tests/test_mlkem_fips203.sh`). Hybrid `--pq` (ML-KEM-768 +
-  X25519) remains the recommended flagship; `--pq-only` is pure ML-KEM-768.
-- **⚠ Breaking:** because the KEM math changed, `--pq`/`--pq-only` **keys and
-  archives from ≤ 4.2.1 no longer decrypt** — regenerate keys and re-encrypt.
-  Password mode (`-p`) and plain compression are unaffected; wire format is still v1.6.
-- **CLI security fixes.** A `compress -p out.zupt file1 file2` **data-loss** bug
-  (the archive name was eaten as the password and overwrote `file1`) and a
-  `compress out.zupt dir -p pw` **silent-plaintext** bug are both guarded now; a
-  **heap OOB read** in the AVX2 decoder on crafted archives is bounded; banners
-  report the build's real KDF.
-- **GUI reworked so it actually works.** It used to default every encryption
-  path to SDK modes absent from the source-only build (key generation failed out
-  of the box). Now a build-aware Hybrid/Full-PQ selector, PQ-key auto-detect on
-  Extract/Verify, and About/threading fixes.
-- **Cross-platform.** A portable GUI package (Windows/macOS/Linux/BSD, needs
-  Python + PySide6) and a CI workflow that builds native Windows `.exe`/installer
-  and macOS `.dmg` on real runners.
+Audit the current checkout and its Git archive with:
 
-> **F-16 (data loss):** archives created by **≤ 3.8.0** at `-l 8`/`-l 9`
-> whose inputs included x86/ELF/PE executables may be **undecodable by any
-> version** (write-time defect in the old in-tree BCJ encoder). Re-create
-> such archives with 5.0.0 and verify extraction before deleting source
-> data. Details in [CHANGELOG.md](CHANGELOG.md).
+~~~sh
+bash scripts/check-source-only.sh
+bash tests/test_source_only.sh
+~~~
 
-Binaries for the CLI (5.0.0) and GUI (5.0.0) are on the
-[release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.0.0).
+For a tag or an existing source archive:
 
----
+~~~sh
+bash scripts/check-source-only.sh --tag v5.2.2
+bash scripts/check-source-only.sh --archive /path/to/zupt-5.2.2.tar.gz
+~~~
 
-<a name="compression-comparison"></a>
-## Compression comparison
+Unknown `.bin` files fail the scan. A necessary binary data fixture may be
+allowed only with `--data-manifest FILE`; each tab-separated record must name
+its path, purpose, provenance, and SPDX license. This exception never permits
+compiled or executable magic, packages, AppImages, bytecode, or Git LFS
+pointers. Nested scans cap recursion, member count, individual expansion, and
+total expanded bytes and fail closed at a limit. The exact candidate must rerun
+the scanner-bomb fixtures before any release result is marked `PASS`.
 
-Measured on codec **2.65.3**, one 20–25 MB file per data class, single-thread, best-of-run on an x86-64 AVX2 machine. Ratio = original ÷ compressed (higher is better); every round-trip verified byte-exact. Reproduce with `vaptvupt -b <file>` and the standard `zstd` / `gzip` / `lz4` CLIs. Numbers vary with data and hardware.
+## Build from source
 
-### Ratio vs other compressors
+Required for the default build:
 
-VaptVupt at level 9 (extreme) and level 7 (balanced — the default), against zstd, gzip and lz4.
+- a C11 compiler;
+- GNU make;
+- the system C, math and threading libraries.
 
-| Data class | VaptVupt -9 | VaptVupt -7 | zstd -9 | zstd -3 | gzip -9 | lz4 -9 |
-|---|--:|--:|--:|--:|--:|--:|
-| Text (docs, Markdown) | **5.99×** | 4.07× | 6.18× | 4.95× | 3.74× | 3.28× |
-| Source code (C / headers) | **5.54×** | 4.88× | 5.75× | 4.93× | 4.97× | 4.14× |
-| JSON (structured records) | **8.25×** | 5.88× | 7.41× | 6.60× | 6.67× | 4.51× |
-| Server logs | **9.07×** | 6.64× | 8.15× | 6.94× | 7.25× | 5.19× |
-| Binaries (.so / ELF) | **1.00×** | 1.00× | 1.01× | 1.00× | 1.01× | 1.00× |
-| Incompressible (random) | **1.00×** | 1.00× | 1.00× | 1.00× | 1.00× | 1.00× |
+Git, tar and gzip are needed for source-archive generation. Bash and Python 3
+are used by the complete test suite. No build target downloads dependencies.
 
-VaptVupt-9 **wins outright on logs and JSON**, and is within a few percent of `zstd -9` on text/source. `zstd` compresses faster; VaptVupt decompresses 2–4× faster than it compresses. Extreme (`-9`) spends CPU for the smallest archive — use the default `-7` for everyday backups.
+Build the distribution configuration:
 
-### Throughput (MB/s, single thread)
+~~~sh
+make clean
+make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)" \
+    WITH_SDK=0 WITH_PQBOX=0 V=1
+make WITH_SDK=0 WITH_PQBOX=0 check
+~~~
 
-The CLI multi-threads compression with `-t 0` (auto); decompression is single-thread and level-independent.
+The Makefile honors CC, CPPFLAGS, CFLAGS, LDFLAGS, LDLIBS, AR, RANLIB,
+STRIP, DESTDIR, PREFIX, BINDIR, LIBDIR, INCLUDEDIR and MANDIR. Project include
+paths are added separately and do not replace distribution optimization or
+hardening flags.
 
-| Data class | -7 comp | -7 decomp | -9 comp | -9 decomp | zstd-9 comp | gzip-9 comp |
-|---|--:|--:|--:|--:|--:|--:|
-| Text (docs, Markdown) | 130 | 263 | 5 | 305 | 84 | 21 |
-| Source code (C / headers) | 149 | 238 | 3 | 291 | 76 | 19 |
-| JSON (structured records) | 145 | 226 | 3 | 262 | 62 | 14 |
-| Server logs | 198 | 260 | 3 | 266 | 94 | 15 |
+The default x86 build targets the architecture ABI baseline. SHA-NI is compiled
+in its own translation unit and runtime-gated. AVX2 is not enabled across whole
+codec translation units. Textual assembly under `jasmin/` can be requested with
+WITH_JASMIN=1 on a compatible x86_64 compiler target; it includes generated
+Jasmin output and separately identified hand-written assembly. The portable C
+fallback is the default.
 
-### Audit status (5.2.1, source-only build)
+## Optional SDK and PQBOX integrations
 
-Every release runs the security regression matrix (`make check`, ~2 min on x86-64 / aarch64) plus the NIST/RFC known-answer vectors. Results for this release:
+Both optional integrations are off by default and never load a library from the
+repository:
 
-| Check | Result |
-|---|--:|
-| NIST/RFC known-answer vectors (FIPS 180-4/197/202/203, SP 800-38A, RFC 4231/7748/8018) | 16 / 16 |
-| ML-KEM-768 FIPS 203 conformance vs OpenSSL 3.5 (both cross-decapsulation directions) | 3 / 3 |
-| Path-traversal extraction guards | 5 / 5 |
-| Block-swap / reorder tamper detection | 6 / 6 |
-| Dedup fresh-nonce (no AES-CTR keystream reuse) | 1 / 1 |
-| Argument-order data-loss / plaintext guards | 8 / 8 |
-| AVX2 decode over-copy (out-of-bounds) guard | 7 / 7 |
-| SHA-NI hardware path + incremental HMAC | 9 / 9 |
-| Exact-size decode (no over-read / over-write) | 80 / 80 |
-| GUI branding + license consistency | 11 / 11 |
-| Help / static-analysis consistency | 16 / 16 |
+| Option | Enables | Dependency behavior |
+| --- | --- | --- |
+| WITH_SDK=1 | --pq-sdk and the SDK-backed Argon2id path | Uses the system libvuptsdk development package through pkg-config. |
+| WITH_PQBOX=1 | --pq-box | Uses the system libpqvaptvupt development package through pkg-config. |
 
-Constant-time MAC/KEM timing is measured with dudect where the environment allows (inconclusive under a shared VM). See [AUDIT.md](AUDIT.md) and [SECURITY.md](SECURITY.md) for the full verification matrix and threat model.
+If a system package has no pkg-config file, an administrator may supply
+SDK_CPPFLAGS and SDK_LDLIBS, or PQBOX_CPPFLAGS and PQBOX_LDLIBS, explicitly.
+Enabling an option without usable system link flags stops at Makefile parsing
+with an actionable error. There is no download, vendored binary fallback or
+automatic RPATH.
 
----
+The default source-only build retains password encryption through
+PBKDF2-SHA256, native hybrid encryption through --pq, and ML-KEM-only encryption
+through --pq-only. It reports SDK/PQBOX-only operations as unavailable rather
+than silently changing modes.
 
+## Install and uninstall
 
-## Features
+For a normal local installation:
 
-- **Hardware-adaptive codec** — auto-detects AVX2/NEON at runtime and
-  selects the codec: VaptVupt (LZ77 + tANS + SIMD decode) on capable
-  hardware, VaptVupt-LZHP on everything else. Override with `--vv` or
-  `--lzhp`.
-- **Post-quantum encryption** — `--pq` uses ML-KEM-768 + X25519 hybrid
-  KEM (the approach used by Signal and iMessage), protecting against
-  "harvest now, decrypt later" attacks. `--pq-only` offers a full (pure)
-  ML-KEM-768 mode with no classical component for "PQ-only" compliance
-  postures. Both are in-tree and available in the default build; hybrid
-  `--pq` is the recommended default.
-- **AES-NI acceleration** — AES-256-CTR via Jasmin-verified assembly with
-  a 4-block interleaved pipeline. AVX detection validates OSXSAVE/XCR0 (no
-  SIGILL). Falls back to C table-based AES on unsupported hardware.
-- **SHA-NI acceleration** — HMAC-SHA256 (the Encrypt-then-MAC pass) and
-  PBKDF2 use the Intel SHA-NI compression path when the CPU supports it
-  (Intel Goldmont+/Ice Lake+, AMD Zen+), selected at runtime via CPUID.
-  Bit-identical output; scalar C fallback elsewhere. `vaptvupt version`
-  prints the acceleration set for your CPU.
-- **Incremental HMAC** — the per-block MAC streams its segments through an
-  incremental HMAC-SHA256 instead of copying each block's ciphertext into
-  a temporary buffer, removing a per-block heap allocation and full-payload
-  copy on encrypt and decrypt with a byte-for-byte identical MAC (RFC 2104).
-- **Multi-threaded** — compression and decompression both parallelized.
-  `-t 0` auto-detects cores.
-- **Full-disk backup** — `vaptvupt disk backup` clones disks or partitions
-  in one command. Sparse block detection skips zero regions; all encryption
-  modes supported; restore verifies per-block XXH64 checksums.
-- **Per-block integrity** — XXH64 checksum + HMAC-SHA256 per block. Wrong
-  password rejected immediately.
-- **Self-describing KDF** — password archives record their key-derivation
-  profile in the authenticated header, so an archive carries the parameters
-  needed to open it later. Unknown profiles are refused fail-closed rather
-  than mis-derived. Default is PBKDF2-SHA256 (600K iterations); Argon2id is
-  available in a `WITH_SDK=1` build.
-- **Constant-time comparisons** — every security-critical comparison (HMAC
-  tag, archive-integrity trailer, ML-KEM-768 implicit-rejection check)
-  routes through a single primitive (`zupt_ct_memeq`, branch-free, volatile
-  accumulator, length-independent), checked by a dudect-style Welch t-test
-  in CI.
-- **Formally verified crypto** — 5 Jasmin assembly functions with
-  constant-time proofs; 19 ACSL-annotated functions for Frama-C memory
-  safety analysis.
-- **Multi-architecture** — builds on x86_64, aarch64, armhf, ppc64le,
-  s390x, riscv64. Jasmin CT crypto on x86_64, C fallback everywhere else.
-  Any archive decompresses on any architecture.
-- **No external dependencies (default build)** — ML-KEM, X25519, Keccak,
-  SHA-256, AES-256, HMAC, PBKDF2 and the VaptVupt codec are all pure C11.
-  Builds with `gcc` or `cl` alone.
-
----
-
-## Quick Start
-
-### Build & install
-```
-git clone https://git.securityops.co/cristiancmoises/vaptvupt.git && \
-cd vaptvupt && \
-make && \
+~~~sh
 sudo make install
-```
-
-The default build needs only a C compiler and `make` (plus libm/pthread).
-`make WITH_SDK=1` additionally links the separately distributed
-`libzuptsdk`/`libpqvaptvupt` to enable `--pq-sdk`, `--pq-box`, and the
-Argon2id KDF.
-
-### Pre-built packages
-
-Assets are published on the
-[v5.2.1 release page](https://git.securityops.co/cristiancmoises/vaptvupt/releases/tag/v5.2.1)
-and verifiable against the published `SHA256SUMS.txt`.
-
-**Command-line tool (`vaptvupt` 5.2.1):**
-
-| Format | File | Distros |
-|---|---|---|
-| Debian/Ubuntu | `vaptvupt_5.2.1_amd64.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
-| RPM | `vaptvupt-5.2.1-1.x86_64.rpm` | Fedora 38+, RHEL 9+, openSUSE, AlmaLinux, Rocky, other RPM-based distributions |
-| AppDir tarball | `vaptvupt-5.2.1-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run, no FUSE) |
-| Source tarball | `vaptvupt-5.2.1.tar.gz` | Build from source on any platform |
-| openSUSE OBS | `vaptvupt-5.2.1-opensuse-obs.tar.gz` | Open Build Service source bundle |
-
-**Graphical front-end (`vaptvupt-gui` 5.2.1):**
-
-| Format | File | Distros |
-|---|---|---|
-| Debian/Ubuntu | `vaptvupt-gui_5.2.1_all.deb` | Debian 11+, Ubuntu 22.04+, Mint 21+ |
-| RPM | `vaptvupt-gui-5.2.1-1.noarch.rpm` | RPM-based distributions |
-| AppImage | `VaptVupt-GUI-5.2.1-x86_64.AppImage` | Any glibc 2.28+ (single-file, no install) |
-| AppDir tarball | `VaptVupt-GUI-5.2.1-x86_64.AppDir.tar.gz` | Any glibc 2.28+ (extract & run) |
-
-**Windows / macOS / BSD:**
-
-| Platform | File | Notes |
-|---|---|---|
-| Windows | `VaptVupt-Setup-5.2.1.exe`, `vaptvupt-gui-5.2.1-windows-x86_64.exe`, `vaptvupt-5.2.1-windows-x86_64.exe` | Native installer + standalone GUI + CLI, built on a Windows runner by CI |
-| macOS | `VaptVupt-5.2.1.dmg`, `vaptvupt-5.2.1-macos` | `.dmg` GUI bundle + CLI, built on a macOS runner by CI |
-| Any OS (portable GUI) | `vaptvupt-gui-5.2.1-portable.zip` | Python GUI + launchers for Windows/macOS/Linux/BSD; needs Python 3.8+ and PySide6 (or PyQt6), plus the `vaptvupt` CLI on PATH |
-| BSD / others | `vaptvupt-5.2.1.tar.gz` | Build the CLI from source (`make`); run the portable GUI |
-
-The native Windows/macOS installers are produced by the project's CI
-(`.github/workflows/cross-platform.yml`) on real Windows and macOS runners — see
-the GitHub release. The portable GUI package runs the same GUI everywhere Python
-and Qt are available.
-
-```bash
-# Verify downloads first
-sha256sum -c SHA256SUMS.txt
-
-# Debian / Ubuntu / Mint
-sudo dpkg -i vaptvupt_5.2.1_amd64.deb
-sudo apt-get install -f       # resolve any missing deps
-
-# Fedora / RHEL / openSUSE / AlmaLinux / Rocky and other RPM-based distros
-sudo rpm -i vaptvupt-5.2.1-1.x86_64.rpm
-# or
-sudo dnf install ./vaptvupt-5.2.1-1.x86_64.rpm
-
-# AppDir tarball (no install, no FUSE required)
-tar xzf vaptvupt-5.2.1-x86_64.AppDir.tar.gz
-./vaptvupt-5.2.1-x86_64.AppDir/AppRun --help
-
-# GUI AppImage (single executable)
-chmod +x VaptVupt-GUI-5.2.1-x86_64.AppImage
-./VaptVupt-GUI-5.2.1-x86_64.AppImage
-```
-
-### Building from SRPM (Fedora / RHEL / RPM-based distributions)
-
-```bash
-tar xzf vaptvupt-5.2.1.srpm.tar.gz
-cd ~/rpmbuild  # or use rpmbuild --define "_topdir $(pwd)"
-rpmbuild -bb SPECS/vaptvupt.spec
-sudo rpm -i RPMS/x86_64/vaptvupt-5.2.1-1.*.rpm
-```
-
-### Basic usage
-
-```bash
-# Compress a directory (auto-selects codec for your hardware)
-vaptvupt compress backup.zupt ~/Documents/
-
-# Compress at a specific level (1=fast, 5=balanced, 9=extreme)
-vaptvupt compress -l 9 backup.zupt ~/Documents/
-
-# Force the VaptVupt codec (default on AVX2/NEON hardware)
-vaptvupt compress --vv -l 5 backup.zupt ~/Documents/
-
-# Multi-threading (-t 0 = auto-detect cores)
-vaptvupt compress -t 0 -l 5 backup.zupt ~/Documents/
-
-# Password encryption (AES-256-CTR + HMAC-SHA256, PBKDF2-SHA256 KDF)
-vaptvupt compress -p "my-strong-password" backup.zupt ~/Documents/
-
-# List archive contents
-vaptvupt list backup.zupt
-
-# Show archive metadata (no password needed)
-vaptvupt info backup.zupt
-
-# Verify archive integrity (HMAC + per-block checksums)
-vaptvupt test backup.zupt
-vaptvupt test -p "my-strong-password" backup.zupt
-
-# Extract
-vaptvupt extract -o ~/restored/ backup.zupt
-vaptvupt extract -p "my-strong-password" -o ~/restored/ backup.zupt
-
-# Benchmark all 9 levels on a file
-vaptvupt bench big-file.tar
-```
-
-#### Post-quantum encryption
-
-```bash
-# Native --pq (ML-KEM-768 + X25519 hybrid KEM, in-tree, default build).
-# Recommended for new archives.
-vaptvupt keygen -o mykey.key
-vaptvupt keygen --pub -o pub.key -k mykey.key
-vaptvupt compress --pq pub.key backup.zupt ~/Documents/
-vaptvupt extract  --pq mykey.key -o ~/restored/ backup.zupt
-
-# Native --pq-only (full/pure ML-KEM-768, no classical component).
-# Use only for "PQ-only" compliance postures; --pq (hybrid) is safer.
-vaptvupt keygen --pq-only -o pqkey
-vaptvupt keygen --pub --pq-only -o pqkey.pub -k pqkey
-vaptvupt compress --pq-only pqkey.pub backup.zupt ~/Documents/
-vaptvupt extract  --pq-only pqkey -o ~/restored/ backup.zupt
-```
-
-The SDK-backed modes below require a `make WITH_SDK=1` build linked against
-the separately distributed `libzuptsdk`/`libpqvaptvupt`:
-
-```bash
-# --pq-sdk (HKDF combiner + key commitment + HPKE binding + Argon2id)
-vaptvupt keygen --sdk -o mykey.priv     # writes mykey.priv and mykey.priv.pub
-vaptvupt compress --pq-sdk mykey.priv.pub backup.zupt ~/Documents/
-vaptvupt extract  --pq-sdk mykey.priv -o ~/restored/ backup.zupt
-
-# --pq-box sealed-box (ML-KEM-768 + X25519 via HKDF-SHA256 combiner)
-vaptvupt keygen --box -o box.key                       # writes box.key + box.key.pub
-vaptvupt compress --pq-box box.key.pub backup.zupt ~/Documents/
-vaptvupt extract  --pq-box box.key -o ~/restored/ backup.zupt
-```
-
-#### Full-disk backup
-
-```bash
-# Backup a disk or partition (sparse-detection skips zero regions)
-sudo vaptvupt disk backup -l 5 disk.zupt /dev/sda
-
-# With encryption
-sudo vaptvupt disk backup -p "passphrase" -l 5 disk.zupt /dev/sda
-
-# Restore (writes raw bytes back to a block device or file)
-sudo vaptvupt disk restore disk.zupt /dev/sdb
-sudo vaptvupt disk restore -p "passphrase" disk.zupt /dev/sdb
-
-# Backup a partition image file (no root needed)
-vaptvupt disk backup -l 5 part.zupt /path/to/partition.img
-```
-
----
-
-## Auto Codec Detection
-
-VaptVupt selects the compression codec based on your hardware (since
-v2.0.0). No flags needed — `vaptvupt compress` picks the fastest option
-available.
-
-| Architecture | SIMD Available | Default Codec | Decode Throughput |
-|---|---|---|---|
-| x86_64 + AVX2 | AVX2 inline SIMD | VaptVupt | ~2–3 GB/s |
-| x86_64 (no AVX2) | Scalar | VaptVupt-LZHP | ~500 MB/s |
-| aarch64 + NEON | NEON SIMD | VaptVupt | ~1–2 GB/s |
-| armhf, ppc64le, s390x, riscv64 | Scalar | VaptVupt-LZHP | ~300–500 MB/s |
-
-Decompression is universal. An archive created with VaptVupt on x86_64
-extracts on aarch64 (NEON or scalar decode) and vice versa. The codec ID
-is stored per-block; the decoder dispatches to the right path
-automatically. Override with `--vv` or `--lzhp`.
-
----
-
-## VaptVupt Codec
-
-VaptVupt combines LZ77 dictionary matching with tANS (table-based
-Asymmetric Numeral Systems) entropy coding and SIMD-accelerated
-decompression.
-
-This release embeds VaptVupt codec 2.65.3 (from the
-[vaptvupt-codec](https://git.securityops.co/cristiancmoises/vaptvupt-codec)
-repository, tag v2.65.0). Over the previous 2.60.4 it adds a faster balanced
-encoder and the Sprint 124–130 extreme-mode literal-pricing improvements. Two
-in-tree audit patches ride on top of the vendored source (an ANS decode
-safe-zone reserve and an AVX2 offset-read bound). See [CHANGELOG.md](CHANGELOG.md).
-
-### Architecture
-
-```
-Encoder: Hash-chain LZ77 → 5-byte multiply-shift hash, rep-match (3 recent offsets),
-         lazy-2 parsing, AVX2 match extension (32 bytes/cycle), cost-aware lazy parser
-Entropy: Canonical Huffman | tANS | 4-way interleaved ANS | order-1 context model
-         4-stream Huffman literal coding (lit_fmt=4) for structured data
-Decoder: AVX2 inline SIMD copies, tiered by offset (32/16/8/overlap), safe-zone fast path
-         NEON SIMD on aarch64, scalar fallback on all architectures
-Format:  v1 frame (default) and v2 frame (T-tag, min_match=3) for binary data
-```
-
-### Modes
-
-| Mode | CLI | Chain Depth | Entropy | Use Case |
-|------|-----|-------------|---------|----------|
-| Ultra-Fast | `-l 1` to `-l 2` | 4 | None | Speed priority, streaming |
-| Balanced | `-l 3` to `-l 7` (default) | 48 | 4-way ANS | General backup data |
-| Extreme | `-l 8` to `-l 9` | 256 | Order-1 context ANS + cost-aware lazy parser | Maximum compression |
-
-The wrapper leaves the codec's `format_v2` flag on **auto**: since codec
-v2.61.0 the encoder enables the `T`-tag / min_match=3 path for binary-detected
-input on its own and keeps the optimal `S` parser for text. (Forcing it, as
-5.0.0 did, routed text through the binary path and roughly halved the
-extreme-mode text ratio.) Block size scales with level so the extreme parser
-gets a real window (see [`auto_block_size`](src/zupt_format.c)); `--dedup`
-overrides that with a small block so block-level deduplication still finds
-duplicates.
-
-### Measured benchmark
-
-Head-to-head ratio and throughput against zstd / gzip / lz4 are in the
-[Compression comparison](#compression-comparison) section above (codec 2.65.0,
-this release). Reproduce any cell with `vaptvupt -b <file>`.
-
-Reading those numbers:
-
-- On ratio VaptVupt-9 **wins outright on logs and JSON** and is within a few
-  percent of `zstd -19`-class output on text and source. `zstd` still
-  *compresses* faster; VaptVupt *decodes* 2–4× faster than it compresses.
-- Encode throughput is the tradeoff. The optimal parser and hash-chain walk
-  that win ratio cost encode speed; extreme (`-l 8`/`-l 9`) is the
-  "spend CPU for the smallest archive" setting. For everyday backups use the
-  default balanced `-l 7` (fast and still a strong ratio); for
-  encode-latency-bound workloads use `-l 1`/`-l 2`.
-- On random / already-compressed data, all codecs hit the
-  incompressibility wall.
-
-### Security regression tests
-
-Every release re-runs the security regression matrix (`make check`,
-≈2 minutes on x86_64 and aarch64). It covers:
-
-- HMAC single-bit tamper detection and honest roundtrips.
-- Archive-integrity trailer (header/footer tamper detection).
-- Byte-level integrity sweep on a PQ archive (every byte flipped).
-- KDF default (PBKDF2-SHA256) and self-describing header transparency,
-  with back-compat and fail-closed on unknown profiles.
-- Indistinguishable wrong-password vs tampered-archive error messages.
-- Encrypted comment block bound to per-block AAD.
-- Constant-time comparison (dudect Welch t-test on MAC tag and ML-KEM
-  decaps) plus a source-routing guard.
-- Codec exact-`content_size` decode cases (incl. BCJ payloads) under ASan.
-- NIST/RFC test vectors: SHA-256, SHA-3, SHAKE-128, ML-KEM-768,
-  AES-256-CTR (SP 800-38A), HMAC-SHA256, X25519, XXH64.
-- Path-traversal refusal, block-swap detection, deduplication correctness,
-  and CLI argument-order invariance.
-
-`make test` runs the full suite including dist reproducibility and
-packaging-syntax checks.
-
-### Codec notes
-
-- **tANS entropy** — asymptotically optimal coding with single-instruction
-  decode per symbol (vs Huffman's multi-step tree walk).
-- **4-way interleaved ANS** — decodes 4 symbols per bitstream refill cycle.
-- **4-stream Huffman literal coding** (`lit_fmt=4`) — improves ratio on
-  structured data.
-- **AVX2/NEON SIMD decode** — inline 32-byte copies with tiered offset
-  handling. Scalar fallback on unsupported hardware.
-- **Rep-match** — checks 3 recent offsets before the hash probe (O(1) vs
-  O(chain_depth)), hitting ~30% of matches.
-- **Order-1 context model** — captures byte-pair correlations in structured
-  data (JSON, CSV, logs).
-- **Cost-aware lazy parser** — puts Extreme mode ahead of zstd-3 in
-  aggregate ratio.
-- **Adaptive window** — trial-compresses at wlog=16 vs wlog=20, picking the
-  larger window only if ≥3% improvement.
-- **`format_v2`** (T-tag, min_match=3) — 4–7% better binary ratio;
-  transparent to v2.33.0+ decoders.
-- **Memory hygiene** — encoder working buffers scrubbed via
-  `vv_secure_zero` before `free()`.
-- **~6,500 lines** of pure C11.
-
----
-
-## Post-Quantum Encryption
-
-VaptVupt has two native PQ modes, both in-tree and available in the default
-build.
-
-**`--pq` — hybrid ML-KEM-768 + X25519 (envelope `0x02`, recommended):**
-
-```
-Public key → ML-KEM-768 Encaps + X25519 ECDH → hybrid shared secret
-           → SHA3-512(ss ‖ transcript) → enc_key[32] + mac_key[32]
-           → AES-256-CTR + HMAC-SHA256 per block
-```
-
-Security model: secure if **EITHER** ML-KEM-768 (post-quantum) **OR** X25519
-(classical) is secure. This is the recommended default — it stays safe even
-if one primitive is later broken.
-
-**`--pq-only` — full/pure ML-KEM-768 (envelope `0x06`):**
-
-```
-Public key → ML-KEM-768 Encaps → shared secret ss, ciphertext ct
-           → archive_key = SHA3-512(ss ‖ ct ‖ "ZUPT-PQ-ONLY-v1")
-           → AES-256-CTR + HMAC-SHA256 per block
-```
-
-Security model: secure if ML-KEM-768 is secure — there is **no classical
-fallback**. Choose this only when a policy mandates a single NIST-standardised
-PQ primitive with no classical KEM in the envelope (CNSA 2.0-style "PQ-only").
-The trade-off is explicit: a future break of ML-KEM-768 *alone* breaks the
-archive, whereas under `--pq` the attacker must also break X25519. **When in
-doubt, use `--pq`.**
-
-Password mode (`-p`) is not quantum-safe. Use `--pq` (or `--pq-only`) for
-long-term protection.
-
-The SDK-backed `--pq-sdk` and `--pq-box` modes are optional and require a
-`make WITH_SDK=1` build against `libzuptsdk`/`libpqvaptvupt`.
-
----
-
-## Full-Disk Backup
-
-Clone disks, partitions, or raw images with compression and encryption in
-one command.
-
-### Quick start
-```bash
-# Clone a partition (requires read access)
-sudo vaptvupt disk backup backup.zupt /dev/sda1
-
-# Clone with post-quantum encryption
-vaptvupt keygen -o mykey.key
-vaptvupt keygen --pub -o pub.key -k mykey.key
-sudo vaptvupt disk backup --pq pub.key backup.zupt /dev/nvme0n1p2
-
-# Clone with password encryption
-sudo vaptvupt disk backup -p backup.zupt /dev/sda1
-
-# Maximum compression (level 9, extreme mode)
-sudo vaptvupt disk backup -l 9 backup.zupt /dev/sda1
-
-# Restore to a device or file
-sudo vaptvupt disk restore backup.zupt /dev/sda1
-sudo vaptvupt disk restore --pq mykey.key backup.zupt /dev/sda1
-```
-
-### How it works
-
-```
-Source device → Read 4MB blocks → Sparse detection → Compress → Encrypt → Write .zupt
-                                      │                 │          │
-                                      │                 │          └─ AES-256-CTR + HMAC-SHA256
-                                      │                 └─ VaptVupt/LZHP (auto-selected)
-                                      └─ Zero blocks stored as STORE (near-zero overhead)
-```
-
-VaptVupt reads the source device sequentially in 4MB chunks. Each block is
-checked for all-zero content (8-byte-wide comparison). Zero blocks are
-stored with codec `STORE` — effectively just the block header with no
-payload. Non-zero blocks are compressed with the selected codec and
-optionally encrypted. Per-block XXH64 checksums ensure byte-for-byte
-integrity on restore.
-
-### Best practices
-
-Encryption modes:
-
-| Mode | Command | Security Level | Speed Impact |
-|------|---------|---------------|-------------|
-| PQ Hybrid | `--pq pub.key` | Quantum-resistant + classical | ~5% overhead |
-| Password | `-p` | AES-256, PBKDF2-SHA256 600K iter | ~3% overhead |
-| None | (default) | Integrity only (XXH64) | Fastest |
-
-Compression levels for disks:
-
-| Level | Mode | Best for | Typical ratio |
-|-------|------|----------|--------------|
-| `-l 1` to `-l 3` | Ultra-Fast | Live systems, NVMe (speed priority) | 1.5–2.5:1 |
-| `-l 4` to `-l 7` | Balanced (default) | General partitions, ext4/NTFS | 2–5:1 |
-| `-l 8` to `-l 9` | Extreme | Cold storage, archival backups | 3–10:1 |
-
-Operational guidance:
-
-- Unmount before backup for filesystem consistency. For live systems use
-  LVM snapshots or filesystem freeze:
-  `fsfreeze -f /mnt/data && vaptvupt disk backup ... && fsfreeze -u /mnt/data`.
-- Block devices require root on Linux. Regular files (disk images, `.img`,
-  `.raw`) do not.
-- Sparse-heavy disks compress well — the sparse detector skips zero blocks
-  at memory-copy speed with no compression overhead.
-- Verify after backup with `vaptvupt test archive.zupt` — checks every
-  block's XXH64 checksum without extracting.
-- For long-term disk backups use `--pq`. Generate one keypair, store the
-  private key offline, distribute the public key.
-- Restore is non-destructive on files (creates/overwrites the file);
-  writing to a block device overwrites the raw device. Double-check the
-  target path before restoring to a device.
-
----
-
-## Multi-Architecture Support
-
-The Makefile auto-detects the platform and enables the best available
-features.
-
-| Feature | x86_64 | aarch64 | armhf | ppc64le | s390x | riscv64 |
-|---------|--------|---------|-------|---------|-------|---------|
-| Jasmin CT crypto | yes | C fallback | C fallback | C fallback | C fallback | C fallback |
-| AES-NI hardware | yes (with AVX) | — | — | — | — | — |
-| AVX2 SIMD decode | yes | — | — | — | — | — |
-| NEON SIMD decode | — | yes | — | — | — | — |
-| Default codec | VaptVupt | VaptVupt | LZHP | LZHP | LZHP | LZHP |
-| All codecs decode | yes | yes | yes | yes | yes | yes |
-
-Build for packaging (PIE, hardening flags):
-```bash
-make CFLAGS="-Wall -Wextra -O2 -std=c11 -fPIE -Iinclude -Isrc" LDFLAGS="-pie -Wl,-z,relro,-z,now"
-make install DESTDIR=/buildroot
-```
-
----
-
-## Security
-
-```
-Password mode:  Password → PBKDF2-SHA256 (600K iter) → enc_key + mac_key
-PQ hybrid mode: Public key → ML-KEM-768 Encaps + X25519 ECDH → enc_key + mac_key
-Per-block:      AES-256-CTR(enc_key, nonce ⊕ seq) + HMAC-SHA256(mac_key)
-Key protection: mlock() prevents swap, buffer canaries detect overflow
-Timing:         Always-decrypt mitigation (no timing oracle on MAC failure)
-AES dispatch:   AVX+AES-NI check with OSXSAVE/XCR0 (no SIGILL on any CPU)
-Path safety:    Zip Slip / symlink defenses (zupt_path_is_safe + O_NOFOLLOW)
-Verification:   5 Jasmin CT proofs, 19 ACSL contracts, 16 NIST/RFC test vectors
-```
-
-The `WITH_SDK=1` build adds an HKDF-SHA3 combiner with domain separation,
-key commitment, and HPKE binding for the `--pq-sdk`/`--pq-box` modes, plus
-the Argon2id KDF.
-
-Internal audit passes on the 2.2.x line fixed 14 bugs, including a
-HIGH-severity Zip Slip path traversal. There has been no external audit.
-See [SECURITY.md](SECURITY.md) for the threat model and honest scope, and
-[FORMAL_AUDIT_PROMPT.md](FORMAL_AUDIT_PROMPT.md) for the audit methodology.
-
-Report security vulnerabilities per [SECURITY.md](SECURITY.md).
-
----
-
-## Usage
-
-```
-vaptvupt compress [OPTIONS] <output.zupt> <files/dirs...>
-vaptvupt extract  [OPTIONS] <archive.zupt>
-vaptvupt list     [OPTIONS] <archive.zupt>
-vaptvupt test     [OPTIONS] <archive.zupt>
-vaptvupt disk     backup [OPTIONS] <output.zupt> <device_or_file>
-vaptvupt disk     restore [OPTIONS] <archive.zupt> <target>
-vaptvupt bench    [--compare] <files/dirs...>
-vaptvupt keygen   [-o file] [--pub] [-k privkey]
-vaptvupt version
-vaptvupt help
-```
-
-| Option | Description |
-|--------|-------------|
-| `-l <1-9>` | Compression level (default: 7) |
-| `-t <N>` | Thread count (0=auto, 1=single, 2–64) |
-| `-p [PW]` | Password encryption (PBKDF2-SHA256 → AES-256) |
-| `--pq <keyfile>` | Post-quantum hybrid encryption |
-| `-o <DIR>` | Output directory (extract) |
-| `-s` | Store without compression |
-| `-f` | Fast LZ codec (VaptVupt-LZ) |
-| `--vv` | Force VaptVupt codec |
-| `--lzhp` | Force VaptVupt-LZHP codec |
-| `-v` | Verbose |
-| `--solid` | Solid mode (cross-file LZ context) |
-| `--compare` | Codec comparison benchmark |
-
----
-
-## Building
-
-```bash
-make                        # Default build: C compiler + make only
-make WITH_SDK=1             # Link libzuptsdk/libpqvaptvupt: --pq-sdk, --pq-box, Argon2id
-make V=1                    # Verbose build output
-make test-all               # Regression + NIST + VV + MT + PQ + disk
-make test-vv                # VaptVupt codec unit tests only
-make test-asan              # AddressSanitizer + UBSan build
-make fuzz-build             # AFL++ fuzzing harnesses
-make install                # Install binary + man page
-make help                   # Show all targets + detected capabilities
-build.bat                   # Windows (MSVC)
-```
-
-### Benchmark
-```bash
-vaptvupt bench ~/Documents/             # Per-level benchmark (levels 1-9)
-vaptvupt bench --compare                # Cross-codec comparison (auto-generates corpus)
-vaptvupt bench --compare ~/Documents/   # Compare codecs on your own data
-```
-
----
-
-## Codec Reference
-
-| ID | Name | Algorithm | Default on | Override |
-|----|------|-----------|------------|----------|
-| `0x0010` | VaptVupt | LZ77 + tANS + AVX2/NEON SIMD | x86_64 (AVX2), aarch64 (NEON) | `--vv` |
-| `0x000A` | VaptVupt-LZHP | LZ77 + Huffman + byte prediction | armhf, ppc64le, s390x, riscv64 | `--lzhp` |
-| `0x0009` | VaptVupt-LZH | LZ77 + Huffman | — | — |
-| `0x0008` | VaptVupt-LZ | Fast LZ77, 64KB window | — | `-f` |
-| `0x0000` | Store | No compression | — | `-s` |
-
-All codecs are forward-compatible: archives created with any codec can be
-read by any VaptVupt version that includes that codec, on any architecture.
-VaptVupt archives require VaptVupt v2.0+.
-
----
-
-## Release History
-
-| Version | Description |
-|---------|-------------|
-| v0.1–v0.6 | LZ77 compression, AES-256 encryption, multi-threading |
-| v0.7 | Post-quantum hybrid encryption (ML-KEM-768 + X25519) |
-| v1.0 | Stable release — format frozen v1.4, security audit |
-| v1.1–v1.5.5 | X25519 fix, NIST vectors, CPUID detection, Jasmin CT assembly linked, build-system improvements |
-| v2.0 | VaptVupt codec, auto hardware detection, all 5 Jasmin wired, AVX SIGILL fix, ACSL, mlock, fuzzing, canaries, AES-NI pipeline, MT decompress, multi-arch (6 arches), `--lzhp` |
-| v2.1.x | Cross-block dictionary carry, Termux/Android build fix, full-disk backup/restore, LZHP fix, CodeQL fixes, block-level deduplication |
-| v2.2.x | libzuptsdk integration (`--pq-sdk`), VaptVupt 2.48.2 codec (cost-aware lazy parser, 4-stream Huffman, `format_v2`), audit findings F-01..F-07 closed (incl. F-06 high) |
-| v2.3.x | F-08/F-09 closed: archive-integrity trailer + preface-AAD MAC (format v1.5 → v1.6) |
-| v2.4.x | PBKDF2/Argon2id KDF work (F-10), error-message hygiene (F-11), encrypted comments (F-12), packaging arc (deb/RPM/AUR/Nix/Homebrew/OBS), THREAT_MODEL.md, manpage + completions, distro-safe `make check` |
-| v3.0.x | Renamed Zupt → VaptVupt (INPI Brasil trademark), VV codec 2.48.5, GUI fixes, F-13 fix. Wire format unchanged; `zupt` kept as compat symlink |
-| v3.1.0–v3.3.0 | Codec 2.48.5 → 2.53.3, decode over-copy fix, SHA-256 hardware acceleration (Intel SHA-NI), incremental per-block HMAC |
-| v3.4.0–v3.8.0 | F-15 KDF parameter transparency, measured constant-time MAC comparison (dudect), NIST SP 800-38A AES-CTR vectors, ML-KEM decaps through the CT primitive, consolidated benchmarks |
-| v4.0.0 | Codec 2.60.4 security release (OOB heap write fixed in AVX2 decode fast path), `--pq-box` sealed-box mode, F-16 data-loss disclosure + fix (old in-tree BCJ encoder), CBMC-verified BCJ filters with auto ELF/PE/Mach-O detection, SHA-NI acceleration. Wire format v1.6 |
-| v4.1.0 | Source-only tree (prebuilt libzuptsdk/libpqvaptvupt removed); default build needs only a C compiler + make; native `--pq` is the default PQ mode; `--pq-sdk`/`--pq-box`/Argon2id gated behind `make WITH_SDK=1`. Wire format stays v1.6 |
-| v4.2.0 | Full (pure) post-quantum mode `--pq-only` (ML-KEM-768 only, envelope 0x06); critical fix for AES-CTR keystream reuse under `--dedup` (fresh random per-block nonce); clearer SDK keygen guidance. Wire format stays v1.6 |
-| v4.2.1 | `vaptvupt info` now reports the real post-quantum mode (`--pq-only` no longer mislabelled as hybrid); reader-side only, no wire-format change |
-| v5.0.0 | Genuine FIPS 203 ML-KEM-768 (validated vs OpenSSL); CLI data-loss/plaintext guards; AVX2 decoder OOB-read fix; GUI reworked for native PQ modes; cross-platform packaging. **Breaking:** `--pq`/`--pq-only` keys+archives from ≤4.2.1 do not decrypt |
-| v5.1.0 | Codec 2.65.0; large compression-ratio gains (auto-`format_v2` + level-scaled block window — text extreme 3.77×→5.98×, logs 7.21×→9.07×); `--dedup` keeps a small block automatically; GUI compress-hang / job-completion-crash / Wayland-map fixes. Wire format stays v1.6, fully interoperable with 5.0.0 |
-| v5.2.0 | Fixed a GUI cross-thread crash (compress could close the app / corrupt the archive, worst on full-PQ); codec 2.65.3 (~2× faster extreme, byte-identical output); libvuptsdk (renamed libzuptsdk) for `WITH_SDK=1` `--pq-sdk`/Argon2id; `--pq-box` split to `WITH_PQBOX=1`. Wire format v1.6, interoperable with 5.0.x/5.1.0 |
-| v5.2.1 | GUI Verify/Extract now auto-detect the archive's encryption from its header, use the matching decrypt flag automatically, and guide you when a password/key is missing instead of dumping a raw error; Verify runs in the background. Refreshed comparison + audit tables. GUI + docs only; no format/codec change |
-
-See [CHANGELOG.md](CHANGELOG.md) for detailed per-version changes.
-
----
+~~~
+
+The upstream default prefix is `/usr/local`. Use a staged `PREFIX=/usr`
+installation for packaging rather than writing directly into `/usr` as an
+unprivileged user.
+
+For packaging or inspection:
+
+~~~sh
+stage=$(mktemp -d)
+make install DESTDIR="$stage" PREFIX=/usr INSTALL_LEGACY_ALIAS=0
+find "$stage" -print
+~~~
+
+`INSTALL_LEGACY_ALIAS=1` explicitly adds the renamed-era compatibility command
+and manual page named `vaptvupt`. The default is 0. Distribution packages
+should keep it at 0 unless they have verified ownership and conflicts for that
+compatibility name.
+The openSUSE package installs `zupt` as the primary command.
+
+Uninstall uses the same path variables:
+
+~~~sh
+sudo make uninstall PREFIX=/usr/local INSTALL_LEGACY_ALIAS=0
+~~~
+
+## Tests
+
+The principal source-only gates are:
+
+~~~sh
+make WITH_SDK=0 WITH_PQBOX=0 check
+make WITH_SDK=0 WITH_PQBOX=0 test-all
+make test-asan
+make test-asan-run
+make audit-licenses
+bash tests/test_source_only.sh
+bash scripts/test-installed-zupt.sh ./zupt
+~~~
+
+The installed/functional test covers text, random and empty files, nested
+directories, spaces and UTF-8 names, archive verification, extraction and
+SHA-256 comparison, wrong-password rejection, corrupt-archive rejection,
+destination-symlink escape protection, atomic archive-output replacement,
+--help, --version and invalid options.
+
+`disk restore` first copies the measured archive into a private, auto-deleted
+scratch file, validates that snapshot, and restores from the same open stream.
+Set `ZUPT_TMPDIR` to an existing private scratch directory when the default
+temporary filesystem lacks space; it must hold at least the compacted archive
+size. An invalid override fails without falling back elsewhere or opening the
+destination. Regular-file destinations retain atomic publication; raw block
+devices are accepted only when their capacity can be determined and is large
+enough. The privileged undersized-loop-device regression is reported `SKIP`,
+not `PASS`, when the environment cannot create a loop device.
+
+The final release gate must also rerun the positional-AAD and mandatory-AIT
+regressions on the exact tagged candidate. Results obtained before those final
+integrity changes are useful diagnostic evidence, but are not promoted as final
+release results. The openSUSE matrix records unexecuted gates as `SKIP`.
+
+Private-key creation/parsing, terminal-safe comment display, POSIX prompt signal
+cleanup, explicit-Bash regression execution, and scanner-resource-limit changes
+are final self-audit release blockers. Their focused regressions and the full
+required suite remain pending until rerun on the exact candidate; this README
+does not convert intermediate results into a final `PASS`.
+
+On Windows, 5.2.2 scopes output handling to normal local Win32 paths. A MinGW
+cross-build or Wine run is not native-Windows evidence; the `windows-latest`
+package job, including its Unicode round trip, remains a mandatory publication
+gate. Win32 extended-length and device-namespace paths, raw UNC output roots
+such as `\\server\share`, and mapped/network-drive output are not supported in
+this version. Restore to a normal local path first.
+
+Tests for WITH_SDK=1 or WITH_PQBOX=1 are optional-dependency tests. A missing
+system library is reported as SKIP and is never counted as a PASS for that
+feature.
+
+## Trusted legacy archives without AIT
+
+`extract`, `list`, `test`, and `disk restore` require a valid
+archive-integrity trailer by default, without trusting header flags to decide
+whether authentication is required. This prevents an attacker from silently
+removing the trailer, clearing an unauthenticated encryption flag, and
+downgrading authentication of header and footer metadata.
+`--allow-legacy-no-ait` is accepted only by `extract`, `list`, `test`, and
+`disk restore`, and exists only to recover a known, trusted archive created
+before AIT was introduced. Do not use that override for an archive from
+untrusted or attacker-writable storage; verify and migrate the recovered data to
+a newly created 5.2.2 archive. Compression and disk backup never create a
+no-AIT archive.
+
+`info` is deliberately different: it reports unauthenticated framing metadata,
+including whether a trailer appears to be present, without validating the AIT
+or archive contents. Its success is not an integrity result and must not be used
+to decide that an untrusted archive is safe.
+
+This no-AIT exception is distinct from the v5.2.1 disk-index compatibility
+path. Published v5.2.1 disk archives normally have an AIT; the narrow
+compatibility scope includes an actual v5.2.1 password-encrypted, deduplicated
+disk archive with a DATA/DATA/REF/DATA sequence using the fixed-width legacy index
+and the legacy linear AAD sequence. The repository stores that 718-byte archive
+as auditable hexadecimal text with its provenance and SHA-256; the candidate
+lists, tests, extracts, and restores it byte-exact. The exact final candidate must repeat
+the gate. This is not a claim that a 5.2.1 reader understands every new
+flag-gated 5.2.2 encoding or that every historical combination was tested.
+
+The candidate commands and outcome fields for 5.2.2 are maintained in the
+release handoff and
+[packaging/opensuse/README.md](packaging/opensuse/README.md). They must be
+updated from the final release candidate before tagging. No architecture or
+distribution is claimed merely because the code has a fallback path.
+
+## Source archive
+
+Generate the reproducible source archive outside the repository:
+
+~~~sh
+make dist
+sha256sum /tmp/zupt-5.2.2.tar.gz
+bash scripts/check-source-only.sh \
+    --archive /tmp/zupt-5.2.2.tar.gz
+~~~
+
+Archive ordering, ownership and timestamps are normalized. The default epoch is
+recorded in `.source-date-epoch`; a packager may override SOURCE_DATE_EPOCH.
+Running the export twice from identical committed input and epoch must produce
+the same SHA-256. The AUR, Homebrew and Guix recipes are `export-ignore` so
+their checksum fields do not make the archive self-referential. `make dist`
+archives the verified `HEAD` tree object rather than embedding the commit ID,
+so a commit changing only those ignored recipes leaves the fixed-epoch archive
+byte-identical. The recipes remain versioned in Git and must be filled with the
+final digest before the tag is published.
+
+## openSUSE and OBS
+
+The maintained upstream recipe is in packaging/opensuse. It is prepared for an
+immutable v5.2.2 tag, disables submodules and Git LFS, builds with
+WITH_SDK=0 WITH_PQBOX=0, runs real checks, and installs without the renamed-era
+`vaptvupt` alias.
+
+This repository does not claim that the package has been submitted to or
+accepted by openSUSE Factory. The packaging README distinguishes local parsing,
+container/RPM builds, OBS operations and architectures that were not executed.
+
+## Bundled codec provenance
+
+The bundled compression codec is source from recorded upstream tag v2.65.3.
+The immutable integration commit is
+59f9ebc59ea13c6edf1d199ca795cdbf00e62226. The repository also records local
+integration adjustments; details are in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+The package declares bundled(vaptvupt-codec) = 2.65.3. It does not claim that
+the codec is unbundled or provided by a system library.
+
+## Security notes
+
+- Keep passwords and private keys out of command histories where possible. Use
+  `--password-prompt`, `--pass-file` with restrictive permissions, or an
+  inherited descriptor through `--pass-fd`; `-p/--password` exposes its next
+  argument to process inspection.
+- Native private-key generation refuses an existing destination and uses POSIX
+  mode `0600` or a Windows current-user-only DACL. A failed write/flush/close
+  leaves its incomplete or durability-uncertain exclusive file for manual
+  review and removal instead of unlinking a possibly replaced pathname.
+  ZKEY/ZPQK inputs with a bad
+  checksum, version, flags, reserved bytes, length, or role are rejected.
+- Compression does not protect a compromised endpoint or weak credentials.
+- Archive metadata and total size can still reveal information.
+- Treat unexpected authentication, format or integrity errors as failures; do
+  not discard the original input until a restored copy has been verified.
+- Report vulnerabilities according to [SECURITY.md](SECURITY.md).
+
+## GUI
+
+The optional GUI is under `gui/`. It invokes the `zupt` CLI and needs Python 3
+plus PySide6 or PyQt6. GUI image assets are data files whose purpose,
+provenance and license are recorded in [gui/assets/README.md](gui/assets/README.md).
+The integrated source and lightweight consistency checks do not constitute a
+target-native audit of every historical GUI format. The 5.2.2 artifact promise
+is limited to the gated GUI DEB, noarch/source RPM, and source-only portable ZIP
+listed above; AppImage, AppDir, Flatpak bundles, and platform GUI installers
+remain excluded.
+
+## Maintainers and openSUSE credit
+
+Cristian Cezar Moisés is the creator and current upstream maintainer of
+ZUPT and the author of the upstream 5.2.2 source, build, test,
+documentation, and packaging changes.
+
+Alessandro de Oliveira Faria (Cabelo) is credited as the openSUSE collaborator
+and downstream package maintainer. He reviews the handoff, commits it in the
+OBS project he maintains, and may make the additional openSUSE-side adjustments
+he considers necessary. That downstream role is not attribution of ZUPT
+source authorship or of the upstream 5.2.2 changes.
 
 ## License
 
-VaptVupt is dual-licensed:
+The application and tool code are AGPL-3.0-or-later. The separately identified
+bundled compression codec files are GPL-3.0-or-later. The adapted XXH64
+routines additionally retain Yann Collet's BSD-2-Clause terms. Portions of the
+native ML-KEM implementation adapted from pq-crystals/kyber use its CC0-1.0
+option. Portions of native X25519 adapted from curve25519-donna retain its
+BSD-3-Clause terms; the x86 BCJ state machine is adapted from Igor Pavlov's
+public-domain LZMA SDK source. Preserve all five license texts, NOTICE,
+THIRD-PARTY-NOTICES.md, copyright notices and per-file SPDX headers.
 
-- **AGPL-3.0-or-later** — most of the codebase (CLI, GUI, Jasmin source).
-  See [`LICENSE`](LICENSE).
-- **GPL-3.0-or-later** — the VaptVupt LZ codec only (`src/vv_*.c`,
-  `src/vaptvupt_api.c` and headers), so it can be considered for
-  upstreaming into the Linux/BSD kernels.
-- **Separate commercial agreement** may be available for first-party rights
-  when the applicable AGPL/GPL option does not fit. Rights exist only in an
-  agreement signed by the copyright holder and licensee; `LICENSE-COMMERCIAL`
-  is not itself a grant. Contact `sac@securityops.co`.
+Published historical revisions include MIT grants for exact first-party
+material distributed with those notices. Those permissions are not revoked by
+the current SPDX notices; see `LICENSE`, `gui/LICENSE-GUI`, and the 5.2.2
+licensing erratum in `CHANGELOG.md` for the recorded scope and evidence.
 
-Every source file carries an explicit SPDX header. See
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for full attribution.
-Per-file notices control and no commercial agreement relabels third-party or
-vendored material.
-
-## Acknowledgements
-
-- **openSUSE packaging** — [Alessandro de Oliveira Faria (CABELO)](https://github.com/cabelo)
-  &lt;cabelo@opensuse.org&gt;, openSUSE maintainer, packaged VaptVupt for the openSUSE
-  Build Service (the recipe under [`packaging/opensuse/`](packaging/opensuse/)).
-
-All compression and cryptography code is by Cristian Cezar Moisés.
-
-## Related projects
-
-All by Cristian Cezar Moisés, hosted on git.securityops.co:
-
-- [vaptvupt](https://git.securityops.co/cristiancmoises/vaptvupt) — this repo (CLI + GUI)
-- [zupt-android](https://git.securityops.co/cristiancmoises/zupt-android) — Android port
-- [zupt-web](https://git.securityops.co/cristiancmoises/zupt-web) — Web frontend
-- [libvuptsdk](https://git.securityops.co/cristiancmoises/libvuptsdk) — Standalone C SDK
-- [vaptvupt-codec](https://git.securityops.co/cristiancmoises/vaptvupt-codec) — Standalone LZ + tANS codec
-
----
-© 2026 Cristian Cezar Moisés — [git.securityops.co/cristiancmoises](https://git.securityops.co/cristiancmoises)
+A separately executed commercial agreement may be available for controlled
+first-party rights. [LICENSE-COMMERCIAL](LICENSE-COMMERCIAL) is an inquiry
+notice, not a commercial grant and not a replacement for the public licenses.

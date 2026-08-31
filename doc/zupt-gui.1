@@ -1,127 +1,157 @@
-.\" Manpage for vaptvupt-gui (formerly zupt-gui; INPI Brasil trademark rename in v3.0.0)
 .\" SPDX-License-Identifier: AGPL-3.0-or-later
 .\" Copyright (c) 2025-2026 Cristian Cezar Moisés
-.TH VAPTVUPT-GUI 1 "2026-06-11" "vaptvupt-gui 1.3.0" "User Commands"
+.TH ZUPT-GUI 1 "2026-08-31" "ZUPT 5.2.2" "User Commands"
 .SH NAME
-vaptvupt-gui \- graphical interface for the VaptVupt post-quantum backup utility
+zupt-gui \- Qt interface for the ZUPT backup utility
 .SH SYNOPSIS
-.B vaptvupt-gui
-.RI [ ARCHIVE ]
-.SH DESCRIPTION
-.B vaptvupt-gui
-is a graphical frontend for
-.BR vaptvupt (1).
-It provides tabs for compression, extraction, key management, and
-full-disk backup. Both PQ encryption modes are exposed:
-.B legacy --pq
-and
-.B SDK v2 --pq-sdk
-(HKDF combiner, key commitment, HPKE binding, Argon2id).
-
-The legacy command name
 .B zupt-gui
-is preserved as a symlink for backward compatibility; both invocations
-behave identically.
-
-If
-.I ARCHIVE
-is given on the command line, the GUI opens directly on the
-extract tab with that archive preloaded.
-
-.B vaptvupt-gui
-uses Qt 6. It works with either of the following Python Qt bindings,
-auto-detected at startup in this order:
-.IP \(bu 2
-PySide6 (Qt for Python)
-.IP \(bu 2
-PyQt6
+.RI [ ARCHIVE.zupt ]
+.br
+.B zupt-gui
+.BI --compress " FILE ..."
+.br
+.B zupt-gui
+.BI --extract " ARCHIVE.zupt"
+.br
+.B zupt-gui
+.RB [ --help | --version | --selftest ]
+.SH DESCRIPTION
+.B zupt-gui
+is a Python Qt 6 frontend for
+.BR zupt (1).
+It creates, inspects, verifies, and extracts archives by running the CLI as a
+child process. It can also request CLI disk backup and restore operations.
+The GUI does not implement an archive codec or cryptography itself.
 .PP
-If neither is installed, the GUI prints an instructive error and exits.
-
+PySide6 is tried first and PyQt6 is used as a fallback. The selected
+.B zupt
+command is checked by executing
+.BR "zupt version" .
+The ZUPT command and environment variables are preferred; renamed-era names
+are accepted only for compatibility with an existing installation.
+.PP
+When paired with the source-only baseline CLI, the frontend uses a build with
+.B WITH_SDK=0
+and
+.BR WITH_PQBOX=0 .
+Native password,
+.B --pq
+(ML-KEM-768 plus X25519), and
+.B --pq-only
+(ML-KEM-768) modes remain available. The GUI parses the CLI's
+.B Build integrations:
+line and exposes
+.B --pq-sdk
+or
+.B --pq-box
+only when libvuptsdk or libpqvaptvupt is independently reported enabled.
+These two optional integrations are detected separately.
+.PP
+The gated 5.2.2 GUI release set is limited to the architecture-independent DEB,
+noarch/source RPM, and source-only portable ZIP named in the project README.
+Package gates require exact checks and installed off-screen GUI/CLI integration.
+The portable ZIP receives source scans, an exact safe-member allowlist, and an
+extracted launcher test; it bundles no Python, Qt, CLI, or compiled runtime.
+AppImage, AppDir and Flatpak bundles and Windows/macOS GUI installers are not
+promoted; the Windows ZIP and macOS DMG are CLI-only.
+.PP
+The GUI does not expose the CLI's recovery-only
+.B --allow-legacy-no-ait
+option. A known, trusted pre-AIT archive must be recovered explicitly with the
+CLI; untrusted trailerless archives must remain rejected.
+.SH OPTIONS
+.TP
+.B --compress
+Open the Compress tab with the remaining arguments selected as inputs.
+.TP
+.B --extract
+Open the Extract tab with the following archive selected.
+.TP
+.B --selftest
+Create the complete interface, run the event loop briefly, and exit. A display
+backend (or a suitable off-screen Qt backend) is still required.
+.TP
+.BR --version , " -V"
+Print the GUI, Qt binding, CLI version, and selected CLI path.
+.TP
+.BR --help , " -h"
+Print command-line usage.
 .SH TABS
 .TP
+.B Keys
+Generate and export recipient keys. Mode choices follow CLI capability
+detection, including independent SDK and PQ-box choices when enabled.
+.TP
 .B Compress
-Select files or directories, choose codec, level, password and/or PQ
-key. The
-.B Mode
-panel controls whether the SDK v2 path or the legacy path is used.
+Choose inputs, destination, codec options, password, and an optional recipient
+public key.
 .TP
 .B Extract
-Open a .zupt archive, select output directory, provide password
-and/or PQ private key.
+Choose an archive, output directory, and any required password or private key.
+The GUI uses
+.B zupt info
+to auto-detect supported archive protection modes. That framing inspection is
+unauthenticated and is only a mode-selection hint; the subsequent CLI extract
+or test operation performs the required AIT and content validation.
 .TP
-.B Keygen
-Generate ML-KEM-768 + X25519 keypair. The
-.B SDK v2 format
-checkbox controls whether the keypair is generated via
-.B vaptvupt keygen --sdk
-(producing
-.IR file
-and
-.IR file.pub
-in one step) or via the legacy
-.BR "vaptvupt keygen" .
+.B Verify
+Inspect an archive header or run the CLI integrity test with the detected
+credential type.
 .TP
 .B Disk
-Full-disk backup and restore. Enumerates block devices with
-human-readable sizes. Same encryption mode controls as Compress.
-
-.SH FILES
+Request full-device or image backup and restore through the CLI. Raw devices
+may require operating-system privileges. Restore overwrites its selected target
+and requires explicit confirmation in the GUI.
 .TP
-.I /usr/bin/vaptvupt-gui
-Wrapper script that invokes the Python entry point (and the symlinked
-legacy
-.IR /usr/bin/zupt-gui ).
-.TP
-.I /usr/lib/vaptvupt-gui/zupt_gui.py
-Main Python source.
-.TP
-.I /usr/share/applications/vaptvupt-gui.desktop
-Desktop entry for menu integration.
-.TP
-.I /usr/share/icons/hicolor/256x256/apps/vaptvupt-gui.png
-Application icon.
-
+.B About
+Show the detected CLI version and build information.
 .SH ENVIRONMENT
 .TP
-.B VAPTVUPT_BIN
-Override the path to the
-.B vaptvupt
-binary (default: search
-.IR PATH ).
-The legacy name
 .B ZUPT_BIN
-is also honoured.
+Absolute or executable path to the preferred
+.B zupt
+command. It must pass the CLI version liveness check.
 .TP
-.B VAPTVUPT_DEBUG
-Enable binary-discovery debug logging on stderr. The legacy name
 .B ZUPT_DEBUG
-is also honoured.
-
+Print command-discovery diagnostics to standard error when non-empty.
+.TP
+.B ZUPT_NO_XCB_FALLBACK
+Disable the guarded XWayland relaunch used when a Wayland window is never
+exposed.
+.TP
+.BR VAPTVUPT_BIN , " VAPTVUPT_DEBUG" , " VAPTVUPT_NO_XCB_FALLBACK"
+Renamed-era compatibility aliases for the corresponding ZUPT variables.
+New integrations should use the ZUPT names.
+.SH FILES
+.TP
+.I /usr/bin/zupt-gui
+Installed launcher.
+.TP
+.I /usr/lib/zupt-gui/zupt_gui.py
+GUI source location used by the DEB or source installer. The noarch RPM may use
+an architecture-independent shared-data directory instead.
+.TP
+.I /usr/share/applications/zupt-gui.desktop
+Desktop entry.
+.PP
+Distribution packages do not install a
+.B vaptvupt-gui
+alias. The source installer can create one only with its explicit
+.B --legacy-alias
+option. The optional alias has no separate manual page.
 .SH BUGS
-Report at
-.UR https://git.securityops.co/cristiancmoises/vaptvupt/issues
+Report reproducible issues at
+.UR https://github.com/cristiancmoises/zupt/issues
 .UE .
-
 .SH AUTHOR
 Cristian Cezar Moisés
-.MT zupt@riseup.net
-.ME
-
-.SH SEE ALSO
-.BR vaptvupt (1).
-
 .SH LICENSE
-.PP
-vaptvupt-gui is licensed under the
-.B GNU Affero General Public License version 3 or later
-(AGPL-3.0-or-later). Commercial license available for relief from
-copyleft terms; contact
-.MT sac@securityops.co
-.ME .
-
-.SH PROJECT
-.PP
-Home page:
-.UR https://git.securityops.co/cristiancmoises/vaptvupt
-.UE
+The current integrated GUI source carries AGPL-3.0-or-later notices. Published
+historical revisions include MIT grants that remain applicable to the exact
+material distributed under them. See
+.I gui/LICENSE-GUI
+and the 5.2.2 licensing erratum in
+.I CHANGELOG.md
+for scope and repository evidence.
+.SH SEE ALSO
+.BR zupt (1)

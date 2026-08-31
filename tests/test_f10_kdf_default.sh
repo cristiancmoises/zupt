@@ -1,148 +1,143 @@
 #!/bin/bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
-#
-# F-10 regression test (Zupt 2.4.1).
-#
-# F-10: default password-mode KDF flipped from PBKDF2-SHA256 to Argon2id.
-# PBKDF2 remains available via --kdf pbkdf2 for compatibility with
-# v2.4.0-and-older readers.
-#
-# Three assertions:
-#   1. `zupt c -p PW out.zupt input` writes an enc-header with type byte
-#      0x04 (ZUPT_ENC_PW_ARGON2), and the stderr message says Argon2id.
-#   2. `zupt c -p PW --kdf pbkdf2 out.zupt input` writes type byte 0x01
-#      (ZUPT_ENC_PBKDF2), and the stderr message says PBKDF2.
-#   3. Both archive types roundtrip byte-exact via `zupt x -p PW`.
-#   4. Wrong password is rejected for both archive types.
+# F-10: KDF defaults must reflect whether system libvuptsdk is enabled.
 
-set -u
+set -Eeuo pipefail
 
-ZUPT="${ZUPT_BIN:-./zupt}"
-# Source-only build (WITH_SDK=0) has no libzuptsdk: the SDK-mode paths this
-# test exercises are unavailable, so skip cleanly instead of failing.
-_sdkck="$(mktemp -d)"
-if ! "$ZUPT" keygen --sdk -o "$_sdkck/p" >/dev/null 2>&1; then
-    rm -rf "$_sdkck"; echo "  SKIP: built without libzuptsdk (source-only) - SDK-mode test not applicable"; exit 0
-fi
-rm -rf "$_sdkck"
-
-case "$ZUPT" in
-    /*) ;;
-    *)  ZUPT="$PWD/$ZUPT" ;;
-esac
-
-if [ ! -x "$ZUPT" ]; then
-    echo "  ✗ $ZUPT not found — run 'make' first" >&2
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
+zupt=${ZUPT_BIN:-$repo_root/zupt}
+if [[ ! -x $zupt ]]; then
+    printf '  FAIL: %s not found; build ZUPT first\n' "$zupt" >&2
     exit 1
 fi
 
-PASS=0
-FAIL=0
-P() { PASS=$((PASS+1)); echo "  ✓ $1"; }
-F() { FAIL=$((FAIL+1)); echo "  ✗ $1"; }
+version=$("$zupt" --version 2>&1)
+sdk_enabled=0
+if grep -Fq 'libvuptsdk=enabled' <<<"$version"; then
+    sdk_enabled=1
+fi
 
-TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
-cd "$TMPDIR"
+passed=0
+failed=0
+pass() { printf '  ✓ %s\n' "$1"; passed=$((passed + 1)); }
+fail() { printf '  ✗ %s\n' "$1"; failed=$((failed + 1)); }
 
-echo "F-10 regression: password-mode KDF default"
+tmpdir=$(mktemp -d)
+trap 'rm -rf -- "$tmpdir"' EXIT
+cd "$tmpdir"
 
-# Helper: read the enc_type byte (payload[0] of the enc-header block).
 enc_type_of() {
-    python3 -c "
+    python3 - "$1" <<'PY'
+from pathlib import Path
 import sys
-b = open('$1','rb').read()
-off = int.from_bytes(b[36:44],'little')
-def vread(buf,o):
-    v=0;s=0
+
+data = Path(sys.argv[1]).read_bytes()
+offset = int.from_bytes(data[36:44], "little")
+
+def read_varint(buf, pos):
+    value = 0
+    shift = 0
     while True:
-        x=buf[o]; o+=1; v|=(x&0x7f)<<s
-        if not (x&0x80): break
-        s+=7
-    return v,o
-v1,p = vread(b, off+7); v2,p2 = vread(b, p)
-print(f'{b[p2+8]:02x}')
-"
+        byte = buf[pos]
+        pos += 1
+        value |= (byte & 0x7f) << shift
+        if not byte & 0x80:
+            return value, pos
+        shift += 7
+
+_, pos = read_varint(data, offset + 7)
+_, pos = read_varint(data, pos)
+print(f"{data[pos + 8]:02x}")
+PY
 }
 
-echo "secret payload for KDF test" > input.txt
+echo 'F-10 regression: password-mode KDF default'
+printf 'secret payload for KDF test\n' >input.txt
 
-# 1. Default → Argon2id (0x04)
-STDERR_DEFAULT=$("$ZUPT" c -p secret default.zupt input.txt 2>&1)
-ETYPE=$(enc_type_of default.zupt)
-if [ "$ETYPE" = "04" ]; then
-    P "default: enc_type = 0x04 (ZUPT_ENC_PW_ARGON2)"
+default_stderr=$("$zupt" c -p secret default.zupt input.txt 2>&1)
+default_type=$(enc_type_of default.zupt)
+if ((sdk_enabled)); then
+    if [[ $default_type == 04 ]]; then
+        pass 'WITH_SDK=1 default uses Argon2id (enc_type 0x04)'
+    else
+        fail "WITH_SDK=1 default enc_type is 0x$default_type, expected 0x04"
+    fi
+    if grep -qi 'Argon2id' <<<"$default_stderr"; then
+        pass 'default message names Argon2id'
+    else
+        fail 'default message does not name Argon2id'
+    fi
 else
-    F "default: enc_type = 0x$ETYPE (expected 0x04)"
-fi
-if echo "$STDERR_DEFAULT" | grep -qi "Argon2id"; then
-    P "default: stderr message names Argon2id"
-else
-    F "default: stderr message doesn't name Argon2id"
-fi
-
-# 2. --kdf pbkdf2 → PBKDF2 (0x01)
-STDERR_PB=$("$ZUPT" c -p secret --kdf pbkdf2 legacy.zupt input.txt 2>&1)
-ETYPE2=$(enc_type_of legacy.zupt)
-if [ "$ETYPE2" = "01" ]; then
-    P "--kdf pbkdf2: enc_type = 0x01 (ZUPT_ENC_PBKDF2)"
-else
-    F "--kdf pbkdf2: enc_type = 0x$ETYPE2 (expected 0x01)"
-fi
-if echo "$STDERR_PB" | grep -qi "PBKDF2"; then
-    P "--kdf pbkdf2: stderr message names PBKDF2"
-else
-    F "--kdf pbkdf2: stderr message doesn't name PBKDF2"
-fi
-
-# 3. Roundtrips
-mkdir out_a && (cd out_a && "$ZUPT" x -p secret ../default.zupt >/dev/null 2>&1)
-if [ -f out_a/input.txt ] && diff -q input.txt out_a/input.txt >/dev/null 2>&1; then
-    P "Argon2id archive roundtrips byte-exact"
-else
-    F "Argon2id roundtrip"
+    if [[ $default_type == 01 ]]; then
+        pass 'source-only default uses PBKDF2 (enc_type 0x01)'
+    else
+        fail "source-only default enc_type is 0x$default_type, expected 0x01"
+    fi
+    if grep -qi 'PBKDF2' <<<"$default_stderr"; then
+        pass 'source-only default message names PBKDF2'
+    else
+        fail 'source-only default message does not name PBKDF2'
+    fi
+    echo '  SKIP: Argon2id default/explicit coverage needs system libvuptsdk (WITH_SDK=1)'
 fi
 
-mkdir out_p && (cd out_p && "$ZUPT" x -p secret ../legacy.zupt >/dev/null 2>&1)
-if [ -f out_p/input.txt ] && diff -q input.txt out_p/input.txt >/dev/null 2>&1; then
-    P "PBKDF2 archive roundtrips byte-exact"
+mkdir default-out
+if (cd default-out && "$zupt" x -p secret ../default.zupt >/dev/null 2>&1) &&
+   cmp -s input.txt default-out/input.txt; then
+    pass 'default-KDF archive roundtrips byte-exact'
 else
-    F "PBKDF2 roundtrip"
+    fail 'default-KDF archive roundtrips byte-exact'
+fi
+mkdir default-wrong
+if (cd default-wrong && "$zupt" x -p wrong ../default.zupt >/dev/null 2>&1); then
+    fail 'default-KDF archive rejects a wrong password'
+else
+    pass 'default-KDF archive rejects a wrong password'
 fi
 
-# 4. Wrong password rejected (both)
-mkdir out_wa && (cd out_wa && "$ZUPT" x -p wrong ../default.zupt >/dev/null 2>&1)
-if [ ! -f out_wa/input.txt ]; then
-    P "Argon2id: wrong password rejected"
+pbkdf_stderr=$("$zupt" c -p secret --kdf pbkdf2 pbkdf.zupt input.txt 2>&1)
+pbkdf_type=$(enc_type_of pbkdf.zupt)
+if [[ $pbkdf_type == 01 ]]; then
+    pass '--kdf pbkdf2 uses enc_type 0x01'
 else
-    F "Argon2id: wrong password accepted"
+    fail "--kdf pbkdf2 enc_type is 0x$pbkdf_type, expected 0x01"
 fi
-mkdir out_wp && (cd out_wp && "$ZUPT" x -p wrong ../legacy.zupt >/dev/null 2>&1)
-if [ ! -f out_wp/input.txt ]; then
-    P "PBKDF2: wrong password rejected"
+if grep -qi 'PBKDF2' <<<"$pbkdf_stderr"; then
+    pass '--kdf pbkdf2 message names PBKDF2'
 else
-    F "PBKDF2: wrong password accepted"
-fi
-
-# 5. --kdf argon2id (explicit form) → same as default
-STDERR_E=$("$ZUPT" c -p secret --kdf argon2id explicit.zupt input.txt 2>&1)
-ETYPE3=$(enc_type_of explicit.zupt)
-if [ "$ETYPE3" = "04" ]; then
-    P "--kdf argon2id (explicit): enc_type = 0x04"
-else
-    F "--kdf argon2id (explicit): enc_type = 0x$ETYPE3"
+    fail '--kdf pbkdf2 message does not name PBKDF2'
 fi
 
-# 6. --kdf garbage → reject
-if "$ZUPT" c -p secret --kdf garbage garbage.zupt input.txt >/dev/null 2>&1; then
-    F "--kdf garbage was accepted (should reject)"
+mkdir pbkdf-out
+if (cd pbkdf-out && "$zupt" x -p secret ../pbkdf.zupt >/dev/null 2>&1) &&
+   cmp -s input.txt pbkdf-out/input.txt; then
+    pass 'PBKDF2 archive roundtrips byte-exact'
 else
-    P "--kdf garbage rejected"
+    fail 'PBKDF2 archive roundtrips byte-exact'
+fi
+mkdir pbkdf-wrong
+if (cd pbkdf-wrong && "$zupt" x -p wrong ../pbkdf.zupt >/dev/null 2>&1); then
+    fail 'PBKDF2 archive rejects a wrong password'
+else
+    pass 'PBKDF2 archive rejects a wrong password'
 fi
 
-echo ""
-echo "  ───────────────────────────────────────"
-echo "  F-10 regression: $PASS passed, $FAIL failed"
-echo "  ───────────────────────────────────────"
-[ "$FAIL" = 0 ] || exit 1
+if ((sdk_enabled)); then
+    "$zupt" c -p secret --kdf argon2id explicit.zupt input.txt >/dev/null 2>&1
+    explicit_type=$(enc_type_of explicit.zupt)
+    if [[ $explicit_type == 04 ]]; then
+        pass '--kdf argon2id uses enc_type 0x04'
+    else
+        fail "--kdf argon2id enc_type is 0x$explicit_type, expected 0x04"
+    fi
+fi
+
+if "$zupt" c -p secret --kdf invalid invalid.zupt input.txt >/dev/null 2>&1; then
+    fail 'unknown --kdf value is rejected'
+else
+    pass 'unknown --kdf value is rejected'
+fi
+
+printf '\n  F-10 regression: %d passed, %d failed\n' "$passed" "$failed"
+((failed == 0))

@@ -1,5 +1,5 @@
 /*
- * Zupt — Backup-oriented compression with AES-256 encryption
+ * ZUPT — Backup-oriented compression with AES-256 encryption
  * Copyright (c) 2026 Cristian Cezar Moisés
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
@@ -13,31 +13,36 @@
 #include "zupt.h"
 #include "zupt_acsl.h"
 #include "zupt_jasmin.h"
-#include "zupt_cpuid.h"  /* JASMIN-VERIFIED: AES-NI dispatch */
+#include "zupt_cpuid.h"  /* CPU dispatch for the optional Jasmin AES-NI path */
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <errno.h>
 #if defined(__linux__)
   #include <sys/syscall.h>
   #include <unistd.h>
+#endif
+#ifndef _WIN32
+  #include <fcntl.h>
 #endif
 
 /* ═══════════════════════════════════════════════════════════════════
  * CONSTANT-TIME EQUALITY (single audited primitive)
  *
- * Returns 1 if the two buffers are equal, 0 otherwise, in time that
- * depends only on `n` — never on the contents or on where the first
- * mismatch occurs. This is the one place the MAC-tag comparison is
- * implemented; the three former inline byte-OR loops (the v1.6 strict
+ * Returns 1 if the two buffers are equal and 0 otherwise. Its source-level
+ * control flow and memory-access pattern are intended to depend only on `n`,
+ * not the contents or mismatch position. This is the one place the MAC-tag
+ * comparison is implemented; the three former inline byte-OR loops (the v1.6 strict
  * decrypt path, the v1.4/v1.5 legacy v2 candidate, and the F-08 archive-
  * integrity-trailer check) now all call here, so the property is audited
  * and timing-tested in exactly one location (see tests/test_ct_timing).
  *
  * A timing leak in a MAC comparison is a forgery oracle: if "wrong on
  * byte 0" returned faster than "wrong on byte 31", an attacker could
- * recover a valid tag byte-by-byte. The accumulator is therefore folded
- * with OR (no early exit) and read through a volatile sink so the
- * compiler cannot reintroduce a short-circuit or branch.
+ * recover a valid tag byte-by-byte. The source therefore uses volatile byte
+ * loads and an OR accumulator with no explicit early exit. Exact generated
+ * code remains compiler- and platform-dependent and is covered by a
+ * dudect-style regression when its positive control is conclusive.
  *
  * CT-REQUIRED: no secret-dependent branch or memory access. */
 int zupt_ct_memeq(const void *a, const void *b, size_t n) {
@@ -79,7 +84,7 @@ void zupt_random_bytes(uint8_t *buf, size_t len) {
     if (r == (ssize_t)len) return;
     #endif
   #endif
-    FILE *f = fopen("/dev/urandom", "rb");
+    FILE *f = zupt_fopen_path("/dev/urandom", "rb");
     if (f) {
         size_t nread = fread(buf, 1, len, f);
         fclose(f);
@@ -242,8 +247,8 @@ void zupt_aes256_ctr(const uint8_t key[32], const uint8_t nonce[16],
     memcpy(counter, nonce, 16);
 
 #ifdef ZUPT_USE_JASMIN
-    /* JASMIN-VERIFIED: AES-NI path — constant-time, no T-table leakage.
-     * The Jasmin-generated assembly uses VEX-encoded instructions (vaesenc,
+    /* OPTIONAL ASSEMBLY PATH: AES-NI implementation uses no table lookups.
+     * The checked-in assembly uses VEX-encoded instructions (vaesenc,
      * vmovdqu, vpxor, etc.) which require BOTH AES-NI AND AVX support.
      * Checking only has_aesni would SIGILL on CPUs with AES-NI but no AVX,
      * or where the OS hasn't enabled XSAVE for YMM state. */
@@ -571,6 +576,288 @@ uint8_t *zupt_decrypt_buffer(const zupt_keyring_t *kr,
     return zupt_decrypt_buffer_aad(kr, pkg, pkglen, block_seq, NULL, 0, olen);
 }
 
+/* Write a key file without ever opening an existing directory entry. Private
+ * material is created mode 0600 on POSIX independently of the caller's umask.
+ * Windows uses CREATE_NEW and, for private material, a protected DACL granting
+ * access only to the current token's user SID. A failed write, flush, or close
+ * leaves the exclusively created incomplete or durability-uncertain file in
+ * place for the user to review and remove. This deliberately avoids a
+ * pathname-based cleanup after close:
+ * another process with write access to the parent directory could otherwise
+ * replace the entry and trick cleanup into deleting an unrelated file.
+ *
+ * This is intentionally shared with the optional pq-box module. Public-key
+ * output is exclusive too: besides avoiding symlink truncation, that prevents
+ * `keygen --pub -o private.key -k private.key` from destroying the only copy of
+ * a private key. */
+int zupt_keyfile_write_new(const char *path, const uint8_t *data, size_t length,
+                           int private_material) {
+    if (!path || path[0] == '\0' || (!data && length != 0) ||
+        (private_material != 0 && private_material != 1)) {
+        errno = EINVAL;
+        return -1;
+    }
+
+#ifdef _WIN32
+    if (length > (size_t)MAXDWORD) {
+        errno = EFBIG;
+        return -1;
+    }
+    wchar_t *wide_path = zupt_win_utf8_to_wide_alloc(path);
+    if (!wide_path) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    SECURITY_ATTRIBUTES attributes;
+    SECURITY_DESCRIPTOR descriptor;
+    SECURITY_ATTRIBUTES *attributes_ptr = NULL;
+    HMODULE advapi = NULL;
+    HANDLE token = NULL;
+    TOKEN_USER *token_user = NULL;
+    ACL *acl = NULL;
+
+    if (private_material) {
+        typedef BOOL (WINAPI *open_process_token_fn)(HANDLE, DWORD, PHANDLE);
+        typedef BOOL (WINAPI *get_token_information_fn)(
+            HANDLE, TOKEN_INFORMATION_CLASS, LPVOID, DWORD, PDWORD);
+        typedef DWORD (WINAPI *get_length_sid_fn)(PSID);
+        typedef BOOL (WINAPI *initialize_acl_fn)(PACL, DWORD, DWORD);
+        typedef BOOL (WINAPI *add_access_allowed_ace_fn)(
+            PACL, DWORD, DWORD, PSID);
+        typedef BOOL (WINAPI *initialize_security_descriptor_fn)(
+            PSECURITY_DESCRIPTOR, DWORD);
+        typedef BOOL (WINAPI *set_security_descriptor_dacl_fn)(
+            PSECURITY_DESCRIPTOR, BOOL, PACL, BOOL);
+        typedef BOOL (WINAPI *set_security_descriptor_control_fn)(
+            PSECURITY_DESCRIPTOR, SECURITY_DESCRIPTOR_CONTROL,
+            SECURITY_DESCRIPTOR_CONTROL);
+
+        advapi = LoadLibraryW(L"advapi32.dll");
+        if (!advapi) goto windows_security_error;
+        open_process_token_fn open_process_token =
+            (open_process_token_fn)(void (*)(void))
+                GetProcAddress(advapi, "OpenProcessToken");
+        get_token_information_fn get_token_information =
+            (get_token_information_fn)(void (*)(void))
+                GetProcAddress(advapi, "GetTokenInformation");
+        get_length_sid_fn get_length_sid =
+            (get_length_sid_fn)(void (*)(void))
+                GetProcAddress(advapi, "GetLengthSid");
+        initialize_acl_fn initialize_acl =
+            (initialize_acl_fn)(void (*)(void))
+                GetProcAddress(advapi, "InitializeAcl");
+        add_access_allowed_ace_fn add_access_allowed_ace =
+            (add_access_allowed_ace_fn)(void (*)(void))
+                GetProcAddress(advapi, "AddAccessAllowedAce");
+        initialize_security_descriptor_fn initialize_security_descriptor =
+            (initialize_security_descriptor_fn)(void (*)(void))
+                GetProcAddress(advapi, "InitializeSecurityDescriptor");
+        set_security_descriptor_dacl_fn set_security_descriptor_dacl =
+            (set_security_descriptor_dacl_fn)(void (*)(void))
+                GetProcAddress(advapi, "SetSecurityDescriptorDacl");
+        set_security_descriptor_control_fn set_security_descriptor_control =
+            (set_security_descriptor_control_fn)(void (*)(void))
+                GetProcAddress(advapi, "SetSecurityDescriptorControl");
+        if (!open_process_token || !get_token_information || !get_length_sid ||
+            !initialize_acl || !add_access_allowed_ace ||
+            !initialize_security_descriptor || !set_security_descriptor_dacl ||
+            !set_security_descriptor_control)
+            goto windows_security_error;
+
+        if (!open_process_token(GetCurrentProcess(), TOKEN_QUERY, &token))
+            goto windows_security_error;
+        DWORD token_size = 0;
+        (void)get_token_information(token, TokenUser, NULL, 0, &token_size);
+        if (token_size == 0) goto windows_security_error;
+        token_user = (TOKEN_USER *)malloc(token_size);
+        if (!token_user) {
+            errno = ENOMEM;
+            goto windows_security_cleanup;
+        }
+        if (!get_token_information(token, TokenUser, token_user, token_size,
+                                   &token_size))
+            goto windows_security_error;
+
+        DWORD sid_size = get_length_sid(token_user->User.Sid);
+        if (sid_size == 0 ||
+            sid_size > MAXDWORD - (DWORD)sizeof(ACL) -
+                           (DWORD)sizeof(ACCESS_ALLOWED_ACE))
+            goto windows_security_error;
+        DWORD acl_size = (DWORD)sizeof(ACL) +
+                         (DWORD)sizeof(ACCESS_ALLOWED_ACE) -
+                         (DWORD)sizeof(DWORD) + sid_size;
+        acl = (ACL *)malloc(acl_size);
+        if (!acl) {
+            errno = ENOMEM;
+            goto windows_security_cleanup;
+        }
+        if (!initialize_acl(acl, acl_size, ACL_REVISION) ||
+            !add_access_allowed_ace(acl, ACL_REVISION, GENERIC_ALL,
+                                    token_user->User.Sid) ||
+            !initialize_security_descriptor(&descriptor,
+                                            SECURITY_DESCRIPTOR_REVISION) ||
+            !set_security_descriptor_dacl(&descriptor, TRUE, acl, FALSE) ||
+            !set_security_descriptor_control(&descriptor, SE_DACL_PROTECTED,
+                                             SE_DACL_PROTECTED))
+            goto windows_security_error;
+
+        attributes.nLength = sizeof(attributes);
+        attributes.lpSecurityDescriptor = &descriptor;
+        attributes.bInheritHandle = FALSE;
+        attributes_ptr = &attributes;
+    }
+
+    HANDLE handle = CreateFileW(
+        wide_path, GENERIC_WRITE | DELETE, 0, attributes_ptr, CREATE_NEW,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT |
+            FILE_FLAG_WRITE_THROUGH,
+        NULL);
+    {
+        DWORD create_error = handle == INVALID_HANDLE_VALUE ? GetLastError() : 0;
+        free(acl);
+        free(token_user);
+        if (token) CloseHandle(token);
+        if (advapi) FreeLibrary(advapi);
+        acl = NULL;
+        token_user = NULL;
+        token = NULL;
+        advapi = NULL;
+        if (handle == INVALID_HANDLE_VALUE) {
+            free(wide_path);
+            errno = (create_error == ERROR_FILE_EXISTS ||
+                     create_error == ERROR_ALREADY_EXISTS)
+                        ? EEXIST : EACCES;
+            return -1;
+        }
+    }
+
+    DWORD written = 0;
+    int failed = !WriteFile(handle, data, (DWORD)length, &written, NULL) ||
+                 written != (DWORD)length || !FlushFileBuffers(handle);
+    if (!CloseHandle(handle)) failed = 1;
+    if (failed) {
+        free(wide_path);
+        errno = EIO;
+        return -1;
+    }
+    free(wide_path);
+    return 0;
+
+windows_security_error:
+    errno = EACCES;
+windows_security_cleanup:
+    free(acl);
+    free(token_user);
+    if (token) CloseHandle(token);
+    if (advapi) FreeLibrary(advapi);
+    free(wide_path);
+    return -1;
+#else
+    int flags = O_WRONLY | O_CREAT | O_EXCL;
+#ifdef O_NOFOLLOW
+    flags |= O_NOFOLLOW;
+#endif
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+    int descriptor = open(path, flags, private_material ? 0600 : 0666);
+    if (descriptor < 0) return -1;
+
+    int failed = 0;
+    int saved_errno = 0;
+    if (private_material && fchmod(descriptor, 0600) != 0) {
+        failed = 1;
+        saved_errno = errno;
+    }
+#ifndef O_CLOEXEC
+    if (!failed) {
+        int descriptor_flags = fcntl(descriptor, F_GETFD);
+        if (descriptor_flags < 0 ||
+            fcntl(descriptor, F_SETFD, descriptor_flags | FD_CLOEXEC) != 0) {
+            failed = 1;
+            saved_errno = errno;
+        }
+    }
+#endif
+    size_t offset = 0;
+    while (!failed && offset < length) {
+        ssize_t amount = write(descriptor, data + offset, length - offset);
+        if (amount < 0 && errno == EINTR) continue;
+        if (amount <= 0) {
+            failed = 1;
+            saved_errno = amount < 0 ? errno : EIO;
+            break;
+        }
+        offset += (size_t)amount;
+    }
+    if (!failed && fsync(descriptor) != 0) {
+        failed = 1;
+        saved_errno = errno;
+    }
+    if (close(descriptor) != 0 && !failed) {
+        failed = 1;
+        saved_errno = errno;
+    }
+    if (failed) {
+        errno = saved_errno ? saved_errno : EIO;
+        return -1;
+    }
+    return 0;
+#endif
+}
+
+/* Load and structurally validate one native key blob before exposing any key
+ * bytes to a caller. The historical writers have always serialized the XXH64
+ * trailer with zupt_le64_put(), so readers deliberately interpret it as
+ * little-endian on every host. This newly enforces the existing format rather
+ * than changing it; valid v1 files remain byte-for-byte compatible. */
+static int load_native_key_blob(const char *path, const char magic[4],
+                                uint8_t version, uint8_t private_flag,
+                                size_t public_file_size,
+                                size_t private_file_size,
+                                int require_private,
+                                uint8_t *buffer, size_t buffer_capacity,
+                                size_t *file_size) {
+    if (!path || !buffer || !file_size || public_file_size < 16 ||
+        private_file_size <= public_file_size ||
+        private_file_size > buffer_capacity) {
+        errno = EINVAL;
+        return -1;
+    }
+    *file_size = 0;
+    FILE *stream = zupt_fopen_path(path, "rb");
+    if (!stream) return -1;
+
+    size_t length = fread(buffer, 1, private_file_size, stream);
+    int trailing = fgetc(stream);
+    int failed = ferror(stream) != 0;
+    if (fclose(stream) != 0) failed = 1;
+
+    int has_private = length >= 6 && buffer[5] == private_flag;
+    size_t expected_size = has_private ? private_file_size : public_file_size;
+    if (failed || trailing != EOF ||
+        (length != public_file_size && length != private_file_size) ||
+        memcmp(buffer, magic, 4) != 0 || buffer[4] != version ||
+        (buffer[5] != 0 && buffer[5] != private_flag) ||
+        buffer[6] != 0 || buffer[7] != 0 ||
+        length != expected_size || (require_private && !has_private)) {
+        zupt_secure_wipe(buffer, buffer_capacity);
+        errno = EINVAL;
+        return -1;
+    }
+
+    uint64_t stored_checksum = zupt_le64_get(buffer + length - 8);
+    uint64_t computed_checksum = zupt_xxh64(buffer, length - 8, 0);
+    if (stored_checksum != computed_checksum) {
+        zupt_secure_wipe(buffer, buffer_capacity);
+        errno = EINVAL;
+        return -1;
+    }
+    *file_size = length;
+    return 0;
+}
+
 /* ═══════════════════════════════════════════════════════════════════
  * HYBRID POST-QUANTUM KEM: ML-KEM-768 + X25519 (v0.7.0)
  *
@@ -598,25 +885,24 @@ uint8_t *zupt_decrypt_buffer(const zupt_keyring_t *kr,
 #define ZKEY_FLAG_PRIVATE 0x01
 #define ZKEY_PUB_SIZE  (8 + 1184 + 32)        /* header + ml_kem_pk + x25519_pk */
 #define ZKEY_PRIV_SIZE (8 + 1184 + 32 + 2400 + 32) /* + ml_kem_sk + x25519_sk */
+#define ZKEY_CHECKSUM_SIZE 8
+#define ZKEY_PUB_FILE_SIZE  (ZKEY_PUB_SIZE + ZKEY_CHECKSUM_SIZE)
+#define ZKEY_PRIV_FILE_SIZE (ZKEY_PRIV_SIZE + ZKEY_CHECKSUM_SIZE)
 
 int zupt_hybrid_keygen(const char *keyfile) {
-    uint8_t ml_pk[MLKEM_PUBLICKEYBYTES], ml_sk[MLKEM_SECRETKEYBYTES];
-    uint8_t x_sk[32], x_pk[32];
+    uint8_t ml_pk[MLKEM_PUBLICKEYBYTES] = {0};
+    uint8_t ml_sk[MLKEM_SECRETKEYBYTES] = {0};
+    uint8_t x_sk[32] = {0}, x_pk[32] = {0};
+    uint8_t buf[ZKEY_PRIV_FILE_SIZE] = {0};
+    const size_t total = ZKEY_PRIV_SIZE;
+    int result = -1;
 
     /* Generate ML-KEM-768 keypair */
-    if (zupt_mlkem768_keygen(ml_pk, ml_sk) != 0) return -1;
+    if (zupt_mlkem768_keygen(ml_pk, ml_sk) != 0) goto out;
 
     /* Generate X25519 keypair */
     zupt_random_bytes(x_sk, 32);
     zupt_x25519_base(x_pk, x_sk);
-
-    /* Write private key file */
-    FILE *f = fopen(keyfile, "wb");
-    if (!f) return -1;
-
-    size_t total = ZKEY_PRIV_SIZE;
-    uint8_t *buf = (uint8_t *)calloc(total + 8, 1); /* +8 for checksum */
-    if (!buf) { fclose(f); return -1; }
 
     memcpy(buf, ZKEY_MAGIC, 4);
     buf[4] = ZKEY_VERSION;
@@ -628,85 +914,77 @@ int zupt_hybrid_keygen(const char *keyfile) {
     memcpy(buf + 8 + 1184 + 32 + 2400, x_sk, 32);
 
     /* Checksum */
-    uint64_t ck = zupt_xxh64(buf, total, 0);
-    zupt_le64_put(buf + total, ck);
+    zupt_le64_put(buf + total, zupt_xxh64(buf, total, 0));
 
-    size_t written = fwrite(buf, 1, total + 8, f);
-    fclose(f);
-
+    result = zupt_keyfile_write_new(keyfile, buf, sizeof(buf), 1);
+out:
     zupt_secure_wipe(ml_sk, sizeof(ml_sk));
-    zupt_secure_wipe(x_sk, 32);
-    zupt_secure_wipe(buf, total + 8);
-    free(buf);
-
-    return (written == total + 8) ? 0 : -1;
+    zupt_secure_wipe(x_sk, sizeof(x_sk));
+    zupt_secure_wipe(buf, sizeof(buf));
+    return result;
 }
 
 int zupt_hybrid_export_pubkey(const char *privfile, const char *pubfile) {
-    FILE *f = fopen(privfile, "rb");
-    if (!f) return -1;
+    uint8_t private_blob[ZKEY_PRIV_FILE_SIZE] = {0};
+    uint8_t public_blob[ZKEY_PUB_FILE_SIZE] = {0};
+    size_t private_size = 0;
+    const size_t total = ZKEY_PUB_SIZE;
+    int result = -1;
+    if (load_native_key_blob(privfile, ZKEY_MAGIC, ZKEY_VERSION,
+                             ZKEY_FLAG_PRIVATE, ZKEY_PUB_FILE_SIZE,
+                             ZKEY_PRIV_FILE_SIZE, 1, private_blob,
+                             sizeof(private_blob), &private_size) != 0)
+        goto out;
 
-    uint8_t hdr[8];
-    if (fread(hdr, 1, 8, f) != 8 || memcmp(hdr, ZKEY_MAGIC, 4) != 0 ||
-        !(hdr[5] & ZKEY_FLAG_PRIVATE)) {
-        fclose(f); return -1;
-    }
+    memcpy(public_blob, ZKEY_MAGIC, 4);
+    public_blob[4] = ZKEY_VERSION;
+    public_blob[5] = 0; /* no private key */
+    public_blob[6] = public_blob[7] = 0;
+    memcpy(public_blob + 8, private_blob + 8, 1184 + 32);
 
-    uint8_t pk_data[1184 + 32];
-    if (fread(pk_data, 1, 1216, f) != 1216) { fclose(f); return -1; }
-    fclose(f);
+    zupt_le64_put(public_blob + total,
+                  zupt_xxh64(public_blob, total, 0));
 
-    /* Write public key file */
-    FILE *out = fopen(pubfile, "wb");
-    if (!out) return -1;
-
-    size_t total = ZKEY_PUB_SIZE;
-    uint8_t buf[ZKEY_PUB_SIZE + 8];
-    memcpy(buf, ZKEY_MAGIC, 4);
-    buf[4] = ZKEY_VERSION;
-    buf[5] = 0; /* no private key */
-    buf[6] = buf[7] = 0;
-    memcpy(buf + 8, pk_data, 1216);
-
-    uint64_t ck = zupt_xxh64(buf, total, 0);
-    zupt_le64_put(buf + total, ck);
-
-    size_t written = fwrite(buf, 1, total + 8, out);
-    fclose(out);
-    return (written == total + 8) ? 0 : -1;
+    result = zupt_keyfile_write_new(pubfile, public_blob,
+                                    sizeof(public_blob), 0);
+out:
+    zupt_secure_wipe(private_blob, sizeof(private_blob));
+    zupt_secure_wipe(public_blob, sizeof(public_blob));
+    return result;
 }
 
 /* Read public key from a .zupt-key file (works for both pub and priv files) */
 static int read_pubkey(const char *path, uint8_t ml_pk[1184], uint8_t x_pk[32]) {
-    FILE *f = fopen(path, "rb");
-    if (!f) return -1;
-
-    uint8_t hdr[8];
-    if (fread(hdr, 1, 8, f) != 8 || memcmp(hdr, ZKEY_MAGIC, 4) != 0) {
-        fclose(f); return -1;
-    }
-    if (fread(ml_pk, 1, 1184, f) != 1184) { fclose(f); return -1; }
-    if (fread(x_pk, 1, 32, f) != 32) { fclose(f); return -1; }
-    fclose(f);
+    uint8_t blob[ZKEY_PRIV_FILE_SIZE] = {0};
+    size_t file_size = 0;
+    /* Accept a structurally valid private file here for compatibility: older
+     * releases explicitly allowed encryption directly with either ZKEY role. */
+    if (load_native_key_blob(path, ZKEY_MAGIC, ZKEY_VERSION,
+                             ZKEY_FLAG_PRIVATE, ZKEY_PUB_FILE_SIZE,
+                             ZKEY_PRIV_FILE_SIZE, 0, blob, sizeof(blob),
+                             &file_size) != 0)
+        return -1;
+    memcpy(ml_pk, blob + 8, 1184);
+    memcpy(x_pk, blob + 8 + 1184, 32);
+    zupt_secure_wipe(blob, sizeof(blob));
     return 0;
 }
 
 /* Read private key from a .zupt-key file */
 static int read_privkey(const char *path, uint8_t ml_pk[1184], uint8_t x_pk[32],
                         uint8_t ml_sk[2400], uint8_t x_sk[32]) {
-    FILE *f = fopen(path, "rb");
-    if (!f) return -1;
-
-    uint8_t hdr[8];
-    if (fread(hdr, 1, 8, f) != 8 || memcmp(hdr, ZKEY_MAGIC, 4) != 0 ||
-        !(hdr[5] & ZKEY_FLAG_PRIVATE)) {
-        fclose(f); return -1;
-    }
-    if (fread(ml_pk, 1, 1184, f) != 1184) { fclose(f); return -1; }
-    if (fread(x_pk, 1, 32, f) != 32) { fclose(f); return -1; }
-    if (fread(ml_sk, 1, 2400, f) != 2400) { fclose(f); return -1; }
-    if (fread(x_sk, 1, 32, f) != 32) { fclose(f); return -1; }
-    fclose(f);
+    uint8_t blob[ZKEY_PRIV_FILE_SIZE] = {0};
+    size_t file_size = 0;
+    if (load_native_key_blob(path, ZKEY_MAGIC, ZKEY_VERSION,
+                             ZKEY_FLAG_PRIVATE, ZKEY_PUB_FILE_SIZE,
+                             ZKEY_PRIV_FILE_SIZE, 1, blob, sizeof(blob),
+                             &file_size) != 0)
+        return -1;
+    memcpy(ml_pk, blob + 8, 1184);
+    memcpy(x_pk, blob + 8 + 1184, 32);
+    memcpy(ml_sk, blob + 8 + 1184 + 32, 2400);
+    memcpy(x_sk, blob + 8 + 1184 + 32 + 2400, 32);
+    zupt_secure_wipe(blob, sizeof(blob));
     return 0;
 }
 
@@ -912,18 +1190,18 @@ int zupt_hybrid_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
 #define ZPQK_HDR          8
 #define ZPQK_PUB_SIZE     (ZPQK_HDR + 1184)
 #define ZPQK_PRIV_SIZE    (ZPQK_HDR + 1184 + 2400)
+#define ZPQK_CHECKSUM_SIZE 8
+#define ZPQK_PUB_FILE_SIZE  (ZPQK_PUB_SIZE + ZPQK_CHECKSUM_SIZE)
+#define ZPQK_PRIV_FILE_SIZE (ZPQK_PRIV_SIZE + ZPQK_CHECKSUM_SIZE)
 #define ZUPT_PQ_ONLY_LABEL "ZUPT-PQ-ONLY-v1"   /* 15 bytes */
 
 int zupt_pq_keygen(const char *keyfile) {
-    uint8_t ml_pk[MLKEM_PUBLICKEYBYTES], ml_sk[MLKEM_SECRETKEYBYTES];
-    if (zupt_mlkem768_keygen(ml_pk, ml_sk) != 0) return -1;
-
-    FILE *f = fopen(keyfile, "wb");
-    if (!f) { zupt_secure_wipe(ml_sk, sizeof(ml_sk)); return -1; }
-
-    size_t total = ZPQK_PRIV_SIZE;
-    uint8_t *buf = (uint8_t *)calloc(total + 8, 1);
-    if (!buf) { fclose(f); zupt_secure_wipe(ml_sk, sizeof(ml_sk)); return -1; }
+    uint8_t ml_pk[MLKEM_PUBLICKEYBYTES] = {0};
+    uint8_t ml_sk[MLKEM_SECRETKEYBYTES] = {0};
+    uint8_t buf[ZPQK_PRIV_FILE_SIZE] = {0};
+    const size_t total = ZPQK_PRIV_SIZE;
+    int result = -1;
+    if (zupt_mlkem768_keygen(ml_pk, ml_sk) != 0) goto out;
 
     memcpy(buf, ZPQK_MAGIC, 4);
     buf[4] = ZPQK_VERSION;
@@ -932,65 +1210,68 @@ int zupt_pq_keygen(const char *keyfile) {
     memcpy(buf + ZPQK_HDR, ml_pk, 1184);
     memcpy(buf + ZPQK_HDR + 1184, ml_sk, 2400);
 
-    uint64_t ck = zupt_xxh64(buf, total, 0);
-    zupt_le64_put(buf + total, ck);
+    zupt_le64_put(buf + total, zupt_xxh64(buf, total, 0));
 
-    size_t written = fwrite(buf, 1, total + 8, f);
-    if (fclose(f) != 0) written = 0;
-
+    result = zupt_keyfile_write_new(keyfile, buf, sizeof(buf), 1);
+out:
     zupt_secure_wipe(ml_sk, sizeof(ml_sk));
-    zupt_secure_wipe(buf, total + 8);
-    free(buf);
-    return (written == total + 8) ? 0 : -1;
+    zupt_secure_wipe(buf, sizeof(buf));
+    return result;
 }
 
 int zupt_pq_export_pubkey(const char *privfile, const char *pubfile) {
-    FILE *f = fopen(privfile, "rb");
-    if (!f) return -1;
-    uint8_t hdr[ZPQK_HDR];
-    if (fread(hdr, 1, ZPQK_HDR, f) != ZPQK_HDR || memcmp(hdr, ZPQK_MAGIC, 4) != 0 ||
-        !(hdr[5] & ZPQK_FLAG_PRIVATE)) { fclose(f); return -1; }
-    uint8_t ml_pk[1184];
-    if (fread(ml_pk, 1, 1184, f) != 1184) { fclose(f); return -1; }
-    fclose(f);
+    uint8_t private_blob[ZPQK_PRIV_FILE_SIZE] = {0};
+    uint8_t public_blob[ZPQK_PUB_FILE_SIZE] = {0};
+    size_t private_size = 0;
+    const size_t total = ZPQK_PUB_SIZE;
+    int result = -1;
+    if (load_native_key_blob(privfile, ZPQK_MAGIC, ZPQK_VERSION,
+                             ZPQK_FLAG_PRIVATE, ZPQK_PUB_FILE_SIZE,
+                             ZPQK_PRIV_FILE_SIZE, 1, private_blob,
+                             sizeof(private_blob), &private_size) != 0)
+        goto out;
 
-    FILE *out = fopen(pubfile, "wb");
-    if (!out) return -1;
-    size_t total = ZPQK_PUB_SIZE;
-    uint8_t buf[ZPQK_PUB_SIZE + 8];
-    memcpy(buf, ZPQK_MAGIC, 4);
-    buf[4] = ZPQK_VERSION;
-    buf[5] = 0;
-    buf[6] = buf[7] = 0;
-    memcpy(buf + ZPQK_HDR, ml_pk, 1184);
-    uint64_t ck = zupt_xxh64(buf, total, 0);
-    zupt_le64_put(buf + total, ck);
-    size_t written = fwrite(buf, 1, total + 8, out);
-    if (fclose(out) != 0) written = 0;
-    return (written == total + 8) ? 0 : -1;
+    memcpy(public_blob, ZPQK_MAGIC, 4);
+    public_blob[4] = ZPQK_VERSION;
+    public_blob[5] = 0;
+    public_blob[6] = public_blob[7] = 0;
+    memcpy(public_blob + ZPQK_HDR, private_blob + ZPQK_HDR, 1184);
+    zupt_le64_put(public_blob + total,
+                  zupt_xxh64(public_blob, total, 0));
+    result = zupt_keyfile_write_new(pubfile, public_blob,
+                                    sizeof(public_blob), 0);
+out:
+    zupt_secure_wipe(private_blob, sizeof(private_blob));
+    zupt_secure_wipe(public_blob, sizeof(public_blob));
+    return result;
 }
 
 static int read_pq_pubkey(const char *path, uint8_t ml_pk[1184]) {
-    FILE *f = fopen(path, "rb");
-    if (!f) return -1;
-    uint8_t hdr[ZPQK_HDR];
-    if (fread(hdr, 1, ZPQK_HDR, f) != ZPQK_HDR || memcmp(hdr, ZPQK_MAGIC, 4) != 0) {
-        fclose(f); return -1;
-    }
-    if (fread(ml_pk, 1, 1184, f) != 1184) { fclose(f); return -1; }
-    fclose(f);
+    uint8_t blob[ZPQK_PRIV_FILE_SIZE] = {0};
+    size_t file_size = 0;
+    /* Preserve the historical convenience of encrypting with a valid private
+     * ZPQK file while still validating its private role, size, and checksum. */
+    if (load_native_key_blob(path, ZPQK_MAGIC, ZPQK_VERSION,
+                             ZPQK_FLAG_PRIVATE, ZPQK_PUB_FILE_SIZE,
+                             ZPQK_PRIV_FILE_SIZE, 0, blob, sizeof(blob),
+                             &file_size) != 0)
+        return -1;
+    memcpy(ml_pk, blob + ZPQK_HDR, 1184);
+    zupt_secure_wipe(blob, sizeof(blob));
     return 0;
 }
 
 static int read_pq_privkey(const char *path, uint8_t ml_pk[1184], uint8_t ml_sk[2400]) {
-    FILE *f = fopen(path, "rb");
-    if (!f) return -1;
-    uint8_t hdr[ZPQK_HDR];
-    if (fread(hdr, 1, ZPQK_HDR, f) != ZPQK_HDR || memcmp(hdr, ZPQK_MAGIC, 4) != 0 ||
-        !(hdr[5] & ZPQK_FLAG_PRIVATE)) { fclose(f); return -1; }
-    if (fread(ml_pk, 1, 1184, f) != 1184) { fclose(f); return -1; }
-    if (fread(ml_sk, 1, 2400, f) != 2400) { fclose(f); return -1; }
-    fclose(f);
+    uint8_t blob[ZPQK_PRIV_FILE_SIZE] = {0};
+    size_t file_size = 0;
+    if (load_native_key_blob(path, ZPQK_MAGIC, ZPQK_VERSION,
+                             ZPQK_FLAG_PRIVATE, ZPQK_PUB_FILE_SIZE,
+                             ZPQK_PRIV_FILE_SIZE, 1, blob, sizeof(blob),
+                             &file_size) != 0)
+        return -1;
+    memcpy(ml_pk, blob + ZPQK_HDR, 1184);
+    memcpy(ml_sk, blob + ZPQK_HDR + 1184, 2400);
+    zupt_secure_wipe(blob, sizeof(blob));
     return 0;
 }
 

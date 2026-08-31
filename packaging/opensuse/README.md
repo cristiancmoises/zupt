@@ -1,88 +1,220 @@
-# openSUSE Build Service update for `home:cabelo:innovators/vaptvupt`
+# ZUPT 5.2.2 for openSUSE Build Service
 
-This directory contains the three files needed to build vaptvupt `5.0.0`
-in OBS:
+This directory is the upstream, source-only OBS recipe for ZUPT. It is a
+handoff for the downstream maintainer; its presence does not mean that the
+package has been submitted to or accepted by openSUSE Factory.
 
-| File          | Purpose                                                                 |
-|---------------|-------------------------------------------------------------------------|
-| `_service`    | `revision` pinned to `v5.0.0`. Format unchanged (still `tar_scm`).      |
-| `vaptvupt.spec`   | `Version: 5.0.0`. `License: AGPL-3.0-or-later`. `%check` calls `make check`. |
-| `vaptvupt.changes`| Changelog for the 4.x series. Older history preserved verbatim.        |
+Cristian Cezar Moisés, ZUPT's creator and current upstream maintainer,
+prepared the 5.2.2 source, build, test, documentation, and upstream packaging
+changes in this handoff. Alessandro de Oliveira Faria (Cabelo) is credited only
+as the openSUSE collaborator and downstream OBS package maintainer: he reviews
+the handoff, commits it through the portal/project he maintains, and may make
+the openSUSE-side adjustments he considers necessary. This role does not
+attribute upstream code or the 5.2.2 upstream changes to Cabelo.
 
-## Spec notes
+## Files and source policy
 
-1. **License** — `AGPL-3.0-or-later` (dual-licensed AGPL-3.0-or-later
-   + commercial).
+| File | Purpose |
+|---|---|
+| `_service` | Fetch the immutable `v5.2.2` tag and create `Source0` at build time. |
+| `zupt.spec` | Build and test the CLI with optional external system integrations disabled. |
+| `zupt.changes` | openSUSE-format package history. |
+| `source-audit.sh` | Handoff wrapper for the repository scanner; run it from the complete handoff tree. |
 
-2. **No BuildRequires beyond the toolchain** — the default build needs
-   only `gcc gzip make` (plus `libm`/`pthread` from glibc). There are
-   **no system library BuildRequires**. The repository is source-only:
-   the previously vendored `libzuptsdk.so` and `libpqvaptvupt.so` have
-   been removed from the tree, `%build` and `%install` run with
-   `WITH_SDK=0`, and `%files` no longer lists any `.so`. The package
-   installs no shared library. Do not add system crypto BuildRequires.
+The source service uses `obs_scm`, with Git submodules and Git LFS explicitly
+disabled. Its primary URL is the canonical upstream:
 
-   The optional SDK modes (`--pq-sdk`, `--pq-box`) and the Argon2id KDF
-   require an upstream `make WITH_SDK=1` build linked against the
-   separately distributed `libzuptsdk`/`libpqvaptvupt` libraries. They
-   are not part of this package.
-
-3. **`%check` target** — the s390x branch falls back to `test-vectors`;
-   other architectures run `make check`. This exercises the HMAC tamper
-   detection, archive-integrity trailer, byte-level integrity preface
-   AAD, default-KDF, auth-fail, and encrypted-comment suites, the
-   NIST/RFC vectors (SHA-256, SHA-3, ML-KEM-768, AES-256-CTR, HMAC,
-   X25519, PBKDF2), and the path-traversal, argument-order, and
-   block-swap regressions.
-
-   The default password KDF is **PBKDF2-SHA256** (600k iterations).
-   Argon2id test vectors run only in a `WITH_SDK=1` build and are not
-   checked here.
-
-4. **URLs** — the `URL:` field points at the canonical project URL
-   `https://git.securityops.co/cristiancmoises/vaptvupt`. The `_service`
-   file still fetches from GitHub
-   (`https://github.com/cristiancmoises/vaptvupt`), which is what the
-   existing `tar_scm` configuration uses in OBS.
-
-## How to apply
-
-```sh
-# 1. Check out the package
-osc checkout home:cabelo:innovators vaptvupt
-cd home:cabelo:innovators/vaptvupt
-
-# 2. Drop the new files in (assuming this README is at
-#    /path/to/vaptvupt-source/packaging/opensuse/README.md)
-cp /path/to/vaptvupt-source/packaging/opensuse/_service     .
-cp /path/to/vaptvupt-source/packaging/opensuse/vaptvupt.spec    .
-cp /path/to/vaptvupt-source/packaging/opensuse/vaptvupt.changes .
-
-# 3. Trigger the service locally to fetch v5.0.0 from GitHub
-osc service runall
-# Produces vaptvupt-5.0.0.tar.gz in the current directory.
-
-# 4. (Optional) Local build to verify before committing
-osc build openSUSE_Tumbleweed x86_64
-
-# 5. Commit upstream
-osc status   # confirm vaptvupt-5.0.0.tar.gz is staged alongside the
-             # three text files
-osc commit -m "Update to 5.0.0"
+```text
+https://github.com/cristiancmoises/zupt.git
 ```
 
-## Notes for future updates
+`obs_scm` stores an `.obscpio` plus `.obsinfo`. The `tar` and `recompress`
+services reconstruct `zupt-5.2.2.tar.gz` inside the build environment, which
+matches `Source0` in the spec.
 
-* The `_service` `revision` is pinned to `v5.0.0`. To track a new
-  release, edit that one line and re-run `osc service runall`.
-* The spec's `Version:` field is hard-coded — when you bump `_service`
-  `revision`, also bump `Version:` to match.
-* `BuildRequires` is intentionally minimal (`gcc gzip make`). vaptvupt
-  has no external library dependencies in the default build; do not add
-  system crypto BuildRequires.
+This source policy does not prohibit separately built release-page packages.
+The upstream 5.2.2 gates may publish the CLI source tarball, DEB, binary RPM,
+SRPM, notice-bearing Linux tar.xz, Windows ZIP, and macOS DMG, together with a
+GUI DEB, noarch RPM, GUI SRPM, and source-only portable GUI ZIP after each
+format-specific test succeeds. None of those files is an OBS `Source0` input
+or belongs in Git. AppImage and bare executables remain excluded: the former
+lacks an audited runtime source/relink handoff, while the latter does not carry
+the required license and notice payload beside the program.
 
-## Reporting issues
+## License and bundled codec
 
-* Upstream bugs: https://git.securityops.co/cristiancmoises/vaptvupt
-* openSUSE packaging bugs: https://bugs.opensuse.org/
-* Cabelo's OBS project: https://build.opensuse.org/project/show/home:cabelo:innovators
+The resulting executable combines the AGPL-3.0-or-later application with the
+GPL-3.0-or-later VaptVupt codec, adapted BSD-2-Clause XXH64 routines, and
+CC0-1.0 pq-crystals/kyber-derived ML-KEM portions, plus BSD-3-Clause
+curve25519-donna-derived X25519 portions, so the RPM uses:
+
+```text
+AGPL-3.0-or-later AND GPL-3.0-or-later AND BSD-2-Clause AND BSD-3-Clause AND CC0-1.0
+```
+
+The bundled codec is VaptVupt codec tag `v2.65.3`. It was integrated into this
+repository by commit `59f9ebc59ea13c6edf1d199ca795cdbf00e62226` and is declared
+as `bundled(vaptvupt-codec) = 2.65.3`. That integration commit records the local
+ANS safe-zone reserve patch applied on top of the upstream tag. The package
+retains all license and notice files, including Yann Collet's xxHash notice;
+it does not claim that the codec is unbundled.
+
+## Optional SDK and PQBOX integrations
+
+The OBS package always builds with:
+
+```text
+WITH_SDK=0 WITH_PQBOX=0
+```
+
+The resulting CLI retains the in-tree password, ML-KEM-768, X25519 and hybrid
+features. It does not enable the optional libvuptsdk-backed Argon2id/`--pq-sdk`
+integration or the separate libpqvaptvupt-backed `--pq-box` integration. Those
+options may only be enabled in a future package after their complete source or
+system development packages, licenses, ABI and dependencies have been audited.
+The build does not download dependencies and never loads a repository-local
+`.so`, `.a` or `.o` fallback.
+
+## Archive integrity and compatibility in 5.2.2
+
+New encrypted archives bind every DATA and DEDUP_REF frame to its logical
+position. An authenticated reference also carries the authenticated position of
+the source DATA frame, and new disk archives use flag-gated index/content-hash
+metadata. The on-disk version byte remains 1.6, but an older reader is not
+claimed to accept every new 5.2.2 encoding.
+
+The packaged `extract`, `list`, `test`, and `disk restore` paths require an
+archive-integrity trailer by default, without trusting unauthenticated header
+flags. `--allow-legacy-no-ait` is accepted only by those commands for recovery
+of a known, trusted pre-AIT archive and emits a downgrade warning. `info` merely
+reports unauthenticated framing and apparent AIT presence; it does not validate
+the trailer or contents. Package documentation must not recommend the override
+for untrusted input or present `info` success as an integrity result.
+
+The separate v5.2.1 compatibility claim is narrow: an actual
+password-encrypted, deduplicated DATA/DATA/REF/DATA disk archive created from the
+immutable v5.2.1 tag is stored as hexadecimal text with its source and SHA-256
+provenance. The 5.2.2 reader reconstructs the legacy linear block-AAD sequence,
+lists, tests, extracts, and restores its input byte-exact through the
+fixed-width legacy disk-index parser. This does not cover every historical mode
+and must be rerun on the final candidate before it is promoted as a release
+gate.
+
+Disk restore also snapshots the measured archive into a private scratch file
+before opening the destination, then validates and restores from that same
+stream. An invalid `ZUPT_TMPDIR` override (or the compatibility fallback
+`VAPTVUPT_TMPDIR`) and an unknown or insufficient raw-device capacity fail
+before the first target write. The package check covers
+the unprivileged unknown-capacity path; its loop-device size regression is
+reported `SKIP`, not `PASS`, when the builder cannot create a loop device.
+
+## Migration from the former package name
+
+The main package is named `zupt` and installs only `/usr/bin/zupt`, its man
+page, and its completions. The spec has a versioned `Provides: vaptvupt` and
+`Obsoletes: vaptvupt` so an installed package under the former public name can
+upgrade cleanly. It intentionally does not claim or install a second
+`/usr/bin/vaptvupt` executable. The bundled codec and optional library keep
+their established VaptVupt identifiers because those are compatibility-facing
+API names, not the application package name.
+
+## Local validation workflow
+
+Run these commands in an OBS package checkout, not in the upstream Git tree:
+
+```sh
+xmllint --noout _service
+osc service manualrun
+rpmspec -P zupt.spec >/dev/null
+spec-cleaner --diff zupt.spec
+osc build --clean --keep-pkgs="$PWD/.osc-build-results" \
+  openSUSE_Tumbleweed x86_64
+rpmlint .osc-build-results/*.rpm
+```
+
+`osc service manualrun` materializes the service marked `manual` (the pinned
+SCM input). The tarball itself is
+reconstructed by the build-time services. Neither `%build` nor `%check` may
+access the network.
+
+For a source RPM check outside OBS, place the service-produced
+`zupt-5.2.2.tar.gz` next to the spec and use a disposable RPM build tree:
+
+```sh
+rpm_top=$(mktemp -d)
+trap 'rm -rf -- "$rpm_top"' EXIT
+mkdir -p "$rpm_top"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+rpmbuild --define "_topdir $rpm_top" --define "_sourcedir $PWD" \
+  -bs zupt.spec
+```
+
+After building, inspect the RPM contents and dependencies, run `rpmlint`, then
+install it in a disposable openSUSE environment and execute
+`scripts/test-installed-zupt.sh`. Do not claim a repository or architecture
+as supported until its build and installed smoke test have actually passed.
+
+## Validation matrix for this handoff
+
+The local results below were produced on 2026-08-24 from the 5.2.2 candidate
+snapshot captured for the packaging run, in a disposable openSUSE Tumbleweed
+20260822 x86_64 container. This matrix was documented afterward, so the results
+validate that captured snapshot, not the later documentation edit, a future
+commit or a tag. Commit- and tag-dependent checks must be repeated after the
+final commit; the validation tarball checksum below is not a release checksum.
+`SKIP` is not success.
+
+| Gate | Result | Evidence |
+|---|---|---|
+| `_service` XML syntax | PASS | `xmllint --noout`; installed service definitions and parameters also exercised locally. |
+| ShellCheck for packaging, export, source-policy, and security regression scripts | PASS | ShellCheck 0.10.0 returned zero for the scripts listed in the CI source-policy job, including the scanner and new archive/disk regressions; repeat after the final commit/tag. |
+| Upstream source-only scanner and adversarial scanner tests | PASS | Clean snapshot: 191 files; OBS tar: 191 files/1 archive; SRPM tree: 193 files/1 archive; 29 positive/negative scanner regressions passed. |
+| Reproducible source archive (two builds, same SHA-256) | PASS | Two local `obs_scm`/`tar`/`recompress` runs were byte-identical (`39e59f5e...`, validation only; regenerate after the real tag). |
+| Upstream build, `make check`, and `make test-all` | SKIP | The real RPM `%check`/`make check` passed; an exact-candidate `make test-all` result was not produced by this packaging run. |
+| Positional DATA/DEDUP_REF AAD and mandatory-AIT regressions | PASS | `%check` passed AIT removal, F-09 preface, DATA/REF reorder/replay, little-endian, varint and atomic-output regressions. |
+| v5.2.1 encrypted+dedup disk compatibility | PASS | Working-tree candidate decoded the textual 718-byte v5.2.1 DATA/DATA/REF/DATA fixture, then `list`, `test`, generic extraction, and byte-exact disk restore passed; repeat after the final commit/tag. |
+| `rpmspec` parse | PASS | Both `rpmspec -P` and `rpmspec --parse` returned zero; Source0 resolved to `zupt-5.2.2.tar.gz`. |
+| `spec-cleaner` | PASS | Version 1.2.4+2 returned zero and proposed no diff. |
+| `rpmbuild` source and binary RPM | PASS | `rpmbuild -bs` and `-ba` passed from the service-generated Source0 with the openSUSE `.changes` conversion. |
+| `rpmlint` main RPM + SRPM | PASS | 0 errors and one `invalid-url Source0` warning for the service-generated local Source0; no `rpmlintrc` or suppression was added. |
+| `rpmlint` including automatic debug packages | FAIL | `debugsource: no-binary` error and expected `debuginfo: unstripped-binary-or-object` warning from the complete generated package set; debug packages were not disabled or suppressed. |
+| `osc service` | PASS | Installed `obs_scm` 0.12.4, `tar` 0.12.4 and `recompress` 0.5.2 produced the correctly named source tar locally; canonical tag fetch remains tag-dependent. |
+| Tumbleweed x86_64 local build/install/round trip/uninstall | PASS | Tumbleweed 20260822 container: RPM `%check`, root and `nobody` installed tests, content/hardening audit and clean uninstall passed. This is not an OBS/Factory result. |
+| Official OBS `osc build` invocation | FAIL | The command reached `https://api.opensuse.org` but returned HTTP 401 because no OBS credentials are configured. |
+| Factory/Tumbleweed x86_64 OBS validation | SKIP | The failed authenticated `osc build` invocation produced no Factory build result; local Tumbleweed evidence is not promoted to Factory evidence. |
+| aarch64, ppc64le, s390x, riscv64 | SKIP | No build evidence yet. |
+| Leap and SLE | SKIP | No build evidence yet. |
+
+`SKIP` is not success. Factory/Tumbleweed x86_64 remains the primary downstream
+gate.
+
+## Handoff procedure for Alessandro/Cabelo
+
+1. Upstream creates and verifies the annotated `v5.2.2` tag only after all
+   mandatory gates pass.
+2. With Git, `file`, bsdtar, tar, zip, unzip and SHA-256 tools installed, run
+   `scripts/export-opensuse-package.sh v5.2.2`. Verify the reported ZIP and
+   SHA-256 outside the Git index. The handoff includes both
+   `packaging/opensuse/source-audit.sh` and its required
+   `scripts/check-source-only.sh`; keep that relative layout while auditing.
+3. Check out the OBS package:
+
+   ```sh
+   osc checkout home:cabelo:innovators zupt
+   cd home:cabelo:innovators/zupt
+   ```
+
+4. From the extracted handoff root, run
+   `packaging/opensuse/source-audit.sh --archive /path/to/zupt-5.2.2.tar.gz`.
+   Then copy `_service`, `zupt.spec`, `zupt.changes` and `README.md`
+   into the flat OBS package checkout. The audit wrapper is not an OBS build
+   source and must not be copied without its companion `scripts/` directory.
+5. Run the local validation workflow above, including the installed round-trip
+   test. Build every repository and architecture enabled in the OBS project;
+   record failures or unavailable gates as such.
+6. Review `osc diff`, confirm that no RPM or other binary was added as a source,
+   and commit to OBS only after the required gates pass.
+
+For future releases, increment the stable patch version, create a new immutable
+tag, update the matching revision/version in `_service`, spec and changes, run
+the source-only scanner, regenerate the handoff, and repeat every OBS gate.
+Never move an existing tag or consume forge release binaries as `Source0`.

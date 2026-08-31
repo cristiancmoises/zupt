@@ -5,7 +5,11 @@
 # Bug #15 (v2.2.2): options after the positional archive argument were
 # silently dropped. e.g. `zupt x arch.zupt -o out` ignored `-o out`.
 
-ZUPT_BIN="$(realpath ./zupt)"
+ZUPT_BIN=${1:-./zupt}
+case $ZUPT_BIN in
+    /*) ;;
+    *) ZUPT_BIN=$PWD/${ZUPT_BIN#./} ;;
+esac
 TMPDIR=$(mktemp -d)
 trap "rm -rf $TMPDIR" EXIT
 cd "$TMPDIR"

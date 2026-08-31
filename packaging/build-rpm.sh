@@ -1,195 +1,127 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
-#
-# Build self-contained vaptvupt RPM (formerly zupt). Bundles
-# libzuptsdk.so.2 under /usr/lib/vaptvupt/ so users do NOT need
-# a separate libzuptsdk package. Installs a legacy /usr/bin/zupt
-# symlink for one major version cycle.
 
-set -e
-cd "$(dirname "$0")/.."
+set -Eeuo pipefail
 
-VERSION="${VERSION:-3.0.0}"
-ARCH="${ARCH:-x86_64}"
-RELEASE="1"
-PKGNAME="vaptvupt"
-LEGACY="zupt"
+umask 022
+export LC_ALL=C
 
-SDK_LIB="vendor/zuptsdk/libzuptsdk.so.2.0.0"
-if [ ! -f "$SDK_LIB" ]; then
-    echo "ERROR: $SDK_LIB not found." >&2
+die() {
+    printf 'FAIL: %s\n' "$*" >&2
     exit 1
-fi
+}
 
-echo "[rpm] Building $PKGNAME"
-make clean >/dev/null 2>&1 || true
-make -j"$(nproc)" >/dev/null
-echo "[rpm] Patching rpath -> /usr/lib/$PKGNAME:/usr/lib64/$PKGNAME"
-patchelf --set-rpath "/usr/lib/$PKGNAME:/usr/lib64/$PKGNAME" $PKGNAME
-if ! readelf -d $PKGNAME | grep -q "RUNPATH.*\[/usr/lib/$PKGNAME:/usr/lib64/$PKGNAME\]"; then
-    echo "ERROR: $PKGNAME does not have correct RUNPATH" >&2
-    exit 1
-fi
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+cd -- "$repo_root"
 
-if ! command -v rpmbuild >/dev/null 2>&1; then
-    echo "[rpm] rpmbuild not found; install rpm package to proceed"
-    exit 1
-fi
+header_version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+version=${VERSION:-$header_version}
+[[ -n $version && $version == "$header_version" ]] || \
+    die "VERSION '$version' does not match include/zupt.h '$header_version'"
+[[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid package version: $version"
 
-RPMROOT="/tmp/rpmbuild-$PKGNAME"
-rm -rf "$RPMROOT"
-mkdir -p "$RPMROOT"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+spec=packaging/opensuse/zupt.spec
+[[ -f $spec ]] || die "spec file not found: $spec"
+spec_version=$(sed -n 's/^Version:[[:space:]]*//p' "$spec" | head -n 1)
+[[ $spec_version == "$version" ]] || die "spec version '$spec_version' does not match '$version'"
 
-STAGE="/tmp/$PKGNAME-rpm-stage-${VERSION}"
-rm -rf "$STAGE"
-mkdir -p "$STAGE/$PKGNAME-${VERSION}/completions"
+dist_dir=${DIST_DIR:-${TMPDIR:-/tmp}/zupt-release}
+mkdir -p -- "$dist_dir"
+dist_dir=$(cd -- "$dist_dir" && pwd -P)
 
-cp $PKGNAME "$STAGE/$PKGNAME-${VERSION}/$PKGNAME"
-cp "$SDK_LIB" "$STAGE/$PKGNAME-${VERSION}/libzuptsdk.so.2.0.0"
-cp "vendor/pqvaptvupt/libpqvaptvupt.so.0.6.0" "$STAGE/$PKGNAME-${VERSION}/libpqvaptvupt.so.0.6.0"
-cp README.md CHANGELOG.md SECURITY.md AUDIT.md LICENSE "$STAGE/$PKGNAME-${VERSION}/"
-[ -f doc/vaptvupt.1 ] && cp doc/vaptvupt.1 "$STAGE/$PKGNAME-${VERSION}/$PKGNAME.1"
-[ -f completions/vaptvupt.bash ] && cp completions/vaptvupt.bash "$STAGE/$PKGNAME-${VERSION}/completions/"
-[ -f completions/_vaptvupt ]     && cp completions/_vaptvupt     "$STAGE/$PKGNAME-${VERSION}/completions/"
-[ -f completions/vaptvupt.fish ] && cp completions/vaptvupt.fish "$STAGE/$PKGNAME-${VERSION}/completions/"
-tar -czf "$RPMROOT/SOURCES/$PKGNAME-${VERSION}.tar.gz" -C "$STAGE" "$PKGNAME-${VERSION}"
+for command_name in make git rpmbuild rpm rpm2cpio cpio date readelf sha256sum tar; do
+    command -v -- "$command_name" >/dev/null 2>&1 || die "required command not found: $command_name"
+done
 
-cat > "$RPMROOT/SPECS/$PKGNAME.spec" <<EOF
-Name:           $PKGNAME
-Version:        $VERSION
-Release:        ${RELEASE}%{?dist}
-Summary:        Post-quantum backup compression utility (formerly zupt)
-License:        AGPL-3.0-or-later AND GPL-3.0-or-later
-URL:            https://git.securityops.co/cristiancmoises/zupt
-Source0:        $PKGNAME-%{version}.tar.gz
+work=$(mktemp -d "${TMPDIR:-/tmp}/zupt-rpm.XXXXXXXX")
+top=$work/rpmbuild
+extract=$work/extract
+mkdir -p -- "$top/BUILD" "$top/BUILDROOT" "$top/RPMS" "$top/SOURCES" \
+    "$top/SPECS" "$top/SRPMS" "$extract"
 
-# v3.0.0 rename — INPI Brasil trademark on the prior name "Zupt".
-# Cleanly supersede legacy 'zupt' RPMs.
-Provides:       $LEGACY = %{version}-%{release}
-Obsoletes:      $LEGACY < 3.0.0
-Conflicts:      $LEGACY < 3.0.0
+cleanup() {
+    chmod -R u+rwX "$work" 2>/dev/null || true
+    rm -rf -- "$work"
+}
+trap cleanup EXIT HUP INT TERM
 
-Requires:       libargon2
-Requires:       openssl-libs >= 3.0
-AutoReqProv:    no
+source_tar=$top/SOURCES/zupt-${version}.tar.gz
+printf '[rpm] creating audited source archive for ZUPT %s\n' "$version"
+make DIST_TARBALL="$source_tar" WITH_SDK=0 WITH_PQBOX=0 dist
+archive_version=$(tar -xOf "$source_tar" "zupt-${version}/include/zupt.h" | \
+    sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p')
+[[ $archive_version == "$version" ]] || die "source archive version is '$archive_version', expected '$version'"
 
-%global debug_package %{nil}
-%global __os_install_post %{nil}
-%global _build_id_links none
+install -m 0644 "$spec" "$top/SPECS/zupt.spec"
+# OBS converts zupt.changes into RPM changelog metadata.  Standalone
+# rpmbuild does not, so add an equivalent release entry only to the temporary
+# spec used for this release artifact.
+changelog_sections=$(grep -Ec '^%changelog[[:space:]]*$' "$top/SPECS/zupt.spec" || true)
+[[ $changelog_sections -eq 1 ]] || \
+    die "expected exactly one %changelog section, found $changelog_sections"
+source_epoch=${SOURCE_DATE_EPOCH:-$(sed -n '1p' .source-date-epoch 2>/dev/null || true)}
+[[ $source_epoch =~ ^[0-9]+$ ]] || die 'SOURCE_DATE_EPOCH is not available'
+changelog_date=$(date -u --date="@$source_epoch" '+%a %b %d %Y')
+cat >> "$top/SPECS/zupt.spec" <<EOF
 
-%description
-VaptVupt (renamed from Zupt in v3.0.0 due to INPI Brasil trademark
-on the prior name) is a backup-oriented compression utility with
-hybrid post-quantum encryption (ML-KEM-768 + X25519). Provides
-AES-256-CTR + HMAC-SHA256 authenticated encryption, multi-threaded
-compression, full-disk backup/restore, block-level deduplication,
-and embeds the VaptVupt 2.48.5 LZ + ANS codec with AVX2 and NEON
-SIMD acceleration. The libzuptsdk shared library is bundled under
-/usr/lib/$PKGNAME -- no separate package required.
-
-The on-disk archive extension is unchanged (.zupt); v2.x and v3.0.0
-archives are bidirectionally compatible. The legacy /usr/bin/zupt
-symlink is preserved for one major version cycle.
-
-%prep
-%setup -q
-
-%build
-# Pre-built before rpmbuild was invoked; nothing to do.
-
-%install
-mkdir -p %{buildroot}%{_bindir}
-mkdir -p %{buildroot}%{_libdir}/$PKGNAME
-mkdir -p %{buildroot}%{_docdir}/$PKGNAME
-mkdir -p %{buildroot}%{_licensedir}/$PKGNAME
-mkdir -p %{buildroot}%{_mandir}/man1
-mkdir -p %{buildroot}%{_datadir}/bash-completion/completions
-mkdir -p %{buildroot}%{_datadir}/zsh/site-functions
-mkdir -p %{buildroot}%{_datadir}/fish/vendor_completions.d
-
-install -m 755 $PKGNAME %{buildroot}%{_bindir}/$PKGNAME
-ln -sf $PKGNAME %{buildroot}%{_bindir}/$LEGACY
-
-install -m 755 libzuptsdk.so.2.0.0 %{buildroot}%{_libdir}/$PKGNAME/libzuptsdk.so.2.0.0
-ln -sf libzuptsdk.so.2.0.0 %{buildroot}%{_libdir}/$PKGNAME/libzuptsdk.so.2
-ln -sf libzuptsdk.so.2.0.0 %{buildroot}%{_libdir}/$PKGNAME/libzuptsdk.so
-install -m 755 libpqvaptvupt.so.0.6.0 %{buildroot}%{_libdir}/$PKGNAME/libpqvaptvupt.so.0.6.0
-ln -sf libpqvaptvupt.so.0.6.0 %{buildroot}%{_libdir}/$PKGNAME/libpqvaptvupt.so.0
-ln -sf libpqvaptvupt.so.0.6.0 %{buildroot}%{_libdir}/$PKGNAME/libpqvaptvupt.so
-
-install -m 644 README.md CHANGELOG.md SECURITY.md AUDIT.md %{buildroot}%{_docdir}/$PKGNAME/
-install -m 644 LICENSE %{buildroot}%{_licensedir}/$PKGNAME/
-
-if [ -f $PKGNAME.1 ]; then
-    install -m 644 $PKGNAME.1 %{buildroot}%{_mandir}/man1/$PKGNAME.1
-    gzip -9n %{buildroot}%{_mandir}/man1/$PKGNAME.1
-    ln -sf $PKGNAME.1.gz %{buildroot}%{_mandir}/man1/$LEGACY.1.gz
-fi
-
-if [ -f completions/vaptvupt.bash ]; then
-    install -m 644 completions/vaptvupt.bash %{buildroot}%{_datadir}/bash-completion/completions/$PKGNAME
-    ln -sf $PKGNAME %{buildroot}%{_datadir}/bash-completion/completions/$LEGACY
-fi
-if [ -f completions/_vaptvupt ]; then
-    install -m 644 completions/_vaptvupt %{buildroot}%{_datadir}/zsh/site-functions/_$PKGNAME
-    ln -sf _$PKGNAME %{buildroot}%{_datadir}/zsh/site-functions/_$LEGACY
-fi
-if [ -f completions/vaptvupt.fish ]; then
-    install -m 644 completions/vaptvupt.fish %{buildroot}%{_datadir}/fish/vendor_completions.d/$PKGNAME.fish
-fi
-
-%files
-%license %{_licensedir}/$PKGNAME/LICENSE
-%doc %{_docdir}/$PKGNAME/README.md
-%doc %{_docdir}/$PKGNAME/CHANGELOG.md
-%doc %{_docdir}/$PKGNAME/SECURITY.md
-%doc %{_docdir}/$PKGNAME/AUDIT.md
-%{_bindir}/$PKGNAME
-%{_bindir}/$LEGACY
-%dir %{_libdir}/$PKGNAME
-%{_libdir}/$PKGNAME/libzuptsdk.so
-%{_libdir}/$PKGNAME/libzuptsdk.so.2
-%{_libdir}/$PKGNAME/libzuptsdk.so.2.0.0
-%{_libdir}/$PKGNAME/libpqvaptvupt.so
-%{_libdir}/$PKGNAME/libpqvaptvupt.so.0
-%{_libdir}/$PKGNAME/libpqvaptvupt.so.0.6.0
-%{_mandir}/man1/$PKGNAME.1.gz
-%{_mandir}/man1/$LEGACY.1.gz
-%{_datadir}/bash-completion/completions/$PKGNAME
-%{_datadir}/bash-completion/completions/$LEGACY
-%{_datadir}/zsh/site-functions/_$PKGNAME
-%{_datadir}/zsh/site-functions/_$LEGACY
-%{_datadir}/fish/vendor_completions.d/$PKGNAME.fish
-
-%changelog
-* Sun May 25 2026 Cristian Cezar Moises <zupt@riseup.net> - $VERSION-$RELEASE
-- v3.0.0: Renamed from "Zupt" to "VaptVupt" because of a prior INPI
-  Brasil trademark on "Zupt". Archive extension .zupt is preserved;
-  v2.x and v3.0.0 archives are bidirectionally compatible. Legacy
-  /usr/bin/zupt is installed as a symlink to /usr/bin/vaptvupt.
-- Integrated VaptVupt LZ + ANS codec 2.48.5: fixes csz==0 heap-
-  buffer-overflow READ in vv_dstream_decompress_chunk (libFuzzer-
-  found, medium severity), UBSan-safe pointer arithmetic in
-  vv_copy_match.
-- Enhanced manpage (597 lines, was 422): POST-QUANTUM ENCRYPTION,
-  PERFORMANCE table, SECURITY/threat-model, ENVIRONMENT and
-  EXIT STATUS sections.
-- Fixed GUI binary-discovery bug (PATH-missing-/usr/bin scenario);
-  GUI now does liveness check + logs discovery to stderr with
-  VAPTVUPT_DEBUG=1.
-- 91/91 distro-safe regression suite green; F-09 byte sweep
-  0/1827 silent accepts; F-06 HMAC fuzz 0/2000 silent accepts.
+* $changelog_date Cristian Cezar Moisés <sac@securityops.co> - $version-0
+- Build the release package from audited source with optional SDK and PQBOX
+  features disabled.
 EOF
+rpmbuild --define "_topdir $top" -ba "$top/SPECS/zupt.spec"
 
-rpmbuild --define "_topdir $RPMROOT" \
-         --define "_binary_payload w2.gzdio" \
-         -bb "$RPMROOT/SPECS/$PKGNAME.spec" 2>&1 | tail -5
+mapfile -t main_rpms < <(find "$top/RPMS" -type f -name "zupt-${version}-*.rpm" \
+    ! -name '*-debuginfo-*' ! -name '*-debugsource-*' -print | sort)
+[[ ${#main_rpms[@]} -eq 1 ]] || die "expected one main RPM, found ${#main_rpms[@]}"
+main_rpm=${main_rpms[0]}
 
-RPM_PATH=$(find "$RPMROOT/RPMS" -name "$PKGNAME-${VERSION}-*.rpm" | head -1)
-if [ -n "$RPM_PATH" ]; then
-    cp "$RPM_PATH" "/tmp/$PKGNAME-${VERSION}-${RELEASE}.${ARCH}.rpm"
-    echo ""
-    echo "Built: /tmp/$PKGNAME-${VERSION}-${RELEASE}.${ARCH}.rpm ($(du -h "/tmp/$PKGNAME-${VERSION}-${RELEASE}.${ARCH}.rpm" | cut -f1))"
-    rpm -qpi "/tmp/$PKGNAME-${VERSION}-${RELEASE}.${ARCH}.rpm" 2>&1 | head -15
+mapfile -t source_rpms < <(find "$top/SRPMS" -type f -name "zupt-${version}-*.src.rpm" -print | sort)
+[[ ${#source_rpms[@]} -eq 1 ]] || die "expected one source RPM, found ${#source_rpms[@]}"
+source_rpm=${source_rpms[0]}
+
+rpm -qpi "$main_rpm" >/dev/null
+rpm -qpl "$main_rpm" > "$work/contents.txt"
+if grep -Eq '(^/usr/bin/vaptvupt$|\.(o|obj|a|so|so\.[^/]+|dll|dylib)$)' "$work/contents.txt"; then
+    cat "$work/contents.txt" >&2
+    die 'forbidden alias or compiled library/object found in RPM contents'
 fi
+if grep -q '^/usr/local/' "$work/contents.txt"; then
+    cat "$work/contents.txt" >&2
+    die 'RPM contains files below /usr/local'
+fi
+
+(cd -- "$extract" && rpm2cpio "$main_rpm" | cpio -idm --quiet)
+binary=$extract/usr/bin/zupt
+[[ -x $binary ]] || die 'RPM does not contain executable /usr/bin/zupt'
+if ! readelf -h "$binary" 2>/dev/null | grep -Eq 'Type:[[:space:]]+DYN'; then
+    die 'RPM executable is not a position-independent executable (PIE)'
+fi
+if ! readelf -W -l "$binary" 2>/dev/null | grep -q 'GNU_RELRO'; then
+    die 'RPM executable lacks a GNU_RELRO segment'
+fi
+stack_segment=$(readelf -W -l "$binary" 2>/dev/null | grep 'GNU_STACK' || true)
+[[ -n $stack_segment && $stack_segment != *RWE* ]] || \
+    die 'RPM executable has a missing or executable GNU_STACK segment'
+if readelf -d "$binary" 2>/dev/null | grep -Eq '(RPATH|RUNPATH)'; then
+    readelf -d "$binary" | grep -E '(RPATH|RUNPATH)' >&2
+    die 'RPM executable contains RPATH/RUNPATH'
+fi
+if readelf -d "$binary" 2>/dev/null | grep -Eqi '(vendor/|libvuptsdk|libpqvaptvupt)'; then
+    die 'RPM executable references a vendored optional library'
+fi
+bash scripts/test-installed-zupt.sh "$binary"
+
+artifacts=("$main_rpm" "$source_rpm")
+for artifact in "${artifacts[@]}"; do
+    destination=$dist_dir/$(basename -- "$artifact")
+    [[ ! -e $destination ]] || die "refusing to overwrite existing output: $destination"
+done
+for artifact in "${artifacts[@]}"; do
+    destination=$dist_dir/$(basename -- "$artifact")
+    cp -- "$artifact" "$destination"
+    sha256sum "$destination"
+done
+
+printf 'PASS: built and extracted-package-tested %s\n' "$dist_dir/$(basename -- "$main_rpm")"
+printf 'PASS: built source RPM %s\n' "$dist_dir/$(basename -- "$source_rpm")"

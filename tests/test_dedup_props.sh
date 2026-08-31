@@ -6,10 +6,16 @@
 # (a) compressed output is correct (byte-exact roundtrip) and
 # (b) dedup actually saves space when duplicates are present.
 
-ZUPT_BIN="$(realpath ./zupt)"
+REPO_ROOT=$(pwd -P)
+ZUPT_BIN=${1:-./zupt}
+case $ZUPT_BIN in
+    /*) ;;
+    *) ZUPT_BIN=$PWD/${ZUPT_BIN#./} ;;
+esac
+ARCHIVE_SURGERY="$REPO_ROOT/tests/archive_surgery.py"
 TMPDIR=$(mktemp -d)
-trap "rm -rf $TMPDIR" EXIT
-cd "$TMPDIR"
+trap 'rm -rf "$TMPDIR"' EXIT
+cd "$TMPDIR" || exit 1
 
 PASS=0; FAIL=0
 chk() {
@@ -24,24 +30,27 @@ echo "  [P1. Dedup roundtrip preserves all bytes]"
 
 mkdir input
 for i in $(seq 1 10); do
-    dd if=/dev/urandom of=input/file_$i.bin bs=4K count=$((RANDOM % 8 + 1)) 2>/dev/null
+    dd if=/dev/urandom of="input/file_$i.bin" bs=4K \
+        count=$((RANDOM % 8 + 1)) 2>/dev/null
 done
 # 5 exact duplicates (same content as file_1..5)
 for i in 1 2 3 4 5; do
-    cp input/file_$i.bin input/dup_$i.bin
+    cp "input/file_$i.bin" "input/dup_$i.bin"
 done
 
 "$ZUPT_BIN" c --dedup test_dedup.zupt input/*.bin > /dev/null 2>&1
 chk "Compress with --dedup succeeds"
 
-mkdir extracted && cd extracted
+mkdir extracted
+cd extracted || exit 1
 "$ZUPT_BIN" x ../test_dedup.zupt > /dev/null 2>&1
 chk "Extract --dedup archive succeeds"
 
 all_match=1
 for i in $(seq 1 10); do
-    if ! diff -q ../input/file_$i.bin tmp*/input/file_$i.bin > /dev/null 2>&1 \
-       && ! diff -q ../input/file_$i.bin input/file_$i.bin > /dev/null 2>&1; then
+    candidate=$(find . -type f -path "*/input/file_$i.bin" -print -quit)
+    if [ -z "$candidate" ] ||
+            ! cmp "../input/file_$i.bin" "$candidate" >/dev/null 2>&1; then
         all_match=0; break
     fi
 done
@@ -50,13 +59,12 @@ chk "All 10 base files roundtrip byte-exact"
 
 dup_match=1
 for i in 1 2 3 4 5; do
-    found=0
-    for d in tmp*/input input; do
-        if [ -f "$d/dup_$i.bin" ] && diff -q ../input/dup_$i.bin "$d/dup_$i.bin" > /dev/null 2>&1; then
-            found=1; break
-        fi
-    done
-    [ $found -eq 1 ] || { dup_match=0; break; }
+    candidate=$(find . -type f -path "*/input/dup_$i.bin" -print -quit)
+    if [ -z "$candidate" ] ||
+            ! cmp "../input/dup_$i.bin" "$candidate" >/dev/null 2>&1; then
+        dup_match=0
+        break
+    fi
 done
 [ $dup_match -eq 1 ]
 chk "All 5 duplicate files roundtrip byte-exact"
@@ -68,7 +76,7 @@ echo "  [P2. Dedup compresses better than non-dedup on duplicate-heavy data]"
 
 mkdir dups
 for i in $(seq 1 20); do
-    cp input/file_1.bin dups/copy_$i.bin
+    cp input/file_1.bin "dups/copy_$i.bin"
 done
 
 "$ZUPT_BIN" c        no_dedup.zupt    dups/*.bin > /dev/null 2>&1
@@ -87,7 +95,8 @@ chk "Dedup achieves >50% reduction (got $ratio% of original)"
 # ─── Property 3: dedup roundtrip preserves data on duplicate-only sets ──
 echo "  [P3. 100% duplicate file set extracts correctly]"
 
-mkdir extr_dups && cd extr_dups
+mkdir extr_dups
+cd extr_dups || exit 1
 "$ZUPT_BIN" x ../with_dedup.zupt > /dev/null 2>&1
 chk "Extract heavy-duplicate archive succeeds"
 
@@ -96,25 +105,28 @@ n_extracted=$(find . -name "copy_*.bin" 2>/dev/null | wc -l)
 chk "All 20 duplicate copies extracted (got $n_extracted)"
 
 all_dup_match=1
-for f in $(find . -name "copy_*.bin"); do
-    if ! diff -q "$f" ../input/file_1.bin > /dev/null 2>&1; then
+while IFS= read -r f; do
+    if ! cmp "$f" ../input/file_1.bin >/dev/null 2>&1; then
         all_dup_match=0; break
     fi
-done
+done < <(find . -type f -name 'copy_*.bin' -print)
 [ $all_dup_match -eq 1 ]
 chk "All extracted duplicates byte-exact match the original"
 
 cd ..
 
 # ─── Property 4: dedup + encryption coexist correctly ───────────────────
-echo "  [P4. Dedup + SDK encryption work together]"
+echo "  [P4. Dedup + password encryption work together]"
 
-"$ZUPT_BIN" keygen --sdk -o k.priv > /dev/null 2>&1
-"$ZUPT_BIN" c --dedup --pq-sdk k.priv.pub enc_dedup.zupt dups/*.bin > /dev/null 2>&1
+"$ZUPT_BIN" c --dedup -p dedup-test-password enc_dedup.zupt dups/*.bin > /dev/null 2>&1
 chk "Encrypt + dedup compress succeeds"
 
-mkdir extr_enc && cd extr_enc
-"$ZUPT_BIN" x --pq-sdk ../k.priv ../enc_dedup.zupt > /dev/null 2>&1
+"$ZUPT_BIN" t -p dedup-test-password enc_dedup.zupt > /dev/null 2>&1
+chk "Encrypt + dedup archive test succeeds"
+
+mkdir extr_enc
+cd extr_enc || exit 1
+"$ZUPT_BIN" x -p dedup-test-password ../enc_dedup.zupt > /dev/null 2>&1
 chk "Encrypt + dedup extract succeeds"
 
 n=$(find . -name "copy_*.bin" 2>/dev/null | wc -l)
@@ -122,6 +134,21 @@ n=$(find . -name "copy_*.bin" 2>/dev/null | wc -l)
 chk "All 20 copies recovered after enc+dedup ($n found)"
 
 cd ..
+
+# The offset inside a new encrypted DEDUP_REF is itself authenticated. A
+# payload-only mutation must fail before it can redirect extraction.
+if python3 "$ARCHIVE_SURGERY" flip-payload enc_dedup.zupt \
+        tampered_ref.zupt --kind ref --require-encrypted; then
+    if "$ZUPT_BIN" t -p dedup-test-password tampered_ref.zupt \
+            > /dev/null 2>&1; then
+        false
+    else
+        true
+    fi
+else
+    false
+fi
+chk "Encrypted dedup reference offset rejects tampering"
 
 echo
 echo "  ───────────────────────────────────────"

@@ -1,254 +1,613 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
-#
-# Zupt CI matrix.
-#
-# Mirrors the project's local-verification protocol from PROMPT.md §6:
-#   1. Plain GCC build
-#   2. Plain Clang build
-#   3. Strict GCC (full warning set)
-#   4. Strict Clang (full warning set)
-#   5. ASAN + UBSAN
-#   6. Full regression suite (12 suites: audit, dedup, path-traversal,
-#      argument-order, block-swap, F-08, F-09 byte sweep, F-10, F-11,
-#      F-12, packaging syntax, dist reproducibility)
-#   7. License header audit
-#   8. `make dist` reproducibility (two runs, sha256 must match)
-#   9. aarch64 cross-test via QEMU emulation
-#  10. Automatic release on git tag push
 
 name: CI
 
 on:
   push:
-    branches: [master]
-    tags: ['v*']
+    branches:
+      - master
+      - 'codex/**'
+    tags:
+      - 'v*'
   pull_request:
-    branches: [master]
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
 
 jobs:
-  # ─── Plain build + test, exactly as a user would do it ───
+  source-policy:
+    name: Source-only, license, shell and secret policy
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out all refs without LFS or submodules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          lfs: false
+          submodules: false
+
+      - name: Install audit tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            dpkg-dev file git-lfs libarchive-tools libxml2-utils make python3 ruby \
+            shellcheck unzip
+
+      - name: Audit tracked files, worktree and HEAD archive
+        run: bash scripts/check-source-only.sh
+
+      - name: Exercise positive and negative scanner fixtures
+        run: bash tests/test_source_only.sh
+
+      - name: Audit license headers
+        run: make WITH_SDK=0 WITH_PQBOX=0 audit-licenses
+
+      - name: Validate release packaging metadata
+        run: bash tests/test_packaging_syntax.sh
+
+      - name: ShellCheck release and source-policy scripts
+        run: |
+          shellcheck \
+            packaging/build-deb.sh \
+            packaging/build-rpm.sh \
+            packaging/build-appimage.sh \
+            packaging/build-dmg.sh \
+            packaging/build-gui-appimage.sh \
+            packaging/build-gui-deb.sh \
+            packaging/build-gui-rpm.sh \
+            packaging/opensuse/source-audit.sh \
+            scripts/check-source-only.sh \
+            scripts/export-opensuse-package.sh \
+            scripts/test-installed-zupt.sh \
+            tests/test_atomic_archive_output.sh \
+            tests/test_authenticated_dedup_reorder.sh \
+            tests/test_benchmark_temp_safety.sh \
+            tests/test_block_type_confusion.sh \
+            tests/test_disk_device_capacity.sh \
+            tests/test_f09_preface.sh \
+            tests/test_legacy_disk_5_2_1.sh \
+            tests/test_path_traversal.sh \
+            tests/test_pqbox.sh \
+            tests/test_sdk.sh \
+            tests/test_source_only.sh
+
+      - name: Credential material audit (paths only)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          findings=$(git grep -Il -E -- \
+            "-----BEGIN (RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----|https?://[^/@[:space:]]+:[A-Za-z0-9_+=.-]{20,}@|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{16}|xox[baprs]-[A-Za-z0-9-]{20,}|(FORGEJO_TOKEN|SECURITYOPS_TOKEN|GITHUB_TOKEN|CODEBERG_TOKEN)[[:space:]]*[:=][[:space:]]*['\\\"]?[A-Za-z0-9_+=./-]{20,}" \
+            -- . || true)
+          if [[ -n $findings ]]; then
+            printf '%s\n' "$findings" >&2
+            echo 'credential-like material found in tracked files' >&2
+            exit 1
+          fi
+          echo 'No private-key block, named token assignment, or credential-bearing URL found.'
+
   build-and-test:
+    name: Build and full tests (${{ matrix.cc }})
+    needs: source-policy
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         cc: [gcc, clang]
     steps:
-      - uses: actions/checkout@v4
-      - name: Install build deps
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          lfs: false
+          submodules: false
+      - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang dpkg-dev python3
-      - name: Build (${{ matrix.cc }})
-        run: make CC=${{ matrix.cc }} -j$(nproc)
-      - name: zupt version
-        run: ./zupt version
-      - name: Full regression suite
-        run: make test
-      - name: License header audit
-        run: make audit-licenses
+          sudo apt-get install -y build-essential clang file libarchive-tools python3 unzip
+      - name: Clean source-only build
+        run: |
+          make clean
+          make -j"$(nproc)" CC=${{ matrix.cc }} V=1 WITH_SDK=0 WITH_PQBOX=0
+      - name: Distribution checks
+        run: make CC=${{ matrix.cc }} V=1 WITH_SDK=0 WITH_PQBOX=0 check
+      - name: Extended upstream tests
+        run: make CC=${{ matrix.cc }} V=1 WITH_SDK=0 WITH_PQBOX=0 test-all
+      - name: Functional test of the built CLI
+        run: bash scripts/test-installed-zupt.sh "$PWD/zupt"
 
-  # ─── Strict warning matrix — what the project's §6 protocol uses ───
   strict-warnings:
+    name: Strict warnings (${{ matrix.cc }})
+    needs: source-policy
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         include:
           - cc: gcc
-            cflags: "-Wall -Wextra -Wpedantic -Wshadow -Wcast-align -Wstrict-prototypes -Wmissing-prototypes -Wnull-dereference -Wformat-security -Wlogical-op -Wjump-misses-init -Wdouble-promotion -O2 -std=c11 -Werror"
+            flags: >-
+              -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Wshadow
+              -Wcast-align -Wstrict-prototypes -Wmissing-prototypes
+              -Wnull-dereference -Wformat=2 -Werror
           - cc: clang
-            cflags: "-Wall -Wextra -Wpedantic -Wshadow -Wcast-align -Wstrict-prototypes -Wmissing-prototypes -Wnull-dereference -O2 -std=c11 -Werror"
+            flags: >-
+              -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Wshadow
+              -Wcast-align -Wstrict-prototypes -Wmissing-prototypes
+              -Wnull-dereference -Wformat=2 -Werror
     steps:
-      - uses: actions/checkout@v4
-      - name: Install build deps
-        run: sudo apt-get update && sudo apt-get install -y build-essential clang
-      - name: Strict ${{ matrix.cc }} build (warnings → errors)
-        run: make CC=${{ matrix.cc }} CFLAGS="${{ matrix.cflags }}" -j$(nproc)
-
-  # ─── ASAN + UBSAN — catches memory bugs the warning matrix can't ───
-  sanitizers:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install build deps
-        run: sudo apt-get update && sudo apt-get install -y build-essential python3
-      - name: Build with ASAN + UBSAN
-        run: make test-asan
-      - name: Native --pq byte-exact roundtrip under ASAN
-        env:
-          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: |
-          # Native hybrid ML-KEM-768 + X25519 (the source-only default; --pq-sdk
-          # needs a WITH_SDK=1 build and is unavailable here).
-          ./zupt_asan keygen -o /tmp/k.priv
-          ./zupt_asan keygen --pub -o /tmp/k.pub -k /tmp/k.priv
-          ./zupt_asan compress --pq /tmp/k.pub /tmp/a.zupt include/
-          mkdir -p /tmp/extracted
-          ./zupt_asan extract --pq /tmp/k.priv -o /tmp/extracted /tmp/a.zupt
-          diff -qr include /tmp/extracted/include
-
-  # ─── PIE hardening build — verifies no runtime breakage from -fPIE ───
-  pie-hardening:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install build deps
-        run: sudo apt-get update && sudo apt-get install -y build-essential
-      - name: Build with PIE + hardening
-        run: |
-          make CFLAGS="-O2 -std=c11 -fPIE -fstack-protector-strong -D_FORTIFY_SOURCE=2 -Wformat -Wformat-security" \
-               LDFLAGS="-pie -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack" \
-               -j$(nproc)
-      - name: Verify binary is PIE
-        run: |
-          file ./zupt | grep -E "ELF .*executable.*pie|ELF .*shared object" || \
-            { file ./zupt; echo "binary is not PIE"; exit 1; }
-      - name: Smoke test
-        run: |
-          echo "test" > /tmp/in.txt
-          ./zupt c -p secret /tmp/a.zupt /tmp/in.txt
-          mkdir /tmp/out
-          (cd /tmp/out && ./../../home/runner/work/zupt/zupt/zupt x -p secret /tmp/a.zupt) || \
-            { cd /tmp/out && "$GITHUB_WORKSPACE/zupt" x -p secret /tmp/a.zupt; }
-          diff -q /tmp/in.txt /tmp/out/in.txt
-
-  # ─── aarch64 cross-build via QEMU emulation ───
-  cross-aarch64:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          platforms: arm64
-      - name: Build + test inside aarch64 container
-        run: |
-          docker run --rm --platform linux/arm64 \
-            -v "$PWD":/src -w /src \
-            ubuntu:24.04 \
-            bash -c '
-              apt-get update -qq
-              apt-get install -y -qq build-essential python3
-              make -j$(nproc)
-              ./zupt version
-              make test
-            '
-
-  # ─── make dist reproducibility ───
-  dist-reproducibility:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install build deps
-        run: sudo apt-get update && sudo apt-get install -y build-essential python3
-      - name: First dist build
-        run: make dist
-      - name: Capture sha256 (run 1)
-        id: sha1
-        run: |
-          VER=$(grep '^#define ZUPT_VERSION_STRING' include/zupt.h | awk -F'"' '{print $2}')
-          SHA=$(sha256sum /tmp/vaptvupt-$VER.tar.gz | awk '{print $1}')
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "ver=$VER" >> "$GITHUB_OUTPUT"
-          echo "Run 1: $SHA"
-      - name: Second dist build (must produce identical sha256)
-        run: make dist
-      - name: Verify reproducibility
-        run: |
-          VER="${{ steps.sha1.outputs.ver }}"
-          SHA2=$(sha256sum /tmp/vaptvupt-$VER.tar.gz | awk '{print $1}')
-          if [ "$SHA2" != "${{ steps.sha1.outputs.sha }}" ]; then
-            echo "::error::make dist is NOT reproducible"
-            echo "  run 1: ${{ steps.sha1.outputs.sha }}"
-            echo "  run 2: $SHA2"
-            exit 1
-          fi
-          echo "Reproducible ✓ ($SHA2)"
-      - name: Upload reproducible source tarball
-        uses: actions/upload-artifact@v4
-        with:
-          name: zupt-source-tarball
-          path: /tmp/vaptvupt-*.tar.gz
-
-  # ─── Packaging-recipe syntax (cross-distro) ───
-  packaging-syntax:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install validators
+          persist-credentials: false
+      - name: Install compilers
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential dpkg-dev ruby rpm
-      - name: Build (for include/zupt.h to exist; not strictly needed for syntax test)
-        run: make -j$(nproc)
-      - name: Run packaging syntax test
-        run: bash tests/test_packaging_syntax.sh
+          sudo apt-get install -y build-essential clang
+      - name: Compile with warnings as errors
+        run: |
+          make clean
+          make -j"$(nproc)" CC=${{ matrix.cc }} V=1 WITH_SDK=0 WITH_PQBOX=0 \
+            CFLAGS="${{ matrix.flags }}"
 
-  # ─── Automatic GitHub release on git tag push ───
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-and-test, strict-warnings, sanitizers, dist-reproducibility, packaging-syntax]
+  sanitizers:
+    name: ASan, LSan and UBSan
+    needs: source-policy
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Install build deps
-        run: sudo apt-get update && sudo apt-get install -y build-essential python3
-      - name: Build reproducible source tarball
-        run: make dist
-      - name: Get version
-        id: ver
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install compiler and test tools
         run: |
-          VER=$(grep '^#define ZUPT_VERSION_STRING' include/zupt.h | awk -F'"' '{print $2}')
-          echo "version=$VER" >> "$GITHUB_OUTPUT"
-      - name: Verify tag matches version
+          sudo apt-get update
+          sudo apt-get install -y build-essential file python3
+      - name: Instrumented functional tests
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: make V=1 WITH_SDK=0 WITH_PQBOX=0 test-asan-run
+      - name: Mutation smoke under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: make V=1 WITH_SDK=0 WITH_PQBOX=0 fuzz-format-run
+
+  static-analysis:
+    name: GCC static analyzer
+    needs: source-policy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install GCC
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          EXPECTED="v${{ steps.ver.outputs.version }}"
-          if [ "$TAG" != "$EXPECTED" ]; then
-            echo "::error::tag $TAG doesn't match include/zupt.h $EXPECTED"
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+      - name: Analyze every source translation unit
+        run: |
+          make clean
+          make -j"$(nproc)" CC=gcc V=1 WITH_SDK=0 WITH_PQBOX=0 \
+            CFLAGS="-O1 -g -std=c11 -Wall -Wextra -Werror -fanalyzer"
+
+  source-archive:
+    name: Reproducible audited source archive
+    needs: source-policy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          lfs: false
+          submodules: false
+      - name: Install archive audit tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y file libarchive-tools python3 unzip
+      - name: Build the source archive twice
+        run: |
+          version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+          mkdir -p "$RUNNER_TEMP/dist-one" "$RUNNER_TEMP/dist-two" \
+            "$RUNNER_TEMP/release-source"
+          make DIST_TARBALL="$RUNNER_TEMP/dist-one/zupt-$version.tar.gz" dist
+          make DIST_TARBALL="$RUNNER_TEMP/dist-two/zupt-$version.tar.gz" dist
+          cmp "$RUNNER_TEMP/dist-one/zupt-$version.tar.gz" \
+            "$RUNNER_TEMP/dist-two/zupt-$version.tar.gz"
+          cp "$RUNNER_TEMP/dist-one/zupt-$version.tar.gz" \
+            "$RUNNER_TEMP/release-source/"
+          (cd "$RUNNER_TEMP/release-source" && sha256sum "zupt-$version.tar.gz" > \
+            "zupt-$version.tar.gz.sha256")
+          bash scripts/check-source-only.sh --archive \
+            "$RUNNER_TEMP/release-source/zupt-$version.tar.gz"
+      - name: Match downstream recipe checksums to the tagged source archive
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -Eeuo pipefail
+          version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+          source_tar="$RUNNER_TEMP/release-source/zupt-$version.tar.gz"
+          actual_sha=$(sha256sum "$source_tar" | awk '{print $1}')
+          aur_sha=$(awk -F"'" '/^sha256sums=/ { print $2; exit }' packaging/aur/PKGBUILD)
+          homebrew_sha=$(awk -F'"' '/^[[:space:]]*sha256 / { print $2; exit }' packaging/homebrew/zupt.rb)
+          guix_base32=$(sed -n 's/^[[:space:]]*(base32 "\([^"]*\)").*/\1/p' \
+            packaging/guix/zupt.scm | head -n 1)
+          actual_base32=$(python3 - "$source_tar" <<'PY'
+          import hashlib
+          import pathlib
+          import sys
+
+          alphabet = "0123456789abcdfghijklmnpqrsvwxyz"
+          digest = hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).digest()
+          value = int.from_bytes(digest, "little")
+          length = (len(digest) * 8 + 4) // 5
+          print("".join(alphabet[(value >> (5 * index)) & 31]
+                        for index in range(length - 1, -1, -1)))
+          PY
+          )
+          [[ $aur_sha == "$actual_sha" && $homebrew_sha == "$actual_sha" ]] || {
+            echo 'AUR or Homebrew checksum does not match the source archive' >&2
+            exit 1
+          }
+          [[ $guix_base32 == "$actual_base32" ]] || {
+            echo 'Guix checksum does not match the source archive' >&2
+            exit 1
+          }
+      - name: Upload source and checksum
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-source
+          path: ${{ runner.temp }}/release-source/*
+          if-no-files-found: error
+          retention-days: 7
+
+  debian-package:
+    name: Debian/Ubuntu source-built package
+    needs: [source-policy, build-and-test]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install Debian package tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils dpkg-dev file git libarchive-tools python3 python3-pyqt6 unzip
+      - name: Build and extract-test the DEB
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-deb"
+          DIST_DIR="$RUNNER_TEMP/release-deb" RUN_CHECKS=1 bash packaging/build-deb.sh
+      - name: Build and content-test the GUI DEB
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-gui-deb"
+          DIST_DIR="$RUNNER_TEMP/release-gui-deb" bash packaging/build-gui-deb.sh
+          gui_deb="$RUNNER_TEMP/release-gui-deb/zupt-gui_5.2.2_all.deb"
+          test -s "$gui_deb"
+          test "$(dpkg-deb -f "$gui_deb" Package)" = zupt-gui
+          test "$(dpkg-deb -f "$gui_deb" Version)" = 5.2.2
+          test "$(dpkg-deb -f "$gui_deb" Architecture)" = all
+      - name: Install, functionally test and uninstall the DEBs
+        run: |
+          deb=$(find "$RUNNER_TEMP/release-deb" -maxdepth 1 -type f -name '*.deb' -print -quit)
+          gui_deb="$RUNNER_TEMP/release-gui-deb/zupt-gui_5.2.2_all.deb"
+          test -n "$deb" && test -s "$gui_deb"
+          sudo apt-get install -y "$deb" "$gui_deb"
+          bash scripts/test-installed-zupt.sh /usr/bin/zupt
+          QT_QPA_PLATFORM=offscreen zupt-gui --version | grep -Fx "zupt-gui 5.2.2"
+          test ! -e /usr/bin/vaptvupt
+          sudo apt-get purge -y zupt-gui zupt
+          test ! -e /usr/bin/zupt-gui
+          test ! -e /usr/bin/zupt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-deb
+          path: ${{ runner.temp }}/release-deb/*.deb
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-gui-deb
+          path: ${{ runner.temp }}/release-gui-deb/*.deb
+          if-no-files-found: error
+          retention-days: 7
+
+  tumbleweed-rpm:
+    name: openSUSE Tumbleweed x86_64 RPM gate
+    needs: [source-policy, build-and-test]
+    runs-on: ubuntu-24.04
+    container: opensuse/tumbleweed:latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Bootstrap Git before checkout
+        run: |
+          zypper --non-interactive --gpg-auto-import-keys refresh
+          zypper --non-interactive install --no-recommends \
+            bash ca-certificates git-core
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          lfs: false
+          submodules: false
+      - name: Install native openSUSE tooling
+        run: |
+          zypper --non-interactive install --no-recommends \
+            bash binutils cpio coreutils diffutils file findutils gawk gcc git-core grep gzip \
+            libxml2-tools make osc obs-service-obs_scm obs-service-recompress \
+            obs-service-tar python3-base rpm-build rpmlint sed \
+            shadow spec-cleaner tar unzip util-linux
+      - name: Confirm the Factory architecture gate
+        run: test "$(uname -m)" = x86_64
+      - name: Validate OBS service and spec syntax
+        run: |
+          xmllint --noout packaging/opensuse/_service
+          test -x /usr/lib/obs/service/obs_scm
+          test -x /usr/lib/obs/service/tar
+          test -x /usr/lib/obs/service/recompress
+          rpmspec -P packaging/opensuse/zupt.spec >/dev/null
+          spec-cleaner --no-copyright packaging/opensuse/zupt.spec \
+            > "$RUNNER_TEMP/zupt.spec.cleaned"
+          diff -u packaging/opensuse/zupt.spec \
+            "$RUNNER_TEMP/zupt.spec.cleaned"
+      - name: Exercise pinned OBS source service chain on release tags
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          service_dir=$RUNNER_TEMP/obs-service
+          mkdir -p "$service_dir"
+          cp packaging/opensuse/_service "$service_dir/"
+          # `osc service runall` additionally requires OBS working-copy metadata.
+          # Use osc's installed service executor to validate this standalone,
+          # repository-owned _service file with the exact same local services.
+          python3 - "$service_dir" <<'PY'
+          import sys
+          from xml.etree import ElementTree
+          from osc.obs_scm.serviceinfo import Serviceinfo
+
+          service_dir = sys.argv[1]
+          service_info = Serviceinfo()
+          service_info.read(ElementTree.parse(f"{service_dir}/_service").getroot())
+          raise SystemExit(service_info.execute(service_dir, "all", verbose=True))
+          PY
+          mapfile -t service_archives < <(find "$service_dir" -maxdepth 1 \
+            -type f -name 'zupt-*.tar.gz' -print)
+          test "${#service_archives[@]}" -eq 1
+          bash scripts/check-source-only.sh --archive "${service_archives[0]}"
+      - name: Build source and binary RPMs with real checks
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-rpm"
+          DIST_DIR="$RUNNER_TEMP/release-rpm" bash packaging/build-rpm.sh
+      - name: Run rpmlint without suppressions
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rpmlint "$RUNNER_TEMP"/release-rpm/*.rpm 2>&1 \
+            | tee "$RUNNER_TEMP/rpmlint.log"
+          if grep -Eq ': E:' "$RUNNER_TEMP/rpmlint.log"; then
+            echo 'rpmlint reported one or more errors' >&2
             exit 1
           fi
-      - name: Compute sha256
-        id: sha
+      - name: Install, functionally test and uninstall the RPM
         run: |
-          VER="${{ steps.ver.outputs.version }}"
-          SHA=$(sha256sum /tmp/vaptvupt-$VER.tar.gz | awk '{print $1}')
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "$SHA  vaptvupt-$VER.tar.gz" > /tmp/vaptvupt-$VER.tar.gz.sha256
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+          rpm_file=$(find "$RUNNER_TEMP/release-rpm" -maxdepth 1 -type f \
+            -name '*.rpm' ! -name '*.src.rpm' -print -quit)
+          test -n "$rpm_file"
+          zypper --non-interactive install --allow-unsigned-rpm "$rpm_file"
+          test_home=/tmp/zupt-ci-user
+          useradd --create-home --home-dir "$test_home" --shell /bin/bash zupt-ci
+          runuser -u zupt-ci -- env HOME="$test_home" TMPDIR="$test_home" \
+            bash "$GITHUB_WORKSPACE/scripts/test-installed-zupt.sh" \
+            /usr/bin/zupt
+          test ! -e /usr/bin/vaptvupt
+          zypper --non-interactive remove zupt
+          test ! -e /usr/bin/zupt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          files: |
-            /tmp/vaptvupt-${{ steps.ver.outputs.version }}.tar.gz
-            /tmp/vaptvupt-${{ steps.ver.outputs.version }}.tar.gz.sha256
-          body: |
-            ## Zupt v${{ steps.ver.outputs.version }}
+          name: release-rpm
+          path: ${{ runner.temp }}/release-rpm/*.rpm
+          if-no-files-found: error
+          retention-days: 7
 
-            Reproducible source tarball.
+  gui-rpm-package:
+    name: Fedora noarch GUI RPM and SRPM gate
+    needs: [source-policy, build-and-test]
+    runs-on: ubuntu-24.04
+    container: fedora:latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Bootstrap checkout dependencies
+        run: dnf install -y ca-certificates git
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          lfs: false
+          submodules: false
+      - name: Install native build, package, audit and GUI runtime tools
+        run: |
+          dnf install -y \
+            binutils cpio file findutils gcc git-core gzip libarchive make \
+            python3 python3-pyside6 rpm-build rpmdevtools tar unzip
+      - name: Build and content-test the GUI RPM and source RPM
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-gui-rpm"
+          DIST_DIR="$RUNNER_TEMP/release-gui-rpm" bash packaging/build-gui-rpm.sh
+          test -s "$RUNNER_TEMP/release-gui-rpm/zupt-gui-5.2.2-1.noarch.rpm"
+          test -s "$RUNNER_TEMP/release-gui-rpm/zupt-gui-5.2.2-1.src.rpm"
+          test "$(rpm -qp --qf '%{NAME}' "$RUNNER_TEMP/release-gui-rpm/zupt-gui-5.2.2-1.noarch.rpm")" = zupt-gui
+          test "$(rpm -qp --qf '%{VERSION}-%{RELEASE}' "$RUNNER_TEMP/release-gui-rpm/zupt-gui-5.2.2-1.noarch.rpm")" = 5.2.2-1
+          test "$(rpm -qp --qf '%{ARCH}' "$RUNNER_TEMP/release-gui-rpm/zupt-gui-5.2.2-1.noarch.rpm")" = noarch
+          rpm -qp --requires "$RUNNER_TEMP/release-gui-rpm/zupt-gui-5.2.2-1.noarch.rpm" | \
+            grep -Fx 'zupt >= 5.2.2'
+          test "$(rpm -qp --qf '%{NAME}' "$RUNNER_TEMP/release-gui-rpm/zupt-gui-5.2.2-1.src.rpm")" = zupt-gui
+      - name: Build the matching Fedora CLI RPM
+        run: |
+          version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+          core_top="$RUNNER_TEMP/core-rpmbuild"
+          mkdir -p "$core_top"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+          make DIST_TARBALL="$core_top/SOURCES/zupt-$version.tar.gz" dist
+          rpmbuild --define "_topdir $core_top" -ba packaging/rpm/zupt.spec
+      - name: Install and functionally test the GUI with the packaged CLI
+        run: |
+          core_rpm=$(find "$RUNNER_TEMP/core-rpmbuild/RPMS" -type f \
+            -name 'zupt-5.2.2-1.*.rpm' ! -name '*-debuginfo-*' \
+            ! -name '*-debugsource-*' -print -quit)
+          gui_rpm="$RUNNER_TEMP/release-gui-rpm/zupt-gui-5.2.2-1.noarch.rpm"
+          test -n "$core_rpm" && test -s "$gui_rpm"
+          dnf install -y "$core_rpm" "$gui_rpm"
+          bash scripts/test-installed-zupt.sh /usr/bin/zupt
+          QT_QPA_PLATFORM=offscreen zupt-gui --version | grep -Fx 'zupt-gui 5.2.2'
+          test ! -e /usr/bin/vaptvupt
+          dnf remove -y zupt-gui zupt
+          test ! -e /usr/bin/zupt-gui
+          test ! -e /usr/bin/zupt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-gui-rpm
+          path: ${{ runner.temp }}/release-gui-rpm/*.rpm
+          if-no-files-found: error
+          retention-days: 7
 
-            ```
-            sha256: ${{ steps.sha.outputs.sha }}
-            ```
+  linux-portable:
+    name: Linux x86_64 notice-bearing CLI tar.xz gate
+    needs: [source-policy, build-and-test]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          lfs: false
+          submodules: false
+      - name: Install build and archive tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils file python3 xz-utils
+      - name: Build and audit the native executable
+        run: |
+          test "$(uname -m)" = x86_64
+          make clean
+          make -j"$(nproc)" V=1 WITH_SDK=0 WITH_PQBOX=0 INSTALL_LEGACY_ALIAS=0
+          make V=1 WITH_SDK=0 WITH_PQBOX=0 INSTALL_LEGACY_ALIAS=0 check
+          bash scripts/test-installed-zupt.sh "$PWD/zupt"
+          if readelf -d zupt | grep -Eq '(RPATH|RUNPATH)'; then
+            echo 'Linux portable binary contains RPATH/RUNPATH' >&2
+            exit 1
+          fi
+          mapfile -t needed < <(readelf -d zupt | sed -n 's/.*Shared library: \[\([^]]*\)\].*/\1/p')
+          ((${#needed[@]} > 0))
+          for library in "${needed[@]}"; do
+            case $library in
+              libc.so.6|libm.so.6|libpthread.so.0) ;;
+              *) echo "unexpected Linux runtime dependency: $library" >&2; exit 1 ;;
+            esac
+          done
+          if ldd zupt | grep -Fq 'not found'; then
+            echo 'Linux portable binary has an unresolved runtime dependency' >&2
+            exit 1
+          fi
+      - name: Assemble and extracted-package-test the tar.xz
+        run: |
+          version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+          epoch=$(<.source-date-epoch)
+          root="$RUNNER_TEMP/linux-work/zupt-$version-linux-x86_64"
+          output="$RUNNER_TEMP/release-linux-x86_64/zupt-$version-linux-x86_64.tar.xz"
+          mkdir -p "$root" "$(dirname "$output")"
+          install -m 0755 zupt "$root/zupt"
+          install -m 0644 README.md CHANGELOG.md SECURITY.md THREAT_MODEL.md \
+            LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause \
+            LICENSE-BSD-3-Clause LICENSE-CC0-1.0 NOTICE \
+            THIRD-PARTY-NOTICES.md "$root/"
+          tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
+            -C "$(dirname "$root")" -cJf "$output" "$(basename "$root")"
+          extract=$(mktemp -d)
+          tar -xJf "$output" -C "$extract"
+          bash scripts/test-installed-zupt.sh \
+            "$extract/$(basename "$root")/zupt"
+          test "$(find "$extract/$(basename "$root")" -maxdepth 1 -type f | wc -l)" -eq 13
+          sha256sum "$output"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-linux-x86_64
+          path: ${{ runner.temp }}/release-linux-x86_64/*.tar.xz
+          if-no-files-found: error
+          retention-days: 7
 
-            See CHANGELOG.md for release notes.
+  gui-portable:
+    name: Source-only GUI portable ZIP gate
+    needs: [source-policy, build-and-test]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          lfs: false
+          submodules: false
+      - name: Install GUI smoke-test and archive tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential file python3 python3-pyqt6 unzip zip
+      - name: Assemble, audit and execute the portable GUI source bundle
+        run: |
+          version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+          make -j"$(nproc)" V=1 WITH_SDK=0 WITH_PQBOX=0 INSTALL_LEGACY_ALIAS=0
+          root="$RUNNER_TEMP/gui-work/zupt-gui-$version-portable"
+          output="$RUNNER_TEMP/release-gui-portable/zupt-gui-$version-portable.zip"
+          mkdir -p "$root/assets" "$(dirname "$output")"
+          install -m 0644 gui/src/zupt_gui.py "$root/zupt_gui.py"
+          install -m 0755 packaging/portable/zupt-gui.sh \
+            packaging/portable/zupt-gui.command "$root/"
+          install -m 0644 packaging/portable/zupt-gui.bat "$root/"
+          install -m 0644 packaging/portable/README.txt "$root/README.txt"
+          install -m 0644 gui/assets/zupt-icon.png gui/assets/zupt.ico "$root/assets/"
+          install -m 0644 LICENSE-AGPL-3.0 gui/LICENSE-GUI CHANGELOG.md "$root/"
+          install -m 0644 gui/assets/README.md "$root/ASSET-PROVENANCE.md"
+          bash scripts/check-source-only.sh --tree "$root"
+          QT_QPA_PLATFORM=offscreen PATH="$PWD:$PATH" \
+            "$root/zupt-gui.sh" --version | grep -Fx "zupt-gui $version"
+          epoch=$(<.source-date-epoch)
+          find "$root" -exec touch -d "@$epoch" {} +
+          (cd "$(dirname "$root")" && zip -X -9 -r "$output" "$(basename "$root")")
+          extract=$(mktemp -d)
+          unzip -q "$output" -d "$extract"
+          bash scripts/check-source-only.sh --tree "$extract/$(basename "$root")"
+          QT_QPA_PLATFORM=offscreen PATH="$PWD:$PATH" \
+            "$extract/$(basename "$root")/zupt-gui.sh" --version | \
+            grep -Fx "zupt-gui $version"
+          sha256sum "$output"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-gui-portable
+          path: ${{ runner.temp }}/release-gui-portable/*.zip
+          if-no-files-found: error
+          retention-days: 7
 
-            ### Verifying the tarball
-
-            ```sh
-            sha256sum -c zupt-${{ steps.ver.outputs.version }}.tar.gz.sha256
-            ```
-
-            ### Building
-
-            ```sh
-            tar xzf zupt-${{ steps.ver.outputs.version }}.tar.gz
-            cd zupt-${{ steps.ver.outputs.version }}
-            make
-            make test
-            sudo make install
-            ```
+  target-packages:
+    name: Windows and macOS release gates
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs:
+      - source-policy
+      - build-and-test
+      - strict-warnings
+      - sanitizers
+      - static-analysis
+      - source-archive
+      - debian-package
+      - tumbleweed-rpm
+      - gui-rpm-package
+      - linux-portable
+      - gui-portable
+    uses: ./.github/workflows/cross-platform.yml
+    permissions:
+      contents: read

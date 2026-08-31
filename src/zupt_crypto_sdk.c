@@ -1,7 +1,7 @@
 /* zupt_crypto_sdk.c — SDK-backed crypto for zupt v2.2+ archives.
  *
  * Replaces the legacy zupt_crypto.c hybrid path (XOR+SHA3-512 combiner) with
- * libzuptsdk's HKDF-SHA3-256 combiner + key commitment + HPKE binding +
+ * libvuptsdk's HKDF-SHA3-256 combiner + key commitment + HPKE binding +
  * anti-fault decap. Per-block AEAD switches from AES-256-CTR + HMAC-SHA256
  * to XChaCha20-Poly1305 (default) or AES-256-SIV (nonce-misuse-resistant).
  *
@@ -210,7 +210,7 @@ int zupt_sdk_password_decrypt_init(zupt_keyring_t *kr, const char *password,
 
     /* v3.4.0 self-describing KDF profile. Absent (33-byte header) means
      * the implicit legacy profile; present (>=34 bytes) names it
-     * explicitly. Both currently map to the same libzuptsdk MODERATE
+     * explicitly. Both currently map to the same libvuptsdk MODERATE
      * Argon2id derivation, so the key is identical and old archives keep
      * decrypting. An unrecognised profile is refused rather than guessed
      * — better a clear failure than a wrong key derivation. */
@@ -249,20 +249,20 @@ int zupt_sdk_password_decrypt_init(zupt_keyring_t *kr, const char *password,
 
 #else  /* !ZUPT_WITH_SDK */
 
-/* Source-only build (no vendored libzuptsdk binary). The SDK-backed modes
+/* Baseline build without the optional system libvuptsdk. The SDK-backed modes
  * — --pq-sdk and the Argon2id default password KDF — are unavailable. These
  * stubs let the project build and link from source with no prebuilt library;
  * callers fall back to native crypto (PBKDF2-SHA256 password KDF, native
  * ML-KEM-768 + X25519 via --pq) or report the requested mode as unsupported.
- * Rebuild with `make WITH_SDK=1` (requires the vendored libzuptsdk) to enable. */
+ * Rebuild with WITH_SDK=1 and the system development package to enable. */
 #include <stdio.h>
 
 static int sdk_unavailable(const char *what) {
     fprintf(stderr,
-            "Error: this build has no libzuptsdk support, so %s is unavailable.\n"
+            "Error: this build has no libvuptsdk support, so %s is unavailable.\n"
             "       Use native crypto instead (password mode uses PBKDF2-SHA256; "
             "--pq uses ML-KEM-768 + X25519),\n"
-            "       or rebuild with 'make WITH_SDK=1'.\n", what);
+            "       or rebuild with 'make WITH_SDK=1' and the system development package.\n", what);
     return -1;
 }
 

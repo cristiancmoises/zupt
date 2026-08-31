@@ -1,8 +1,9 @@
-/* Zupt — AES-256 Single Block Encrypt via AES-NI (Jasmin)
+/* ZUPT — AES-256 Single Block Encrypt via AES-NI (Jasmin)
  * Copyright (c) 2026 Cristian Cezar Moisés
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
- * CT-REQUIRED: AES-NI has no data-dependent timing.
+ * CT-REQUIRED: designed without intended secret-dependent branches or memory
+ * access. Compiled and microarchitectural timing is not proven here.
  *
  * FIX v2.0.0: replaced `stack u128[15] rk` with 15 individual
  * `stack u128` variables. The array form uses byte-offset indexing

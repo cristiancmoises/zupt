@@ -1,12 +1,11 @@
 /*
- * libzuptsdk — Public C ABI for the Zupt backup compression library
+ * libzuptsdk — Public C ABI for the ZUPT backup compression library
  *
  * Copyright (c) 2026 Cristian Cezar Moisés
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
- * Repository: https://git.securityops.co/cristiancmoises/zupt
- * Website:    https://zupt.securityops.co
- * Contact:    zupt@riseup.net
+ * Repository: https://github.com/cristiancmoises/zupt
+ * Contact:    sac@securityops.co
  *
  * --------------------------------------------------------------------------
  * STABILITY GUARANTEE

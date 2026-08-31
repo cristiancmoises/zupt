@@ -1,159 +1,111 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
-#
-# Sprint 2.4.4 regression test: `make dist` reproducibility.
-#
-# Asserts that running `make dist` twice on the same source tree
-# produces byte-identical tarballs (same sha256, same size). This is
-# the foundational property for downstream Debian / AUR / Homebrew
-# packaging — without it, distros can't pin a sha256 for the source
-# tarball in their recipes.
-#
-# Also asserts that the dist tarball contains the right things:
-#   - source code (src/, include/, tests/)
-#   - the three libzuptsdk symlinks + the real .so file
-#   - no built binaries (zupt, test_vectors, *.o)
-#   - no .git/ tree
-#
-# Exit non-zero on first failure.
 
-set -u
+set -Eeuo pipefail
 
-PASS=0
-FAIL=0
-P() { PASS=$((PASS+1)); echo "  ✓ $1"; }
-F() { FAIL=$((FAIL+1)); echo "  ✗ $1"; }
+export LC_ALL=C
+umask 077
 
-# Run from the project root regardless of where the test was invoked.
-cd "$(dirname "$0")/.."
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' "$root/include/zupt.h")
+[[ -n $version ]] || { printf 'FAIL: cannot determine version\n' >&2; exit 1; }
 
-# 1. First dist build
-make dist >/tmp/dist1.log 2>&1
-RC=$?
-if [ $RC -ne 0 ]; then
-    echo "  ✗ make dist failed on first run; see /tmp/dist1.log"
-    tail -10 /tmp/dist1.log
-    exit 1
-fi
-VERSION=$(grep '^#define ZUPT_VERSION_STRING' include/zupt.h | awk -F'"' '{print $2}')
-# v3.0.0: TARGET=vaptvupt, so the tarball is now /tmp/vaptvupt-${VERSION}.tar.gz.
-# Test both possible filenames so this works on any future rename.
-TARBALL="/tmp/vaptvupt-${VERSION}.tar.gz"
-[ ! -f "$TARBALL" ] && TARBALL="/tmp/zupt-${VERSION}.tar.gz"
-# Derive top-level dir inside the tarball from the filename
-TARBALL_BASE=$(basename "$TARBALL" .tar.gz)   # e.g. vaptvupt-3.0.0
-if [ ! -f "$TARBALL" ]; then
-    echo "  ✗ expected $TARBALL not produced"
-    exit 1
-fi
-P "first make dist produced $TARBALL"
-SHA1=$(sha256sum "$TARBALL" | awk '{print $1}')
-SIZE1=$(wc -c < "$TARBALL")
-cp "$TARBALL" "${TARBALL%.tar.gz}.first.tar.gz"
-
-# 2. Second dist build — should produce byte-identical tarball
-make dist >/tmp/dist2.log 2>&1
-RC=$?
-if [ $RC -ne 0 ]; then
-    echo "  ✗ make dist failed on second run; see /tmp/dist2.log"
-    tail -10 /tmp/dist2.log
-    exit 1
-fi
-SHA2=$(sha256sum "$TARBALL" | awk '{print $1}')
-SIZE2=$(wc -c < "$TARBALL")
-if [ "$SHA1" = "$SHA2" ]; then
-    P "byte-identical sha256 across two runs: $SHA1"
-else
-    F "sha256 diverged: $SHA1 vs $SHA2"
-fi
-if [ "$SIZE1" = "$SIZE2" ]; then
-    P "byte-identical size: $SIZE1"
-else
-    F "size diverged: $SIZE1 vs $SIZE2"
-fi
-
-# 3. Content checks
-NUM_FILES=$(tar tzf "$TARBALL" | wc -l)
-if [ "$NUM_FILES" -gt 100 ]; then
-    P "tarball has $NUM_FILES entries (sanity: > 100)"
-else
-    F "tarball suspiciously small: $NUM_FILES entries"
-fi
-
-if tar tzf "$TARBALL" | grep -q "${TARBALL_BASE}/src/zupt_format.c"; then
-    P "src/zupt_format.c present"
-else
-    F "src/zupt_format.c missing"
-fi
-
-if tar tzf "$TARBALL" | grep -q "${TARBALL_BASE}/include/zupt.h"; then
-    P "include/zupt.h present"
-else
-    F "include/zupt.h missing"
-fi
-
-# All three libzuptsdk variants
-SO_REAL=$(tar tzf "$TARBALL" | grep -c "libzuptsdk.so.2.0.0$")
-SO_LINKS=$(tar tzf "$TARBALL" | grep -cE "libzuptsdk.so$|libzuptsdk.so.2$")
-if [ "$SO_REAL" = "1" ] && [ "$SO_LINKS" = "2" ]; then
-    P "libzuptsdk: 1 real .so + 2 symlinks"
-else
-    F "libzuptsdk shipping wrong: real=$SO_REAL links=$SO_LINKS (expected 1 + 2)"
-fi
-
-# No built binaries (vaptvupt or legacy zupt symlink or test_* harnesses)
-if tar tzf "$TARBALL" | grep -qE "(vaptvupt|zupt)-${VERSION}/(vaptvupt|zupt)(\$|_asan\$)|(vaptvupt|zupt)-${VERSION}/test_vectors\$|(vaptvupt|zupt)-${VERSION}/test_vaptvupt\$"; then
-    F "tarball contains built binaries"
-else
-    P "tarball contains no built binaries"
-fi
-
-# No .o files
-if tar tzf "$TARBALL" | grep -qE "\.o$"; then
-    F "tarball contains stale .o files"
-else
-    P "tarball contains no .o files"
-fi
-
-# No .git
-if tar tzf "$TARBALL" | grep -q "\.git/"; then
-    F "tarball contains .git/ tree"
-else
-    P "tarball contains no .git/ tree"
-fi
-
-# 4. Build & smoke-test from the dist tarball
-WORK=$(mktemp -d)
-( cd "$WORK" && tar xzf "$TARBALL" && cd "${TARBALL_BASE}" && make -j"$(nproc)" >/tmp/distbuild.log 2>&1 ) || {
-    F "build from dist tarball failed; see /tmp/distbuild.log"
-    rm -rf "$WORK"
-    [ "$FAIL" = 0 ] || exit 1
-}
-# v3.0.0: binary may be named `vaptvupt` (default) or legacy `zupt`.
-# Pick whichever the dist-tarball build produced.
-DISTBIN=""
-for cand in vaptvupt zupt; do
-    if [ -x "$WORK/${TARBALL_BASE}/$cand" ]; then DISTBIN="$WORK/${TARBALL_BASE}/$cand"; break; fi
-done
-if [ -n "$DISTBIN" ]; then
-    P "binary builds from dist tarball ($(basename "$DISTBIN"))"
-    "$DISTBIN" version > /tmp/distver.txt 2>&1
-    if grep -q "$VERSION" /tmp/distver.txt; then
-        P "built binary reports correct version ($VERSION)"
+sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | awk '{print $1}'
     else
-        F "binary version mismatch: $(cat /tmp/distver.txt)"
+        printf 'FAIL: sha256sum or shasum is required\n' >&2
+        return 1
     fi
-else
-    F "no binary produced from dist build"
+}
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/zupt-dist-test.XXXXXXXX")
+trap 'chmod -R u+rwX "$tmp" 2>/dev/null || true; rm -rf -- "$tmp"' EXIT HUP INT TERM
+
+first=$tmp/zupt-$version.first.tar.gz
+second=$tmp/zupt-$version.second.tar.gz
+
+make -C "$root" DIST_TARBALL="$first" dist
+make -C "$root" DIST_TARBALL="$second" dist
+
+first_sha=$(sha256_file "$first")
+second_sha=$(sha256_file "$second")
+[[ $first_sha == "$second_sha" ]] || {
+    printf 'FAIL: source archive hashes differ: %s %s\n' "$first_sha" "$second_sha" >&2
+    exit 1
+}
+cmp -- "$first" "$second"
+printf 'PASS: two source archives are byte-identical (%s)\n' "$first_sha"
+
+# Git adds the archived commit ID to a PAX header when given a commit object.
+# Exercise the real dist rule in an isolated repository and prove that changing
+# only an export-ignored checksum recipe cannot perturb the release tarball.
+ignored_repo=$tmp/export-ignored-repo
+mkdir -p "$ignored_repo/include" "$ignored_repo/packaging/homebrew" \
+    "$ignored_repo/sdk"
+cp -- "$root/Makefile" "$ignored_repo/Makefile"
+cp -- "$root/include/zupt.h" "$ignored_repo/include/zupt.h"
+cp -- "$root/sdk/Makefile.sdk" "$ignored_repo/sdk/Makefile.sdk"
+printf '/packaging/homebrew/** export-ignore\n' >"$ignored_repo/.gitattributes"
+printf '1788134400\n' >"$ignored_repo/.source-date-epoch"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$ignored_repo/source-audit.sh"
+printf 'normal exported source\n' >"$ignored_repo/source.txt"
+printf 'sha256 "REPLACE_AFTER_FINAL_RELEASE_ARCHIVE_IS_BUILT"\n' \
+    >"$ignored_repo/packaging/homebrew/zupt.rb"
+chmod +x "$ignored_repo/source-audit.sh"
+git -C "$ignored_repo" init -q
+git -C "$ignored_repo" add -- .
+git -C "$ignored_repo" -c user.name='ZUPT release test' \
+    -c user.email='release-test@invalid.example' commit -qm 'initial source'
+
+ignored_first=$tmp/export-ignored.first.tar.gz
+ignored_second=$tmp/export-ignored.second.tar.gz
+make -C "$ignored_repo" --no-print-directory \
+    SOURCE_AUDIT=source-audit.sh DIST_TARBALL="$ignored_first" dist
+printf 'sha256 "final-release-digest"\n' \
+    >"$ignored_repo/packaging/homebrew/zupt.rb"
+git -C "$ignored_repo" add -- packaging/homebrew/zupt.rb
+git -C "$ignored_repo" -c user.name='ZUPT release test' \
+    -c user.email='release-test@invalid.example' commit -qm 'pin release checksum'
+make -C "$ignored_repo" --no-print-directory \
+    SOURCE_AUDIT=source-audit.sh DIST_TARBALL="$ignored_second" dist
+cmp -- "$ignored_first" "$ignored_second" || {
+    printf 'FAIL: export-ignored-only commit changed source archive bytes\n' >&2
+    exit 1
+}
+printf 'PASS: export-ignored-only commit leaves source archive byte-identical (%s)\n' \
+    "$(sha256_file "$ignored_first")"
+
+bash "$root/scripts/check-source-only.sh" --archive "$first"
+
+members_file=$tmp/archive-members.txt
+tar -tzf "$first" >"$members_file"
+member_count=$(wc -l <"$members_file")
+((member_count > 100)) || { printf 'FAIL: source archive has too few entries\n' >&2; exit 1; }
+prefix=zupt-$version/
+for required in src/zupt_main.c include/zupt.h Makefile scripts/check-source-only.sh; do
+    grep -Fxq "$prefix$required" "$members_file" || {
+        printf 'FAIL: source archive is missing %s\n' "$required" >&2
+        exit 1
+    }
+done
+if grep -Eq '/(\.git|build|dist|out|target)(/|$)' "$members_file"; then
+    printf 'FAIL: source archive contains an internal/generated directory\n' >&2
+    exit 1
 fi
-rm -rf "$WORK"
+printf 'PASS: source archive layout and required sources\n'
 
-# Cleanup
-rm -f "/tmp/zupt-${VERSION}.first.tar.gz"
-
-echo ""
-echo "  ───────────────────────────────────────"
-echo "  dist reproducibility: $PASS passed, $FAIL failed"
-echo "  ───────────────────────────────────────"
-[ "$FAIL" = 0 ] || exit 1
+tar -xzf "$first" -C "$tmp"
+tree=$tmp/zupt-$version
+bash "$tree/scripts/check-source-only.sh" --tree "$tree"
+make -C "$tree" clean
+make -C "$tree" -j"${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf 2)}" \
+    WITH_SDK=0 WITH_PQBOX=0 V=1
+make -C "$tree" WITH_SDK=0 WITH_PQBOX=0 check
+bash "$tree/scripts/test-installed-zupt.sh" "$tree/zupt"
+make -C "$tree" clean
+bash "$tree/scripts/check-source-only.sh" --tree "$tree"
+printf 'PASS: clean source archive builds, checks and passes the functional smoke test\n'

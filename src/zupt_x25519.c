@@ -1,20 +1,24 @@
 /*
- * Zupt — Backup-oriented compression with AES-256 encryption
+ * ZUPT — Backup-oriented compression with AES-256 encryption
  * Copyright (c) 2026 Cristian Cezar Moisés
- * SPDX-License-Identifier: AGPL-3.0-or-later
+ * SPDX-License-Identifier: AGPL-3.0-or-later AND BSD-3-Clause
+ *
+ * Portions are adapted from curve25519-donna by Google Inc. and Adam Langley.
+ * This distribution conservatively retains the upstream repository's
+ * BSD-3-Clause terms; see THIRD-PARTY-NOTICES.md. The exact upstream revision
+ * used for the original adaptation was not retained, so none is asserted.
  *
  * X25519 Diffie-Hellman (RFC 7748) over Curve25519.
- * Field: GF(2^255-19), represented as 4 × 64-bit limbs (donna64 layout).
- * Montgomery ladder: constant-time by construction (no secret-dependent branches).
+ * Field: GF(2^255-19), represented as 5 x 51-bit limbs following
+ * curve25519-donna's 64-bit implementation approach.
+ * Fixed-iteration Montgomery ladder with no intended secret-dependent branch
+ * or table access; exact compiled timing remains platform-dependent.
  *
  * CT-REQUIRED: Every operation in this file must be constant-time.
  * No branches on secret data. No secret-dependent memory access.
  *
- * v2.0.0: Rewritten from 5×51-bit to 4×64-bit limb representation
- * to match Jasmin zupt_fe_cswap (4×u64 masked XOR swap).
- *
- * Representation: f = f[0] + f[1]*2^64 + f[2]*2^128 + f[3]*2^192
- * where limbs can temporarily exceed 2^64 during intermediate calculations.
+ * Representation: f = f[0] + f[1]*2^51 + f[2]*2^102 + f[3]*2^153
+ * + f[4]*2^204. Limbs may temporarily exceed 51 bits during arithmetic;
  * fe_reduce() brings the result back to canonical form mod 2^255-19.
  */
 #include "zupt_x25519.h"
@@ -23,30 +27,12 @@
 #include <string.h>
 
 /* ═══════════════════════════════════════════════════════════════════
- * FIELD ARITHMETIC: GF(2^255 - 19), 4 × 64-bit limbs
+ * FIELD ARITHMETIC: GF(2^255 - 19), 5 x 51-bit limbs
  *
- * We use the 5×51-bit schoolbook approach internally for multiplication
- * (to avoid requiring __int128 for 128×128 products) but store/swap
- * in 4×64-bit layout to match Jasmin.
- *
- * Actually: we keep 5×51-bit for mul/sq (needs 64×64→128 products)
- * and convert to/from 4×64-bit at the boundary (frombytes/tobytes/cswap).
- *
- * CORRECTION: To truly match Jasmin's 4×u64 layout for fe_cswap,
- * the field elements in memory MUST be 4×u64. We use 5×51-bit
- * internally in registers only, and store back as 4×u64 after each
- * operation. This is the donna64 approach used by libsodium.
- *
- * SIMPLER APPROACH: Keep everything as 5×51-bit (the proven working
- * implementation) and just adapt fe_cswap to operate on 5 limbs
- * with the Jasmin function swapping the first 4 u64 values plus
- * a C swap of the 5th.
- *
- * SIMPLEST CORRECT APPROACH (chosen): Keep the proven 5×51-bit
- * arithmetic but store field elements as 5×u64 (40 bytes). The
- * Jasmin fe_cswap swaps 4×u64 (32 bytes). We call it for the first
- * 4 limbs and handle the 5th limb in C. This is minimal change,
- * the arithmetic is identical, and the CT property is preserved.
+ * The optional Jasmin swap operates on the first four stored uint64_t limbs;
+ * the fifth limb uses the same masked-XOR pattern in C. The default build uses
+ * the C loop for all five limbs. No retained formal-verification artifact is
+ * claimed for either path.
  * ═══════════════════════════════════════════════════════════════════ */
 
 typedef uint64_t fe[5]; /* Field element: 5 limbs, each < 2^52 */
@@ -115,12 +101,12 @@ static void fe_tobytes(uint8_t s[32], const fe h) {
 }
 
 /* CT-REQUIRED: conditional swap — no branches on secret bit.
- * JASMIN-VERIFIED: First 4 limbs swapped by Jasmin when available;
+ * JASMIN PATH: first 4 limbs swapped by compiled Jasmin code when available;
  * 5th limb swapped in C (same constant-time XOR pattern). */
 static void fe_cswap(fe a, fe b, uint64_t flag) {
     uint64_t mask = -(uint64_t)(flag & 1);
 #ifdef ZUPT_USE_JASMIN
-    /* JASMIN-VERIFIED: CT swap of first 32 bytes (4×u64).
+    /* JASMIN PATH: masked swap of first 32 bytes (4×u64).
      * The Jasmin function operates on 4 consecutive u64 values. */
     zupt_fe_cswap(a, b, flag & 1);
     /* 5th limb: C fallback (same CT pattern) */
@@ -248,13 +234,13 @@ static void fe_inv(fe h, const fe f) {
 
 /* ═══════════════════════════════════════════════════════════════════
  * X25519 MONTGOMERY LADDER
- * CT-REQUIRED: No secret-dependent branches. The ladder is constant-time
- * by construction: every iteration performs the same operations, with
- * cswap selecting which point to operate on.
+ * CT-REQUIRED: no intended secret-dependent branches or memory access. Every
+ * iteration follows the same source-level operation sequence, with cswap
+ * selecting which point to operate on; this is not a compiled timing proof.
  * ═══════════════════════════════════════════════════════════════════ */
 
 /* FRAMA-C: X25519 Diffie-Hellman key agreement (RFC 7748)
- * CT-REQUIRED: Montgomery ladder — constant-time by construction */
+ * CT-REQUIRED: fixed-iteration, constant-time-intended Montgomery ladder */
 /*@ requires \valid(out + (0..31));
   @ requires \valid_read(scalar + (0..31));
   @ requires \valid_read(point + (0..31));

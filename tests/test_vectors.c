@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * Copyright (c) 2025-2026 Cristian Cezar Moisés
- * Zupt — NIST/RFC Cryptographic Test Vectors
+ * ZUPT — NIST/RFC Cryptographic Test Vectors
  * Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-or-later
  *
  * Tests: SHA-256 (FIPS 180-4), HMAC-SHA256 (RFC 4231),
@@ -44,7 +44,7 @@ static void hex2bin(const char *hex, uint8_t *bin, int len) {
 }
 
 int main(void) {
-    printf("Zupt Cryptographic Test Vectors\n");
+    printf("ZUPT Cryptographic Test Vectors\n");
     printf("================================\n\n");
 
     /* ═══ SHA-256 (FIPS 180-4) ═══ */
@@ -206,7 +206,7 @@ int main(void) {
         else { printf("  FAIL: XXH64('') = %016llx\n", (unsigned long long)h); fail++; }
     }
 
-    /* ═══ ML-KEM-768 internal self-test (F-04, Zupt 2.2.4) ═══ */
+    /* ═══ ML-KEM-768 internal self-test (F-04, ZUPT 2.2.4) ═══ */
     printf("\n-- ML-KEM-768 internal self-test --\n");
     {
         /* zupt_mlkem768_selftest() returns 0 on success, -1 on failure. */

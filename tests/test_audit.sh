@@ -1,20 +1,25 @@
 #!/bin/bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
-# zupt audit test suite — double-validated security checks for zupt 2.2+
+# ZUPT audit test suite — double-validated security checks.
 # Each property is checked via TWO independent paths.
 
-ZUPT_BIN="$(realpath ./zupt)"
-# Source-only build (WITH_SDK=0) has no libzuptsdk: the SDK-mode paths this
-# test exercises are unavailable, so skip cleanly instead of failing.
-_sdkck="$(mktemp -d)"
-if ! "$ZUPT_BIN" keygen --sdk -o "$_sdkck/p" >/dev/null 2>&1; then
-    rm -rf "$_sdkck"; echo "  SKIP: built without libzuptsdk (source-only) - SDK-mode test not applicable"; exit 0
+set -Eeuo pipefail
+
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
+ZUPT_BIN=${ZUPT_BIN:-$repo_root/zupt}
+if [[ ! -x $ZUPT_BIN ]]; then
+    printf '  FAIL: %s not found; build ZUPT first\n' "$ZUPT_BIN" >&2
+    exit 1
 fi
-rm -rf "$_sdkck"
+version=$("$ZUPT_BIN" --version 2>&1)
+if ! grep -Fq 'libvuptsdk=enabled' <<<"$version"; then
+    echo '  SKIP: system libvuptsdk integration is disabled (build with WITH_SDK=1)'
+    exit 0
+fi
 
 TMPDIR=$(mktemp -d)
-trap "rm -rf $TMPDIR" EXIT
+trap 'rm -rf -- "$TMPDIR"' EXIT
 cd "$TMPDIR"
 
 PASS=0; FAIL=0
@@ -37,15 +42,23 @@ echo "  [A. Authenticated archives]"
 # A1. Wrong key rejected: SDK key vs SDK archive (path A) + Legacy key vs SDK archive (path B)
 echo "data" > input.txt
 "$ZUPT_BIN" c --pq-sdk k.priv.pub a.zupt input.txt > /dev/null 2>&1
-mkdir -p ea && (cd ea && "$ZUPT_BIN" x --pq-sdk ../other.priv ../a.zupt > /dev/null 2>&1)
-A=$([ ! -f ea/input.txt ] && echo 1 || echo 0)
-mkdir -p eb && (cd eb && "$ZUPT_BIN" x --pq legacy.key ../a.zupt > /dev/null 2>&1)
-B=$([ ! -f eb/input.txt ] && echo 1 || echo 0)
+mkdir -p ea
+set +e
+(cd ea && "$ZUPT_BIN" x --pq-sdk ../other.priv ../a.zupt > /dev/null 2>&1)
+A_RC=$?
+set -e
+A=$([ "$A_RC" -ne 0 ] && [ ! -f ea/input.txt ] && echo 1 || echo 0)
+mkdir -p eb
+set +e
+(cd eb && "$ZUPT_BIN" x --pq legacy.key ../a.zupt > /dev/null 2>&1)
+B_RC=$?
+set -e
+B=$([ "$B_RC" -ne 0 ] && [ ! -f eb/input.txt ] && echo 1 || echo 0)
 DCHK "Wrong key rejected (SDK key + legacy key paths)" "$A" "$B"
 
 # A2. Tamper at byte position N detected.
 #
-# F-02 (Zupt 2.2.4): the previous version flipped a byte at len-50 for
+# F-02 (ZUPT 2.2.4): the previous version flipped a byte at len-50 for
 # path B. SDK-PQ archive sizes vary by 1-2 bytes per run (ciphertext
 # encoding), so len-50 occasionally landed inside the *index* region
 # (between footer.index_offset and the trailing 32-byte footer), which
@@ -69,16 +82,21 @@ python3 -c "
 b = bytearray(open('t2.zupt','rb').read())
 b[500] ^= 1
 open('t2.zupt','wb').write(bytes(b))" 2>/dev/null
-mkdir -p t1e && (cd t1e && "$ZUPT_BIN" x --pq-sdk ../k.priv ../t1.zupt > /dev/null 2>&1)
-mkdir -p t2e && (cd t2e && "$ZUPT_BIN" x --pq-sdk ../k.priv ../t2.zupt > /dev/null 2>&1)
-A=$([ ! -f t1e/input.txt ] && echo 1 || echo 0)
-B=$([ ! -f t2e/input.txt ] && echo 1 || echo 0)
+mkdir -p t1e t2e
+set +e
+(cd t1e && "$ZUPT_BIN" x --pq-sdk ../k.priv ../t1.zupt > /dev/null 2>&1)
+A_RC=$?
+(cd t2e && "$ZUPT_BIN" x --pq-sdk ../k.priv ../t2.zupt > /dev/null 2>&1)
+B_RC=$?
+set -e
+A=$([ "$A_RC" -ne 0 ] && [ ! -f t1e/input.txt ] && echo 1 || echo 0)
+B=$([ "$B_RC" -ne 0 ] && [ ! -f t2e/input.txt ] && echo 1 || echo 0)
 DCHK "Tamper detected at body offset 200 and 500" "$A" "$B"
 
 echo "  [B. Format security]"
 
 # B1. Zero-byte file (path A) + 1-byte file (path B): both must roundtrip
-> empty.txt
+: >empty.txt
 echo -n "x" > one.txt
 "$ZUPT_BIN" c --pq-sdk k.priv.pub e.zupt empty.txt > /dev/null 2>&1
 "$ZUPT_BIN" c --pq-sdk k.priv.pub o.zupt one.txt > /dev/null 2>&1
@@ -101,24 +119,42 @@ DCHK "1MB roundtrip (random + structured)" "$A" "$B"
 
 # B3. Truncated archive rejected (path A: cut last 50 bytes) (path B: cut at midpoint)
 cp a.zupt tr1.zupt; cp a.zupt tr2.zupt
-truncate -s -50 tr1.zupt
-truncate -s 100 tr2.zupt
+python3 - <<'PY'
+from pathlib import Path
+
+first = Path("tr1.zupt")
+first.write_bytes(first.read_bytes()[:-50])
+second = Path("tr2.zupt")
+second.write_bytes(second.read_bytes()[:100])
+PY
 mkdir -p tr1e tr2e
+set +e
 (cd tr1e && "$ZUPT_BIN" x --pq-sdk ../k.priv ../tr1.zupt > /dev/null 2>&1)
+A_RC=$?
 (cd tr2e && "$ZUPT_BIN" x --pq-sdk ../k.priv ../tr2.zupt > /dev/null 2>&1)
-A=$([ ! -f tr1e/input.txt ] && echo 1 || echo 0)
-B=$([ ! -f tr2e/input.txt ] && echo 1 || echo 0)
+B_RC=$?
+set -e
+A=$([ "$A_RC" -ne 0 ] && [ ! -f tr1e/input.txt ] && echo 1 || echo 0)
+B=$([ "$B_RC" -ne 0 ] && [ ! -f tr2e/input.txt ] && echo 1 || echo 0)
 DCHK "Truncated archive rejected" "$A" "$B"
 
 echo "  [C. Format compatibility]"
 
 # C1. Mode confusion: SDK archive cannot be read with --pq (legacy)
-mkdir -p mc1 && (cd mc1 && "$ZUPT_BIN" x --pq ../legacy.key ../a.zupt > /dev/null 2>&1)
-A=$([ ! -f mc1/input.txt ] && echo 1 || echo 0)
+mkdir -p mc1
+set +e
+(cd mc1 && "$ZUPT_BIN" x --pq ../legacy.key ../a.zupt > /dev/null 2>&1)
+A_RC=$?
+set -e
+A=$([ "$A_RC" -ne 0 ] && [ ! -f mc1/input.txt ] && echo 1 || echo 0)
 # Also: legacy archive cannot be read with --pq-sdk
 "$ZUPT_BIN" c --pq legacy.key leg.zupt input.txt > /dev/null 2>&1
-mkdir -p mc2 && (cd mc2 && "$ZUPT_BIN" x --pq-sdk ../k.priv ../leg.zupt > /dev/null 2>&1)
-B=$([ ! -f mc2/input.txt ] && echo 1 || echo 0)
+mkdir -p mc2
+set +e
+(cd mc2 && "$ZUPT_BIN" x --pq-sdk ../k.priv ../leg.zupt > /dev/null 2>&1)
+B_RC=$?
+set -e
+B=$([ "$B_RC" -ne 0 ] && [ ! -f mc2/input.txt ] && echo 1 || echo 0)
 DCHK "Mode confusion prevented (SDK↔legacy)" "$A" "$B"
 
 # C2. Legacy archive readable with legacy key (compat baseline)
@@ -132,17 +168,26 @@ DCHK "Both SDK and legacy paths roundtrip independently" "$A" "$B"
 echo "  [D. Robustness]"
 
 # D1. Non-existent input handled
+set +e
 "$ZUPT_BIN" c --pq-sdk k.priv.pub nx.zupt /nonexistent_file_12345 > /dev/null 2>&1
-A=$([ ! -f nx.zupt ] && echo 1 || echo 0)
+A_RC=$?
 "$ZUPT_BIN" c --pq-sdk k.priv.pub nx2.zupt /dev/nonexistent > /dev/null 2>&1
-B=$([ ! -f nx2.zupt ] && echo 1 || echo 0)
+B_RC=$?
+set -e
+A=$([ "$A_RC" -ne 0 ] && [ ! -f nx.zupt ] && echo 1 || echo 0)
+B=$([ "$B_RC" -ne 0 ] && [ ! -f nx2.zupt ] && echo 1 || echo 0)
 DCHK "Missing input file rejected cleanly" "$A" "$B"
 
 # D2. Non-existent key handled
-mkdir -p nk1 && (cd nk1 && "$ZUPT_BIN" x --pq-sdk /nonexistent.key ../a.zupt > /dev/null 2>&1)
-A=$([ ! -f nk1/input.txt ] && echo 1 || echo 0)
+mkdir -p nk1
+set +e
+(cd nk1 && "$ZUPT_BIN" x --pq-sdk /nonexistent.key ../a.zupt > /dev/null 2>&1)
+A_RC=$?
 "$ZUPT_BIN" c --pq-sdk /nonexistent.pub bbnk.zupt input.txt > /dev/null 2>&1
-B=$([ ! -s bbnk.zupt ] && echo 1 || echo 0)
+B_RC=$?
+set -e
+A=$([ "$A_RC" -ne 0 ] && [ ! -f nk1/input.txt ] && echo 1 || echo 0)
+B=$([ "$B_RC" -ne 0 ] && [ ! -s bbnk.zupt ] && echo 1 || echo 0)
 DCHK "Missing key file rejected cleanly" "$A" "$B"
 
 # D3. Multiple files in one archive
@@ -158,4 +203,4 @@ echo
 echo "  ───────────────────────────────────────"
 echo "  Audit results: $PASS passed, $FAIL failed"
 echo "  ───────────────────────────────────────"
-[ $FAIL -eq 0 ]
+((FAIL == 0))

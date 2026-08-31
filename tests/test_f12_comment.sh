@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
 #
-# F-12 regression test (Zupt 2.4.3).
+# F-12 regression test (ZUPT 2.4.3, hardened in 5.2.2).
 #
 # F-12: implement the reserved `comment_offset` field in zupt_archive_header_t.
 # Adds ZUPT_BLOCK_COMMENT (0x05) block type written between data blocks and
@@ -13,7 +13,7 @@
 #
 # Assertions:
 #   1. Roundtrip the comment text in plaintext mode.
-#   2. Roundtrip the comment text in Argon2id-password mode.
+#   2. Roundtrip the comment text in the build's default password mode.
 #   3. Roundtrip the comment text in PBKDF2-password mode.
 #   4. Roundtrip the comment text in PQ-SDK mode.
 #   5. `zupt info` reports the presence of a comment without revealing it
@@ -23,25 +23,20 @@
 #   8. An archive without a comment shows no Comment: line in info.
 #   9. --comment-file path reads the comment from disk.
 #  10. Empty comment string is treated as no-comment (header offset stays 0).
+#  11. Terminal control bytes are escaped when a comment is displayed.
 
-set -u
+set -Eeuo pipefail
 
-ZUPT="${ZUPT_BIN:-./zupt}"
-# Source-only build (WITH_SDK=0) has no libzuptsdk: the SDK-mode paths this
-# test exercises are unavailable, so skip cleanly instead of failing.
-_sdkck="$(mktemp -d)"
-if ! "$ZUPT" keygen --sdk -o "$_sdkck/p" >/dev/null 2>&1; then
-    rm -rf "$_sdkck"; echo "  SKIP: built without libzuptsdk (source-only) - SDK-mode test not applicable"; exit 0
-fi
-rm -rf "$_sdkck"
-
-case "$ZUPT" in
-    /*) ;;
-    *)  ZUPT="$PWD/$ZUPT" ;;
-esac
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
+ZUPT=${ZUPT_BIN:-$repo_root/zupt}
 if [ ! -x "$ZUPT" ]; then
     echo "  ✗ $ZUPT not found — run 'make' first" >&2
     exit 1
+fi
+version=$("$ZUPT" --version 2>&1)
+SDK_ENABLED=0
+if grep -Fq 'libvuptsdk=enabled' <<<"$version"; then
+    SDK_ENABLED=1
 fi
 
 PASS=0
@@ -68,14 +63,15 @@ else
     F "plaintext: comment not shown on extract"
 fi
 
-# Test 2: Argon2id-password roundtrip
+# Test 2: default password-KDF roundtrip (PBKDF2 in the source-only build,
+# Argon2id when system libvuptsdk is enabled).
 "$ZUPT" c -c "$COMMENT" -p secret arg.zupt input.txt >/dev/null 2>&1
 mkdir out_a
 OUT=$( (cd out_a && "$ZUPT" x -p secret ../arg.zupt) 2>&1 )
 if echo "$OUT" | grep -qF "$COMMENT"; then
-    P "Argon2id: comment roundtrips"
+    P "default password KDF: comment roundtrips"
 else
-    F "Argon2id: comment not shown"
+    F "default password KDF: comment not shown"
 fi
 
 # Test 3: PBKDF2-password roundtrip
@@ -88,15 +84,19 @@ else
     F "PBKDF2: comment not shown"
 fi
 
-# Test 4: PQ-SDK roundtrip
-"$ZUPT" keygen --sdk -o k.priv >/dev/null 2>&1
-"$ZUPT" c -c "$COMMENT" --pq-sdk k.priv.pub pq.zupt input.txt >/dev/null 2>&1
-mkdir out_pq
-OUT=$( (cd out_pq && "$ZUPT" x --pq-sdk ../k.priv ../pq.zupt) 2>&1 )
-if echo "$OUT" | grep -qF "$COMMENT"; then
-    P "PQ-SDK: comment roundtrips"
+# Test 4: optional PQ-SDK roundtrip.
+if ((SDK_ENABLED)); then
+    "$ZUPT" keygen --sdk -o k.priv >/dev/null 2>&1
+    "$ZUPT" c -c "$COMMENT" --pq-sdk k.priv.pub pq.zupt input.txt >/dev/null 2>&1
+    mkdir out_pq
+    OUT=$( (cd out_pq && "$ZUPT" x --pq-sdk ../k.priv ../pq.zupt) 2>&1 )
+    if echo "$OUT" | grep -qF "$COMMENT"; then
+        P "PQ-SDK: comment roundtrips"
+    else
+        F "PQ-SDK: comment not shown"
+    fi
 else
-    F "PQ-SDK: comment not shown"
+    echo '  SKIP: PQ-SDK comment roundtrip needs system libvuptsdk (WITH_SDK=1)'
 fi
 
 # Test 5: info doesn't leak comment plaintext for encrypted archives
@@ -115,33 +115,39 @@ fi
 # Test 6: tampering the comment block payload is rejected
 # Find the comment block offset: it's stored in hdr[44..51] (comment_offset).
 COMM_OFF=$(python3 -c "
-b = open('pq.zupt','rb').read()
+b = open('arg.zupt','rb').read()
 print(int.from_bytes(b[44:52],'little'))
 ")
 # Tamper a byte inside the comment block payload (skip the 2-byte magic).
 # Pick offset COMM_OFF + 20 which should land inside encrypted payload bytes.
-cp pq.zupt tamp_comment.zupt
+cp arg.zupt tamp_comment.zupt
 python3 -c "
 b = bytearray(open('tamp_comment.zupt','rb').read())
 b[$COMM_OFF + 20] ^= 1
 open('tamp_comment.zupt','wb').write(bytes(b))"
 mkdir out_tc
-ERR=$( (cd out_tc && "$ZUPT" x --pq-sdk ../k.priv ../tamp_comment.zupt) 2>&1 || true )
-if [ ! -f out_tc/input.txt ]; then
+set +e
+(cd out_tc && "$ZUPT" x -p secret ../tamp_comment.zupt >/dev/null 2>&1)
+tampered_comment_status=$?
+set -e
+if [ "$tampered_comment_status" -ne 0 ] && [ ! -f out_tc/input.txt ]; then
     P "comment-block tamper rejected (per-block HMAC)"
 else
     F "comment-block tamper silently accepted"
 fi
 
 # Test 7: tampering hdr.comment_offset is rejected (covered by AIT)
-cp pq.zupt tamp_offset.zupt
+cp arg.zupt tamp_offset.zupt
 python3 -c "
 b = bytearray(open('tamp_offset.zupt','rb').read())
 b[44] ^= 1  # low byte of comment_offset field
 open('tamp_offset.zupt','wb').write(bytes(b))"
 mkdir out_to
-ERR=$( (cd out_to && "$ZUPT" x --pq-sdk ../k.priv ../tamp_offset.zupt) 2>&1 || true )
-if [ ! -f out_to/input.txt ]; then
+set +e
+(cd out_to && "$ZUPT" x -p secret ../tamp_offset.zupt >/dev/null 2>&1)
+tampered_offset_status=$?
+set -e
+if [ "$tampered_offset_status" -ne 0 ] && [ ! -f out_to/input.txt ]; then
     P "comment_offset tamper rejected (AIT covers header)"
 else
     F "comment_offset tamper silently accepted"
@@ -174,6 +180,19 @@ if ! echo "$INFO3" | grep -q "Comment:"; then
     P "empty -c treated as no-comment"
 else
     F "empty -c written as a comment block (should be no-op)"
+fi
+
+# Test 11: authenticated comments are still untrusted terminal input. Newline,
+# ESC/OSC, DEL, and C1 controls must be rendered as visible escapes.
+printf 'trusted ação 安全\nforged\033]52;c;Y2xpcGJvYXJk\007\177\302\200' > control.txt
+"$ZUPT" c --comment-file control.txt control.zupt input.txt >/dev/null 2>&1
+mkdir out_control
+OUT=$( (cd out_control && "$ZUPT" x ../control.zupt) 2>&1 )
+if [[ $OUT != *$'\033'* ]] &&
+   grep -Fq 'Comment: trusted ação 安全\x0Aforged\x1B]52;c;Y2xpcGJvYXJk\x07\x7F\xC2\x80' <<<"$OUT"; then
+    P "terminal controls are escaped while printable UTF-8 is preserved"
+else
+    F "terminal controls in comments reached output unsanitized: $OUT"
 fi
 
 echo ""

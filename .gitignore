@@ -1,39 +1,65 @@
 # Build outputs
-/vaptvupt
 /zupt
+# Optional compatibility symlink produced by legacy-alias builds.
+/vaptvupt
 *.o
+*.obj
 *.a
+*.la
 *.so
 *.so.*
+*.dll
 *.dylib
 *.exe
-*.obj
+*.com
+*.class
+*.jar
+*.war
+*.wasm
 *.lib
+*.pdb
+*.out
+*.bin
+*.elf
+*.ko
+*.mod
 
 # Python bytecode caches
 __pycache__/
 *.pyc
+*.pyo
 
 # Coverage / profiling
 *.gcda
 *.gcno
 *.gcov
 *.profraw
+*.profdata
+/coverage/
 
 # CMake / out-of-tree build dirs
 /build/
+/dist/
+/out/
+/target/
+/sdk/build/
 /cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
 
 # Distribution tarballs and packages (published as release assets, not committed)
-/*.tar.gz
-/*.tar.xz
-/*.zip
-/*.deb
-/*.rpm
-/*.AppImage
+*.tar.gz
+*.tar.xz
+*.zip
+*.deb
+*.rpm
+*.AppImage
+*.msi
+*.apk
+*.ipa
+*.dmg
 *.AppDir/
+SHA256SUMS
 SHA256SUMS.txt
 
 # Test/scratch binaries
@@ -43,6 +69,8 @@ SHA256SUMS.txt
 
 # Editor / OS noise
 *.swp
+*.tmp
+*.log
 *~
 .DS_Store
 .idea/

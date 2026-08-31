@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * Copyright (c) 2025-2026 Cristian Cezar Moisés
  * ZUPT - AES-256 Block Cipher (FIPS 197)
- * Pure C, constant-time T-table implementation.
+ * Pure C, portable table-based implementation.
  * FRAMA-C: ACSL-annotated (v2.0.0)
  */
 #include "zupt.h"

@@ -1,11 +1,11 @@
 /*
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * Copyright (c) 2025-2026 Cristian Cezar Moisés
- * Zupt v2.0.0 — AFL++ Fuzzing Harness: VaptVupt Codec
+ * ZUPT v2.0.0 — AFL++ Fuzzing Harness: VaptVupt Codec
  * Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-or-later
  *
  * Reads fuzzed VaptVupt frame data from stdin, attempts decompression.
- * Tests the VaptVupt codec directly (bypassing Zupt archive format).
+ * Tests the VaptVupt codec directly (bypassing ZUPT archive format).
  *
  * Build:
  *   afl-clang-fast -fsanitize=address,undefined -g -O1 -mavx2 \

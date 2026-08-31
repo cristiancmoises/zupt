@@ -1,11 +1,11 @@
-/* Zupt — X25519 Constant-Time Conditional Swap (Jasmin)
+/* ZUPT — X25519 Constant-Time Conditional Swap (Jasmin)
  * Copyright (c) 2026 Cristian Cezar Moisés
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * CT-REQUIRED: fe_cswap must not leak cond via timing.
  * This is the only CT-critical field operation in X25519.
- * fe_add/fe_sub/fe_mul use C fallback (data-independent timing
- * on x86-64 — ADD/MUL have fixed latency).
+ * fe_add/fe_sub/fe_mul use the C fallback. No fixed-latency claim is made for
+ * every compiler, x86-64 CPU, or resulting binary.
  *
  * 4 × u64 limbs, pure register operations, no intrinsics needed.
  */

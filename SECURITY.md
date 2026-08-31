@@ -1,326 +1,313 @@
-# Security Policy — VaptVupt 5.0.0
+# Security Policy — ZUPT 5.2.2
 
-## Reporting Vulnerabilities
+## Reporting vulnerabilities
 
-Report privately by email to **zupt@riseup.net** with `[security]` in the
-subject. Do not open a public issue on the project's git server.
+Report suspected vulnerabilities privately to **zupt@riseup.net** with
+`[security]` in the subject. Do not open a public issue before coordinated
+disclosure.
 
-Include:
+Include the output of `zupt --version`, operating system and architecture,
+impact, and the smallest safe reproducer. Remove passwords, keys, tokens,
+personal data, and confidential archive contents.
 
-- Version (`vaptvupt --version`) and platform.
-- Description, impact assessment, and a reproduction (a minimal archive or
-  a code snippet).
+The project aims to acknowledge reports within five business days and to target
+high-severity fixes within 30 days, with the disclosure timeline agreed case by
+case. These are targets, not a warranty.
 
-Disclosure SLA: acknowledgement within 5 business days; target fix within
-30 days for high-severity issues. Coordinated disclosure preferred; the
-timeline is discussed case by case. A PGP key is on the project's
-keyserver entry.
+ZUPT has not had an independent third-party security audit or certification.
+Treat the in-repository review and tests as reproducible project evidence, not
+as external assurance.
 
-The project has not had an external independent audit. For high-stakes
-deployments, treat it as "reviewed but unaudited" and do your own review.
+## Supported security modes
 
----
+| Mode | CLI | Key establishment / derivation | Payload protection |
+|---|---|---|---|
+| Plain | no encryption option | none | compression checksums only |
+| Password | `-p/--password`, `--password-prompt`, `--pass-file`, or `--pass-fd` | PBKDF2-SHA256, 600,000 iterations | AES-256-CTR + HMAC-SHA256 |
+| Native hybrid PQ | `--pq` | ML-KEM-768 + X25519, SHA3-512 combiner | AES-256-CTR + HMAC-SHA256 |
+| Native PQ only | `--pq-only` | ML-KEM-768, SHA3-512 derivation | AES-256-CTR + HMAC-SHA256 |
 
-## Encryption Modes
+The native hybrid mode is the recommended post-quantum mode unless a policy
+forbids a classical component. `--pq-only` removes the X25519 fallback: a break
+of ML-KEM-768 alone would then compromise key establishment. Password security
+is bounded by password entropy; PBKDF2 cannot make a short or reused password
+safe against offline guessing.
 
-| Mode | CLI Flag | Algorithm | PQ-Safe? | Use Case |
-|------|----------|-----------|----------|----------|
-| Password | `-p` | PBKDF2-SHA256 → AES-256-CTR + HMAC-SHA256 | No | Short-term backups, personal use |
-| PQ Hybrid | `--pq` | ML-KEM-768 + X25519 → AES-256-CTR + HMAC-SHA256 | Yes | Long-term archives, high-value data (**recommended**) |
-| PQ Only | `--pq-only` | ML-KEM-768 only → AES-256-CTR + HMAC-SHA256 | Yes | "PQ-only" compliance postures (no classical KEM) |
-| None | (default) | No encryption (compression only) | N/A | Non-sensitive data |
+The `-p/--password PASSWORD` argument form can be visible to process-list users
+and shell history. Prefer `--password-prompt`, `--pass-file` with restrictive
+permissions, or `--pass-fd` with a descriptor inherited from a trusted caller.
+The file/descriptor forms read one line, remove LF and an optional preceding CR,
+and reject empty, NUL-containing, or overlong input. ZUPT does not enforce
+password-file ownership or mode; the caller remains responsible for creating,
+protecting, and deleting that file. The descriptor form duplicates the supplied
+descriptor and does not close the caller's original descriptor.
+The duplicate shares the same underlying stream and offset, and buffered input
+may consume beyond the password line. Pass a descriptor dedicated to this one
+password read; do not reuse it as a multi-record protocol channel.
 
-Password mode (`-p`) is not quantum-safe. For protection against "harvest
-now, decrypt later" quantum attacks, use `--pq` — the recommended
-post-quantum mode. `--pq` is native and in-tree; it needs no external
-library.
+On POSIX terminals, the explicit prompt saves terminal state and installs
+signal-aware cleanup so a handled interruption restores echo and other changed
+settings before termination. This behavior is covered by a PTY regression and
+must be rerun on the exact release candidate.
 
-`--pq-only` (envelope type `0x06`) uses ML-KEM-768 as the *sole* key
-mechanism, with no classical X25519 component. It exists for compliance
-postures that mandate a single NIST-standardised PQ primitive with no
-classical KEM in the envelope (CNSA 2.0-style "PQ-only"). **This is a
-deliberate reduction in defence-in-depth:** unlike `--pq`, there is no
-classical fallback, so a future cryptanalytic break of ML-KEM-768 alone is
-sufficient to break the archive. Under `--pq`, an attacker must break *both*
-ML-KEM-768 and X25519. **Unless a policy forbids the classical component,
-prefer `--pq`.** Both modes are native, in-tree, and need no external
-library.
+## Native key files
 
-Optional SDK modes (`--pq-sdk`, `--pq-box`) are available only in an
-upstream `make WITH_SDK=1` build linked against the separately distributed
-libzuptsdk / libpqvaptvupt libraries. They are not part of the default
-build and are not defaults.
+Native private keys use no-replace creation: POSIX files are mode `0600` and
+Windows files receive a current-user-only DACL. An existing destination is
+never truncated. If write, flush/fsync, or close fails, ZUPT deliberately leaves
+the exclusively created incomplete or durability-uncertain file at that path
+for the user to inspect and remove. It does not unlink by pathname after close,
+which avoids deleting a replacement installed during a race. Public keys may be
+shared deliberately and are not treated as secret. ZKEY and ZPQK readers
+validate the checksum, format version, flags, reserved bytes, exact encoded
+size, and public/private role before using any key material. A truncated,
+extended, structurally invalid, or role-confused key is rejected rather than
+partially accepted.
 
----
+### Optional integrations
 
-## Cryptographic Algorithms
+The 5.2.2 default is `WITH_SDK=0 WITH_PQBOX=0`:
 
-| Component | Algorithm | Standard | Key Size | Security Level |
-|-----------|-----------|----------|----------|---------------|
-| Symmetric encryption | AES-256-CTR | FIPS 197 | 256-bit | 128-bit post-quantum (Grover) |
-| Authentication | HMAC-SHA256 | RFC 2104 | 256-bit | 128-bit post-quantum (Grover) |
-| Password KDF (default) | PBKDF2-SHA256 | RFC 8018 | 600K iterations | Password-dependent |
-| Password KDF (WITH_SDK=1 option) | Argon2id | RFC 9106 | OWASP minimums | Password-dependent, memory-hard |
-| Post-quantum KEM | ML-KEM-768 | FIPS 203 (validated vs OpenSSL 3.5) | 1184B ek / 2400B dk | NIST Level 3 |
-| Classical KEM | X25519 | RFC 7748 | 32B scalar | ~128-bit classical |
-| Hybrid KDF (`--pq`) | SHA3-512 | FIPS 202 | 512-bit output | Secure if either KEM holds |
-| PQ-only KDF (`--pq-only`) | SHA3-512 | FIPS 202 | 512-bit output | Secure if ML-KEM-768 holds (no classical fallback) |
-| Integrity | XXH64 | xxHash spec | 64-bit checksum | Non-cryptographic |
-| Hashing | SHA3-256, SHA3-512 | FIPS 202 | 256/512-bit | Standard |
-| Random | OS CSPRNG | getrandom(2) / RtlGenRandom | N/A | Hard fail if unavailable |
+- `WITH_SDK=1` enables libvuptsdk-backed features, including the SDK PQ mode
+  and Argon2id support, using a separately installed system development package.
+- `WITH_PQBOX=1` independently enables the libpqvaptvupt sealed-box mode using
+  its separately installed system development package.
 
-The default build uses PBKDF2-SHA256 (600k iterations) for password mode.
-Argon2id is available only in a `make WITH_SDK=1` build.
+Neither library is committed as a precompiled artifact, and no build path
+downloads it. A missing requested dependency is a build error. Security
+properties of these optional libraries are outside the source-only CLI audit
+unless their exact source package and version are reviewed separately.
 
----
+## Cryptographic construction
 
-## Security Architecture
+Encrypted blocks use a fresh 128-bit nonce, AES-256-CTR, and HMAC-SHA256. The
+MAC binds the encrypted payload, canonical block metadata, and the frame's
+logical position, and is checked before restored data is accepted. In 5.2.2,
+this positional AAD applies to DATA and DEDUP_REF frames. An authenticated
+reference is bound to its own position and carries the authenticated source
+position needed to verify the referenced DATA frame.
 
-### Per-Block Authenticated Encryption
+An archive-integrity trailer (AIT) covers global metadata. The 5.2.2
+`extract`, `list`, `test`, and `disk restore` paths refuse a no-AIT layout by
+default, without trusting the archive's unauthenticated `ENCRYPTED` bit to
+decide whether that check matters. `--allow-legacy-no-ait` is accepted only by
+those commands; it is a recovery-only opt-in for a known, trusted pre-AIT
+archive and emits a downgrade warning. Never use it for an archive from
+untrusted or attacker-writable storage. `info` only reports unauthenticated
+framing and apparent AIT presence; it does not validate the trailer or archive
+contents. Plain archives use non-cryptographic checksums and do not provide
+protection against an attacker who can rewrite the archive.
 
-```
-For each data block:
+Archive comments are authenticated according to the archive mode, but they are
+still untrusted display data. ZUPT renders control bytes safely when showing a
+comment and does not emit raw terminal-control sequences. This prevents a valid
+or attacker-supplied comment from rewriting terminal output; it does not make a
+plain archive cryptographically authentic.
 
-  nonce = CSPRNG(16)                               [16 bytes, fresh per block]
-  ciphertext = AES-256-CTR(enc_key, nonce, plaintext)
-  mac = HMAC-SHA256(mac_key, aad ‖ nonce ‖ ciphertext)   [32 bytes]
-  stored = nonce ‖ ciphertext ‖ mac
-```
+In new 5.2.2 encrypted+dedup archives, each reference offset is included in
+the authenticated reference payload. New encrypted disk archives also
+authenticate their index; the index binds the image size, block count, and a
+chained XXH64 hash of the complete restored byte stream. The writer
+additionally requires an XXH64 and SHA-256/128 match before emitting a dedup
+reference, but that SHA-256/128 digest is an in-memory collision guard and is
+not stored as an on-disk integrity claim. XXH64 is non-cryptographic: in a
+plain archive it
+detects accidental corruption but can be recomputed by an attacker.
 
-The nonce is a **fresh 128-bit random value per block**, stored in the block
-prefix and bound into the block MAC. The block sequence number is bound into
-the MAC AAD (not into the nonce), so reordering, splicing, or replaying blocks
-is still detected.
+The native hybrid derivation implemented by 5.2.2 is:
 
-> **History (fixed in 4.2.0):** earlier releases derived the nonce as
-> `base_nonce XOR pad_le(block_seq, 8)`. In `--dedup` mode every data block is
-> assigned sequence 0 (the sentinel that keeps cross-file dedup references
-> authenticating consistently), so the nonce collapsed to a single value across
-> all dedup blocks — reusing the AES-CTR keystream across distinct plaintexts
-> (a many-time-pad). Switching to a fresh random per-block nonce closes this.
-> Regression test: `tests/test_dedup_nonce.sh`. Re-encrypt any `--dedup` +
-> encrypted archives written by ≤ 4.1.0.
-
-### Encrypt-then-MAC
-
-HMAC is computed over `nonce ‖ ciphertext` and verified **before** any
-decryption. This prevents:
-
-- Chosen-ciphertext attacks
-- Padding oracle attacks
-- Processing of tampered data
-
-### Hybrid Post-Quantum KEM (`--pq`)
-
-> **FIPS 203 conformance (v5.0.0).** The ML-KEM-768 implementation is validated
-> byte-for-byte against OpenSSL 3.5's FIPS 203 ML-KEM-768: deterministic keygen
-> produces an identical `ek`, and the shared secret agrees in both
-> cross-decapsulation directions (our encaps ↔ OpenSSL decaps, and vice-versa).
-> This is checked on every `make check` by `tests/test_mlkem_fips203.sh`.
-> Releases ≤ 4.2.1 used round-3 CRYSTALS-Kyber (secure, but not interoperable);
-> 5.0.0's `--pq`/`--pq-only` archives are therefore not backward-compatible.
-
-```
-Encapsulation:
-  ML-KEM-768.Encaps(pk)  → ml_ct[1088], ml_ss[32]
-  eph_sk ← CSPRNG(32)
-  eph_pk = X25519(eph_sk, basepoint)
-  x25519_ss = X25519(eph_sk, recipient_pk)
-  hybrid_ikm = ml_ss XOR x25519_ss
-  archive_key = SHA3-512(hybrid_ikm ‖ ml_ct ‖ eph_pk ‖ "ZUPT-HYBRID-v1")
-  enc_key = archive_key[0:32]
-  mac_key = archive_key[32:64]
+```text
+ml_ss       = ML-KEM-768 shared secret
+x25519_ss   = X25519 shared secret
+hybrid_ikm  = ml_ss XOR x25519_ss
+archive_key = SHA3-512(hybrid_ikm || ml_ct || ephemeral_pk ||
+                       "ZUPT-HYBRID-v1")
 ```
 
-Security model: secure if EITHER ML-KEM-768 (post-quantum, NIST Level 3)
-OR X25519 (classical, ~128-bit) remains unbroken. Both must be compromised
-simultaneously to recover the archive key. Same approach as Signal
-(PQXDH), Apple iMessage (PQ3), and OpenSSH 9.0+.
+`--pq-only` derives the archive key as
+`SHA3-512(ml_ss || ml_ct || "ZUPT-PQ-ONLY-v1")`.
 
-The `--pq-sdk` mode (WITH_SDK=1 only) uses an HKDF-SHA3-256 combiner, a
-32-byte key commitment tag, HPKE-style context binding (RFC 9180 §5),
-anti-fault double decapsulation, and XChaCha20-Poly1305 AEAD.
+The native modes are at-rest archive encryption. They do not provide protocol
+session forward secrecy: later compromise of the relevant long-term private key
+can compromise archives encrypted to it.
 
-### Full Post-Quantum KEM (`--pq-only`)
+## Constant-time and side-channel scope
 
+Portable C is the 5.2.2 default. Sensitive comparisons and selections use
+branchless helpers, but generated machine-code behavior remains dependent on
+the compiler and platform. This is not a formal whole-program constant-time
+claim. The C AES implementation uses table lookups and is unsuitable for a
+claim of cache-timing resistance on hostile shared hardware.
+
+Textual assembly under `jasmin/` can be enabled explicitly with
+`WITH_JASMIN=1` on a supported x86_64 compiler target. The directory contains
+Jasmin-generated output and separately identified hand-written assembly; all of
+it is disabled by default and its inclusion must be confirmed in the exact
+binary being assessed. Its availability does not imply formal verification of
+the archive parser, compression codec, or the whole program.
+
+## Security boundary and limitations
+
+ZUPT is designed for backups created and restored on trusted endpoints. It
+does not protect against:
+
+- malware, keyloggers, memory inspection, or a compromised user account on the
+  machine handling plaintext or keys;
+- disclosure of a password or private key;
+- denial of service from arbitrarily large or adversarial input;
+- traffic analysis from archive size and visible framing metadata;
+- hiding that a file is a ZUPT archive;
+- compression-length side channels when attacker-controlled and secret data are
+  compressed together and an attacker can observe output length;
+- network transport attacks, multi-party access control, threshold recovery, or
+  key rotation;
+- every compiler-, microarchitecture-, power-, or speculative-execution side
+  channel.
+
+Archive entry paths reject traversal, absolute paths, control characters,
+Windows alternate streams/device names, and ambiguous trailing dot/space
+components. POSIX extraction resolves each parent relative to a pinned file
+descriptor with no-follow semantics after canonicalizing the user-selected
+output root once; symlinks below that root remain forbidden. Windows resolves
+each parent and temporary
+file relative to a directory handle and performs the final no-replace rename by
+handle, so a checked path is not looked up again through a mutable junction or
+reparse point. An existing destination leaf is never overwritten.
+
+Decoded bytes first go to a private, exclusively created temporary file. The
+final name is published only after the expected decoded size and chained
+checksum match and the stream closes successfully; failures remove the
+temporary by descriptor/handle. These controls reduce traversal, link, race,
+and partial-output risks, but they do not make privileged extraction
+appropriate. Extract untrusted archives as a dedicated unprivileged user into
+a new empty directory, inspect the result before moving it, and apply OS
+sandboxing where available.
+
+Disk restore has a separate destructive-device boundary. It measures and
+copies the compacted archive to an exclusively created, auto-deleted private
+scratch file before opening the target, then performs both validation and
+restoration from that same snapshot. `ZUPT_TMPDIR` is an explicit existing
+scratch-directory override; an invalid override fails without fallback. Raw
+block devices are opened only after their capacity has been determined and
+shown sufficient on supported Linux, macOS, or FreeBSD interfaces. Unknown
+device capacity, an undersized device, a source/destination identity match, or
+a snapshot failure stops before the first target write. These checks do not
+make raw-device restore non-destructive: verify both operands and keep recovery
+media before proceeding.
+
+The Windows handle-relative implementation is scoped to normal local Win32
+paths. Win32 extended-length and device-namespace paths, raw UNC output roots,
+and mapped/network-drive output are not supported in 5.2.2. Cross-build and
+Wine results are not native-Windows evidence; the `windows-latest` package gate
+must pass its Unicode round trip before Windows assets are published. Restore
+to a normal local directory first and move verified output to network storage
+afterward.
+
+## Historical compatibility and fixes
+
+These statements are historical release records, not claims that every current
+gate was rerun on every platform:
+
+- In 4.2.0, encrypted deduplication changed from a repeated derived nonce to a
+  fresh random per-block nonce. Re-encrypt encrypted `--dedup` archives written
+  by releases through 4.1.0.
+- In 5.0.0, native ML-KEM was corrected from round-3 CRYSTALS-Kyber semantics
+  to FIPS 203 ML-KEM-768. Native `--pq` and `--pq-only` keys and archives from
+  releases through 4.2.1 are not compatible with the corrected mode. Password
+  and plain archive paths were not affected by that KEM change.
+- Releases predating the archive-integrity trailer may have a structurally
+  valid no-AIT layout. Such an archive now fails closed unless the caller uses
+  `--allow-legacy-no-ait` on a supported read command. This option permits
+  recovery of trusted old media; it is not a general compatibility mode and
+  does not make unauthenticated header/footer metadata safe.
+- The 5.2.2 reader accepts the fixed-width disk index and encrypted-dedup linear
+  AAD sequence published through 5.2.1 and warns that the legacy index has no
+  whole-image content hash. Its regression fixture is an actual v5.2.1
+  password-encrypted DATA/DATA/REF/DATA disk archive stored as hexadecimal text with
+  source and hash provenance. The candidate lists, tests, extracts, and restores it
+  byte-exact; the exact final candidate must repeat that gate. This does not
+  claim that 5.2.1 readers accept the new flag-gated 5.2.2 records or that every
+  historical encrypted+dedup combination was validated.
+
+The repository contains NIST/RFC vector tests and an OpenSSL 3.5 ML-KEM
+interoperability test. The OpenSSL test can only execute when the environment
+provides an ML-KEM-capable OpenSSL; otherwise it must be reported as skipped.
+
+## Source and release integrity
+
+Git and upstream source archives contain no compiled executable, object,
+shared/static library, or distribution package. Audit them with:
+
+```sh
+scripts/check-source-only.sh
+scripts/check-source-only.sh --archive /path/to/zupt-5.2.2.tar.gz
 ```
-Encapsulation:
-  ML-KEM-768.Encaps(pk)  → ml_ct[1088], ml_ss[32]
-  archive_key = SHA3-512(ml_ss ‖ ml_ct ‖ "ZUPT-PQ-ONLY-v1")
-  enc_key = archive_key[0:32]
-  mac_key = archive_key[32:64]
+
+Nested archive inspection is required to enforce bounded recursion, member
+count, per-entry expanded size, and total expanded size, and to fail closed on
+limit violations. The resource-limit regressions and all other late self-audit
+fixes remain pending until the exact candidate completes the final gate suite.
+
+DEB, binary RPM, SRPM, notice-bearing Linux tar.xz, source-only portable GUI
+ZIP, Windows ZIP, and macOS DMG release assets are separate outputs. An
+AppImage is not promoted for 5.2.2. A bare Linux or Windows executable is also
+excluded; executables are distributed only inside their notice-bearing
+archives. Trust an artifact only when its exact format has a recorded build,
+content/metadata inspection, extracted or installed smoke test, and applicable
+archive round trip. Never treat an unexecuted platform as passing.
+
+The gated 5.2.2 set is the CLI package/archive set plus the exact GUI DEB,
+noarch/source RPM, and source-only portable ZIP documented in the README. The
+portable GUI ZIP contains no compiled runtime and is scanned as source before
+and after extraction. Other GUI packages, AppImage, AppDir and Flatpak bundles,
+and GUI platform installers are excluded. Windows ZIP and macOS DMG artifacts
+remain CLI-only.
+
+## Reproducing project checks
+
+Start with the baseline source-only build:
+
+```sh
+make clean
+make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf 1)" \
+  WITH_SDK=0 WITH_PQBOX=0 V=1
+make WITH_SDK=0 WITH_PQBOX=0 check
+make WITH_SDK=0 WITH_PQBOX=0 test-all
 ```
 
-Security model: secure if ML-KEM-768 (post-quantum, NIST Level 3) remains
-unbroken. **There is no classical component**, so — unlike `--pq` — a break of
-ML-KEM-768 alone is sufficient to compromise the archive key. This mode exists
-only for compliance postures that mandate a single NIST-standardised PQ
-primitive with no classical KEM in the envelope (CNSA 2.0-style "PQ-only").
-Decapsulation uses ML-KEM Fujisaki-Okamoto implicit rejection: a wrong or
-tampered `ml_ct` yields a pseudorandom shared secret, so decryption fails
-closed at the HMAC check rather than leaking a decapsulation-validity oracle.
-**Unless a policy forbids the classical component, prefer `--pq`.**
+Where the compiler supports them, run the sanitizer target separately:
 
----
-
-## Constant-Time Guarantees
-
-### Jasmin-Verified (assembly linked into binary)
-
-| Function | Purpose | Proof |
-|----------|---------|-------|
-| `zupt_mac_verify_ct` | HMAC comparison (32 bytes) | Jasmin type system: no branch on diff value |
-| `zupt_ct_select_32` | ML-KEM FO implicit rejection | Jasmin type system: no branch on cond value |
-
-These functions are compiled from Jasmin source to x86-64 assembly. The
-Jasmin compiler enforces that no secret-typed variable flows into branch
-conditions or memory addresses. This guarantee holds at the machine code
-level — no C compiler optimization can introduce timing leaks.
-
-### C Constant-Time (branchless, compiler-dependent)
-
-| Function | Method | Risk |
-|----------|--------|------|
-| X25519 `fe_cswap` | Masked XOR (`mask & (a ^ b)`) | Low — branchless but compiler may optimize |
-| ML-KEM NTT/basemul | Montgomery reduction (no branches) | Low |
-| ML-KEM CBD sampling | Bitwise operations only | Low |
-| Key wipe (`zupt_secure_wipe`) | `explicit_bzero` / volatile | Low |
-
-### NOT Constant-Time (documented risks)
-
-| Function | Risk | Mitigation |
-|----------|------|------------|
-| AES-256 block encrypt | HIGH on shared hardware — S-box table lookups leak via cache timing | Jasmin AES-NI path planned; do not use on multi-tenant VMs |
-| SHA-256 | Low — table constants are public, not indexed by secret data | Accepted |
-
----
-
-## Threat Model
-
-### What VaptVupt Protects
-
-| Asset | Protection |
-|-------|-----------|
-| File contents | AES-256-CTR encryption |
-| File names, sizes, structure | Encrypted in central index block, HMAC-protected |
-| Archive integrity (payloads + index) | Per-block HMAC-SHA256 |
-| Archive integrity (header + footer metadata) | v1.5+ archives: 32-byte archive-integrity-trailer HMAC-SHA256 over `hdr ‖ ft[0..23]`. v1.4 archives: not covered, downgrade warning on extract. |
-| Against stolen backups | AES-256 requires key/password to read |
-| Against tampering of file contents, names, sizes, offsets | HMAC detects any modification |
-| Against tampering of per-block frame preface bytes (codec_id, block_flags, varints, plaintext-XXH64) | v1.6: per-block MAC binds the canonical preface AAD; encryption-header block validated structurally |
-| Against tampering of archive comment (when present) | Comment block goes through the same per-block AEAD pipeline as data (AES-256-CTR + HMAC-SHA256 + preface AAD); `hdr.comment_offset` pointer is in the AIT-signed region |
-| Against block-swap (reorder) attacks | MAC binds an 8-byte position AAD; a block moved to another position fails verification and its partial output is unlinked. Dedup refs use sentinel seq=0 and rely on plaintext XXH64 for per-block integrity. |
-| Against malicious archive entries (Zip Slip / path traversal) | `zupt_path_is_safe()` rejects `..`, absolute paths, Windows drive/UNC paths, embedded NULs |
-| Against symlink at extract target (TOCTOU) | `zupt_safe_fopen_output()` uses `O_NOFOLLOW` on POSIX. Windows relies on directory ACLs (documented limitation). |
-| Against quantum adversary | `--pq` mode: ML-KEM-768 (NIST Level 3) hybridized with X25519 |
-
-The wire/on-disk format is v1.6. See CHANGELOG.md for the per-release
-finding history behind these protections.
-
-### What VaptVupt Does NOT Protect Against
-
-| Threat | Reason | Mitigation Path |
-|--------|--------|----------------|
-| Attacker who knows the password or has the private key | Fundamental to encryption | Use strong passwords (12+ chars); protect key files |
-| Endpoint compromise (keylogger, malware on the host) | Outside the archive's trust boundary | Secure the machine where you type the password or hold the key |
-| Cache-timing side channels (C AES) | Table-based S-box lookups | Build with Jasmin AES-NI when available; avoid multi-tenant VMs |
-| Memory forensics during operation | Keys on stack during compress/extract | `zupt_secure_wipe()` on completion; `mlock()` planned |
-| Deniability | Archive header identifies format | `.zupt` magic bytes visible; ENCRYPTED flag in header |
-| Weak passwords | PBKDF2-SHA256 (600k) is the default KDF; Argon2id (memory-hard) is available in a WITH_SDK=1 build | Use `--pq` mode for critical data — keys are random, not derived from a password |
-| Traffic analysis / metadata | Archive size reveals data volume; file list, sizes, mtimes not padded | Outside VaptVupt's scope |
-| File permission/ownership | Not stored in archive | Documented in README.md |
-| Spectre-class side channels in callers | Below the constant-time primitive layer | Host OS / compiler mitigations |
-
-### Quantum Threat Analysis
-
-Scenario: adversary captures an encrypted archive today, stores it, and
-attempts decryption when a cryptographically-relevant quantum computer is
-available.
-
-| Mode | Classical Security | Quantum Security | Verdict |
-|------|-------------------|-----------------|---------|
-| Password (`-p`) | Password-dependent + 256-bit AES | ~128-bit (Grover on AES), PBKDF2 accelerated | Vulnerable — use `--pq` |
-| PQ Hybrid (`--pq`) | ~128-bit (X25519) | NIST Level 3 (ML-KEM-768) | Protected |
-
-In `--pq` mode: even if Shor's algorithm breaks X25519, ML-KEM-768
-protects the archive; even if a novel classical attack breaks ML-KEM,
-X25519 still provides ~128-bit security. The hybrid design is secure if
-either component holds.
-
-### Extracting untrusted archives — operational guidance
-
-The in-binary defenses are the primary control; the following are defense
-in depth:
-
-1. Extract into a dedicated empty directory (not `~/Downloads` or `/tmp`).
-2. Audit symlinks in the target directory before extraction.
-3. Run extraction as a low-privilege user, never root.
-4. On Windows, pre-create the target directory with restrictive ACLs
-   (the `O_NOFOLLOW` defense is POSIX-only).
-
-### Out of scope
-
-- External independent audit.
-- Side-channel testing on production hardware (timing leaks).
-- Formal verification beyond the Jasmin constant-time primitives.
-
----
-
-## CSPRNG Policy
-
-| Platform | Primary Source | Fallback | Failure Mode |
-|----------|---------------|----------|--------------|
-| Linux | `getrandom(2)` | `/dev/urandom` | Hard exit — no encryption without CSPRNG |
-| macOS | `/dev/urandom` | None | Hard exit |
-| Windows | `RtlGenRandom` | None | Hard exit |
-
-There is no `rand()`, `srand()`, or any weak PRNG fallback anywhere in the
-codebase. If the OS CSPRNG is unavailable, VaptVupt exits with an error.
-This is a deliberate design choice — weak random keys are worse than no
-encryption.
-
----
-
-## Supported Platforms
-
-| Platform | Compiler | Threading | CSPRNG | Status |
-|----------|----------|-----------|--------|--------|
-| Linux x86-64 | GCC 5+ / Clang 3.5+ | pthreads | `getrandom(2)` | Primary |
-| Linux ARM64 | GCC 5+ | pthreads | `getrandom(2)` | Tested |
-| macOS x86-64/ARM64 | Apple Clang | pthreads | `/dev/urandom` | Tested |
-| Windows x86-64 | MinGW / MSVC 2015+ | Win32 threads | `RtlGenRandom` | Tested |
-| FreeBSD | GCC / Clang | pthreads | `/dev/urandom` | Untested (expected to work) |
-
----
-
-## Verification Commands
-
-Anyone can verify the security claims. The default build needs only a C
-compiler + make (plus libm/pthread); no external crypto library.
-
-```bash
-# Build
-make
-
-# Functional tests
-make test-all
-
-# Memory safety
+```sh
 make test-asan
-
-# NIST/RFC test vectors
-make test-vectors && ./test_vectors
-
-# Verify Jasmin symbols are active
-nm vaptvupt | grep "zupt_mac_verify_ct\|zupt_ct_select_32"
-# Expected: T zupt_mac_verify_ct
-#           T zupt_ct_select_32
-
-# Verify Jasmin compilation (requires jasminc)
-jasminc -arch x86-64 -o /dev/null jasmin/zupt_mac_verify.jazz
-jasminc -arch x86-64 -o /dev/null jasmin/zupt_mlkem_select.jazz
+make test-asan-run
 ```
 
----
+The first command builds the sanitizer configuration; the second executes its
+test suite. Neither substitutes for the normal optimized build and tests.
 
-© 2026 Cristian Cezar Moisés — AGPL-3.0-or-later (dual-licensed AGPL + commercial)
+Because the positional-AAD and mandatory-AIT behavior changed late in the
+candidate, earlier successful runs are intermediate evidence only. The exact
+release candidate must rerun the affected regressions and the complete required
+suite; unavailable environments remain `SKIP`, not `PASS`.
+
+The same rule applies to private-key creation/parsing, terminal-safe comment
+display, POSIX prompt signal cleanup, explicit Bash regression execution, and
+source-scanner resource limits added during the final self-audit. This document
+records intended candidate behavior, not a final `PASS` for work still being
+integrated or rerun.
+
+Run target-native static analyzers and package checks as additional evidence.
+Do not infer x86_64, aarch64, ppc64le, s390x, riscv64, macOS, Windows, Leap, or
+SLE success from these commands unless that exact environment produced a
+successful recorded result.
+
+ZUPT application code is distributed under AGPL-3.0-or-later. The bundled
+VaptVupt codec source is GPL-3.0-or-later. The two xxHash-derived XXH64 units
+also carry BSD-2-Clause. The pq-crystals/kyber-derived portions of native
+ML-KEM carry CC0-1.0 in addition to the application license, and the x86 BCJ
+state machine is adapted from public-domain LZMA SDK source. Native X25519
+portions adapted from curve25519-donna conservatively retain BSD-3-Clause. See
+`LICENSE`, `LICENSE-GPL-3.0`, `LICENSE-BSD-2-Clause`, `LICENSE-BSD-3-Clause`,
+`LICENSE-CC0-1.0`, `NOTICE`, and `THIRD-PARTY-NOTICES.md`. Historical license
+grants for exact earlier material are recorded in the 5.2.2 licensing erratum;
+the current notices do not revoke them.

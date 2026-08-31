@@ -1,1 +1,634 @@
-vaptvupt.1
+.\" SPDX-License-Identifier: AGPL-3.0-or-later
+.\" Copyright (c) 2025-2026 Cristian Cezar Moisés
+.TH ZUPT 1 "2026-08-31" "ZUPT 5.2.2" "User Commands"
+.
+.SH NAME
+zupt \- source-built backup compression and authenticated-encryption utility
+.
+.SH SYNOPSIS
+.B zupt compress
+.RI [ options ]
+.I output.zupt input...
+.br
+.B zupt extract
+.RI [ options ]
+.I archive.zupt
+.br
+.B zupt list
+.RI [ options ]
+.I archive.zupt
+.br
+.B zupt test
+.RI [ options ]
+.I archive.zupt
+.br
+.B zupt info
+.I archive.zupt
+.br
+.B zupt bench
+.RB [ --compare ]
+.I input...
+.br
+.B zupt disk backup
+.RI [ options ]
+.I output.zupt device-or-file
+.br
+.B zupt disk restore
+.RI [ options ]
+.I archive.zupt target-device-or-file
+.br
+.B zupt keygen
+.RI [ key-options ]
+.B -o
+.I output
+.br
+.B zupt
+.RB { help | --help | -h | version | --version | -V }
+.
+.SH DESCRIPTION
+.B zupt
+creates self-contained backup archives with the historical
+.B .zupt
+extension. Version 5.2.2 restores the original product name, ZUPT, and the
+primary installed command is
+.BR zupt .
+The archive extension and
+.B ZUPT
+format magic, codec identifiers, and archive compatibility remain unchanged.
+.
+.PP
+Plain archives provide compression checksums for accidental-corruption
+detection. They do not provide cryptographic authentication against an attacker
+who can rewrite an archive. Encrypted archives use AES-256-CTR with
+HMAC-SHA256 and authenticate current per-block framing, logical frame position,
+and archive metadata. The validating read paths require an archive-integrity
+trailer by default; a no-trailer archive fails closed unless the caller selects
+the explicit trusted-legacy override described below.
+See
+.B SECURITY.md
+and
+.B THREAT_MODEL.md
+for the exact boundary and historical-format limitations.
+.
+.PP
+The bundled compression codec is VaptVupt codec 2.65.3.
+Automatic codec selection uses VaptVupt where the supported AVX2 or NEON path is available and
+uses the portable LZHP codec otherwise. Use a codec-selection option only when
+a specific choice is required.
+.
+.PP
+The renamed-era
+.B vaptvupt
+command is an optional compatibility alias and is not installed by default.
+Distribution packages, including the openSUSE main package, expose
+.B zupt
+as the canonical command.
+.
+.PP
+Git and the upstream source tarball are source-only. Separately built CLI DEB,
+binary RPM, SRPM, notice-bearing Linux tar.xz, Windows ZIP, and macOS DMG assets
+may be published from the immutable tag only after their target-specific gates
+pass; they never enter Git or the source tarball. An AppImage is not promoted
+for 5.2.2; neither are AppDir/Flatpak bundles, GUI platform installers, or bare
+Linux/Windows executables. The Python/Qt frontend remains available as source;
+its gated architecture-independent DEB, noarch/source RPM, and source-only
+portable ZIP are included in the release claim. The portable ZIP contains no
+Python, Qt, CLI, or compiled runtime. Windows and macOS artifacts remain
+CLI-only.
+.
+.SH COMMANDS
+.TP
+.BR compress , " c"
+Create an archive from one or more files or directories. Directories are
+traversed recursively. All options must precede
+.IR output.zupt .
+A literal input name beginning with a hyphen can follow a
+.B --
+separator after the output name.
+.
+.TP
+.BR extract , " x"
+Extract regular-file contents below the current directory or the directory
+selected by
+.BR -o .
+Entry names are validated and resolved below a pinned destination. Existing
+destination files are not overwritten. Decoded data is published from a
+private temporary file only after its expected size and checksum are verified.
+ZUPT does not restore ownership, ACLs, extended attributes, original mode,
+or modification time.
+.
+.TP
+.BR list , " l"
+Open and verify the archive as required, then print its format, block and
+protection flags followed by each entry's path, original size, compressed size,
+and compression ratio. No file is extracted.
+.
+.TP
+.BR test , " t"
+Decode and verify the archive without writing extracted files. Exit status is
+nonzero on an authentication, integrity, format, or I/O failure.
+.
+.TP
+.BR info , " i"
+Read non-secret framing metadata without a password or private key. Current
+output includes archive size, format version, integrity-trailer type, UUID,
+creation timestamp, block count when a footer is found, encryption/PQ mode,
+selected global feature flags, and whether a comment is present. This command
+does not decrypt, list, or extract entries. It does not validate the trailer or
+archive contents: a reported trailer is framing information, and successful
+execution is not an integrity result. Its input must still be treated as
+untrusted.
+.
+.TP
+.BR bench , " b"
+Run the built-in compression-level benchmark on supplied input. With
+.BR --compare ,
+also compare external compressors available on the host. Results depend on the
+input, compiler, CPU, storage, and system load and are not release support
+claims.
+.
+.TP
+.B disk backup
+Read a device or regular file sequentially and create a sparse-aware archive.
+Zero regions are represented without storing their full contents.
+.
+.TP
+.B disk restore
+Restore a disk-image archive to a device or regular file. The target is written
+destructively; verify both operands and use the least privilege required. The
+archive is first copied to a private, auto-deleted scratch file, and validation
+and restoration consume that same snapshot before the target is opened. Set
+.B ZUPT_TMPDIR
+to an existing private scratch directory when needed; an invalid override fails
+without fallback. A raw block device is rejected before the first write when
+its capacity cannot be determined or is smaller than the restored image.
+.
+.TP
+.B keygen
+Generate a native ML-KEM-768 plus X25519 hybrid private key by default. Other
+key formats require the matching key-generation option and, for optional SDK or
+PQBOX modes, a build with the corresponding system integration enabled.
+.
+.TP
+.BR version , " --version" , " -V"
+Print the program, archive-format and codec versions, compiled optional
+integrations, runtime CPU acceleration, license scopes, and canonical project
+URL.
+.
+.TP
+.BR help , " --help" , " -h"
+Print command usage and the options compiled into the program.
+.
+.SH PASSWORD INPUT
+The password options are accepted by
+.BR compress ,
+.BR extract ,
+.BR list ,
+.BR test ,
+and both
+.B disk
+subcommands. For
+.B compress
+and
+.BR "disk backup" ,
+the interactive form asks for confirmation.
+.
+.TP
+.BR -p " " password , " --password " password
+Read a password directly from the next process argument. This is compatible
+with older command lines but can expose the password through shell history or
+process inspection. Prefer one of the non-argv forms below.
+.
+.TP
+.B --password-prompt
+Read the password from the terminal without echo. This explicit form avoids
+the optional-argument ambiguity of historical
+.BR -p .
+On POSIX, handled interruptions restore the terminal settings saved before the
+prompt.
+.
+.TP
+.BI --pass-file " file"
+Read the first line from
+.IR file .
+The trailing LF and an optional preceding CR are removed. Empty input, an
+embedded NUL, or an overlong password is rejected. Protect the file with
+restrictive permissions and remove it securely when it is no longer needed.
+.
+.TP
+.BI --pass-fd " fd"
+Read the first line from the inherited numeric file descriptor
+.IR fd .
+ZUPT duplicates the descriptor for reading and does not close the caller's
+original descriptor. The duplicate shares the underlying stream and offset;
+buffered input may consume beyond the password line, so dedicate the descriptor
+to this read. The same input validation as
+.B --pass-file
+applies.
+.
+.SH COMPRESSION OPTIONS
+These options are accepted by
+.B compress
+unless stated otherwise.
+.
+.TP
+.BR -l " " 1..9 , " --level " 1..9
+Set the compression level. The default is 7. Automatic block sizes are 128 KiB
+for levels 1-2, 1 MiB for levels 3-4, 2 MiB for levels 5-6, 4 MiB for level 7,
+and 8 MiB for levels 8-9. Deduplication uses a smaller automatic granularity.
+.
+.TP
+.BR -b " " bytes , " --block " bytes
+Set the block size in bytes. Values are constrained to the supported range of
+64 KiB through 256 MiB.
+.
+.TP
+.BR -s , " --store"
+Store data without compression.
+.
+.TP
+.BR -f , " --fast"
+Select the fast LZ codec.
+.
+.TP
+.BR --vv , " --vaptvupt"
+Force the bundled VaptVupt LZ plus ANS codec.
+.
+.TP
+.B --lzhp
+Force the portable LZHP codec.
+.
+.TP
+.BI --kdf " algorithm"
+Select the password KDF. The default source-only build supports and defaults to
+.BR pbkdf2 ,
+using PBKDF2-SHA256 with 600,000 iterations. A
+.B WITH_SDK=1
+build additionally supports
+.B argon2id
+and uses it by default. A build must reject a requested KDF that it cannot
+provide rather than silently changing algorithms.
+.
+.TP
+.BR -c " " text , " --comment " text
+Store a comment of up to 4095 CLI bytes. In an encrypted archive the comment is
+encrypted and authenticated with the archive; in a plain archive it receives
+only the plain archive's non-cryptographic integrity treatment.
+.
+.TP
+.BI --comment-file " file"
+Read the comment from
+.IR file .
+Trailing CR/LF characters are removed.
+.
+.TP
+.BR -D , " --dedup"
+Enable block-level deduplication. Encrypted deduplicated blocks still use fresh
+per-block nonces in current archives. DATA and DEDUP_REF frames are bound to
+their logical positions. An authenticated reference also carries the source
+position required to authenticate the referenced DATA frame.
+.
+.TP
+.BR -S , " --solid"
+Use one solid compression stream. Solid mode is single-threaded.
+.
+.TP
+.BR -y , " --force"
+Allow
+.B compress
+to overwrite an existing output whose name does not end in
+.BR .zupt .
+This does not relax extraction's no-overwrite policy.
+.
+.TP
+.BR -t " " count , " --threads " count
+Set the compression or extraction thread count. Zero selects automatic
+detection; explicit values are limited to 64. This option is accepted by
+.B compress
+and
+.BR extract ,
+and by disk backup/restore, but not by
+.B list
+or
+.BR test .
+.
+.TP
+.BR -v , " --verbose"
+Enable additional progress or diagnostic output where the selected command
+implements it. Authentication failures remain intentionally generic unless
+verbose diagnostics are requested, reducing the default verbal probe-oracle.
+.
+.SH POST-QUANTUM OPTIONS
+.TP
+.BI --pq " key"
+Use the native hybrid envelope: ML-KEM-768 plus X25519 with the archive-key
+combiner documented in
+.BR THREAT_MODEL.md .
+Use the recipient public key for creation and the matching private key for
+reading. This is the recommended native PQ mode.
+.
+.TP
+.BI --pq-only " key"
+Use native ML-KEM-768 without the X25519 hedge. Choose it only when a policy
+requires a single post-quantum KEM. Its keys are generated with
+.BR "zupt keygen --pq-only" .
+.
+.TP
+.BI --pq-sdk " key"
+Use the optional system
+.B libvuptsdk
+integration. This option is unavailable unless ZUPT was built with
+.BR WITH_SDK=1 .
+It is not enabled by the default source-only distribution build.
+.
+.TP
+.BI --pq-box " key"
+Use the optional system
+.B libpqvaptvupt
+sealed-box integration. This option is unavailable unless ZUPT was built
+with
+.BR WITH_PQBOX=1 .
+It is not enabled by the default source-only distribution build.
+.
+.SH EXTRACTION OPTIONS
+.TP
+.BR -o " " directory , " --output " directory
+Extract below
+.IR directory .
+The directory is created when needed. The default is the current directory.
+.
+.PP
+Extraction also accepts the password, PQ,
+.BR -v ,
+and
+.B -t
+options described above. Unlike compression, extract/list/test options may
+appear before or after the single archive operand.
+.
+.SH TRUSTED LEGACY READ OPTION
+.TP
+.B --allow-legacy-no-ait
+Permit recovery of a known, trusted historical archive that predates the
+archive-integrity trailer. By default the validating read commands reject an
+archive without an AIT, without trusting its unauthenticated header flags. This
+option emits a downgrade warning and is accepted only by
+.BR extract ,
+.BR list ,
+.BR test ,
+and
+.BR "disk restore" .
+It is rejected by compression and disk backup, which always write a current
+trailer.
+.
+.PP
+Do not use this option for an archive obtained from untrusted or
+attacker-writable storage. It does not authenticate the legacy header or footer.
+After recovery, verify the restored data and create a new current archive.
+.
+.SH DISK OPTIONS
+Disk options must precede the archive and device/file operands. Both disk
+subcommands accept
+.BR -l / --level ,
+.BR -b / --block ,
+.BR -s / --store ,
+.BR --vv / --vaptvupt ,
+.BR --lzhp ,
+the password input options,
+.BR --pq ,
+.BR --pq-only ,
+.BR -D / --dedup ,
+.BR -c / --comment ,
+.BR --comment-file ,
+.BR --kdf ,
+.BR -t / --threads ,
+and
+.BR -v / --verbose .
+The optional SDK/PQBOX envelope options and solid mode are not disk-command
+options.
+.
+.PP
+.B --allow-legacy-no-ait
+is accepted by disk restore only.
+.
+.SH KEY GENERATION OPTIONS
+.TP
+.BR -o " " file , " --output " file
+Write the generated private key or exported public key to
+.IR file .
+This option is required.
+.
+.TP
+.BR --pub
+Export a public key from the private key selected by
+.BR -k .
+Use the same mode option as the private key.
+.
+.TP
+.BR -k " " file , " --key " file
+Read the source private key used by
+.BR --pub .
+.
+.TP
+.BR --pq-only , " --pqonly"
+Generate or export a native ML-KEM-768-only key.
+.
+.TP
+.BR --sdk , " --pq-sdk"
+Generate an SDK-format key through the optional
+.B libvuptsdk
+integration.
+.
+.TP
+.BR --box , " --pq-box"
+Generate a sealed-box key through the optional
+.B libpqvaptvupt
+integration.
+.
+.PP
+With no mode option,
+.B keygen
+generates or exports the native ML-KEM-768 plus X25519 hybrid format used by
+.BR --pq .
+.PP
+Private-key output uses no-replace creation, POSIX mode 0600, or a Windows
+current-user-only DACL. A write, flush, or close failure leaves the invalid
+exclusive partial for manual removal rather than unlinking a possibly replaced
+pathname. Native ZKEY and ZPQK inputs must have a valid checksum, version,
+flags, reserved bytes, exact size, and public/private role; malformed or
+role-confused keys are rejected.
+.
+.SH SECURITY NOTES
+Use encrypted archives when an attacker may modify storage. Plain checksums are
+not authentication. Keep private keys separate from archives, use high-entropy
+passwords, and prefer
+.BR --password-prompt ,
+.BR --pass-file ,
+or
+.B --pass-fd
+over argv passwords.
+.PP
+Archive comments remain untrusted display data even when authenticated. ZUPT
+renders control bytes without emitting raw terminal-control sequences.
+.
+.PP
+Extract untrusted archives as a dedicated unprivileged user into a new empty
+local directory. POSIX builds canonicalize the user-selected output root once,
+then traverse below a pinned directory descriptor with no-follow operations.
+Windows builds use handle-relative traversal and
+no-replace publication for normal local Win32 destinations. Extended-length and
+device-namespace paths, raw UNC output roots, and mapped/network-drive output
+are not supported in 5.2.2. Cross-compilation and Wine results are not native
+Windows evidence; the native Windows package gate, including its Unicode round
+trip, is separate and mandatory before publication.
+.
+.PP
+Current encrypted archives protect ciphertext, canonical framing metadata,
+logical frame position, and current header/footer metadata. The default AIT
+requirement prevents a silent downgrade to a trailerless layout; the explicit
+legacy override intentionally leaves old header/footer metadata outside that
+authenticated boundary. ZUPT does not protect a compromised endpoint, a
+disclosed credential, archive rollback or deletion, traffic analysis,
+compression-length side channels, or every compiler and microarchitectural side
+channel. Native PQ archive encryption is at-rest encryption, not session
+forward secrecy.
+.
+.SH EXIT STATUS
+.TP
+.B 0
+The requested operation completed successfully.
+.
+.TP
+.B 1
+Invalid arguments or an operational, format, authentication, integrity, or I/O
+failure.
+.
+.SH FILES
+.TP
+.I /usr/bin/zupt
+Distribution-installed command.
+.
+.TP
+.I /usr/share/bash-completion/completions/zupt
+Bash completion for the current command.
+.
+.TP
+.I /usr/share/zsh/site-functions/_zupt
+zsh completion for the current command.
+.
+.TP
+.I /usr/share/fish/vendor_completions.d/zupt.fish
+fish completion for the current command.
+.
+.SH EXAMPLES
+Create a plain archive:
+.PP
+.RS
+.B zupt compress backup.zupt Documents/
+.RE
+.
+.PP
+Create and restore a password-protected archive without placing the password in
+argv:
+.PP
+.RS
+.B zupt compress --password-prompt secure.zupt Documents/
+.br
+.B zupt test --password-prompt secure.zupt
+.br
+.B zupt extract --password-prompt -o restored secure.zupt
+.RE
+.
+.PP
+Use a password supplied on file descriptor 3:
+.PP
+.RS
+.B zupt test --pass-fd 3 secure.zupt 3<password-file
+.RE
+.
+.PP
+Create a native hybrid recipient key and archive:
+.PP
+.RS
+.B zupt keygen -o recipient.key
+.br
+.B zupt keygen --pub -k recipient.key -o recipient.pub
+.br
+.B zupt compress --pq recipient.pub backup.zupt Documents/
+.br
+.B zupt extract --pq recipient.key -o restored backup.zupt
+.RE
+.
+.PP
+Inspect and verify an archive without extraction:
+.PP
+.RS
+.B zupt info backup.zupt
+.br
+.B zupt list backup.zupt
+.br
+.B zupt test backup.zupt
+.RE
+.
+.SH COMPATIBILITY
+The on-disk version byte remains v1.6, with flag-gated 5.2.2 encodings for
+positional authenticated dedup references and disk-image integrity metadata.
+The 5.2.2 reader retains compatibility parsers for the fixed-width disk index
+and the encrypted-dedup linear AAD sequence published through 5.2.1. The narrow
+compatibility fixture is an actual v5.2.1 password-encrypted DATA/DATA/REF/DATA disk
+archive stored as hexadecimal text with source and hash provenance. The
+candidate lists, tests, extracts, and restores that fixture byte-exact, and the exact
+final candidate must repeat the gate. It does not imply that a 5.2.1 reader
+accepts every new 5.2.2 archive or that every historical encrypted mode was
+retested.
+.
+.PP
+The FIPS 203 correction in VaptVupt 5.0.0 changed
+native
+.B --pq
+and
+.B --pq-only
+key/archive compatibility relative to releases through 4.2.1. Password and
+plain archives were not affected by that KEM correction. Consult
+.B CHANGELOG.md
+before relying on cross-version recovery, and test restoration before depending
+on a backup.
+.
+.SH LICENSE
+The ZUPT application and tool code are AGPL-3.0-or-later. The bundled
+VaptVupt codec source is GPL-3.0-or-later. The two xxHash-derived XXH64 units
+also carry BSD-2-Clause. The pq-crystals/kyber-derived portions of native
+ML-KEM also carry CC0-1.0; the x86 BCJ state machine is adapted from
+public-domain LZMA SDK source. Native X25519 portions adapted from
+curve25519-donna also carry BSD-3-Clause. Preserve
+.BR LICENSE ,
+.BR LICENSE-AGPL-3.0 ,
+.BR LICENSE-GPL-3.0 ,
+.BR LICENSE-BSD-2-Clause ,
+.BR LICENSE-BSD-3-Clause ,
+.BR LICENSE-CC0-1.0 ,
+.BR NOTICE ,
+and
+.B THIRD-PARTY-NOTICES.md
+when redistributing the source.
+Published historical revisions include MIT grants for exact material shipped
+with those notices; the current license summary does not revoke them. See the
+5.2.2 licensing erratum in
+.B CHANGELOG.md
+for repository evidence.
+.
+.SH AUTHORS
+Cristian Cezar Moisés is the primary upstream author and maintainer. Packaging
+credits belong in their applicable packaging history and do not imply authorship
+of the upstream program.
+.
+.SH REPORTING BUGS
+Project issues:
+.UR https://github.com/cristiancmoises/zupt/issues
+.UE
+.
+.PP
+Report security vulnerabilities privately as described in
+.BR SECURITY.md .
+.
+.SH SEE ALSO
+.BR zupt-gui (1)

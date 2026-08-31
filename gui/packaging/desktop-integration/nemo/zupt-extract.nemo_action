@@ -1,7 +1,8 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 [Nemo Action]
-Name=Extract with Zupt
-Comment=Decrypt and extract .zupt archive
+Name=Extract with ZUPT
+Comment=Extract a .zupt archive with ZUPT GUI
 Exec=zupt-gui --extract %F
-Icon-Name=package-x-generic
+Icon-Name=zupt-gui
 Selection=S
 Extensions=zupt;

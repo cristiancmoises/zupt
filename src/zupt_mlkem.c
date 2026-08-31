@@ -1,7 +1,13 @@
 /*
- * Zupt — Backup-oriented compression with AES-256 encryption
+ * ZUPT — Backup-oriented compression with AES-256 encryption
  * Copyright (c) 2026 Cristian Cezar Moisés
- * SPDX-License-Identifier: AGPL-3.0-or-later
+ * SPDX-License-Identifier: AGPL-3.0-or-later AND CC0-1.0
+ *
+ * Portions are adapted from the pq-crystals/kyber reference implementation,
+ * offered upstream under CC0-1.0 or Apache-2.0. ZUPT uses the CC0-1.0
+ * option for those portions; see THIRD-PARTY-NOTICES.md. The exact upstream
+ * revision used for the original adaptation was not retained, so none is
+ * asserted here.
  *
  * ML-KEM-768 (FIPS 203, formerly CRYSTALS-Kyber).
  * Pure C11, zero dependencies. Uses zupt_keccak.h for SHA3/SHAKE.
@@ -592,11 +598,13 @@ int zupt_mlkem768_decaps(uint8_t ss[32], const uint8_t ct[1088],
     uint8_t ct_prime[1088];
     kpke_encrypt(ct_prime, pk, m_prime, kr + 32);
 
-    /* CT-REQUIRED: Compare ct and ct' via the single audited constant-time
-     * primitive (the same one used for MAC-tag verification; timing-tested
-     * by tests/test_ct_timing). A timing leak here would be a KEM
+    /* CT-REQUIRED: Compare ct and ct' via the single audited
+     * constant-time-intended primitive (the same one used for MAC-tag
+     * verification; regression-measured by tests/test_ct_timing when its
+     * control is conclusive). A timing leak here would be a KEM
      * decapsulation oracle — distinguishing valid from invalid ciphertexts
-     * breaks IND-CCA2 — so this comparison must be constant-time over all
+     * breaks IND-CCA2 — so the implementation requires content-independent
+     * behavior over all
      * 1088 ciphertext bytes. zupt_ct_memeq returns 1 if the buffers are
      * equal (ct matches → success), 0 otherwise. */
     int ct_equal = zupt_ct_memeq(ct, ct_prime, 1088);
@@ -621,7 +629,7 @@ int zupt_mlkem768_decaps(uint8_t ss[32], const uint8_t ct[1088],
      * ct_equal == 0 (ct differs): use ss_reject (implicit rejection) → fail = 1. */
     uint8_t fail = (uint8_t)(1 - ct_equal);
 #ifdef ZUPT_USE_JASMIN
-    /* JASMIN-VERIFIED: CT select — proven by Jasmin type system.
+    /* JASMIN PATH: compiled masked select; no retained formal proof is claimed.
      * fail=0 → ss_success, fail=1 → ss_reject */
     zupt_ct_select_32(ss, ss_success, ss_reject, (uint64_t)fail);
 #else

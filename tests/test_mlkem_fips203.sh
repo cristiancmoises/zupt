@@ -18,23 +18,25 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 CC="${CC:-cc}"
 
-command -v openssl >/dev/null 2>&1 || { echo "  - skipped: no openssl"; exit 0; }
+command -v openssl >/dev/null 2>&1 || { echo "  SKIP: no openssl"; exit 0; }
 if ! openssl list -kem-algorithms 2>/dev/null | grep -qiE "ML-KEM-768|MLKEM768"; then
-    echo "  - skipped: openssl has no ML-KEM-768 (need 3.5+)"; exit 0
+    echo "  SKIP: openssl has no ML-KEM-768 (need 3.5+)"; exit 0
 fi
 command -v "$CC" >/dev/null 2>&1 || CC=gcc
-command -v "$CC" >/dev/null 2>&1 || { echo "  - skipped: no C compiler"; exit 0; }
-command -v od >/dev/null 2>&1 || { echo "  - skipped: no od"; exit 0; }
+command -v "$CC" >/dev/null 2>&1 || { echo "  SKIP: no C compiler"; exit 0; }
+command -v od >/dev/null 2>&1 || { echo "  SKIP: no od"; exit 0; }
 
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 H="$T/harness"
 if ! "$CC" -O2 -I"$ROOT/include" -I"$ROOT/src" "$HERE/mlkem_fips203_harness.c" \
       "$ROOT/src/zupt_mlkem.c" "$ROOT/src/zupt_keccak.c" -o "$H" 2>"$T/cc.err"; then
-    echo "  - skipped: harness build failed"; sed 's/^/    /' "$T/cc.err" | head -3; exit 0
+    echo "  FAIL: ML-KEM interoperability harness build failed" >&2
+    sed 's/^/    /' "$T/cc.err" | head -3 >&2
+    exit 1
 fi
 hx(){ od -A n -v -t x1 "$1" | tr -d ' \n'; }
 P=0; F=0; ok(){ echo "  ✓ $1"; P=$((P+1)); }; bad(){ echo "  ✗ $1"; F=$((F+1)); }
-cd "$T"
+cd "$T" || exit 1
 
 # 1) deterministic keygen ek match
 head -c 64 /dev/urandom > dz.bin
@@ -43,21 +45,33 @@ openssl genpkey -algorithm ML-KEM-768 -pkeyopt hexseed:"$SEED" -out osl.pem 2>/d
 openssl pkey -in osl.pem -pubout -outform DER -out osl_pub.der 2>/dev/null
 tail -c 1184 osl_pub.der > osl_ek.bin
 MLKEM_RAND="$T/dz.bin" "$H" keygen
-cmp -s ek.bin osl_ek.bin && ok "keygen ek == OpenSSL (byte-for-byte, same seed)" || bad "keygen ek differs from OpenSSL"
+if cmp -s ek.bin osl_ek.bin; then
+    ok "keygen ek == OpenSSL (byte-for-byte, same seed)"
+else
+    bad "keygen ek differs from OpenSSL"
+fi
 
 # 2) my encaps -> openssl decap
 unset MLKEM_RAND
 "$H" encaps osl_ek.bin >/dev/null 2>&1; cp ss.bin ss_mine.bin
 openssl pkeyutl -decap -inkey osl.pem -in ct.bin -secret ss_osl.bin 2>/dev/null
-cmp -s ss_mine.bin ss_osl.bin && ok "my encaps -> OpenSSL decap: shared secret matches" || bad "my encaps not interoperable"
+if cmp -s ss_mine.bin ss_osl.bin; then
+    ok "my encaps -> OpenSSL decap: shared secret matches"
+else
+    bad "my encaps not interoperable"
+fi
 
 # 3) openssl encap -> my decap
-HDR=$(( $(stat -c%s osl_pub.der) - 1184 )); head -c "$HDR" osl_pub.der > hdr.bin
+HDR=$(( $(wc -c < osl_pub.der) - 1184 )); head -c "$HDR" osl_pub.der > hdr.bin
 "$H" keygen
 cat hdr.bin ek.bin > my_pub.der
 openssl pkeyutl -encap -pubin -inkey my_pub.der -secret ss_osl2.bin -out ct2.bin 2>/dev/null
 "$H" decaps dk.bin ct2.bin >/dev/null 2>&1; cp ss.bin ss_mine2.bin
-cmp -s ss_mine2.bin ss_osl2.bin && ok "OpenSSL encap -> my decap: shared secret matches" || bad "my decap not interoperable"
+if cmp -s ss_mine2.bin ss_osl2.bin; then
+    ok "OpenSSL encap -> my decap: shared secret matches"
+else
+    bad "my decap not interoperable"
+fi
 
 echo "  Conformance: $P passed, $F failed"
 [ "$F" -eq 0 ] && exit 0 || exit 1

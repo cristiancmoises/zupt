@@ -1,5 +1,5 @@
 /*
- * VaptVupt — Zupt Integration API Implementation
+ * VaptVupt — ZUPT Integration API Implementation
  * SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (c) 2025-2026 Cristian Cezar Moisés
  *
@@ -7,7 +7,7 @@
  * backup-optimized defaults for VaptVupt 2.65.0.
  *
  * Defaults applied here (per ZUPT_INTEGRATION.md, Sprint 122):
- *   - opts.checksum = 0      (Zupt's HMAC-SHA256 / AES-GCM-SIV outer
+ *   - opts.checksum = 0      (ZUPT's HMAC-SHA256 / AES-GCM-SIV outer
  *                             already authenticates the compressed
  *                             bytes; XXH64 footer is redundant work
  *                             and saves ~10% encode time)
@@ -38,7 +38,7 @@ int64_t vvz_compress(const uint8_t *src, size_t src_len,
                      uint8_t *dst, size_t dst_cap, int level) {
     vv_options_t opts;
     vv_default_options(&opts);
-    opts.checksum = 0;     /* outer Zupt MAC authenticates compressed bytes */
+    opts.checksum = 0;     /* outer ZUPT MAC authenticates compressed bytes */
     opts.compat_v246_5_decoder = 0;  /* allow 4-stream Huffman literal coding */
 
     if (level <= 2) {

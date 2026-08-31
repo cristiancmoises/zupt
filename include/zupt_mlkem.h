@@ -1,5 +1,5 @@
 /*
- * Zupt — Backup-oriented compression with AES-256 encryption
+ * ZUPT — Backup-oriented compression with AES-256 encryption
  * Copyright (c) 2026 Cristian Cezar Moisés
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
@@ -64,7 +64,7 @@ int zupt_mlkem768_decaps(uint8_t ss[MLKEM_SSBYTES],
 
 /* Self-test: NTT/iNTT roundtrip + CBD-sampler range invariants.
  * Returns 1 on pass, 0 on fail. Called from test_vectors.c case 14
- * (F-04, Zupt 2.2.4). */
+ * (F-04, ZUPT 2.2.4). */
 int zupt_mlkem768_selftest(void);
 
 #endif

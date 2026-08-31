@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
 set +e
-Z="./zupt"; T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+Z=${1:-./zupt}; T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/d"; echo "hello" > "$T/d/a.txt"
 dd if=/dev/urandom bs=1024 count=10 of="$T/d/b.bin" 2>/dev/null; touch "$T/d/e.txt"
 P=0; F=0; ok() { echo "  OK:   $1"; P=$((P+1)); }; fl() { echo "  FAIL: $1"; F=$((F+1)); }
@@ -31,6 +31,6 @@ R=$($Z test "$T/1.zupt" 2>&1); echo "$R"|grep -q "0 failed" && ok "Integrity" ||
 # F-01 (2.2.4): every help command verb starts its own line.
 # Pre-fix output ran "keygen … Key generation  zupt version" on one
 # wrapped line due to a missing \n in src/zupt_main.c:41.
-HC=$($Z help 2>&1 | grep -cE '^  (vaptvupt|zupt) ')
+HC=$($Z help 2>&1 | grep -cE '^  zupt ')
 [ "$HC" -ge 10 ] && ok "Help command lines ($HC)" || fl "Help command lines ($HC, need ≥10)"
 echo ""; echo "  Results: $P passed, $F failed (11 tests)"; [ "$F" -eq 0 ] && exit 0 || exit 1

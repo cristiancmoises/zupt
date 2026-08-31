@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * Copyright (c) 2025-2026 Cristian Cezar Moisés
- * ZUPT - LZ77 Compression Engine v2 (Zupt-LZ codec 0x0008)
+ * ZUPT - LZ77 Compression Engine v2 (ZUPT-LZ codec 0x0008)
  *
  * Improvements over v0.1:
  *   - 18-bit hash table (256K entries) for better match distribution

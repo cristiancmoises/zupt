@@ -1,19 +1,35 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: zupt
+Upstream-Name: ZUPT
 Upstream-Contact: Cristian Cezar Moisés <sac@securityops.co>
-Source: https://git.securityops.co/cristiancmoises/vaptvupt
+Source: https://github.com/cristiancmoises/zupt
 
 Files: *
 Copyright: 2025-2026 Cristian Cezar Moisés
 License: AGPL-3.0-or-later
 
-Files: src/vv_*.c include/vaptvupt*.h include/vv_*.h vendor/zuptsdk/include/vv_*.h vendor/zuptsdk/include/vaptvupt*.h
+Files: src/vaptvupt_api.c src/vv_*.c include/vaptvupt*.h include/vv_*.h
 Copyright: 2025-2026 Cristian Cezar Moisés (VaptVupt codec)
 License: GPL-3.0-or-later
 
-Files: vendor/zuptsdk/*
-Copyright: 2025-2026 Cristian Cezar Moisés (libzuptsdk)
-License: GPL-3.0-or-later
+Files: src/zupt_xxh.c
+Copyright: 2012-2021 Yann Collet
+           2025-2026 Cristian Cezar Moisés
+License: AGPL-3.0-or-later and BSD-2-Clause
+
+Files: src/zupt_mlkem.c
+Copyright: 2025-2026 Cristian Cezar Moisés
+           pq-crystals/kyber contributors (adapted portions)
+License: AGPL-3.0-or-later and CC0-1.0
+
+Files: src/zupt_x25519.c
+Copyright: 2008 Google Inc.
+           2025-2026 Cristian Cezar Moisés
+License: AGPL-3.0-or-later and BSD-3-Clause
+
+Files: src/vv_xxh64.c
+Copyright: 2012-2021 Yann Collet
+           2025-2026 Cristian Cezar Moisés (VaptVupt codec adaptation)
+License: GPL-3.0-or-later and BSD-2-Clause
 
 Files: debian/*
 Copyright: 2025-2026 Cristian Cezar Moisés <sac@securityops.co>
@@ -47,3 +63,41 @@ License: GPL-3.0-or-later
  .
  On Debian systems, the full text of the GNU General Public License
  version 3 can be found in the file `/usr/share/common-licenses/GPL-3'.
+
+License: BSD-2-Clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions are met:
+ .
+ * Redistributions of source code must retain the copyright notice, this list
+   of conditions and the disclaimer.
+ * Redistributions in binary form must reproduce the copyright notice, this
+   list of conditions and the disclaimer in the documentation and/or other
+   materials provided with the distribution.
+ .
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ POSSIBILITY OF SUCH DAMAGE.
+
+License: CC0-1.0
+ To the extent possible under law, the upstream affirmer has waived all
+ copyright and related or neighboring rights to the adapted portions.
+ .
+ The complete CC0 1.0 Universal legal text is shipped in
+ `/usr/share/doc/zupt/LICENSE-CC0-1.0`.
+
+License: BSD-3-Clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the copyright notice, conditions,
+ and disclaimer are retained; neither the name of Google Inc. nor contributor
+ names may be used to endorse derived products without prior permission.
+ .
+ The complete BSD-3-Clause notice and disclaimer are shipped in
+ `/usr/share/doc/zupt/LICENSE-BSD-3-Clause`.

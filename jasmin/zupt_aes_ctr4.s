@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2026 Cristian Cezar Moisés
-# Generated from jasmin/zupt_aes_ctr4.jazz by jasminc.
+# Hand-written production assembly matching the algorithm documented in
+# jasmin/zupt_aes_ctr4.jazz; this file is not jasminc output.
 	.intel_syntax noprefix
 	.text
 	.p2align	5

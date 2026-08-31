@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * Copyright (c) 2025-2026 Cristian Cezar Moisés
- * Zupt v2.1.4 — Full-Disk Backup/Restore
+ * ZUPT v2.1.4 — Full-Disk Backup/Restore
  * Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-or-later
  *
  * Reads a raw block device or file, compresses in streaming chunks,
@@ -18,7 +18,7 @@
  *     On Android/Termux: requires root for block devices
  *
  * Archive format: standard .zupt with ZUPT_FLAG_DISK_IMAGE set.
- *   - Single index entry with path = source device/file path
+ *   - Single index entry with a safe basename label for the source
  *   - Content = raw byte-for-byte disk image (decompressed)
  *   - Sparse blocks encoded as codec=STORE with all-zero payload
  *
@@ -31,6 +31,7 @@
  */
 #define _GNU_SOURCE
 #include "zupt.h"
+#include "zupt_internal.h"
 #include "zupt_cpuid.h"
 #include "vaptvupt_api.h"
 #include <stdio.h>
@@ -40,9 +41,14 @@
 #include <errno.h>
 
 #ifdef _WIN32
+  #include <fcntl.h>
   #include <io.h>
-  #define fseeko _fseeki64
-  #define ftello _ftelli64
+  #ifndef fseeko
+    #define fseeko _fseeki64
+  #endif
+  #ifndef ftello
+    #define ftello _ftelli64
+  #endif
 #else
   #include <sys/stat.h>
   #include <fcntl.h>
@@ -54,51 +60,83 @@
   #ifdef __APPLE__
     #include <sys/disk.h>  /* DKIOCGETBLOCKCOUNT, DKIOCGETBLOCKSIZE */
   #endif
+  #ifdef __FreeBSD__
+    #include <sys/disk.h>  /* DIOCGMEDIASIZE */
+  #endif
 #endif
+
+static int disk_label_reserved(const char *label, size_t length) {
+    size_t base = 0;
+    while (base < length && label[base] != '.') base++;
+    char upper[5] = {0};
+    if (base > 4) return 0;
+    for (size_t i = 0; i < base; i++) {
+        unsigned char c = (unsigned char)label[i];
+        upper[i] = (char)(c >= 'a' && c <= 'z' ? c - ('a' - 'A') : c);
+    }
+    if (strcmp(upper, "CON") == 0 || strcmp(upper, "PRN") == 0 ||
+        strcmp(upper, "AUX") == 0 || strcmp(upper, "NUL") == 0)
+        return 1;
+    return base == 4 &&
+           ((memcmp(upper, "COM", 3) == 0 ||
+             memcmp(upper, "LPT", 3) == 0) &&
+            upper[3] >= '1' && upper[3] <= '9');
+}
+
+static const char *disk_archive_label(const char *source,
+                                      char label[ZUPT_MAX_PATH]) {
+    const char *leaf = source ? source : "";
+    for (const char *p = leaf; *p; p++)
+        if (*p == '/' || *p == '\\') leaf = p + 1;
+    size_t length = strlen(leaf);
+    int safe = length > 0 && length < ZUPT_MAX_PATH &&
+               strcmp(leaf, ".") != 0 && strcmp(leaf, "..") != 0 &&
+               leaf[length - 1] != '.' && leaf[length - 1] != ' ' &&
+               !disk_label_reserved(leaf, length);
+    for (size_t i = 0; safe && i < length; i++) {
+        unsigned char c = (unsigned char)leaf[i];
+        if (c < 0x20 || c == 0x7f || c == ':') safe = 0;
+    }
+    if (!safe) leaf = "disk-image.raw";
+    length = strlen(leaf);
+    memcpy(label, leaf, length + 1);
+    return label;
+}
 
 /* ═══════════════════════════════════════════════════════════════════
  * DEVICE SIZE DETECTION
  * ═══════════════════════════════════════════════════════════════════ */
 
-static int64_t get_device_size(const char *path) {
+/* Measure the already-open source so size discovery and subsequent reads use
+ * the same kernel object.  The caller owns the stream and its file position. */
+static int64_t get_device_size(FILE *stream) {
 #ifdef _WIN32
-    /* Windows: use GetFileSizeEx for files, IOCTL_DISK_GET_LENGTH_INFO for devices */
-    HANDLE h = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                           NULL, OPEN_EXISTING, 0, NULL);
-    if (h == INVALID_HANDLE_VALUE) return -1;
+    /* Windows: use the CRT stream's handle for files and raw devices. */
+    intptr_t raw_handle = _get_osfhandle(_fileno(stream));
+    if (raw_handle == -1) return -1;
+    HANDLE h = (HANDLE)raw_handle;
     LARGE_INTEGER sz;
-    if (GetFileSizeEx(h, &sz)) { CloseHandle(h); return (int64_t)sz.QuadPart; }
+    if (GetFileSizeEx(h, &sz)) return (int64_t)sz.QuadPart;
     /* Try disk IOCTL */
     GET_LENGTH_INFORMATION gli;
     DWORD ret;
-    if (DeviceIoControl(h, IOCTL_DISK_GET_LENGTH_INFO, NULL, 0, &gli, sizeof(gli), &ret, NULL)) {
-        CloseHandle(h); return (int64_t)gli.Length.QuadPart;
-    }
-    CloseHandle(h);
+    if (DeviceIoControl(h, IOCTL_DISK_GET_LENGTH_INFO, NULL, 0, &gli,
+                        sizeof(gli), &ret, NULL))
+        return (int64_t)gli.Length.QuadPart;
     return -1;
 #else
-    /* Open first, then fstat on the fd — eliminates TOCTOU race between
-     * stat() and open() where the path could change between the two calls. */
-    int fd = open(path, O_RDONLY);
+    int fd = fileno(stream);
     if (fd < 0) return -1;
 
     struct stat st;
-    if (fstat(fd, &st) != 0) { close(fd); return -1; }
+    if (fstat(fd, &st) != 0) return -1;
 
-    if (S_ISREG(st.st_mode)) {
-        int64_t sz = (int64_t)st.st_size;
-        close(fd);
-        return sz;
-    }
+    if (S_ISREG(st.st_mode)) return (int64_t)st.st_size;
 
   #ifdef __linux__
     if (S_ISBLK(st.st_mode)) {
         uint64_t sz = 0;
-        if (ioctl(fd, BLKGETSIZE64, &sz) == 0) {
-            close(fd);
-            return (int64_t)sz;
-        }
-        close(fd);
+        if (ioctl(fd, BLKGETSIZE64, &sz) == 0) return (int64_t)sz;
         return -1;
     }
   #endif
@@ -107,21 +145,392 @@ static int64_t get_device_size(const char *path) {
     if (S_ISBLK(st.st_mode) || S_ISCHR(st.st_mode)) {
         uint64_t bc = 0, bs = 0;
         if (ioctl(fd, DKIOCGETBLOCKCOUNT, &bc) == 0 &&
-            ioctl(fd, DKIOCGETBLOCKSIZE, &bs) == 0) {
-            close(fd);
+            ioctl(fd, DKIOCGETBLOCKSIZE, &bs) == 0)
             return (int64_t)(bc * bs);
-        }
-        close(fd);
         return -1;
     }
   #endif
 
     /* FreeBSD/generic: try seeking to end */
     off_t end = lseek(fd, 0, SEEK_END);
-    close(fd);
+    if (end >= 0 && lseek(fd, 0, SEEK_SET) < 0) return -1;
     return (end >= 0) ? (int64_t)end : -1;
 #endif
 }
+
+typedef struct {
+#ifdef _WIN32
+    DWORD volume_serial;
+    DWORD file_index_high;
+    DWORD file_index_low;
+#else
+    dev_t device;
+    ino_t inode;
+#endif
+} disk_file_identity_t;
+
+static int disk_stream_identity(FILE *stream, disk_file_identity_t *identity) {
+    if (!stream || !identity) {
+        errno = EINVAL;
+        return 0;
+    }
+#ifdef _WIN32
+    intptr_t raw_handle = _get_osfhandle(_fileno(stream));
+    BY_HANDLE_FILE_INFORMATION info;
+    if (raw_handle == -1 ||
+        !GetFileInformationByHandle((HANDLE)raw_handle, &info)) {
+        errno = EIO;
+        return 0;
+    }
+    identity->volume_serial = info.dwVolumeSerialNumber;
+    identity->file_index_high = info.nFileIndexHigh;
+    identity->file_index_low = info.nFileIndexLow;
+#else
+    struct stat info;
+    if (fstat(fileno(stream), &info) != 0) return 0;
+    identity->device = info.st_dev;
+    identity->inode = info.st_ino;
+#endif
+    return 1;
+}
+
+static int disk_identity_equal(const disk_file_identity_t *left,
+                               const disk_file_identity_t *right) {
+#ifdef _WIN32
+    return left->volume_serial == right->volume_serial &&
+           left->file_index_high == right->file_index_high &&
+           left->file_index_low == right->file_index_low;
+#else
+    return left->device == right->device && left->inode == right->inode;
+#endif
+}
+
+/* Return 1 for the same kernel object, 0 for a different/missing output, and
+ * -1 when an existing output cannot be inspected safely.  Path lookup follows
+ * the final symlink deliberately: an output symlink to the source itself is
+ * just as destructive as spelling the source path directly. */
+static int disk_source_matches_output(FILE *source, const char *output_path) {
+    disk_file_identity_t source_identity;
+    disk_file_identity_t output_identity;
+    if (!disk_stream_identity(source, &source_identity)) return -1;
+#ifdef _WIN32
+    wchar_t *wide_output = zupt_win_utf8_to_wide_alloc(output_path);
+    if (!wide_output) {
+        errno = EINVAL;
+        return -1;
+    }
+    HANDLE output_handle = CreateFileW(
+        wide_output, FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    free(wide_output);
+    if (output_handle == INVALID_HANDLE_VALUE) {
+        DWORD error = GetLastError();
+        if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+            return 0;
+        errno = EACCES;
+        return -1;
+    }
+    BY_HANDLE_FILE_INFORMATION info;
+    int inspected = GetFileInformationByHandle(output_handle, &info) != 0;
+    if (!CloseHandle(output_handle)) inspected = 0;
+    if (!inspected) {
+        errno = EIO;
+        return -1;
+    }
+    output_identity.volume_serial = info.dwVolumeSerialNumber;
+    output_identity.file_index_high = info.nFileIndexHigh;
+    output_identity.file_index_low = info.nFileIndexLow;
+#else
+    struct stat info;
+    if (stat(output_path, &info) != 0) {
+        if (errno == ENOENT || errno == ENOTDIR) return 0;
+        return -1;
+    }
+    output_identity.device = info.st_dev;
+    output_identity.inode = info.st_ino;
+#endif
+    return disk_identity_equal(&source_identity, &output_identity);
+}
+
+/* Disk restore cannot roll a block device back after a late validation error.
+ * Copy the already-open archive into a private, automatically removed file;
+ * both the complete preflight and the restore then read this stable snapshot. */
+static FILE *open_private_restore_snapshot(void) {
+#ifdef _WIN32
+    wchar_t default_directory[MAX_PATH + 1];
+    wchar_t *override_directory = NULL;
+    const wchar_t *directory = NULL;
+    const char *override_utf8 = getenv("ZUPT_TMPDIR");
+    if (override_utf8 && override_utf8[0] != '\0') {
+        override_directory = zupt_win_utf8_to_wide_alloc(override_utf8);
+        directory = override_directory;
+    } else {
+        DWORD length = GetTempPathW(MAX_PATH + 1, default_directory);
+        if (length == 0 || length > MAX_PATH) {
+            errno = EIO;
+            return NULL;
+        }
+        directory = default_directory;
+    }
+    if (!directory) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    size_t directory_length = wcslen(directory);
+    size_t path_capacity = directory_length + 64;
+    wchar_t *path = (wchar_t *)calloc(path_capacity, sizeof(*path));
+    if (!path) {
+        free(override_directory);
+        errno = ENOMEM;
+        return NULL;
+    }
+
+    FILE *stream = NULL;
+    static const wchar_t hex[] = L"0123456789abcdef";
+    for (int attempt = 0; attempt < 64 && !stream; attempt++) {
+        uint8_t nonce[16];
+        zupt_random_bytes(nonce, sizeof(nonce));
+        size_t position = 0;
+        memcpy(path, directory, directory_length * sizeof(*path));
+        position = directory_length;
+        if (position > 0 && path[position - 1] != L'\\' &&
+            path[position - 1] != L'/')
+            path[position++] = L'\\';
+        const wchar_t prefix[] = L"zupt-restore-";
+        memcpy(path + position, prefix, (wcslen(prefix)) * sizeof(*path));
+        position += wcslen(prefix);
+        for (size_t i = 0; i < sizeof(nonce); i++) {
+            path[position++] = hex[nonce[i] >> 4];
+            path[position++] = hex[nonce[i] & 0x0f];
+        }
+        const wchar_t suffix[] = L".tmp";
+        memcpy(path + position, suffix, sizeof(suffix));
+
+        HANDLE handle = CreateFileW(
+            path, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_NEW,
+            FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE |
+                FILE_FLAG_SEQUENTIAL_SCAN,
+            NULL);
+        if (handle == INVALID_HANDLE_VALUE) {
+            DWORD error = GetLastError();
+            if (error == ERROR_FILE_EXISTS || error == ERROR_ALREADY_EXISTS)
+                continue;
+            errno = EACCES;
+            break;
+        }
+        int descriptor = _open_osfhandle((intptr_t)handle,
+                                         _O_BINARY | _O_RDWR);
+        if (descriptor < 0) {
+            CloseHandle(handle);
+            break;
+        }
+        stream = _fdopen(descriptor, "w+b");
+        if (!stream) _close(descriptor);
+    }
+    free(path);
+    free(override_directory);
+    if (!stream && errno == 0) errno = EIO;
+    return stream;
+#else
+    const char *directory = getenv("ZUPT_TMPDIR");
+    if (!directory || directory[0] == '\0') directory = getenv("TMPDIR");
+    if (!directory || directory[0] == '\0') directory = "/tmp";
+    static const char suffix[] = "/zupt-restore-XXXXXX";
+    size_t directory_length = strlen(directory);
+    if (directory_length > SIZE_MAX - sizeof(suffix)) {
+        errno = ENAMETOOLONG;
+        return NULL;
+    }
+    char *path = (char *)malloc(directory_length + sizeof(suffix));
+    if (!path) {
+        errno = ENOMEM;
+        return NULL;
+    }
+    memcpy(path, directory, directory_length);
+    memcpy(path + directory_length, suffix, sizeof(suffix));
+
+    int descriptor = mkstemp(path);
+    if (descriptor < 0) {
+        free(path);
+        return NULL;
+    }
+    int descriptor_flags = fcntl(descriptor, F_GETFD);
+    if (fchmod(descriptor, 0600) != 0 || descriptor_flags < 0 ||
+        fcntl(descriptor, F_SETFD, descriptor_flags | FD_CLOEXEC) != 0 ||
+        unlink(path) != 0) {
+        int saved_errno = errno;
+        close(descriptor);
+        unlink(path);
+        free(path);
+        errno = saved_errno;
+        return NULL;
+    }
+    free(path);
+    FILE *stream = fdopen(descriptor, "w+b");
+    if (!stream) {
+        int saved_errno = errno;
+        close(descriptor);
+        errno = saved_errno;
+    }
+    return stream;
+#endif
+}
+
+static FILE *copy_private_restore_snapshot(FILE *source,
+                                           uint64_t archive_size) {
+    FILE *snapshot = open_private_restore_snapshot();
+    if (!snapshot) return NULL;
+    uint8_t *buffer = (uint8_t *)malloc(1024u * 1024u);
+    if (!buffer) {
+        fclose(snapshot);
+        errno = ENOMEM;
+        return NULL;
+    }
+    uint64_t remaining = archive_size;
+    if (fseeko(source, 0, SEEK_SET) != 0) goto fail;
+
+    while (remaining > 0) {
+        size_t wanted = remaining > 1024u * 1024u
+                            ? 1024u * 1024u
+                            : (size_t)remaining;
+        size_t received = fread(buffer, 1, wanted, source);
+        if (received == 0) {
+            if (errno == 0) errno = EIO;
+            goto fail;
+        }
+        if (fwrite(buffer, 1, received, snapshot) != received) goto fail;
+        remaining -= received;
+    }
+    free(buffer);
+    if (fflush(snapshot) != 0 || fseeko(snapshot, 0, SEEK_SET) != 0) {
+        int saved_errno = errno ? errno : EIO;
+        fclose(snapshot);
+        errno = saved_errno;
+        return NULL;
+    }
+    return snapshot;
+
+fail:
+    {
+        int saved_errno = errno ? errno : EIO;
+        free(buffer);
+        fclose(snapshot);
+        errno = saved_errno;
+        return NULL;
+    }
+}
+
+#if !defined(_WIN32) && \
+    (defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__))
+/* Query a raw restore target through the already-open descriptor.  Unknown
+ * device kinds fail closed: an irreversible restore must know the complete
+ * target capacity before its first write. */
+static int disk_restore_target_capacity(int descriptor,
+                                        const struct stat *info,
+                                        uint64_t *capacity) {
+    if (!info || !capacity) {
+        errno = EINVAL;
+        return 0;
+    }
+#ifdef __linux__
+    if (S_ISBLK(info->st_mode)) {
+        uint64_t bytes = 0;
+        if (ioctl(descriptor, BLKGETSIZE64, &bytes) == 0 && bytes > 0) {
+            *capacity = bytes;
+            return 1;
+        }
+    }
+#elif defined(__APPLE__)
+    if (S_ISBLK(info->st_mode) || S_ISCHR(info->st_mode)) {
+        uint64_t block_count = 0;
+        uint32_t block_size = 0;
+        if (ioctl(descriptor, DKIOCGETBLOCKCOUNT, &block_count) == 0 &&
+            ioctl(descriptor, DKIOCGETBLOCKSIZE, &block_size) == 0 &&
+            block_count > 0 && block_size > 0 &&
+            block_count <= UINT64_MAX / block_size) {
+            *capacity = block_count * block_size;
+            return 1;
+        }
+    }
+#elif defined(__FreeBSD__)
+    if (S_ISCHR(info->st_mode)) {
+        off_t media_size = 0;
+        if (ioctl(descriptor, DIOCGMEDIASIZE, &media_size) == 0 &&
+            media_size > 0) {
+            *capacity = (uint64_t)media_size;
+            return 1;
+        }
+    }
+#endif
+    errno = ENOTSUP;
+    return 0;
+}
+#endif
+
+#ifdef _WIN32
+/* Inspect an existing restore target by handle.  The subsequent publication
+ * is a handle-relative atomic rename, so a name exchange after this check can
+ * only replace that directory entry; it can never make ZUPT follow and
+ * truncate an attacker-selected object. */
+static int validate_windows_restore_target(
+    const char *target_path, const disk_file_identity_t *archive_identity) {
+    wchar_t *wide_target = zupt_win_utf8_to_wide_alloc(target_path);
+    if (!wide_target) {
+        errno = EINVAL;
+        return 0;
+    }
+
+    HANDLE target_handle = CreateFileW(
+        wide_target, FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        NULL, OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    free(wide_target);
+    if (target_handle == INVALID_HANDLE_VALUE) {
+        DWORD error = GetLastError();
+        if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+            return 1;
+        errno = EACCES;
+        return 0;
+    }
+
+    BY_HANDLE_FILE_INFORMATION target_info;
+    int reported = 0;
+    int valid = GetFileInformationByHandle(target_handle, &target_info) != 0;
+    if (valid &&
+        (target_info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT |
+                                         FILE_ATTRIBUTE_DIRECTORY)) != 0) {
+        fprintf(stderr,
+                "Error: refusing a reparse-point or directory restore target.\n");
+        reported = 1;
+        valid = 0;
+    }
+    if (valid && target_info.nNumberOfLinks != 1) {
+        fprintf(stderr,
+                "Error: refusing a multiply-linked restore target.\n");
+        reported = 1;
+        valid = 0;
+    }
+    if (valid &&
+        target_info.dwVolumeSerialNumber == archive_identity->volume_serial &&
+        target_info.nFileIndexHigh == archive_identity->file_index_high &&
+        target_info.nFileIndexLow == archive_identity->file_index_low) {
+        fprintf(stderr,
+                "Error: archive and restore target are the same file.\n");
+        reported = 1;
+        valid = 0;
+    }
+    if (!CloseHandle(target_handle)) valid = 0;
+    if (!valid) {
+        if (!reported)
+            fprintf(stderr, "Error: cannot inspect restore target safely.\n");
+        errno = EACCES;
+    }
+    return valid;
+}
+#endif
 
 /* ═══════════════════════════════════════════════════════════════════
  * SPARSE DETECTION
@@ -176,11 +585,34 @@ extern int zupt_write_varint(FILE *f, uint64_t v);
 
 zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
                                zupt_options_t *opts) {
-    /* Detect source size */
-    int64_t source_size = get_device_size(source_path);
+    /* Open exactly once: size measurement and reads stay bound to the same
+     * file/device even if the source path is exchanged concurrently. */
+    FILE *src_f = zupt_fopen_path(source_path, "rb");
+    if (!src_f) {
+        fprintf(stderr, "Error: Cannot open '%s': %s\n", source_path, strerror(errno));
+        return ZUPT_ERR_IO;
+    }
+    int source_matches_output =
+        strcmp(source_path, output_path) == 0
+            ? 1
+            : disk_source_matches_output(src_f, output_path);
+    if (source_matches_output != 0) {
+        if (source_matches_output > 0) {
+            fprintf(stderr,
+                    "Error: disk source and archive output are the same file.\n");
+        } else {
+            fprintf(stderr,
+                    "Error: Cannot inspect disk archive output safely: %s\n",
+                    strerror(errno));
+        }
+        fclose(src_f);
+        return source_matches_output > 0 ? ZUPT_ERR_INVALID : ZUPT_ERR_IO;
+    }
+    int64_t source_size = get_device_size(src_f);
     if (source_size <= 0) {
         fprintf(stderr, "Error: Cannot determine size of '%s': %s\n",
                 source_path, strerror(errno));
+        fclose(src_f);
         return ZUPT_ERR_IO;
     }
 
@@ -189,6 +621,17 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
         opts->block_size = 4 * 1024 * 1024;
     if (opts->block_size < ZUPT_MIN_BLOCK_SZ)
         opts->block_size = ZUPT_MIN_BLOCK_SZ;
+    {
+        uint64_t source_bytes = (uint64_t)source_size;
+        uint64_t required_blocks = source_bytes / opts->block_size;
+        if (source_bytes % opts->block_size != 0) required_blocks++;
+        if (required_blocks > UINT32_MAX) {
+            fprintf(stderr,
+                    "Error: disk image needs more blocks than the format index can represent.\n");
+            fclose(src_f);
+            return ZUPT_ERR_OVERFLOW;
+        }
+    }
 
     /* Resolve AUTO codec */
     if (opts->codec_id == ZUPT_CODEC_AUTO)
@@ -202,16 +645,12 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
     if (opts->encrypt) fprintf(stderr, "  Encryption:   ENABLED\n");
     fprintf(stderr, "\n");
 
-    /* Open source */
-    FILE *src_f = fopen(source_path, "rb");
-    if (!src_f) {
-        fprintf(stderr, "Error: Cannot open '%s': %s\n", source_path, strerror(errno));
-        return ZUPT_ERR_IO;
-    }
-
-    /* Open output */
-    FILE *out = fopen(output_path, "wb");
-    if (!out) {
+    /* Build beside the final archive and publish by directory entry only.
+     * This prevents a symlink/reparse-point output from being followed. */
+    FILE *out = NULL;
+    zupt_atomic_output_t *atomic_output =
+        zupt_atomic_output_open(output_path, &out);
+    if (!atomic_output) {
         fprintf(stderr, "Error: Cannot create '%s': %s\n", output_path, strerror(errno));
         fclose(src_f);
         return ZUPT_ERR_IO;
@@ -227,22 +666,30 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
     hdr.magic[4] = ZUPT_MAGIC_4; hdr.magic[5] = ZUPT_MAGIC_5;
     hdr.version_major = ZUPT_FORMAT_MAJOR;
     hdr.version_minor = ZUPT_FORMAT_MINOR;
-    hdr.global_flags = ZUPT_FLAG_CKSUM_XXH64 | ZUPT_FLAG_DISK_IMAGE;
-    if (opts->encrypt) hdr.global_flags |= ZUPT_FLAG_ENCRYPTED;
+    hdr.global_flags = ZUPT_FLAG_CKSUM_XXH64 | ZUPT_FLAG_DISK_IMAGE |
+                       ZUPT_FLAG_DISK_CONTENT_HASH;
+    if (opts->encrypt) {
+        hdr.global_flags |= ZUPT_FLAG_ENCRYPTED | ZUPT_FLAG_AAD_SEQ |
+                            ZUPT_FLAG_AAD_PREFACE;
+        opts->keyring.use_preface_aad = 1;
+    }
     if (opts->threads > 1) hdr.global_flags |= ZUPT_FLAG_MULTITHREADED;
     if (opts->dedup) hdr.global_flags |= ZUPT_FLAG_DEDUP;
+    if (opts->dedup && opts->encrypt)
+        hdr.global_flags |= ZUPT_FLAG_AUTH_DEDUP_REFS;
     hdr.creation_time = (uint64_t)time(NULL) * 1000000000ULL;
     zupt_random_bytes(hdr.archive_id, 16);
     hdr.archive_id[6] = (hdr.archive_id[6] & 0x0F) | 0x40;
     hdr.archive_id[8] = (hdr.archive_id[8] & 0x3F) | 0x80;
-    if (fwrite(&hdr, sizeof(hdr), 1, out) != 1) write_err = 1;
+    if (zupt_write_archive_header(out, &hdr) != 0) write_err = 1;
 
     /* ─── Encryption header ─── */
     /* ─── Encryption header (uses same code as zupt compress) ─── */
     if (opts->encrypt) {
         zupt_error_t enc_err = write_enc_header(out, &hdr, opts);
         if (enc_err != ZUPT_OK) {
-            fclose(src_f); fclose(out);
+            fclose(src_f);
+            zupt_atomic_output_finish(atomic_output, 0);
             return enc_err;
         }
     }
@@ -256,11 +703,13 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
 
     if (!rbuf || !cbuf) {
         free(rbuf); free(cbuf);
-        fclose(src_f); fclose(out);
+        fclose(src_f);
+        zupt_atomic_output_finish(atomic_output, 0);
         return ZUPT_ERR_NOMEM;
     }
 
     uint64_t total_read = 0, total_written = 0;
+    uint64_t content_hash = 0;
     uint64_t block_seq = 0;
     uint64_t sparse_blocks = 0, data_blocks = 0;
     uint64_t first_block_off = (uint64_t)ftello(out);
@@ -268,6 +717,12 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
 
     /* Dedup context (NULL if --dedup not set) */
     zupt_dedup_ctx_t *dedup = opts->dedup ? zupt_dedup_init() : NULL;
+    if (opts->dedup && !dedup) {
+        free(rbuf); free(cbuf);
+        fclose(src_f);
+        zupt_atomic_output_finish(atomic_output, 0);
+        return ZUPT_ERR_NOMEM;
+    }
 
     while (total_read < (uint64_t)source_size) {
         size_t to_read = opts->block_size;
@@ -275,24 +730,39 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
             to_read = (size_t)((uint64_t)source_size - total_read);
 
         size_t nread = fread(rbuf, 1, to_read, src_f);
-        if (nread == 0) break;
-
-        /* Pad partial last block with zeros */
-        if (nread < to_read)
-            memset(rbuf + nread, 0, to_read - nread);
+        if (nread != to_read) {
+            fprintf(stderr, "Error: disk source changed or could not be read completely\n");
+            write_err = 1;
+            break;
+        }
 
         uint64_t checksum = zupt_xxh64(rbuf, nread, 0);
+        uint8_t dedup_digest[32];
+        if (dedup) zupt_sha256(rbuf, nread, dedup_digest);
+        uint64_t logical_aad_seq = block_seq;
+        content_hash = zupt_xxh64(rbuf, nread, content_hash);
 
         /* ─── Dedup check: skip compression if block already written ─── */
         if (dedup) {
             zupt_dedup_record_block(dedup);
-            uint64_t ref_off = 0; uint32_t ref_sz = 0;
-            if (zupt_dedup_lookup(dedup, checksum, &ref_off, &ref_sz) &&
+            uint64_t ref_off = 0, referenced_aad_seq = 0;
+            uint32_t ref_sz = 0;
+            if (zupt_dedup_lookup_secure(dedup, checksum, dedup_digest,
+                                         &ref_off, &ref_sz,
+                                         &referenced_aad_seq) &&
                 ref_sz == (uint32_t)nread) {
-                zupt_dedup_write_ref(out, ref_off, (uint32_t)nread, checksum);
+                const zupt_keyring_t *ref_keyring = opts->encrypt
+                    ? &opts->keyring : NULL;
+                if (zupt_dedup_write_ref_secure(
+                        out, ref_off, (uint32_t)nread, checksum,
+                        logical_aad_seq, referenced_aad_seq,
+                        ref_keyring) != 0) {
+                    write_err = 1;
+                    break;
+                }
                 zupt_dedup_record_hit(dedup, nread);
                 total_read += nread;
-                total_written += 8;
+                total_written += opts->encrypt ? 64u : 8u;
                 block_seq++;
                 if (!opts->quiet)
                     disk_progress("Backup", total_read, (uint64_t)source_size, start_time);
@@ -374,11 +844,26 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
         uint16_t bflags = 0;
         if (opts->encrypt && opts->keyring.active) {
             size_t enc_len;
-            enc_payload = zupt_encrypt_buffer(&opts->keyring, payload, payload_size,
-                                               block_seq, &enc_len);
+            uint64_t aad_seq = logical_aad_seq;
+            if (opts->keyring.use_preface_aad) {
+                uint8_t preface[ZUPT_PREFACE_AAD_LEN];
+                uint64_t predicted_size = 16u + payload_size + 32u;
+                zupt_serialize_preface_aad_scalars(
+                    ZUPT_BLOCK_DATA, codec, ZUPT_BFLAG_ENCRYPTED,
+                    nread, predicted_size, checksum, preface);
+                enc_payload = zupt_encrypt_buffer_aad(
+                    &opts->keyring, payload, payload_size, aad_seq,
+                    preface, sizeof(preface), &enc_len);
+                zupt_secure_wipe(preface, sizeof(preface));
+            } else {
+                enc_payload = zupt_encrypt_buffer(
+                    &opts->keyring, payload, payload_size, aad_seq, &enc_len);
+            }
             if (!enc_payload) {
                 free(rbuf); free(cbuf);
-                fclose(src_f); fclose(out);
+                zupt_dedup_free(dedup);
+                fclose(src_f);
+                zupt_atomic_output_finish(atomic_output, 0);
                 return ZUPT_ERR_NOMEM;
             }
             payload = enc_payload;
@@ -408,7 +893,9 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
 
         /* Insert into dedup index */
         if (dedup)
-            zupt_dedup_insert(dedup, checksum, this_block_off, (uint32_t)nread);
+            zupt_dedup_insert_secure(dedup, checksum, dedup_digest,
+                                     this_block_off, (uint32_t)nread,
+                                     logical_aad_seq);
 
         free(enc_payload);
         total_read += nread;
@@ -428,15 +915,16 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
     uint8_t idx_buf[ZUPT_MAX_PATH + 128];
     size_t idx_pos = 0;
 
-    /* File count (4B LE) */
-    idx_buf[idx_pos++] = 1; idx_buf[idx_pos++] = 0;
-    idx_buf[idx_pos++] = 0; idx_buf[idx_pos++] = 0;
+    /* File count uses the same canonical varint representation as regular
+     * archives so list/test can parse disk-image archives too. */
+    idx_pos += (size_t)zupt_encode_varint(idx_buf + idx_pos, 1);
 
     /* Path (varint length + bytes) */
-    size_t path_len = strlen(source_path);
-    if (path_len > ZUPT_MAX_PATH - 1) path_len = ZUPT_MAX_PATH - 1;
+    char archive_label[ZUPT_MAX_PATH];
+    disk_archive_label(source_path, archive_label);
+    size_t path_len = strlen(archive_label);
     idx_pos += (size_t)zupt_encode_varint(idx_buf + idx_pos, path_len);
-    memcpy(idx_buf + idx_pos, source_path, path_len);
+    memcpy(idx_buf + idx_pos, archive_label, path_len);
     idx_pos += path_len;
 
     /* Uncompressed size (8B LE) */
@@ -447,12 +935,11 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
     uint64_t mtime = (uint64_t)time(NULL) * 1000000000ULL;
     for (int i = 0; i < 8; i++) idx_buf[idx_pos++] = (uint8_t)(mtime >> (i*8));
     /* Content hash (8B LE) */
-    uint64_t content_hash = zupt_xxh64(source_path, path_len, (uint64_t)source_size);
     for (int i = 0; i < 8; i++) idx_buf[idx_pos++] = (uint8_t)(content_hash >> (i*8));
     /* First block offset (8B LE) */
     for (int i = 0; i < 8; i++) idx_buf[idx_pos++] = (uint8_t)(first_block_off >> (i*8));
-    /* Block count (4B LE) */
-    for (int i = 0; i < 4; i++) idx_buf[idx_pos++] = (uint8_t)(block_seq >> (i*8));
+    /* Block count (canonical varint) */
+    idx_pos += (size_t)zupt_encode_varint(idx_buf + idx_pos, block_seq);
     /* Attributes (4B LE) */
     idx_buf[idx_pos++] = 0; idx_buf[idx_pos++] = 0;
     idx_buf[idx_pos++] = 0; idx_buf[idx_pos++] = 0;
@@ -460,29 +947,68 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
     /* Write index block */
     uint64_t index_offset = (uint64_t)ftello(out);
     uint64_t idx_ck = zupt_xxh64(idx_buf, idx_pos, 0);
+    const uint8_t *idx_payload = idx_buf;
+    size_t idx_payload_size = idx_pos;
+    uint16_t idx_flags = 0;
+    uint8_t *encrypted_index = NULL;
+    if (opts->encrypt && opts->keyring.active) {
+        size_t encrypted_size = 0;
+        if (opts->keyring.use_preface_aad) {
+            uint8_t preface[ZUPT_PREFACE_AAD_LEN];
+            uint64_t predicted_size = 16u + idx_pos + 32u;
+            zupt_serialize_preface_aad_scalars(
+                ZUPT_BLOCK_INDEX, ZUPT_CODEC_STORE, ZUPT_BFLAG_ENCRYPTED,
+                idx_pos, predicted_size, idx_ck, preface);
+            encrypted_index = zupt_encrypt_buffer_aad(
+                &opts->keyring, idx_buf, idx_pos, UINT64_MAX,
+                preface, sizeof(preface), &encrypted_size);
+            zupt_secure_wipe(preface, sizeof(preface));
+        } else {
+            encrypted_index = zupt_encrypt_buffer(
+                &opts->keyring, idx_buf, idx_pos, UINT64_MAX,
+                &encrypted_size);
+        }
+        if (!encrypted_index) {
+            free(rbuf); free(cbuf);
+            zupt_dedup_free(dedup);
+            fclose(src_f);
+            zupt_atomic_output_finish(atomic_output, 0);
+            return ZUPT_ERR_NOMEM;
+        }
+        idx_payload = encrypted_index;
+        idx_payload_size = encrypted_size;
+        idx_flags = ZUPT_BFLAG_ENCRYPTED;
+    }
     {
         uint8_t bm[2] = {ZUPT_BLOCK_MAGIC_0, ZUPT_BLOCK_MAGIC_1};
         fwrite(bm, 1, 2, out);
         uint8_t bt = ZUPT_BLOCK_INDEX;
         fwrite(&bt, 1, 1, out);
         uint8_t c16[2] = {0, 0}; fwrite(c16, 1, 2, out);
-        uint8_t f16[2] = {0, 0}; fwrite(f16, 1, 2, out);
+        uint8_t f16[2] = {(uint8_t)(idx_flags & 0xff),
+                          (uint8_t)(idx_flags >> 8)};
+        fwrite(f16, 1, 2, out);
         zupt_write_varint(out, idx_pos);
-        zupt_write_varint(out, idx_pos);
+        zupt_write_varint(out, idx_payload_size);
         uint8_t ck8[8]; for (int i = 0; i < 8; i++) ck8[i] = (uint8_t)(idx_ck >> (i*8));
         fwrite(ck8, 1, 8, out);
-        fwrite(idx_buf, 1, idx_pos, out);
+        if (fwrite(idx_payload, 1, idx_payload_size, out) != idx_payload_size)
+            write_err = 1;
     }
+    free(encrypted_index);
 
     /* ─── Write footer ─── */
     zupt_footer_t ft;
+    uint8_t serialized_header[ZUPT_ARCHIVE_HEADER_SIZE];
     ft.index_offset = index_offset;
     ft.total_blocks = block_seq;
-    ft.archive_checksum = zupt_xxh64(&hdr, sizeof(hdr), block_seq);
+    zupt_serialize_archive_header(&hdr, serialized_header);
+    ft.archive_checksum = zupt_xxh64(serialized_header,
+                                     sizeof(serialized_header), block_seq);
     ft.footer_magic[0] = 'Z'; ft.footer_magic[1] = 'E';
     ft.footer_magic[2] = 'N'; ft.footer_magic[3] = 'D';
     ft.footer_version = 1;
-    fwrite(&ft, sizeof(ft), 1, out);
+    if (zupt_write_footer(out, &ft) != 0) write_err = 1;
 
     /* F-08 of v2.3.0: archive-integrity-trailer.
      *
@@ -497,14 +1023,31 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
         const zupt_keyring_t *kr = opts->encrypt ? &opts->keyring : NULL;
         if (zupt_format_ait_write(out, &hdr, &ft, kr) != 0) {
             fprintf(stderr, "Error: failed to write archive-integrity-trailer\n");
+            write_err = 1;
         }
     }
 
-    /* Get final archive size before closing */
-    uint64_t out_bytes = (uint64_t)ftello(out);
+    /* Get final archive size before the atomic close/publication. */
+    int64_t final_offset = ftello(out);
+    if (final_offset < 0 || ferror(out)) write_err = 1;
+    uint64_t out_bytes = final_offset < 0 ? 0 : (uint64_t)final_offset;
 
     free(rbuf); free(cbuf);
-    fclose(src_f); fclose(out);
+    int64_t final_source_size = get_device_size(src_f);
+    if (final_source_size != source_size) {
+        fprintf(stderr, "Error: disk source size changed during backup\n");
+        write_err = 1;
+    }
+    if (fclose(src_f) != 0) write_err = 1;
+    if (total_read != (uint64_t)source_size) write_err = 1;
+    if (zupt_atomic_output_finish(atomic_output, !write_err) != 0)
+        write_err = 1;
+
+    if (write_err) {
+        fprintf(stderr, "Error: Disk backup failed; the previous archive was preserved.\n");
+        zupt_dedup_free(dedup);
+        return ZUPT_ERR_IO;
+    }
 
     /* Summary */
     time_t elapsed = time(NULL) - start_time;
@@ -513,15 +1056,6 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
 
     zupt_format_size((uint64_t)source_size, in_sz, sizeof(in_sz));
 
-    /* Re-open to get actual file size */
-    {
-        FILE *check = fopen(output_path, "rb");
-        if (check) {
-            fseeko(check, 0, SEEK_END);
-            out_bytes = (uint64_t)ftello(check);
-            fclose(check);
-        }
-    }
     zupt_format_size(out_bytes, out_sz, sizeof(out_sz));
 
     fprintf(stderr, "\n  Disk backup complete:\n");
@@ -549,7 +1083,7 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
     fprintf(stderr, "\n");
 
     zupt_dedup_free(dedup);
-    return write_err ? ZUPT_ERR_IO : ZUPT_OK;
+    return ZUPT_OK;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -572,119 +1106,94 @@ zupt_error_t zupt_disk_backup(const char *output_path, const char *source_path,
 
 zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path,
                                 zupt_options_t *opts) {
-    FILE *f = fopen(archive_path, "rb");
-    if (!f) {
+    FILE *archive_source = zupt_fopen_path(archive_path, "rb");
+    if (!archive_source) {
         fprintf(stderr, "Error: Cannot open '%s': %s\n", archive_path, strerror(errno));
         return ZUPT_ERR_IO;
     }
-
-    /* ─── Read archive header ─── */
-    zupt_archive_header_t hdr;
-    if (fread(&hdr, sizeof(hdr), 1, f) != 1) {
-        fclose(f);
-        fprintf(stderr, "Error: Cannot read archive header\n");
+    disk_file_identity_t archive_identity;
+    int64_t signed_archive_size = get_device_size(archive_source);
+    if (signed_archive_size <= 0 ||
+        !disk_stream_identity(archive_source, &archive_identity)) {
+        fprintf(stderr, "Error: Cannot inspect archive '%s': %s\n",
+                archive_path, strerror(errno));
+        fclose(archive_source);
+        return ZUPT_ERR_IO;
+    }
+    if (!opts->quiet) {
+        char archive_size_text[32];
+        zupt_format_size((uint64_t)signed_archive_size, archive_size_text,
+                         sizeof(archive_size_text));
+        fprintf(stderr,
+                "  Securing private restore snapshot (%s scratch space)...\n",
+                archive_size_text);
+    }
+    FILE *f = copy_private_restore_snapshot(
+        archive_source, (uint64_t)signed_archive_size);
+    int snapshot_errno = errno;
+    fclose(archive_source);
+    if (!f) {
+        fprintf(stderr,
+                "Error: Cannot create private restore snapshot: %s\n"
+                "       Set ZUPT_TMPDIR to a private filesystem with at least "
+                "%llu free bytes.\n",
+                strerror(snapshot_errno),
+                (unsigned long long)signed_archive_size);
         return ZUPT_ERR_IO;
     }
 
-    if (hdr.magic[0] != ZUPT_MAGIC_0 || hdr.magic[1] != ZUPT_MAGIC_1 ||
-        hdr.magic[2] != ZUPT_MAGIC_2 || hdr.magic[3] != ZUPT_MAGIC_3) {
-        fclose(f);
-        fprintf(stderr, "Error: Not a .zupt archive\n");
-        return ZUPT_ERR_BAD_MAGIC;
-    }
-
-    if (!(hdr.global_flags & ZUPT_FLAG_DISK_IMAGE)) {
-        fclose(f);
-        fprintf(stderr, "Error: Archive is not a disk image. Use 'zupt extract' instead.\n");
-        return ZUPT_ERR_INVALID;
-    }
-
-    /* ─── Read encryption header (uses same code as zupt extract) ─── */
-    if (hdr.global_flags & ZUPT_FLAG_ENCRYPTED) {
-        if (!opts->encrypt && opts->password[0] == '\0' && !opts->pq_mode) {
-            fclose(f);
-            fprintf(stderr, "Error: Archive is encrypted. Use -p or --pq to provide key.\n");
-            return ZUPT_ERR_AUTH_FAIL;
-        }
-        opts->encrypt = 1;
-
-        zupt_error_t enc_err = read_enc_header(f, &hdr, opts);
-        if (enc_err != ZUPT_OK) {
-            fclose(f);
-            fprintf(stderr, "Error: Encryption header read failed (%s)\n",
-                    zupt_strerror(enc_err));
-            return enc_err;
-        }
-    }
-
-    /* ─── Read footer to get total block count ─── */
-    int64_t after_enc_pos = ftello(f);  /* Save position after enc header */
-
-    /* F-08 of v2.3.0: footer may be at EOF-32 (v1.4) or EOF-64 (v1.5, with
-     * a 32-byte AIT trailing). Try v1.5 first; fall back to v1.4. */
+    zupt_archive_header_t hdr;
     zupt_footer_t ft;
-    uint8_t ait_buf[ZUPT_AIT_SIZE];
-    int has_ait = 0;
 
-    fseeko(f, 0, SEEK_END);
-    int64_t restore_file_size = ftello(f);
-    if (restore_file_size >= (int64_t)(sizeof(ft) + ZUPT_AIT_SIZE)) {
-        fseeko(f, -(int64_t)(sizeof(ft) + ZUPT_AIT_SIZE), SEEK_END);
-        zupt_footer_t cand;
-        if (fread(&cand, sizeof(cand), 1, f) == 1 &&
-            cand.footer_magic[0] == 'Z' && cand.footer_magic[1] == 'E' &&
-            cand.footer_magic[2] == 'N' && cand.footer_magic[3] == 'D' &&
-            fread(ait_buf, sizeof(ait_buf), 1, f) == 1) {
-            ft = cand;
-            has_ait = 1;
-        }
+    /* Parse and authenticate the central index before opening the restore
+     * target.  This supplies the protected byte count/content hash and keeps
+     * disk restore aligned with list/test validation. */
+    zupt_index_entry_t *disk_entries = NULL;
+    int disk_entry_count = 0;
+    if (fseeko(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return ZUPT_ERR_IO;
     }
-    if (!has_ait) {
-        fseeko(f, -(int64_t)sizeof(zupt_footer_t), SEEK_END);
-        if (fread(&ft, sizeof(ft), 1, f) != 1) {
-            fclose(f);
-            return ZUPT_ERR_CORRUPT;
-        }
-        if (ft.footer_magic[0] != 'Z' || ft.footer_magic[1] != 'E' ||
-            ft.footer_magic[2] != 'N' || ft.footer_magic[3] != 'D') {
-            fclose(f);
-            fprintf(stderr, "Error: Invalid footer magic\n");
-            return ZUPT_ERR_BAD_MAGIC;
-        }
+    zupt_error_t index_err = zupt_open_archive_internal(
+        f, opts, &hdr, &ft, &disk_entries, &disk_entry_count);
+    if (index_err != ZUPT_OK || disk_entry_count != 1 || !disk_entries ||
+        !(hdr.global_flags & ZUPT_FLAG_DISK_IMAGE)) {
+        free(disk_entries);
+        fclose(f);
+        fprintf(stderr, "Error: Invalid disk-image index\n");
+        return index_err == ZUPT_OK ? ZUPT_ERR_CORRUPT : index_err;
     }
-
-    /* F-08: verify the archive-integrity-trailer if present. For v1.4 disk
-     * archives we emit the same downgrade warning as zupt extract does. */
-    if (has_ait) {
-        extern zupt_error_t zupt_format_ait_verify_extern(
-            const zupt_archive_header_t *hdr, const zupt_footer_t *ft,
-            const uint8_t ait[ZUPT_AIT_SIZE], const zupt_keyring_t *kr_or_null);
-        int is_encrypted = (hdr.global_flags & ZUPT_FLAG_ENCRYPTED) != 0;
-        const zupt_keyring_t *kr = is_encrypted ? &opts->keyring : NULL;
-        zupt_error_t aerr = zupt_format_ait_verify_extern(&hdr, &ft, ait_buf, kr);
-        if (aerr != ZUPT_OK) {
-            fclose(f);
-            /* F-11 of v2.4.2: same collapse-wrong-key-with-tamper logic as
-             * open_archive in src/zupt_format.c. */
-            if (is_encrypted) {
-                if (opts->verbose) {
-                    fprintf(stderr, "Error: archive-integrity-trailer (top-MAC) verification failed.\n"
-                                    "       This means EITHER wrong password/key OR a tampered\n"
-                                    "       header or footer.\n");
-                }
-                fprintf(stderr, "Error: Authentication failed (wrong key, wrong password, or tampered archive).\n");
-            } else {
-                fprintf(stderr, "Error: archive-integrity-trailer (XXH64) verification failed.\n"
-                                "       The disk image header or footer has been corrupted or tampered with.\n");
-            }
-            return aerr;
-        }
-    } else if (hdr.global_flags & ZUPT_FLAG_ENCRYPTED) {
-        fprintf(stderr, "Warning: legacy v1.4 disk image without top-MAC (F-08).\n");
+    uint64_t expected_size = disk_entries[0].uncompressed_size;
+    uint64_t expected_hash = disk_entries[0].content_hash;
+    uint64_t first_data_offset = disk_entries[0].first_block_offset;
+    uint32_t expected_blocks = disk_entries[0].block_count;
+    free(disk_entries);
+    if (expected_blocks != ft.total_blocks || first_data_offset >= ft.index_offset) {
+        fclose(f);
+        fprintf(stderr, "Error: Invalid disk-image block range\n");
+        return ZUPT_ERR_CORRUPT;
     }
 
-    /* ─── Seek back to first data block ─── */
-    fseeko(f, after_enc_pos, SEEK_SET);
+    /* A device cannot be rolled back after a late authentication/checksum
+     * failure.  Perform the complete read-only archive test on the same
+     * private snapshot that restore will consume before opening any target.
+     * Regular files also use atomic publication below. */
+    {
+        int saved_quiet = opts->quiet;
+        opts->quiet = 1;
+        zupt_error_t preflight = zupt_test_archive_stream(f, opts);
+        opts->quiet = saved_quiet;
+        if (preflight != ZUPT_OK) {
+            fclose(f);
+            fprintf(stderr,
+                    "Error: disk archive preflight failed; target was not opened.\n");
+            return preflight;
+        }
+    }
+    if (fseeko(f, (int64_t)first_data_offset, SEEK_SET) != 0) {
+        fclose(f);
+        return ZUPT_ERR_IO;
+    }
 
     /* ─── Open target for writing ───
      * Block devices require raw POSIX I/O (open/write) because stdio
@@ -694,58 +1203,148 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
      *
      * To avoid TOCTOU races (stat then open on a path that could change),
      * we open the fd first, then fstat on the fd to classify it. */
+    FILE *target_stream = NULL;
+    zupt_atomic_output_t *target_atomic = NULL;
 #ifdef _WIN32
-    FILE *tgt = fopen(target_path, "wb");
-    if (!tgt) {
-        fprintf(stderr, "Error: Cannot open target '%s': %s\n",
+    if (!validate_windows_restore_target(target_path, &archive_identity)) {
+        fclose(f);
+        return ZUPT_ERR_INVALID;
+    }
+    target_atomic = zupt_atomic_output_open(target_path, &target_stream);
+    if (!target_atomic) {
+        fprintf(stderr, "Error: Cannot create target '%s': %s\n",
                 target_path, strerror(errno));
         fclose(f);
         return ZUPT_ERR_IO;
     }
 #else
-    int tgt_fd;
+    int tgt_fd = -1;
     int is_block_dev = 0;
+    struct stat target_st;
 
-    /* Open the target — try without O_CREAT first (for existing devices/files),
-     * fall back to O_CREAT | O_TRUNC for new files. */
-    tgt_fd = open(target_path, O_WRONLY);
-    if (tgt_fd < 0) {
-        /* SECURITY: 0600, not 0644 — a restored disk image holds decrypted
-         * backup contents and must not be world-/group-readable. Matches the
-         * file-extraction convention in zupt_safe_fopen_output(). (When the
-         * target is an existing block device the mode is ignored.) */
-        tgt_fd = open(target_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-    }
-    if (tgt_fd < 0) {
-        fprintf(stderr, "Error: Cannot open target '%s': %s\n",
+    if (lstat(target_path, &target_st) == 0) {
+        if (S_ISLNK(target_st.st_mode)) {
+            fprintf(stderr, "Error: refusing a symbolic-link restore target.\n");
+            fclose(f);
+            return ZUPT_ERR_INVALID;
+        }
+        if (S_ISREG(target_st.st_mode)) {
+            if (target_st.st_dev == archive_identity.device &&
+                target_st.st_ino == archive_identity.inode) {
+                fprintf(stderr,
+                        "Error: archive and restore target are the same file.\n");
+                fclose(f);
+                return ZUPT_ERR_INVALID;
+            }
+            if (target_st.st_nlink != 1) {
+                fprintf(stderr,
+                        "Error: refusing a multiply-linked restore target.\n");
+                fclose(f);
+                return ZUPT_ERR_INVALID;
+            }
+            target_atomic =
+                zupt_atomic_output_open(target_path, &target_stream);
+        } else if (S_ISBLK(target_st.st_mode) ||
+                   S_ISCHR(target_st.st_mode)) {
+            tgt_fd = open(target_path, O_WRONLY | O_NOFOLLOW | O_CLOEXEC |
+                                       O_NONBLOCK | O_SYNC);
+            if (tgt_fd >= 0) {
+                struct stat opened_st;
+                if (fstat(tgt_fd, &opened_st) != 0 ||
+                    opened_st.st_dev != target_st.st_dev ||
+                    opened_st.st_ino != target_st.st_ino ||
+                    !(S_ISBLK(opened_st.st_mode) ||
+                      S_ISCHR(opened_st.st_mode))) {
+                    close(tgt_fd);
+                    tgt_fd = -1;
+                    errno = EAGAIN;
+                } else {
+                    int flags = fcntl(tgt_fd, F_GETFL);
+                    if (flags < 0 ||
+                        fcntl(tgt_fd, F_SETFL, flags & ~O_NONBLOCK) != 0) {
+                        close(tgt_fd);
+                        tgt_fd = -1;
+                    } else {
+#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)
+                        uint64_t target_capacity = 0;
+                        if (!disk_restore_target_capacity(
+                                tgt_fd, &opened_st, &target_capacity)) {
+                            fprintf(stderr,
+                                    "Error: cannot determine restore device "
+                                    "capacity safely.\n");
+                            close(tgt_fd);
+                            tgt_fd = -1;
+                        } else if (expected_size > target_capacity) {
+                            fprintf(stderr,
+                                    "Error: disk image (%llu bytes) exceeds "
+                                    "restore device capacity (%llu bytes).\n",
+                                    (unsigned long long)expected_size,
+                                    (unsigned long long)target_capacity);
+                            close(tgt_fd);
+                            tgt_fd = -1;
+                            errno = EFBIG;
+                        } else {
+                            is_block_dev = 1;
+                        }
+#else
+                        fprintf(stderr,
+                                "Error: restore-device capacity queries are "
+                                "not supported on this platform.\n");
+                        close(tgt_fd);
+                        tgt_fd = -1;
+#endif
+                    }
+                }
+            }
+        } else {
+            fprintf(stderr,
+                    "Error: restore target is not a regular file or device.\n");
+            fclose(f);
+            return ZUPT_ERR_INVALID;
+        }
+    } else if (errno == ENOENT) {
+        target_atomic = zupt_atomic_output_open(target_path, &target_stream);
+    } else {
+        fprintf(stderr, "Error: Cannot inspect target '%s': %s\n",
                 target_path, strerror(errno));
         fclose(f);
         return ZUPT_ERR_IO;
     }
 
-    /* Classify the fd (not the path) to avoid TOCTOU */
-    {
-        struct stat tgt_st;
-        if (fstat(tgt_fd, &tgt_st) == 0 &&
-            (S_ISBLK(tgt_st.st_mode) || S_ISCHR(tgt_st.st_mode))) {
-            is_block_dev = 1;
-            /* Enable synchronous I/O for block devices */
-            int fl = fcntl(tgt_fd, F_GETFL);
-            if (fl >= 0) fcntl(tgt_fd, F_SETFL, fl | O_SYNC);
-        } else if (fstat(tgt_fd, &tgt_st) == 0 && S_ISREG(tgt_st.st_mode)) {
-            /* Regular file — truncate if we opened without O_TRUNC */
-            if (ftruncate(tgt_fd, 0) != 0) {
-                /* Non-fatal: file may already be empty */
-            }
-        }
+    if ((!target_atomic || !target_stream) && tgt_fd < 0) {
+        fprintf(stderr, "Error: Cannot open target '%s': %s\n",
+                target_path, strerror(errno));
+        fclose(f);
+        return ZUPT_ERR_IO;
     }
 #endif
+
+    int legacy_encrypted_dedup =
+        (hdr.global_flags & ZUPT_FLAG_ENCRYPTED) != 0 &&
+        (hdr.global_flags & ZUPT_FLAG_DEDUP) != 0 &&
+        (hdr.global_flags & ZUPT_FLAG_AUTH_DEDUP_REFS) == 0;
+    zupt_legacy_disk_aad_map_t legacy_aad_map = {0};
+    if (legacy_encrypted_dedup) {
+        zupt_error_t map_error = zupt_legacy_disk_aad_map_build(
+            f, first_data_offset, expected_blocks, &legacy_aad_map);
+        if (map_error != ZUPT_OK) {
+            fprintf(stderr,
+                    "Error: cannot map legacy disk dedup authentication positions.\n");
+            if (target_atomic) zupt_atomic_output_finish(target_atomic, 0);
+#if !defined(_WIN32)
+            if (tgt_fd >= 0) close(tgt_fd);
+#endif
+            fclose(f);
+            return map_error;
+        }
+    }
 
     fprintf(stderr, "  Restoring disk image to: %s\n", target_path);
     fprintf(stderr, "  Blocks: %llu\n\n", (unsigned long long)ft.total_blocks);
 
     time_t start_time = time(NULL);
     uint64_t total_written = 0;
+    uint64_t restored_hash = 0;
     uint64_t block_seq = 0;
     int errors = 0;
 
@@ -767,36 +1366,78 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
             break;  /* Reached index — all data blocks done */
         }
 
-        /* Handle dedup reference blocks — seek to original, decompress it */
-        if (blk.block_type == ZUPT_BLOCK_DEDUP_REF && blk.compressed_size == 8 && blk.payload) {
-            uint64_t ref_off = zupt_le64_get(blk.payload);
-            free(blk.payload);
+        /* Resolve a dedup reference only after authenticating its offset in
+         * new archives and proving that it points backward to the expected
+         * DATA frame. */
+        if (blk.block_type == ZUPT_BLOCK_DEDUP_REF) {
+            uint64_t ref_off = 0, referenced_aad_seq = 0;
             int64_t cur = ftello(f);
-            fseeko(f, (int64_t)ref_off, SEEK_SET);
-            zupt_block_t ref_blk;
-            zupt_error_t rr = read_block(f, &ref_blk);
-            fseeko(f, cur, SEEK_SET);
-            if (rr != ZUPT_OK) {
-                fprintf(stderr, "  Block %llu: dedup ref read error\n", (unsigned long long)bi);
-                errors++; break;
+            int require_authentication =
+                (hdr.global_flags & ZUPT_FLAG_AUTH_DEDUP_REFS) != 0;
+            zupt_error_t rr = zupt_dedup_read_ref(
+                &blk, &opts->keyring, require_authentication,
+                require_authentication ? block_seq : 0,
+                &ref_off, &referenced_aad_seq);
+            if (rr == ZUPT_OK && legacy_encrypted_dedup &&
+                !zupt_legacy_disk_aad_map_lookup(
+                    &legacy_aad_map, ref_off, &referenced_aad_seq))
+                rr = ZUPT_ERR_CORRUPT;
+            if (rr != ZUPT_OK || cur < 0 || ref_off >= (uint64_t)cur ||
+                fseeko(f, (int64_t)ref_off, SEEK_SET) != 0) {
+                free(blk.payload);
+                fprintf(stderr, "  Block %llu: invalid dedup reference\n",
+                        (unsigned long long)bi);
+                errors++;
+                break;
             }
+            zupt_block_t ref_blk;
+            rr = read_block(f, &ref_blk);
+            if (fseeko(f, cur, SEEK_SET) != 0 && rr == ZUPT_OK)
+                rr = ZUPT_ERR_IO;
+            if (rr != ZUPT_OK || ref_blk.block_type != ZUPT_BLOCK_DATA ||
+                ref_blk.uncompressed_size != blk.uncompressed_size ||
+                ref_blk.checksum != blk.checksum) {
+                free(blk.payload);
+                free(ref_blk.payload);
+                fprintf(stderr, "  Block %llu: dedup ref read error\n",
+                        (unsigned long long)bi);
+                errors++;
+                break;
+            }
+            free(blk.payload);
             uint8_t *dbuf = NULL; size_t dlen = 0;
-            zupt_error_t dr = decompress_block(&ref_blk, &opts->keyring, block_seq, &dbuf, &dlen);
+            zupt_error_t dr = decompress_block(&ref_blk, &opts->keyring,
+                                                referenced_aad_seq,
+                                                &dbuf, &dlen);
             free(ref_blk.payload);
-            if (dr != ZUPT_OK) {
-                fprintf(stderr, "  Block %llu: dedup ref decompress failed\n", (unsigned long long)bi);
-                errors++; break;
+            if (dr != ZUPT_OK || total_written > expected_size ||
+                (uint64_t)dlen > expected_size - total_written) {
+                free(dbuf);
+                fprintf(stderr, "  Block %llu: dedup ref decompress failed\n",
+                        (unsigned long long)bi);
+                errors++;
+                break;
             }
             /* Write dedup-resolved data to target */
             int dok = 0;
 #ifdef _WIN32
-            dok = (fwrite(dbuf, 1, dlen, tgt) == dlen);
+            dok = (fwrite(dbuf, 1, dlen, target_stream) == dlen);
 #else
-            { size_t dw = 0;
-              while (dw < dlen) { ssize_t w = write(tgt_fd, dbuf + dw, dlen - dw); if (w<=0) break; dw += (size_t)w; }
-              dok = (dw == dlen); }
+            if (target_stream) {
+                dok = (fwrite(dbuf, 1, dlen, target_stream) == dlen);
+            } else if (tgt_fd >= 0) {
+                size_t dw = 0;
+                while (dw < dlen) {
+                    ssize_t w = write(tgt_fd, dbuf + dw, dlen - dw);
+                    if (w < 0 && errno == EINTR) continue;
+                    if (w <= 0) break;
+                    dw += (size_t)w;
+                }
+                dok = (dw == dlen);
+            }
 #endif
             if (!dok) { fprintf(stderr, "  Block %llu: write error\n", (unsigned long long)bi); free(dbuf); errors++; break; }
+            restored_hash = zupt_xxh64(dbuf, dlen, restored_hash);
             total_written += dlen;
             block_seq++;
             free(dbuf);
@@ -807,20 +1448,29 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
 
         if (blk.block_type != ZUPT_BLOCK_DATA) {
             free(blk.payload);
-            continue;  /* Skip unknown block types */
+            fprintf(stderr, "  Block %llu: unexpected block type\n",
+                    (unsigned long long)bi);
+            errors++;
+            break;
         }
 
         /* Decompress + decrypt + verify checksum */
         {
         uint8_t *out_buf = NULL;
         size_t out_len = 0;
+        uint64_t aad_seq = block_seq;
         zupt_error_t derr = decompress_block(&blk, &opts->keyring,
-                                              block_seq, &out_buf, &out_len);
+                                              aad_seq, &out_buf, &out_len);
         free(blk.payload);
 
+        if (derr == ZUPT_OK &&
+            (total_written > expected_size ||
+             (uint64_t)out_len > expected_size - total_written))
+            derr = ZUPT_ERR_OVERFLOW;
         if (derr != ZUPT_OK) {
             fprintf(stderr, "  Block %llu: decompression/checksum failed (%s)\n",
                     (unsigned long long)bi, zupt_strerror(derr));
+            free(out_buf);
             errors++;
             break;
         }
@@ -828,12 +1478,17 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
         /* Write to target */
         int write_ok = 0;
 #ifdef _WIN32
-        write_ok = (fwrite(out_buf, 1, out_len, tgt) == out_len);
+        write_ok =
+            (fwrite(out_buf, 1, out_len, target_stream) == out_len);
 #else
-        {
+        if (target_stream) {
+            write_ok =
+                (fwrite(out_buf, 1, out_len, target_stream) == out_len);
+        } else if (tgt_fd >= 0) {
             size_t written = 0;
             while (written < out_len) {
                 ssize_t w = write(tgt_fd, out_buf + written, out_len - written);
+                if (w < 0 && errno == EINTR) continue;
                 if (w <= 0) break;
                 written += (size_t)w;
             }
@@ -848,6 +1503,7 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
             break;
         }
 
+        restored_hash = zupt_xxh64(out_buf, out_len, restored_hash);
         total_written += out_len;
         block_seq++;
         free(out_buf);
@@ -858,20 +1514,35 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
         } /* end decompress scope */
     }
 
-    fclose(f);
-#ifdef _WIN32
-    fclose(tgt);
-#else
+    if (block_seq != expected_blocks || total_written != expected_size) {
+        fprintf(stderr, "Error: restored disk size/block count does not match index\n");
+        errors++;
+    }
+    if (hdr.global_flags & ZUPT_FLAG_DISK_CONTENT_HASH) {
+        if (restored_hash != expected_hash) {
+            fprintf(stderr, "Error: restored disk content hash does not match index\n");
+            errors++;
+        }
+    } else {
+        fprintf(stderr, "Warning: legacy disk archive has no full-image content hash.\n");
+    }
+
+    if (fclose(f) != 0) errors++;
+    if (target_atomic) {
+        if (zupt_atomic_output_finish(target_atomic, errors == 0) != 0)
+            errors++;
+        target_atomic = NULL;
+        target_stream = NULL;
+    }
+#if !defined(_WIN32)
     if (tgt_fd >= 0) {
-        fsync(tgt_fd);   /* Flush file descriptor buffers */
-        close(tgt_fd);
+        if (fsync(tgt_fd) != 0) errors++;
+        if (close(tgt_fd) != 0) errors++;
+        tgt_fd = -1;
     }
-    if (is_block_dev) {
-        sync();  /* Force kernel to flush ALL dirty pages to disk.
-                  * Critical for loop devices: fsync on the loop fd
-                  * may not flush the backing file's page cache. */
-    }
+    (void)is_block_dev;
 #endif
+    zupt_legacy_disk_aad_map_free(&legacy_aad_map);
 
     if (errors > 0) {
         fprintf(stderr, "\n  Restore FAILED: %d error(s)\n", errors);

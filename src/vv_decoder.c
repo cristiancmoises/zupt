@@ -149,6 +149,7 @@ decode_block_tokens_impl(
      * Exit boundary: max is 1 token + 14 lits + 3 offset + 6 match_ext = 24.
      * Plus match_copy_32 may over-copy 32 bytes past the real end, so
      * op needs at least 64 bytes of margin. */
+#if VV_INLINE_AVX2
     const uint8_t *const ip_safe = (ip_len > 48) ? (ip_end - 48) : ip;
     uint8_t *const op_safe = (dst_cap > 72) ? (op_end - 72) : op;
 
@@ -162,7 +163,6 @@ decode_block_tokens_impl(
      * rejected. */
     const uint32_t max_valid_off = (off_bytes == 2) ? 0xFFFF : 0xFFFFFF;
 
-#if VV_INLINE_AVX2
     /* PERF: two-phase fast path.
      * Phase 1 (warmup): op hasn't advanced far enough to make any offset
      *   automatically valid. Do full offset validation per sequence.

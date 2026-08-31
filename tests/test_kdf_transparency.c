@@ -20,17 +20,16 @@
  *      keys for both (so old archives keep opening).
  *   3. decrypt-init REFUSES an unknown profile rather than guessing a
  *      derivation (fail-closed).
- *   4. The underlying libzuptsdk Argon2id KDF is deterministic and
- *      memory-hard (a coarse cost floor) — this catches an SDK that has
- *      been swapped for a fast/weak stand-in at build time, before a
- *      user discovers their backup won't open or is under-protected.
+ *   4. The system libzuptsdk Argon2id KDF is deterministic and memory-hard
+ *      (a coarse cost floor). This detects an unexpectedly weak system
+ *      implementation before users depend on archives produced by it.
  */
 #include "zupt.h"
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
 
-/* easy-derive is the only KDF symbol the vendored SDK exports. */
+/* easy-derive is the KDF symbol exposed by the system SDK integration. */
 int zuptsdk_easy_derive_key(const char *password, const uint8_t salt[16], uint8_t key_out[32]);
 int zupt_sdk_password_encrypt_init(zupt_keyring_t *kr, const char *password,
                                    uint8_t *enc_hdr, size_t *enc_hdr_len);
@@ -112,7 +111,7 @@ int main(void) {
             ok("Argon2id KDF cost floor met (memory-hard preset active)");
         else {
             char buf[96];
-            snprintf(buf, sizeof buf, "Argon2id KDF suspiciously fast (%.1f ms) — weak/stub SDK?", ms);
+            snprintf(buf, sizeof buf, "Argon2id KDF suspiciously fast (%.1f ms) — weak/stub system SDK?", ms);
             bad(buf);
         }
     }

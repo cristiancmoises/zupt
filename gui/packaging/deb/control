@@ -1,13 +1,12 @@
 Package: zupt-gui
-Version: 1.0.0
+Version: 5.2.2
 Section: utils
 Priority: optional
 Architecture: all
-Depends: python3 (>= 3.9), python3-pyside6, zupt (>= 2.1.6)
-Maintainer: Cristian Cezar Moises <cristian@zupt.dev>
+Depends: python3 (>= 3.9), python3-pyqt6 | python3-pyside6.qtwidgets, zupt (= 5.2.2)
+Maintainer: Cristian Cezar Moisés <sac@securityops.co>
 Homepage: https://github.com/cristiancmoises/zupt
-Description: Zupt GUI — Post-Quantum Backup Utility
- Cross-platform graphical interface for the zupt backup compression
- utility with post-quantum hybrid encryption (ML-KEM-768 + X25519),
- hardware-adaptive codecs, block-level deduplication, and full-disk
- backup/restore support.
+Description: Qt graphical interface for the ZUPT backup utility
+ The GUI creates, inspects, verifies, and extracts .zupt archives through the
+ separately packaged ZUPT command. Native post-quantum modes are available
+ in the baseline build; SDK and PQ-box controls follow CLI capability detection.

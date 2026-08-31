@@ -1,57 +1,59 @@
-VaptVupt GUI — portable cross-platform package
-==============================================
+ZUPT GUI — source-only portable launcher template
+=====================================================
 
-The VaptVupt GUI is a single Python file (zupt_gui.py) built on Qt for Python
-(PySide6, or PyQt6 as a fallback). It runs on Windows, macOS, Linux and the
-BSDs — anywhere Python 3 and a Qt binding are installed. This portable package
-contains the GUI plus a launcher for each platform; it drives the `vaptvupt`
-command-line tool under the hood.
+This tracked directory contains three launcher templates and this assembly
+guide; it is not a complete bundle by itself. A downstream source-only bundle
+may add the integrated Python GUI source and artwork listed below, together
+with the required license/provenance files. It must not contain Python, Qt, a
+precompiled ZUPT command, or a vendored library. Its presence in a release
+would not be evidence that every target operating system was tested; consult
+that release's validation matrix.
 
 Contents
 --------
-  zupt_gui.py            The GUI (PySide6 / PyQt6).
-  vaptvupt-gui.bat       Windows launcher.
-  vaptvupt-gui.command   macOS launcher (double-clickable in Finder).
-  vaptvupt-gui.sh        Linux / BSD launcher.
-  assets/zupt-icon.png   Application icon.
+  zupt_gui.py            GUI source module (the historical module filename is
+                         retained internally for source compatibility).
+  zupt-gui.bat           Windows launcher.
+  zupt-gui.command       macOS Finder launcher.
+  zupt-gui.sh            POSIX shell launcher.
+  assets/zupt-icon.png   PNG application artwork.
+  assets/zupt.ico        Windows application artwork.
+  LICENSE-AGPL-3.0       Complete current GUI source license text.
+  LICENSE-GUI            GUI licensing and historical-license note.
+  ASSET-PROVENANCE.md    Artwork purpose, provenance, and license record.
+  CHANGELOG.md           Release history and current compatibility notes.
 
 Requirements
 ------------
-  1. Python 3.8 or newer.
-       Windows:  https://python.org  (tick "Add python.exe to PATH")
-       macOS:    python.org, or `brew install python`
-       Linux:    your distro's python3 package
-       FreeBSD:  pkg install python311
-       OpenBSD:  pkg_add python%3
-  2. A Qt binding:
-       pip (any OS):   python3 -m pip install PySide6
-       Debian/Ubuntu:  sudo apt install python3-pyqt6
-       Fedora/RHEL:    sudo dnf install python3-pyqt6
-       FreeBSD:        pkg install py311-pyside6
-       OpenBSD:        pkg_add py3-pyside6
-  3. The vaptvupt CLI, either:
-       * placed next to the launcher (vaptvupt.exe on Windows, vaptvupt
-         elsewhere) — the launcher auto-detects it via VAPTVUPT_BIN, or
-       * installed on PATH (deb/rpm/AppImage/Homebrew/pkg — see the project
-         release page).
+  1. Python 3.9 or newer.
+  2. PySide6 6.5 or newer, or a compatible PyQt6 package.
+  3. ZUPT 5.2.2, installed as `zupt` on PATH or placed beside the launcher
+     (`zupt.exe` on Windows). A local command must have been built
+     and tested independently; this bundle never downloads one.
 
 Running
 -------
-  Windows:  double-click vaptvupt-gui.bat
-  macOS:    double-click vaptvupt-gui.command
-            (first run: right-click > Open to bypass Gatekeeper for an
-             unsigned script, or `xattr -dr com.apple.quarantine .`)
-  Linux/BSD: ./vaptvupt-gui.sh
+  Windows:  zupt-gui.bat
+  macOS:    zupt-gui.command
+  POSIX:    ./zupt-gui.sh
+
+The launchers set ZUPT_BIN when a local command is present. The GUI then
+checks `zupt version`, discovers native and optional capabilities, and
+exposes SDK or PQ-box modes only when the command reports the corresponding
+system-library integration enabled.
 
 Troubleshooting
 ---------------
-  * "requires PySide6 or PyQt6"  -> install a Qt binding (requirement 2).
-  * "vaptvupt not found"         -> put the CLI next to the launcher or on PATH.
-  * Set VAPTVUPT_DEBUG=1 to print the binary-discovery log to stderr.
+  * "requires PySide6 or PyQt6": install one Qt binding through your operating
+    system package manager or another trusted, preconfigured Python source.
+  * "zupt not found": install ZUPT 5.2.2 or place its command beside
+    the launcher.
+  * Set ZUPT_DEBUG=1 to print command-discovery diagnostics to stderr.
 
-Fully self-contained native installers (Windows .exe/.msi, macOS .dmg) that
-bundle Python + Qt + the CLI are produced by the project's CI on real Windows
-and macOS runners — see the release page. This portable package is the
-dependency-light option that works identically on every platform.
+The old user-facing command name is not installed by this bundle. The `.zupt`
+archive extension remains unchanged for format compatibility.
 
-License: AGPL-3.0-or-later. Project: https://git.securityops.co/cristiancmoises/vaptvupt
+Current GUI source license: AGPL-3.0-or-later. Published historical revisions
+include MIT grants for the exact material covered by their notices; see
+LICENSE-GUI and the 5.2.2 erratum in CHANGELOG.md.
+Project: https://github.com/cristiancmoises/zupt

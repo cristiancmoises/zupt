@@ -1,0 +1,27 @@
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.s text eol=lf
+*.S text eol=lf
+*.jazz text eol=lf
+
+*.png binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.zip binary
+*.gz binary
+*.xz binary
+*.bz2 binary
+*.zst binary
+
+# These downstream recipes pin the checksum of the release tarball itself.
+# Excluding them from `git archive` avoids a self-referential checksum while
+# keeping every recipe versioned in Git and available to its package manager.
+/packaging/aur/** export-ignore
+/packaging/homebrew/** export-ignore
+/packaging/guix/** export-ignore

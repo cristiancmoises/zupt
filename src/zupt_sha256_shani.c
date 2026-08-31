@@ -9,23 +9,21 @@
  * zupt_sha256.c — bit-identical output — but 3-8x faster on CPUs that
  * implement the extensions (Intel Goldmont+/Ice Lake+, AMD Zen+).
  *
- * Security note: SHA-NI is constant-time by construction. It performs
- * no data-dependent memory accesses or branches, so it has a strictly
- * stronger side-channel posture than any table- or branch-based
- * software SHA-256. Since Zupt's authentication is HMAC-SHA256 over
- * attacker-influenced ciphertext, a constant-time compression function
- * is the right default wherever the hardware provides it.
+ * Security note: this fixed-round SHA-NI path is designed without intended
+ * data-dependent memory access or branches. Exact generated-code behavior is
+ * compiler-, CPU-, and platform-dependent; this is not a formal constant-time
+ * claim. Avoiding table lookups is nevertheless useful for HMAC-SHA256 over
+ * attacker-influenced ciphertext.
  *
  * Dispatch: sha256_transform() in zupt_sha256.c calls
  * zupt_sha256_transform_shani() when zupt_cpu.has_shani is set. On
  * non-x86_64 targets this file compiles to nothing (the symbol is
  * never referenced because has_shani is always 0).
  *
- * Reference: Intel SHA Extensions whitepaper (Gulley, Gopal, Yap,
- * Feghali, Guilford, Wolrich, 2013) and the public-domain intrinsic
- * reference by Jeffrey Walton. This implementation was written against
- * the FIPS 180-4 spec and validated bit-exact against the scalar path
- * and the NIST FIPS 180-4 test vectors on both paths.
+ * Adapted from Jeffrey Walton's public-domain SHA-Intrinsics x86 reference,
+ * itself based on Intel and miTLS material; see THIRD-PARTY-NOTICES.md. The
+ * resulting implementation is validated bit-exact against the scalar path and
+ * the NIST FIPS 180-4 test vectors on both paths.
  */
 
 #include "zupt.h"

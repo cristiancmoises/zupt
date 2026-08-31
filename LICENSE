@@ -1,92 +1,65 @@
-                    GNU AFFERO GENERAL PUBLIC LICENSE
-                       Version 3, 19 November 2007
+ZUPT licensing summary
+======================
 
- Copyright (C) 2026 Cristian Cezar Moisés <zupt@riseup.net>
+Copyright (C) 2025-2026 Cristian Cezar Moisés
 
- VaptVupt (formerly Zupt; renamed in v3.0.0 due to a prior INPI Brasil
- trademark registration of "Zupt" for unrelated software) is free
- software: you can redistribute it and/or modify it under the terms of
- the GNU Affero General Public License as published by the Free
- Software Foundation, either version 3 of the License, or (at your
- option) any later version.
+The ZUPT application, command-line interface, graphical interface,
+cryptographic tool code, build files, and documentation identified by the
+following SPDX expression are free software under:
 
- VaptVupt is distributed in the hope that it will be useful, but
- WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- Affero General Public License for more details.
+    AGPL-3.0-or-later
 
- You should have received a copy of the GNU Affero General Public
- License along with this program.  If not, see:
+The integrated VaptVupt compression codec is a separately identified component.
+The codec files carry this SPDX expression:
 
-     https://www.gnu.org/licenses/agpl-3.0.txt
-     https://www.gnu.org/licenses/agpl-3.0.html
+    GPL-3.0-or-later
 
- SPDX-License-Identifier: AGPL-3.0-or-later
+The two source files derived from Yann Collet's xxHash implementation carry an
+additional BSD-2-Clause obligation:
 
- ─────────────────────────────────────────────────────────────────────
+    src/zupt_xxh.c
+    src/vv_xxh64.c
 
- ABOUT THIS LICENSE
+Portions of the native ML-KEM implementation were adapted from the
+pq-crystals/kyber reference implementation. Upstream offers that code under
+CC0-1.0 or Apache-2.0; this distribution uses the CC0-1.0 option for those
+portions:
 
- The GNU Affero General Public License v3 (AGPLv3) is a copyleft
- license designed for software that may be run as a network service.
- It is identical to the GNU General Public License v3, with one
- additional requirement (Section 13): if you modify libzuptsdk and
- make the modified version available to users over a computer network,
- you must offer those users access to the corresponding modified
- source code.
+    src/zupt_mlkem.c
 
- This protects Zupt against being adopted by SaaS providers as
- a private fork without contributing back, while keeping it freely
- usable by individuals, small businesses, and the broader open-source
- community.
+Portions of the native X25519 implementation were adapted from
+curve25519-donna and conservatively retain its repository BSD-3-Clause terms:
 
- If you write a separate program that is distributed alongside
- Zupt (for example, statically linking it into your own
- application), the AGPL requires you to license that combined work
- under the AGPL as well — which means you must publish the source.
- If this is not acceptable for your use case, please contact the
- author for commercial licensing options:
+    src/zupt_x25519.c
 
-     sac@securityops.co
-     https://git.securityops.co/cristiancmoises/zupt
+The codec scope consists of src/vv_*.c, src/vaptvupt_api.c,
+include/vaptvupt*.h, and include/vv_*.h. Per-file SPDX notices are
+authoritative if a file falls outside this summary.
 
- ─────────────────────────────────────────────────────────────────────
+GPL-3.0-or-later and AGPL-3.0-or-later code may be combined under section 13 of
+the licenses. Distribution of this repository therefore needs to preserve both
+license scopes and their notices. The unmodified license texts are provided in:
 
- The full text of the GNU Affero General Public License version 3
- should accompany this distribution as a separate file (or you may
- download it from the URLs above). It is approximately 35 KB / 619
- lines of plain text.
+    LICENSE-AGPL-3.0
+    LICENSE-GPL-3.0
+    LICENSE-BSD-2-Clause
+    LICENSE-BSD-3-Clause
+    LICENSE-CC0-1.0
 
- ─────────────────────────────────────────────────────────────────────
+ZUPT is distributed without warranty; see the applicable license text for
+the complete terms.
 
- NOTE ON VAPTVUPT (GPL, NOT AGPL)
+Historical licensing note: published repository history includes earlier
+first-party application and GUI material distributed with MIT license notices.
+Those permissions remain applicable to the exact material distributed under
+them; the current license summary does not revoke or reinterpret an earlier
+grant. The 5.2.2 erratum in CHANGELOG.md identifies the known repository
+evidence. Current files follow their current per-file SPDX notices.
 
- The VaptVupt LZ + tANS codec, located in:
+The applicable copyright holder may separately offer commercial terms for
+first-party rights that the holder controls. LICENSE-COMMERCIAL is only a
+licensing inquiry and scope notice; it is not a commercial license grant and
+does not relicense third-party or separately noticed material.
 
-     src/vv_*.c
-     src/vaptvupt_api.c
-     include/vaptvupt*.h
-     include/vv_*.h
-
- is licensed under the GNU General Public License version 3 or later
- (GPL-3.0-or-later), NOT the AGPL. This deliberate licensing choice is
- made so that, with sufficient maturity, VaptVupt can be considered
- for upstreaming into the Linux or BSD kernels (which require GPL-
- compatible licensing).
-
- The standalone repository for VaptVupt is at:
-
-     https://git.securityops.co/cristiancmoises/vaptvupt
-
- The combination of GPL-licensed VaptVupt with AGPL-licensed Zupt is
- explicitly intended by the author and consistent with the rights
- retained by sole-authorship.
-
- ─────────────────────────────────────────────────────────────────────
-
- COMMERCIAL LICENSING
-
- Both AGPL and GPL components may be commercially relicensed by the
- author. If you require relief from copyleft terms, contact:
-
-     sac@securityops.co
+Commercial licensing contact: sac@securityops.co
+Canonical repository: https://github.com/cristiancmoises/zupt

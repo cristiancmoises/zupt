@@ -1,75 +1,118 @@
 #!/bin/bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
-# Test zupt SDK-backed PQ encryption (v2.2+)
+# Functional and adversarial coverage for the optional system libvuptsdk.
 
+set -Eeuo pipefail
 
-cd "$(dirname "$0")/.."
-ZUPT_BIN="$(realpath ./zupt)"
-TMPDIR=$(mktemp -d)
-trap "rm -rf $TMPDIR" EXIT
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
+zupt=${ZUPT_BIN:-$repo_root/zupt}
 
-cd "$TMPDIR"
-PASS=0; FAIL=0
-chk() { if [ $? -eq 0 ]; then echo "  OK:   $1"; PASS=$((PASS+1)); else echo "  FAIL: $1"; FAIL=$((FAIL+1)); fi; }
-chk_neg() { if [ $? -ne 0 ]; then echo "  OK:   $1"; PASS=$((PASS+1)); else echo "  FAIL: $1 (should have failed)"; FAIL=$((FAIL+1)); fi; }
+if [[ ! -x $zupt ]]; then
+    printf '  FAIL: %s not found; build ZUPT first\n' "$zupt" >&2
+    exit 1
+fi
 
-# Setup: real keypair
-"$ZUPT_BIN" keygen --sdk -o key.priv > /dev/null 2>&1
-[ -f key.priv ] && [ -f key.priv.pub ]
-chk "SDK keygen produces both files"
+version=$("$zupt" --version 2>&1)
+if ! grep -Fq 'libvuptsdk=enabled' <<<"$version"; then
+    echo '  SKIP: system libvuptsdk integration is disabled (build with WITH_SDK=1)'
+    exit 0
+fi
 
-# Test data
-echo "Hello SDK PQ encryption" > input.txt
-dd if=/dev/urandom of=large.bin bs=64K count=4 2>/dev/null
+tmpdir=$(mktemp -d)
+trap 'rm -rf -- "$tmpdir"' EXIT
+cd "$tmpdir"
 
-# Roundtrip small file
-"$ZUPT_BIN" c --pq-sdk key.priv.pub small.zupt input.txt > /dev/null 2>&1
-chk "SDK encrypt small"
-mkdir -p extract1 && cd extract1
-"$ZUPT_BIN" x --pq-sdk ../key.priv ../small.zupt > /dev/null 2>&1
-chk "SDK decrypt small"
-diff -q input.txt ../input.txt > /dev/null 2>&1
-chk "SDK small roundtrip byte-exact"
-cd ..
+passed=0
+failed=0
+pass() { printf '  OK:   %s\n' "$1"; passed=$((passed + 1)); }
+fail() { printf '  FAIL: %s\n' "$1"; failed=$((failed + 1)); }
 
-# Roundtrip large file
-"$ZUPT_BIN" c --pq-sdk key.priv.pub large.zupt large.bin > /dev/null 2>&1
-chk "SDK encrypt large (256KB)"
-mkdir -p extract2 && cd extract2
-"$ZUPT_BIN" x --pq-sdk ../key.priv ../large.zupt > /dev/null 2>&1
-chk "SDK decrypt large"
-diff -q large.bin ../large.bin > /dev/null 2>&1
-chk "SDK large roundtrip byte-exact"
-cd ..
+if "$zupt" keygen --sdk -o key.priv >/dev/null 2>&1 &&
+   [[ -f key.priv && -f key.priv.pub ]]; then
+    pass 'SDK keygen produces private and public key files'
+else
+    fail 'SDK keygen using system libvuptsdk'
+    exit 1
+fi
 
-# Wrong key rejected
-"$ZUPT_BIN" keygen --sdk -o other.priv > /dev/null 2>&1
-"$ZUPT_BIN" x --pq-sdk other.priv small.zupt > /dev/null 2>&1
-chk_neg "SDK wrong key rejected"
+printf 'Hello SDK PQ encryption\n' >input.txt
+dd if=/dev/urandom of=large.bin bs=65536 count=4 2>/dev/null
 
-# Tamper detected.
-# F-02 (Zupt 2.2.4): use a deterministic body-region offset, not
-# len-50 which occasionally landed in the unauthenticated index
-# region. See docs/FINDINGS-2.x.md F-02 for the full analysis.
+if "$zupt" c --pq-sdk key.priv.pub small.zupt input.txt >/dev/null 2>&1; then
+    pass 'SDK encrypts a small file'
+else
+    fail 'SDK encrypts a small file'
+fi
+mkdir extract1
+if (cd extract1 && "$zupt" x --pq-sdk ../key.priv ../small.zupt >/dev/null 2>&1); then
+    pass 'SDK decrypts a small file'
+else
+    fail 'SDK decrypts a small file'
+fi
+if cmp -s input.txt extract1/input.txt; then
+    pass 'SDK small roundtrip is byte-exact'
+else
+    fail 'SDK small roundtrip is byte-exact'
+fi
+
+if "$zupt" c --pq-sdk key.priv.pub large.zupt large.bin >/dev/null 2>&1; then
+    pass 'SDK encrypts a 256 KiB file'
+else
+    fail 'SDK encrypts a 256 KiB file'
+fi
+mkdir extract2
+if (cd extract2 && "$zupt" x --pq-sdk ../key.priv ../large.zupt >/dev/null 2>&1); then
+    pass 'SDK decrypts a 256 KiB file'
+else
+    fail 'SDK decrypts a 256 KiB file'
+fi
+if cmp -s large.bin extract2/large.bin; then
+    pass 'SDK large roundtrip is byte-exact'
+else
+    fail 'SDK large roundtrip is byte-exact'
+fi
+
+"$zupt" keygen --sdk -o other.priv >/dev/null 2>&1
+mkdir wrong-key
+if (cd wrong-key && "$zupt" x --pq-sdk ../other.priv ../small.zupt >/dev/null 2>&1); then
+    fail 'SDK rejects the wrong private key'
+else
+    pass 'SDK rejects the wrong private key'
+fi
+
 cp small.zupt tampered.zupt
-python3 -c "
-b = bytearray(open('tampered.zupt','rb').read())
-b[200] ^= 1
-open('tampered.zupt','wb').write(bytes(b))
-"
-"$ZUPT_BIN" x --pq-sdk key.priv tampered.zupt > /dev/null 2>&1
-chk_neg "SDK tampered ciphertext rejected"
+python3 - <<'PY'
+from pathlib import Path
 
-# Legacy v1 compat: legacy --pq still works
-"$ZUPT_BIN" keygen -o legacy.key > /dev/null 2>&1
-"$ZUPT_BIN" c --pq legacy.key legacy.zupt input.txt > /dev/null 2>&1
-chk "Legacy --pq still encrypts"
-mkdir -p extract3 && cd extract3
-"$ZUPT_BIN" x --pq ../legacy.key ../legacy.zupt > /dev/null 2>&1
-chk "Legacy --pq still decrypts"
-cd ..
+path = Path("tampered.zupt")
+data = bytearray(path.read_bytes())
+if len(data) <= 200:
+    raise SystemExit("archive too small for deterministic body tamper")
+data[200] ^= 1
+path.write_bytes(data)
+PY
+mkdir tampered
+if (cd tampered && "$zupt" x --pq-sdk ../key.priv ../tampered.zupt >/dev/null 2>&1); then
+    fail 'SDK rejects tampered ciphertext'
+else
+    pass 'SDK rejects tampered ciphertext'
+fi
 
-echo
-echo "  Results: $PASS passed, $FAIL failed ($((PASS+FAIL)) tests)"
-[ $FAIL -eq 0 ]
+"$zupt" keygen -o native.key >/dev/null 2>&1
+if "$zupt" c --pq native.key native.zupt input.txt >/dev/null 2>&1; then
+    pass 'native --pq encryption remains available'
+else
+    fail 'native --pq encryption remains available'
+fi
+mkdir native-out
+if (cd native-out && "$zupt" x --pq ../native.key ../native.zupt >/dev/null 2>&1) &&
+   cmp -s input.txt native-out/input.txt; then
+    pass 'native --pq roundtrip remains byte-exact'
+else
+    fail 'native --pq roundtrip remains byte-exact'
+fi
+
+printf '\n  Results: %d passed, %d failed (%d tests)\n' \
+    "$passed" "$failed" "$((passed + failed))"
+((failed == 0))

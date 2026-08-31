@@ -1,89 +1,97 @@
-# ─────────────────────────────────────────────────────────────────────
-#  libzuptsdk — public C ABI for Zupt
-# ─────────────────────────────────────────────────────────────────────
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Source-only build rules for the in-tree libzuptsdk compatibility SDK.
 
 SDK_VERSION_MAJOR = 1
 SDK_VERSION_MINOR = 0
 SDK_VERSION_PATCH = 0
-SDK_SOVERSION     = $(SDK_VERSION_MAJOR)
-SDK_FULLVERSION   = $(SDK_VERSION_MAJOR).$(SDK_VERSION_MINOR).$(SDK_VERSION_PATCH)
+SDK_SOVERSION = $(SDK_VERSION_MAJOR)
+SDK_FULLVERSION = $(SDK_VERSION_MAJOR).$(SDK_VERSION_MINOR).$(SDK_VERSION_PATCH)
 
-SDK_HDR     = sdk/include/zuptsdk.h
-SDK_SRC     = sdk/src/zuptsdk.c
-SDK_MAP     = sdk/zuptsdk.map
-SDK_PREFIX ?= /usr/local
+SDK_HDR = sdk/include/zuptsdk.h
+SDK_SRC = sdk/src/zuptsdk.c
+SDK_MAP = sdk/zuptsdk.map
+SDK_BUILD_DIR = sdk/build
+SDK_PKGCONFIGDIR ?= $(LIBDIR)/pkgconfig
+SDK_LICENSEDIR ?= $(PREFIX)/share/licenses/libzuptsdk
+SDK_LICENSE_FILES = LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 \
+	LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 \
+	NOTICE THIRD-PARTY-NOTICES.md
 
-# All zupt sources except main.c get rebuilt with -fPIC for the SDK.
-# Object files go to sdk/build/ to avoid colliding with the CLI build.
-SDK_BUILD_DIR    = sdk/build
-SDK_PIC_OBJS     = $(patsubst src/%.c,$(SDK_BUILD_DIR)/%.o,$(filter-out src/zupt_main.c,$(ZUPT_SOURCES)))
-SDK_PIC_OBJS    += $(patsubst src/%.c,$(SDK_BUILD_DIR)/%.o,$(VV_SOURCES))
-SDK_PIC_OBJS    += $(SDK_BUILD_DIR)/zuptsdk.o
+# All implementation sources are rebuilt from source as PIC. Objects are kept
+# separate from the CLI build so `make -j` may build both safely.
+SDK_PIC_OBJS = $(patsubst src/%.c,$(SDK_BUILD_DIR)/%.o,$(filter-out src/zupt_main.c,$(ZUPT_SOURCES)))
+SDK_PIC_OBJS += $(patsubst src/%.c,$(SDK_BUILD_DIR)/%.o,$(VV_SOURCES))
+SDK_PIC_OBJS += $(SDK_BUILD_DIR)/zuptsdk.o
+SDK_PROJECT_CPPFLAGS = -DZUPT_BUILDING_SDK=1 -Isdk/include
+SDK_PROJECT_CFLAGS = -fPIC
+SDK_SHARED_LDFLAGS ?= -shared \
+	-Wl,-soname,libzuptsdk.so.$(SDK_SOVERSION) \
+	-Wl,--version-script,$(SDK_MAP)
+SDK_PC_PRIVATE_LIBS ?= $(PROJECT_LDLIBS)
 
-SDK_PIC_FLAGS    = -fPIC -DZUPT_BUILDING_SDK=1
-
-# VV files need SIMD flags too
-SDK_PIC_VV_FLAGS = $(SDK_PIC_FLAGS) $(VV_SIMD_FLAGS)
-
-SDK_SHARED       = sdk/build/libzuptsdk.so.$(SDK_FULLVERSION)
-SDK_SHARED_SO    = sdk/build/libzuptsdk.so.$(SDK_SOVERSION)
-SDK_SHARED_LINK  = sdk/build/libzuptsdk.so
-SDK_STATIC       = sdk/build/libzuptsdk.a
-
-SDK_PC           = sdk/build/zuptsdk.pc
-
-# Compile rule for SDK PIC objects (vv_* files need SIMD flags)
-$(SDK_BUILD_DIR)/vv_%.o: src/vv_%.c | $(SDK_BUILD_DIR)
-	$(Q)$(CC) $(CFLAGS) $(SDK_PIC_VV_FLAGS) -I include -c $< -o $@
-
-$(SDK_BUILD_DIR)/vaptvupt_api.o: src/vaptvupt_api.c | $(SDK_BUILD_DIR)
-	$(Q)$(CC) $(CFLAGS) $(SDK_PIC_FLAGS) -I include -c $< -o $@
-
-$(SDK_BUILD_DIR)/%.o: src/%.c | $(SDK_BUILD_DIR)
-	$(Q)$(CC) $(CFLAGS) $(SDK_PIC_FLAGS) -I include -c $< -o $@
-
-$(SDK_BUILD_DIR)/zuptsdk.o: $(SDK_SRC) $(SDK_HDR) | $(SDK_BUILD_DIR)
-	$(Q)$(CC) $(CFLAGS) $(SDK_PIC_FLAGS) -I sdk/include -I include -I src -c $< -o $@
+SDK_SHARED = $(SDK_BUILD_DIR)/libzuptsdk.so.$(SDK_FULLVERSION)
+SDK_SHARED_SO = $(SDK_BUILD_DIR)/libzuptsdk.so.$(SDK_SOVERSION)
+SDK_SHARED_LINK = $(SDK_BUILD_DIR)/libzuptsdk.so
+SDK_STATIC = $(SDK_BUILD_DIR)/libzuptsdk.a
+SDK_PC = $(SDK_BUILD_DIR)/zuptsdk.pc
 
 $(SDK_BUILD_DIR):
-	$(Q)mkdir -p $(SDK_BUILD_DIR)
+	$(Q)mkdir -p "$@"
 
-# Shared library
+# Keep ISA flags on the SHA-NI translation unit only. Runtime dispatch in the
+# baseline SHA-256 implementation prevents execution on unsupported CPUs.
+$(SDK_BUILD_DIR)/zupt_sha256_shani.o: src/zupt_sha256_shani.c $(HEADERS) | $(SDK_BUILD_DIR)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(SDK_PROJECT_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(SDK_PROJECT_CFLAGS) $(SHANI_FLAGS) -c -o $@ $<
+
+$(SDK_BUILD_DIR)/vv_%.o: src/vv_%.c $(HEADERS) | $(SDK_BUILD_DIR)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(SDK_PROJECT_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(SDK_PROJECT_CFLAGS) $(VV_WARNING_FLAGS) \
+		$(if $(filter $(SDK_BUILD_DIR)/vv_decoder.o,$@),$(VV_DECODER_WARNING_FLAGS)) -c -o $@ $<
+
+$(SDK_BUILD_DIR)/vaptvupt_api.o: src/vaptvupt_api.c $(HEADERS) | $(SDK_BUILD_DIR)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(SDK_PROJECT_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(SDK_PROJECT_CFLAGS) $(VV_WARNING_FLAGS) -c -o $@ $<
+
+$(SDK_BUILD_DIR)/%.o: src/%.c $(HEADERS) | $(SDK_BUILD_DIR)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(SDK_PROJECT_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(SDK_PROJECT_CFLAGS) -c -o $@ $<
+
+$(SDK_BUILD_DIR)/zuptsdk.o: $(SDK_SRC) $(SDK_HDR) $(HEADERS) | $(SDK_BUILD_DIR)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(SDK_PROJECT_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(SDK_PROJECT_CFLAGS) -c -o $@ $<
+
 $(SDK_SHARED): $(SDK_PIC_OBJS) $(SDK_MAP) $(JAZZ_O)
 	@echo "[sdk-shared] $@"
-	$(Q)$(CC) -shared -fPIC \
-		-Wl,-soname,libzuptsdk.so.$(SDK_SOVERSION) \
-		-Wl,--version-script,$(SDK_MAP) \
-		$(LDFLAGS) \
-		$(SDK_PIC_OBJS) $(JAZZ_O) \
-		-o $@ $(LDLIBS)
-	$(Q)cd $(SDK_BUILD_DIR) && ln -sf $(notdir $(SDK_SHARED)) libzuptsdk.so.$(SDK_SOVERSION)
-	$(Q)cd $(SDK_BUILD_DIR) && ln -sf libzuptsdk.so.$(SDK_SOVERSION) libzuptsdk.so
+	$(Q)$(CC) $(CFLAGS) $(PROJECT_CFLAGS) $(SDK_PROJECT_CFLAGS) \
+		$(LDFLAGS) $(PROJECT_LDFLAGS) $(SDK_SHARED_LDFLAGS) \
+		$(SDK_PIC_OBJS) $(JAZZ_O) -o $@ $(PROJECT_LDLIBS) $(LDLIBS)
+	$(Q)cd "$(SDK_BUILD_DIR)" && ln -sf "$(notdir $(SDK_SHARED))" "$(notdir $(SDK_SHARED_SO))"
+	$(Q)cd "$(SDK_BUILD_DIR)" && ln -sf "$(notdir $(SDK_SHARED_SO))" "$(notdir $(SDK_SHARED_LINK))"
 
-# Static library
 $(SDK_STATIC): $(SDK_PIC_OBJS) $(JAZZ_O)
 	@echo "[sdk-static] $@"
-	$(Q)$(AR) rcs $@ $(SDK_PIC_OBJS) $(JAZZ_O)
+	$(Q)$(AR) $(ARFLAGS) $@ $(SDK_PIC_OBJS) $(JAZZ_O)
+	$(Q)$(RANLIB) $@
 
-# pkg-config file
-$(SDK_PC): $(SDK_HDR)
+$(SDK_PC): $(SDK_HDR) | $(SDK_BUILD_DIR)
 	@echo "[sdk-pc] $@"
-	$(Q)mkdir -p $(SDK_BUILD_DIR)
-	$(Q)printf 'prefix=$(SDK_PREFIX)\n' > $@
-	$(Q)printf 'exec_prefix=$${prefix}\n' >> $@
-	$(Q)printf 'libdir=$${exec_prefix}/lib\n' >> $@
-	$(Q)printf 'includedir=$${prefix}/include\n\n' >> $@
-	$(Q)printf 'Name: zuptsdk\n' >> $@
-	$(Q)printf 'Description: Zupt backup compression SDK\n' >> $@
-	$(Q)printf 'URL: https://git.securityops.co/cristiancmoises/zupt\n' >> $@
-	$(Q)printf 'Version: $(SDK_FULLVERSION)\n' >> $@
-	$(Q)printf 'Libs: -L$${libdir} -lzuptsdk\n' >> $@
-	$(Q)printf 'Libs.private: -lpthread\n' >> $@
-	$(Q)printf 'Cflags: -I$${includedir}\n' >> $@
+	$(Q)printf '%s\n' \
+		'prefix=$(PREFIX)' \
+		'exec_prefix=$${prefix}' \
+		'libdir=$(LIBDIR)' \
+		'includedir=$(INCLUDEDIR)' \
+		'' \
+		'Name: zuptsdk' \
+		'Description: ZUPT source-built compatibility SDK' \
+		'URL: https://github.com/cristiancmoises/zupt' \
+		'Version: $(SDK_FULLVERSION)' \
+		'Libs: -L$${libdir} -lzuptsdk' \
+		'Libs.private: $(SDK_PC_PRIVATE_LIBS)' \
+		'Cflags: -I$${includedir}' > "$@"
 
-# Convenience targets
 .PHONY: sdk sdk-shared sdk-static sdk-pkgconfig sdk-clean sdk-install \
-        sdk-verify-symbols sdk-test
+	sdk-uninstall sdk-verify-symbols sdk-test
 
 sdk: sdk-shared sdk-static sdk-pkgconfig
 
@@ -94,48 +102,53 @@ sdk-static: $(SDK_STATIC)
 sdk-pkgconfig: $(SDK_PC)
 
 sdk-clean:
-	$(Q)rm -rf $(SDK_BUILD_DIR)
+	$(Q)rm -rf "$(SDK_BUILD_DIR)"
 
-# Symbol leakage verification.
-# Pass: every exported text symbol starts with `zuptsdk_`.
-# Fail: any symbol that doesn't.
 sdk-verify-symbols: $(SDK_SHARED)
 	@echo "[sdk-verify] checking exported symbols in $(SDK_SHARED)"
-	$(Q)leaked=$$(nm -D --defined-only $(SDK_SHARED) | grep ' T ' | awk '{print $$3}' | grep -v '^zuptsdk_' || true); \
-	if [ -n "$$leaked" ]; then \
-		echo "FAIL: non-zuptsdk symbols exported:"; \
-		echo "$$leaked"; \
-		exit 1; \
+	$(Q)set -eu; \
+	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/zupt-sdk-symbols.XXXXXXXX"); \
+	trap 'rm -rf -- "$$tmp"' EXIT HUP INT TERM; \
+	nm -D --defined-only "$(SDK_SHARED)" | awk '$$2 == "T" { print $$3 }' | \
+		sed 's/@.*//' | sort > "$$tmp/exported"; \
+	grep '^        zuptsdk_' "$(SDK_MAP)" | tr -d ' ;' | sort > "$$tmp/declared"; \
+	if grep -v '^zuptsdk_' "$$tmp/exported"; then \
+		echo "FAIL: non-zuptsdk symbols exported" >&2; exit 1; \
 	fi; \
-	expected=$$(grep -c '^        zuptsdk_' $(SDK_MAP)); \
-	exported=$$(nm -D --defined-only $(SDK_SHARED) | grep ' T ' | grep -c '^.* T zuptsdk_' || true); \
-	echo "  $$exported exported / $$expected declared in version script"; \
-	if [ "$$exported" -lt "$$expected" ]; then \
-		echo "FAIL: $$((expected - exported)) declared symbols are missing from the .so"; \
-		nm -D --defined-only $(SDK_SHARED) | grep ' T ' | grep '^.* T zuptsdk_' | awk '{print $$3}' | sort > /tmp/exp; \
-		grep '^        zuptsdk_' $(SDK_MAP) | tr -d ' ;' | sort > /tmp/decl; \
-		diff /tmp/decl /tmp/exp; \
-		exit 1; \
-	fi; \
-	echo "  PASS: no symbol leakage, all declared symbols exported"
+	diff -u "$$tmp/declared" "$$tmp/exported"; \
+	echo "  PASS: no symbol leakage and all declared symbols are exported"
 
-# Build & run roundtrip test
+# Link and execute without embedding an RPATH. LD_LIBRARY_PATH is scoped to the
+# disposable test process and never enters an installed binary.
 sdk-test: $(SDK_SHARED)
 	@echo "[sdk-test] building and running roundtrip"
-	$(Q)$(CC) $(CFLAGS) -I sdk/include sdk/tests/test_sdk_roundtrip.c \
-		-Lsdk/build -lzuptsdk \
-		-Wl,-rpath,'$$ORIGIN/build' \
-		-o sdk/build/test_sdk_roundtrip $(LDLIBS)
-	$(Q)cd sdk && LD_LIBRARY_PATH=build ./build/test_sdk_roundtrip
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isdk/include \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(LDFLAGS) $(PROJECT_LDFLAGS) \
+		sdk/tests/test_sdk_roundtrip.c -L"$(SDK_BUILD_DIR)" -lzuptsdk \
+		-o "$(SDK_BUILD_DIR)/test_sdk_roundtrip" $(PROJECT_LDLIBS) $(LDLIBS)
+	$(Q)cd sdk && LD_LIBRARY_PATH=build "$$(pwd)/build/test_sdk_roundtrip"
 
 sdk-install: sdk
-	install -d $(DESTDIR)$(SDK_PREFIX)/lib
-	install -d $(DESTDIR)$(SDK_PREFIX)/include
-	install -d $(DESTDIR)$(SDK_PREFIX)/lib/pkgconfig
-	install -m 0644 $(SDK_HDR) $(DESTDIR)$(SDK_PREFIX)/include/
-	install -m 0755 $(SDK_SHARED) $(DESTDIR)$(SDK_PREFIX)/lib/
-	cd $(DESTDIR)$(SDK_PREFIX)/lib && \
-		ln -sf libzuptsdk.so.$(SDK_FULLVERSION) libzuptsdk.so.$(SDK_SOVERSION) && \
-		ln -sf libzuptsdk.so.$(SDK_SOVERSION) libzuptsdk.so
-	install -m 0644 $(SDK_STATIC) $(DESTDIR)$(SDK_PREFIX)/lib/
-	install -m 0644 $(SDK_PC) $(DESTDIR)$(SDK_PREFIX)/lib/pkgconfig/
+	$(Q)install -d "$(DESTDIR)$(LIBDIR)" "$(DESTDIR)$(INCLUDEDIR)" \
+		"$(DESTDIR)$(SDK_PKGCONFIGDIR)" "$(DESTDIR)$(SDK_LICENSEDIR)"
+	$(Q)install -m 0644 "$(SDK_HDR)" "$(DESTDIR)$(INCLUDEDIR)/"
+	$(Q)install -m 0755 "$(SDK_SHARED)" "$(DESTDIR)$(LIBDIR)/"
+	$(Q)cd "$(DESTDIR)$(LIBDIR)" && \
+		ln -sf "libzuptsdk.so.$(SDK_FULLVERSION)" "libzuptsdk.so.$(SDK_SOVERSION)" && \
+		ln -sf "libzuptsdk.so.$(SDK_SOVERSION)" libzuptsdk.so
+	$(Q)install -m 0644 "$(SDK_STATIC)" "$(DESTDIR)$(LIBDIR)/"
+	$(Q)install -m 0644 "$(SDK_PC)" "$(DESTDIR)$(SDK_PKGCONFIGDIR)/"
+	$(Q)install -m 0644 $(SDK_LICENSE_FILES) "$(DESTDIR)$(SDK_LICENSEDIR)/"
+	$(Q)install -m 0644 sdk/LICENSE "$(DESTDIR)$(SDK_LICENSEDIR)/SDK-LICENSE"
+
+sdk-uninstall:
+	$(Q)rm -f "$(DESTDIR)$(LIBDIR)/libzuptsdk.so.$(SDK_FULLVERSION)" \
+		"$(DESTDIR)$(LIBDIR)/libzuptsdk.so.$(SDK_SOVERSION)" \
+		"$(DESTDIR)$(LIBDIR)/libzuptsdk.so" \
+		"$(DESTDIR)$(LIBDIR)/libzuptsdk.a" \
+		"$(DESTDIR)$(INCLUDEDIR)/$(notdir $(SDK_HDR))" \
+		"$(DESTDIR)$(SDK_PKGCONFIGDIR)/$(notdir $(SDK_PC))"
+	$(Q)set -eu; for license_file in $(SDK_LICENSE_FILES); do \
+		rm -f "$(DESTDIR)$(SDK_LICENSEDIR)/$${license_file##*/}"; \
+	done
+	$(Q)rm -f "$(DESTDIR)$(SDK_LICENSEDIR)/SDK-LICENSE"

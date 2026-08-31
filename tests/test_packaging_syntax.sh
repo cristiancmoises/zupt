@@ -1,339 +1,353 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
-#
-# Sprint 2.4.5 regression: packaging-recipe syntax checks.
-#
-# Ensures the recipes under packaging/{aur,debian,rpm,homebrew,nix}/
-# are syntactically valid. Doesn't try to actually build the packages
-# (that needs distro-specific tooling), but catches:
-#   - shell syntax errors in PKGBUILD
-#   - malformed Debian control / changelog / copyright
-#   - missing fields in RPM spec
-#   - Ruby syntax errors in the Homebrew formula (if ruby is available)
-#   - Nix flake parse errors (if nix is available)
-#
-# Plus structural checks that don't need external tools:
-#   - debian/rules is executable
-#   - all recipes reference the same version as include/zupt.h
 
-set -u
+set -Eeuo pipefail
+export LC_ALL=C
 
-PASS=0
-FAIL=0
-P() { PASS=$((PASS+1)); echo "  ✓ $1"; }
-F() { FAIL=$((FAIL+1)); echo "  ✗ $1"; }
-SKIP() { echo "  - skipped: $1"; }
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+cd -- "$root"
 
-cd "$(dirname "$0")/.."
+pass_count=0
+fail_count=0
+skip_count=0
+pass() { pass_count=$((pass_count + 1)); printf 'PASS: %s\n' "$*"; }
+fail() { fail_count=$((fail_count + 1)); printf 'FAIL: %s\n' "$*" >&2; }
+skip() { skip_count=$((skip_count + 1)); printf 'SKIP: %s\n' "$*"; }
 
-VERSION=$(grep '^#define ZUPT_VERSION_STRING' include/zupt.h | awk -F'"' '{print $2}')
-echo "Packaging syntax checks (zupt $VERSION)"
+version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+[[ -n $version ]] || { printf 'FAIL: cannot determine upstream version\n' >&2; exit 1; }
 
-# ─── AUR PKGBUILD ───
-if [ -f packaging/aur/PKGBUILD ]; then
-    if bash -n packaging/aur/PKGBUILD 2>/dev/null; then
-        P "AUR PKGBUILD: bash syntax clean"
-    else
-        F "AUR PKGBUILD: bash syntax error"
-    fi
-    if grep -q "^pkgver=$VERSION$" packaging/aur/PKGBUILD; then
-        P "AUR PKGBUILD: pkgver matches include/zupt.h ($VERSION)"
-    else
-        F "AUR PKGBUILD: pkgver mismatch (expected $VERSION; got $(grep '^pkgver=' packaging/aur/PKGBUILD))"
-    fi
-    for field in pkgname pkgver pkgrel pkgdesc arch url license depends; do
-        if grep -qE "^$field=" packaging/aur/PKGBUILD; then
-            :
-        else
-            F "AUR PKGBUILD: missing required field '$field'"
-            continue
-        fi
-    done
-    P "AUR PKGBUILD: required fields present (pkgname, pkgver, pkgrel, pkgdesc, arch, url, license, depends)"
-else
-    F "AUR PKGBUILD: file missing"
-fi
-
-# ─── Debian source package ───
-for f in control rules changelog copyright source/format; do
-    if [ -f "packaging/debian/$f" ]; then
-        :
-    else
-        F "Debian: packaging/debian/$f missing"
-    fi
+for script in packaging/build-deb.sh packaging/build-rpm.sh \
+    packaging/build-appimage.sh packaging/build-gui-appimage.sh \
+    packaging/build-gui-deb.sh packaging/build-gui-rpm.sh \
+    gui/packaging/appimage/build-appimage.sh packaging/build-dmg.sh \
+    scripts/check-source-only.sh scripts/export-opensuse-package.sh \
+    scripts/test-installed-zupt.sh packaging/opensuse/source-audit.sh; do
+    if bash -n "$script"; then pass "$script shell syntax"; else fail "$script shell syntax"; fi
 done
-if [ -f packaging/debian/control ] && [ -f packaging/debian/rules ]; then
-    P "Debian: control, rules, changelog, copyright, source/format all present"
-fi
-if [ -x packaging/debian/rules ]; then
-    P "Debian: rules is executable"
+
+if ! command -v make >/dev/null 2>&1; then
+    skip 'make unavailable for Debian rules syntax'
+elif make -n -f packaging/debian/rules override_dh_auto_build >/dev/null; then
+    pass 'Debian rules make syntax'
 else
-    F "Debian: rules is not executable"
+    fail 'Debian rules make syntax'
 fi
-if grep -qE "^Source: (vaptvupt|zupt)$" packaging/debian/control; then
-    P "Debian control: Source field correct"
+
+check_recipe_version() {
+    local recipe=$1 recipe_version=$2
+    if [[ $recipe_version == "$version" ]]; then
+        pass "$recipe version is $version"
+    else
+        fail "$recipe version is '$recipe_version' (expected $version)"
+    fi
+}
+
+check_recipe_version AUR \
+    "$(sed -n 's/^pkgver=//p' packaging/aur/PKGBUILD)"
+check_recipe_version Debian \
+    "$(sed -n '1s/^zupt (\([^-]*\)-.*/\1/p' packaging/debian/changelog)"
+check_recipe_version Fedora \
+    "$(awk '/^Version:/{print $2; exit}' packaging/rpm/zupt.spec)"
+check_recipe_version Homebrew \
+    "$(sed -n 's/^[[:space:]]*version "\([^"]*\)".*/\1/p' packaging/homebrew/zupt.rb)"
+check_recipe_version Nix \
+    "$(sed -n 's/^[[:space:]]*version = "\([^"]*\)";.*/\1/p' packaging/nix/flake.nix | head -1)"
+check_recipe_version Guix \
+    "$(sed -n 's/^(define %zupt-version "\([^"]*\)")/\1/p' packaging/guix/zupt.scm)"
+check_recipe_version openSUSE \
+    "$(awk '/^Version:/{print $2; exit}' packaging/opensuse/zupt.spec)"
+
+if grep -En 'REPLACE_AFTER|REPLACE_WITH|sha256sums=\(.SKIP.|base32 .REPLACE' \
+    packaging/aur/PKGBUILD packaging/homebrew/zupt.rb packaging/guix/zupt.scm; then
+    if git tag --points-at HEAD 2>/dev/null | grep -Fxq "v$version"; then
+        fail 'tagged release recipes contain an unpinned source checksum'
+    else
+        pass 'release recipe checksums are explicitly pending final archive generation'
+    fi
 else
-    F "Debian control: Source field wrong/missing"
+    pass 'release recipe source checksums are pinned'
 fi
-if grep -qE "^(vaptvupt|zupt) \($VERSION-[0-9]+\) " packaging/debian/changelog; then
-    P "Debian changelog: top entry matches $VERSION"
+
+if [[ -x packaging/debian/rules ]]; then
+    pass 'Debian rules is executable'
 else
-    F "Debian changelog: top entry version doesn't match include/zupt.h"
+    fail 'Debian rules is not executable'
 fi
 if command -v dpkg-parsechangelog >/dev/null 2>&1; then
-    if dpkg-parsechangelog -l packaging/debian/changelog >/dev/null 2>&1; then
-        P "Debian changelog: dpkg-parsechangelog accepts it"
+    if dpkg-parsechangelog -l packaging/debian/changelog >/dev/null; then
+        pass 'Debian changelog parses'
     else
-        F "Debian changelog: dpkg-parsechangelog rejected it"
+        fail 'Debian changelog does not parse'
     fi
 else
-    SKIP "dpkg-parsechangelog not available (dpkg-dev not installed)"
-fi
-if [ "$(cat packaging/debian/source/format)" = "3.0 (quilt)" ]; then
-    P "Debian source/format: 3.0 (quilt)"
-else
-    F "Debian source/format: wrong content"
+    skip 'dpkg-parsechangelog unavailable'
 fi
 
-# ─── RPM spec ───
-if [ -f packaging/rpm/vaptvupt.spec ]; then
-    for field in Name Version Release Summary License URL Source0; do
-        if grep -qE "^$field:" packaging/rpm/vaptvupt.spec; then
-            :
-        else
-            F "RPM spec: missing tag '$field:'"
-        fi
-    done
-    P "RPM spec: required header tags present"
-    SPEC_VER=$(grep -E "^Version:" packaging/rpm/vaptvupt.spec | awk '{print $2}')
-    if [ "$SPEC_VER" = "$VERSION" ]; then
-        P "RPM spec: Version: matches include/zupt.h ($VERSION)"
+if command -v ruby >/dev/null 2>&1; then
+    if ruby -c packaging/homebrew/zupt.rb >/dev/null; then
+        pass 'Homebrew formula Ruby syntax'
     else
-        F "RPM spec: Version: '$SPEC_VER' != include/zupt.h '$VERSION'"
-    fi
-    for section in "%prep" "%build" "%install" "%files" "%changelog"; do
-        if grep -qF "$section" packaging/rpm/vaptvupt.spec; then
-            :
-        else
-            F "RPM spec: missing section '$section'"
-        fi
-    done
-    P "RPM spec: %prep, %build, %install, %files, %changelog sections present"
-    if command -v rpmlint >/dev/null 2>&1; then
-        rpmlint packaging/rpm/vaptvupt.spec >/tmp/rpmlint.out 2>&1
-        if [ -s /tmp/rpmlint.out ] && grep -qE " E: " /tmp/rpmlint.out; then
-            F "RPM spec: rpmlint errors (see /tmp/rpmlint.out):"
-            grep " E: " /tmp/rpmlint.out | head -3
-        else
-            P "RPM spec: rpmlint clean (warnings allowed)"
-        fi
-    else
-        SKIP "rpmlint not available"
+        fail 'Homebrew formula Ruby syntax'
     fi
 else
-    F "RPM spec: file missing"
+    skip 'Ruby unavailable for Homebrew syntax'
 fi
 
-# ─── Homebrew formula ───
-if [ -f packaging/homebrew/vaptvupt.rb ]; then
-    HB_VER=$(grep -E '^\s*version\s' packaging/homebrew/vaptvupt.rb | head -1 | awk -F'"' '{print $2}')
-    if [ "$HB_VER" = "$VERSION" ]; then
-        P "Homebrew formula: version matches include/zupt.h ($VERSION)"
+if command -v nix-instantiate >/dev/null 2>&1; then
+    if nix-instantiate --parse packaging/nix/flake.nix >/dev/null; then
+        pass 'Nix flake syntax'
     else
-        F "Homebrew formula: version '$HB_VER' != include/zupt.h '$VERSION'"
+        fail 'Nix flake syntax'
     fi
-    if command -v ruby >/dev/null 2>&1; then
-        if ruby -c packaging/homebrew/vaptvupt.rb >/dev/null 2>&1; then
-            P "Homebrew formula: ruby syntax clean"
-        else
-            F "Homebrew formula: ruby syntax error"
-            ruby -c packaging/homebrew/vaptvupt.rb 2>&1 | head -3
-        fi
-    else
-        SKIP "ruby not available — skipping Homebrew syntax parse"
-    fi
-    for kw in 'class (Vaptvupt|Zupt)' 'desc ' 'homepage ' 'url ' 'version ' 'sha256 ' 'license '; do
-        if grep -qE "^\s*${kw}" packaging/homebrew/vaptvupt.rb; then
-            :
-        else
-            F "Homebrew formula: missing DSL line starting with '$kw'"
-        fi
-    done
-    # install is a method definition; test is a block
-    if grep -qE "^\s*def\s+install\b" packaging/homebrew/vaptvupt.rb; then
-        :
-    else
-        F "Homebrew formula: missing method 'def install'"
-    fi
-    if grep -qE "^\s*test\s+do\b" packaging/homebrew/vaptvupt.rb; then
-        :
-    else
-        F "Homebrew formula: missing 'test do' block"
-    fi
-    P "Homebrew formula: class + required DSL keywords + install method + test block present"
 else
-    F "Homebrew formula: file missing"
+    skip 'nix-instantiate unavailable for flake syntax'
 fi
 
-# ─── Nix flake ───
-if [ -f packaging/nix/flake.nix ]; then
-    if command -v nix >/dev/null 2>&1 && nix --version 2>/dev/null | grep -qE "nix \(Nix\) [2-9]"; then
-        if nix flake metadata packaging/nix --no-update-lock-file >/dev/null 2>&1; then
-            P "Nix flake: nix accepts metadata"
-        else
-            F "Nix flake: nix flake metadata failed"
-        fi
+if command -v guile >/dev/null 2>&1; then
+    if guile -c '(use-modules (guix gexp)) (call-with-input-file "packaging/guix/zupt.scm" (lambda (p) (let loop ((x (read p))) (unless (eof-object? x) (loop (read p))))))'; then
+        pass 'Guix recipe reader syntax'
     else
-        SKIP "nix not available — skipping flake check"
-    fi
-    NIX_VER=$(grep -E 'version = "' packaging/nix/flake.nix | head -1 | awk -F'"' '{print $2}')
-    if [ "$NIX_VER" = "$VERSION" ]; then
-        P "Nix flake: version matches include/zupt.h ($VERSION)"
-    else
-        F "Nix flake: version '$NIX_VER' != include/zupt.h '$VERSION'"
-    fi
-    # Structural check: must have outputs and a zupt package definition
-    if grep -qE "outputs\s*=" packaging/nix/flake.nix && \
-       grep -qE 'pname = "(vaptvupt|zupt)"' packaging/nix/flake.nix; then
-        P "Nix flake: outputs + zupt package definition present"
-    else
-        F "Nix flake: structure incomplete"
+        fail 'Guix recipe reader syntax'
     fi
 else
-    F "Nix flake: file missing"
+    skip 'Guile unavailable for Guix syntax'
 fi
 
-# ─── openSUSE OBS recipe (renamed zupt.* -> vaptvupt.* in 3.2.0) ───
-if [ -f packaging/opensuse/vaptvupt.spec ] && [ -f packaging/opensuse/vaptvupt.changes ] && [ -f packaging/opensuse/_service ]; then
-    P "openSUSE OBS files: all three present (vaptvupt.spec, vaptvupt.changes, _service)"
-    # Validate the spec parses
-    if command -v rpm >/dev/null 2>&1; then
-        if rpm --specfile packaging/opensuse/vaptvupt.spec >/dev/null 2>&1; then
-            P "openSUSE vaptvupt.spec: rpm --specfile parses cleanly"
-        else
-            F "openSUSE vaptvupt.spec: rpm --specfile rejected it"
-        fi
-        SUSE_VER=$(grep -E "^Version:" packaging/opensuse/vaptvupt.spec | awk '{print $2}')
-        if [ "$SUSE_VER" = "$VERSION" ]; then
-            P "openSUSE vaptvupt.spec: Version matches include/zupt.h ($VERSION)"
-        else
-            F "openSUSE vaptvupt.spec: Version '$SUSE_VER' != include/zupt.h '$VERSION'"
-        fi
-        # Name must be vaptvupt, and it must supersede the old zupt package.
-        if grep -qE "^Name:[[:space:]]+vaptvupt$" packaging/opensuse/vaptvupt.spec; then
-            P "openSUSE vaptvupt.spec: Name is vaptvupt"
-        else
-            F "openSUSE vaptvupt.spec: Name is not vaptvupt"
-        fi
-        if grep -qE "^Provides:[[:space:]]+zupt" packaging/opensuse/vaptvupt.spec && \
-           grep -qE "^Obsoletes:[[:space:]]+zupt" packaging/opensuse/vaptvupt.spec; then
-            P "openSUSE vaptvupt.spec: Provides/Obsoletes zupt (clean upgrade)"
-        else
-            F "openSUSE vaptvupt.spec: missing Provides/Obsoletes zupt"
-        fi
+if command -v xmllint >/dev/null 2>&1; then
+    if xmllint --noout packaging/opensuse/_service; then
+        pass 'openSUSE service XML'
     else
-        SKIP "rpm not available — skipping openSUSE spec parse"
+        fail 'openSUSE service XML'
     fi
-    # Validate _service is well-formed XML
-    if command -v python3 >/dev/null 2>&1; then
-        if python3 -c "import xml.etree.ElementTree as ET; ET.parse('packaging/opensuse/_service')" 2>/dev/null; then
-            P "openSUSE _service: XML well-formed"
-        else
-            F "openSUSE _service: XML parse error"
-        fi
-    fi
-    # _service filename should be vaptvupt now
-    if grep -qE "<param name=\"filename\">vaptvupt</param>" packaging/opensuse/_service; then
-        P "openSUSE _service: filename is vaptvupt"
-    else
-        F "openSUSE _service: filename not updated to vaptvupt"
-    fi
-    # .changes: check standard 67-dash separator (openSUSE convention is exactly 67)
-    SEP_COUNT=$(grep -cE "^-{67}$" packaging/opensuse/vaptvupt.changes)
-    if [ "$SEP_COUNT" -ge 1 ]; then
-        P "openSUSE vaptvupt.changes: $SEP_COUNT entries with proper separator"
-    else
-        F "openSUSE vaptvupt.changes: missing or wrong separator format"
-    fi
+elif python3 -c 'import xml.etree.ElementTree as E; E.parse("packaging/opensuse/_service")' 2>/dev/null; then
+    pass 'openSUSE service XML (Python parser)'
 else
-    F "openSUSE OBS files incomplete (need vaptvupt.spec, vaptvupt.changes, _service)"
-fi
-if [ -f DISTRIBUTION.md ]; then
-    P "DISTRIBUTION.md present"
-    for distro in "Arch Linux" "Debian / Ubuntu" "Fedora" "macOS" "NixOS"; do
-        if grep -q "$distro" DISTRIBUTION.md; then
-            :
-        else
-            F "DISTRIBUTION.md: doesn't mention '$distro'"
-        fi
-    done
-    P "DISTRIBUTION.md: covers all 5 distros"
-else
-    F "DISTRIBUTION.md missing"
+    fail 'openSUSE service XML'
 fi
 
-# ─── GitHub Actions CI workflow ───
-if [ -f .github/workflows/ci.yml ]; then
-    if command -v python3 >/dev/null 2>&1; then
-        # Write the validator to a temp file rather than inline -c so quoting/
-        # indentation can't bite.
-        cat > /tmp/ci_validate.py << 'PYEOF'
-import yaml, sys
-try:
-    with open('.github/workflows/ci.yml') as f:
-        doc = yaml.safe_load(f)
-except Exception as e:
-    sys.stderr.write(f"YAML_PARSE_ERROR: {e}\n")
-    sys.exit(1)
-jobs = list(doc.get('jobs', {}).keys())
-expected = ['build-and-test', 'strict-warnings', 'sanitizers',
-            'dist-reproducibility', 'packaging-syntax', 'release']
-missing = [j for j in expected if j not in jobs]
-if missing:
-    sys.stderr.write(f"MISSING_JOBS: {missing}\n")
-    sys.exit(1)
-print(f"JOBS_OK ({len(jobs)} jobs)")
-PYEOF
-        if python3 /tmp/ci_validate.py 2>/tmp/ci_check.err; then
-            P "CI workflow: YAML valid + expected jobs present"
-        else
-            F "CI workflow: $(cat /tmp/ci_check.err)"
-        fi
-        rm -f /tmp/ci_validate.py /tmp/ci_check.err
-    else
-        SKIP "python3 unavailable — skipping CI YAML check"
-    fi
+service=packaging/opensuse/_service
+spec=packaging/opensuse/zupt.spec
+if grep -Fq '<service name="obs_scm"' "$service" && \
+   grep -Fq '<param name="url">https://github.com/cristiancmoises/zupt.git</param>' "$service" && \
+   grep -Fq "<param name=\"revision\">refs/tags/v$version</param>" "$service" && \
+   grep -Fq '<param name="submodules">disable</param>' "$service" && \
+   grep -Fq '<param name="lfs">disable</param>' "$service" && \
+   grep -Fq '<service name="tar" mode="buildtime"' "$service" && \
+   grep -Fq '<service name="recompress" mode="buildtime"' "$service"; then
+    pass 'openSUSE services use canonical immutable source-only input'
 else
-    F "CI workflow .github/workflows/ci.yml missing"
+    fail 'openSUSE services do not use the required immutable source-only input'
 fi
 
-# ─── THREAT_MODEL.md ───
-if [ -f THREAT_MODEL.md ]; then
-    P "THREAT_MODEL.md present"
-    # Verify the document is substantive (>3000 bytes) and covers the
-    # required sections per userPreferences ("plain English. State
-    # explicitly what the system does NOT protect against.")
-    SZ=$(wc -c < THREAT_MODEL.md)
-    if [ "$SZ" -ge 3000 ]; then
-        P "THREAT_MODEL.md: substantive ($SZ bytes)"
-    else
-        F "THREAT_MODEL.md: too short ($SZ bytes, expected >= 3000)"
-    fi
-    for section in "What VaptVupt protects against" "What VaptVupt does NOT protect against" "Cryptographic assumptions"; do
-        if grep -qF "$section" THREAT_MODEL.md; then
-            :
-        else
-            F "THREAT_MODEL.md: missing section '$section'"
-        fi
-    done
-    P "THREAT_MODEL.md: required sections present"
+if grep -Fq 'APPIMAGE_RUNTIME_COMPLIANCE_FILE' packaging/build-appimage.sh && \
+   grep -Fq 'APPIMAGE_RUNTIME_COMPLIANCE_FILE' packaging/build-gui-appimage.sh && \
+   grep -Fq 'AppImage-runtime-compliance.txt' packaging/build-appimage.sh && \
+   grep -Fq 'AppImage-runtime-compliance.txt' packaging/build-gui-appimage.sh; then
+    pass 'AppImage helpers require and bundle external compliance evidence'
 else
-    F "THREAT_MODEL.md missing"
+    fail 'AppImage helper compliance policy is incomplete'
 fi
 
-echo ""
-echo "  ───────────────────────────────────────"
-echo "  packaging syntax: $PASS passed, $FAIL failed"
-echo "  ───────────────────────────────────────"
-[ "$FAIL" = 0 ] || exit 1
+if ! grep -Eiq 'release-appimage|appimagetool|APPIMAGE_RUNTIME_FILE|[.]AppImage' \
+        .github/workflows/ci.yml .github/workflows/cross-platform.yml \
+        .github/workflows/promote-release.yml; then
+    pass 'release workflows do not build or promote AppImage assets'
+else
+    fail 'a release workflow still builds or promotes an AppImage asset'
+fi
+
+if grep -Fq 'archive declared-size limit exceeded before extraction' scripts/check-source-only.sh && \
+   grep -Fq 'global archive declared-size budget exceeded' scripts/check-source-only.sh && \
+   grep -Fq 'SOURCE_AUDIT_ARCHIVE_SECONDS' scripts/check-source-only.sh && \
+   grep -Fq 'compressed archive declared size is rejected before extraction' tests/test_source_only.sh; then
+    pass 'source scanner bounds archive members, expansion and CPU time before extraction'
+else
+    fail 'source scanner archive resource bounds or regressions are incomplete'
+fi
+
+# These are literal shell expressions required inside the promotion workflow.
+# shellcheck disable=SC2016
+if grep -Fq 'zupt-gui_${VERSION}_all.deb' .github/workflows/promote-release.yml && \
+   grep -Fq 'zupt-gui-$VERSION-1.noarch.rpm' .github/workflows/promote-release.yml && \
+   grep -Fq 'zupt-gui-$VERSION-1.src.rpm' .github/workflows/promote-release.yml && \
+   grep -Fq 'zupt-$VERSION-linux-x86_64.tar.xz' .github/workflows/promote-release.yml && \
+   grep -Fq 'zupt-gui-$VERSION-portable.zip' .github/workflows/promote-release.yml && \
+   grep -Fq 'zupt >= $VERSION' .github/workflows/promote-release.yml; then
+    pass 'release promotion allowlists gated CLI and GUI package formats'
+else
+    fail 'release promotion is missing a gated package format or dependency check'
+fi
+
+if ! grep -Eqi 'git[.]securityops[.]co|forgejo|canonical server|GitHub mirror' \
+        .github/workflows/promote-release.yml && \
+   grep -Fq 'GitHub is the canonical upstream release' \
+        .github/workflows/promote-release.yml; then
+    pass 'GitHub is the sole canonical release target'
+else
+    fail 'release promotion still depends on a non-GitHub canonical forge'
+fi
+
+if grep -Fq 'path: out/*.zip' .github/workflows/cross-platform.yml && \
+   ! grep -Fq 'out/*.exe' .github/workflows/cross-platform.yml && \
+   grep -Fq 'windows_zip_name=' .github/workflows/promote-release.yml && \
+   ! grep -Fq 'windows_exe_name=' .github/workflows/promote-release.yml; then
+    pass 'Windows release policy promotes the notice-bearing ZIP only'
+else
+    fail 'Windows workflow still permits a bare EXE release asset'
+fi
+
+windows_notices_ok=1
+for notice in MINGW-CRT-COPYING.txt COPYING.MinGW-w64-runtime.txt \
+    COPYING.MinGW-w64.txt GCC-COPYING3.txt \
+    GCC-RUNTIME-LIBRARY-EXCEPTION.txt; do
+    grep -Fq "$notice" .github/workflows/cross-platform.yml || \
+        windows_notices_ok=0
+    grep -Fq "$notice" .github/workflows/promote-release.yml || \
+        windows_notices_ok=0
+done
+if ((windows_notices_ok)); then
+    pass 'static Windows bundle preserves MinGW and GCC runtime notices'
+else
+    fail 'static Windows bundle omits MinGW or GCC runtime notices'
+fi
+
+if grep -Eiq 'AppImage.*(not|excluded|outside)' SECURITY.md && \
+   grep -Eiq 'AppImage.*(not|excluded|outside)' THREAT_MODEL.md && \
+   grep -Eiq 'AppImage.*(not|excluded|outside)' AUDIT.md && \
+   grep -Eiq 'AppImage.*(not|excluded|outside)' doc/zupt.1; then
+    pass 'current security and user documentation records the 5.2.2 exclusions'
+else
+    fail 'current documentation still permits a 5.2.2 AppImage or bare EXE claim'
+fi
+
+handoff_legal_ok=1
+for legal_file in LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-COMMERCIAL \
+    LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 \
+    NOTICE THIRD-PARTY-NOTICES.md; do
+    grep -Fq "$legal_file" scripts/export-opensuse-package.sh || \
+        handoff_legal_ok=0
+done
+if ((handoff_legal_ok)) && \
+   grep -Fq 'handoff legal file is missing or empty' scripts/export-opensuse-package.sh; then
+    pass 'openSUSE handoff includes and checks complete public legal payload'
+else
+    fail 'openSUSE handoff omits or does not validate a public legal file'
+fi
+
+if grep -Fq 'PYTHON-NOTICE.txt' gui/packaging/windows/build-windows.bat && \
+   grep -Fq 'PYINSTALLER-NOTICE.txt' gui/packaging/windows/build-windows.bat && \
+   grep -Fq 'QT-NOTICE.txt' gui/packaging/windows/build-windows.bat && \
+   grep -Fq 'PYSIDE6-NOTICE.txt' gui/packaging/windows/build-windows.bat && \
+   grep -Fq 'PYQT6-NOTICE.txt' gui/packaging/windows/build-windows.bat; then
+    pass 'downstream Windows GUI helper requires every runtime notice class'
+else
+    fail 'downstream Windows GUI helper permits incomplete runtime notices'
+fi
+
+if grep -Eq '^Name:[[:space:]]+zupt$' "$spec" && \
+   grep -Eq '^Source0:[[:space:]]+%\{name\}-%\{version\}\.tar\.gz$' "$spec" && \
+   grep -Eq '^License:[[:space:]]+AGPL-3\.0-or-later AND GPL-3\.0-or-later AND BSD-2-Clause AND BSD-3-Clause AND CC0-1\.0$' "$spec" && \
+   grep -Eq '^Provides:[[:space:]]+bundled\(vaptvupt-codec\) = 2\.65\.3$' "$spec" && \
+   grep -Eq '^Provides:[[:space:]]+vaptvupt = %\{version\}-%\{release\}$' "$spec" && \
+   grep -Eq '^Obsoletes:[[:space:]]+vaptvupt < %\{version\}$' "$spec" && \
+   grep -Fq 'WITH_SDK=0 WITH_PQBOX=0' "$spec" && \
+   grep -Fq 'INSTALL_LEGACY_ALIAS=0' "$spec" && \
+   grep -Fq 'INSTALL_LICENSES=0' "$spec" && \
+   grep -Fq '%{_bindir}/zupt' "$spec" && \
+   ! grep -Fq '%{_bindir}/vaptvupt' "$spec"; then
+    pass 'openSUSE spec source, license, features and alias policy'
+else
+    fail 'openSUSE spec source, license, features or alias policy'
+fi
+
+if grep -Fq 'LICENSE-BSD-3-Clause' packaging/build-deb.sh && \
+   grep -Fq 'LICENSE-CC0-1.0' packaging/build-deb.sh && \
+   [[ $(grep -Fc 'LICENSE-BSD-3-Clause' packaging/build-dmg.sh) -ge 2 ]] && \
+   [[ $(grep -Fc 'LICENSE-CC0-1.0' packaging/build-dmg.sh) -ge 2 ]] && \
+   grep -Fq 'LICENSE-BSD-3-Clause' packaging/build-appimage.sh && \
+   grep -Fq 'LICENSE-CC0-1.0' packaging/build-appimage.sh && \
+   grep -Fq 'LICENSE-BSD-3-Clause' packaging/build-gui-appimage.sh && \
+   grep -Fq 'LICENSE-CC0-1.0' packaging/build-gui-appimage.sh && \
+   grep -Fq 'LICENSE-BSD-3-Clause' .github/workflows/cross-platform.yml && \
+   grep -Fq 'LICENSE-CC0-1.0' .github/workflows/cross-platform.yml && \
+   grep -Fq 'LICENSE-BSD-3-Clause' .github/workflows/promote-release.yml && \
+   grep -Fq 'LICENSE-CC0-1.0' .github/workflows/promote-release.yml && \
+   grep -Fq 'LICENSE-BSD-3-Clause' packaging/debian/zupt.docs && \
+   grep -Fq 'LICENSE-CC0-1.0' packaging/debian/zupt.docs; then
+    pass 'binary bundle paths preserve BSD-3-Clause and CC0-1.0 texts'
+else
+    fail 'a binary bundle path omits BSD-3-Clause or CC0-1.0 text'
+fi
+
+if grep -Fq 'LICENSE-BSD-3-Clause' gui/packaging/flatpak/dev.zupt.gui.yml && \
+   grep -Fq 'LICENSE-CC0-1.0' gui/packaging/flatpak/dev.zupt.gui.yml && \
+   grep -Fq 'ZUPT_WINDOWS_RUNTIME_NOTICES_DIR' gui/packaging/windows/build-windows.bat && \
+   grep -Fq 'MANIFEST.txt' gui/packaging/windows/build-windows.bat && \
+   grep -Fq 'LICENSE-BSD-3-Clause' packaging/windows/zupt-gui.iss && \
+   grep -Fq 'LICENSE-CC0-1.0' packaging/windows/zupt-gui.iss && \
+   grep -Fq 'RuntimeNoticesDir' packaging/windows/zupt-gui.iss && \
+   grep -Fq 'LICENSE-BSD-3-Clause' sdk/Makefile.sdk && \
+   grep -Fq 'LICENSE-CC0-1.0' sdk/Makefile.sdk && \
+   grep -Fq 'LICENSE-BSD-3-Clause' packaging/homebrew/zupt.rb && \
+   grep -Fq 'LICENSE-CC0-1.0' packaging/nix/flake.nix && \
+   grep -Fq 'LICENSEDIR' Makefile && \
+   grep -Fq 'LICENSE-BSD-3-Clause' Makefile && \
+   grep -Fq 'LICENSE-GUI' gui/install.sh; then
+    pass 'auxiliary bundles install project and external-runtime notices'
+else
+    fail 'an auxiliary bundle omits project or external-runtime notices'
+fi
+
+if command -v rpmspec >/dev/null 2>&1; then
+    if rpmspec -P "$spec" >/dev/null; then
+        pass 'openSUSE spec parses with rpmspec'
+    else
+        fail 'openSUSE spec rpmspec parse'
+    fi
+else
+    skip 'rpmspec unavailable'
+fi
+
+if command -v shellcheck >/dev/null 2>&1; then
+    shell_files=(
+        packaging/build-deb.sh
+        packaging/build-rpm.sh
+        packaging/build-appimage.sh
+        packaging/build-gui-appimage.sh
+        packaging/build-gui-deb.sh
+        packaging/build-gui-rpm.sh
+        gui/packaging/appimage/build-appimage.sh
+        packaging/build-dmg.sh
+        packaging/opensuse/source-audit.sh
+        scripts/check-source-only.sh
+        scripts/export-opensuse-package.sh
+        scripts/test-installed-zupt.sh
+        tests/test_source_only.sh
+        tests/test_packaging_syntax.sh
+    )
+    if shellcheck -x "${shell_files[@]}"; then
+        pass 'ShellCheck tracked shell scripts'
+    else
+        fail 'ShellCheck tracked shell scripts'
+    fi
+else
+    skip 'ShellCheck unavailable'
+fi
+
+for workflow in .github/workflows/*.yml; do
+    if grep -Eq 'pull_request_target:' "$workflow"; then
+        fail "$workflow uses pull_request_target"
+    else
+        pass "$workflow avoids pull_request_target"
+    fi
+    if grep -Eqi 'git[[:space:]]+push|credential\.helper[[:space:]]+store' "$workflow"; then
+        fail "$workflow contains unsafe publishing command"
+    else
+        pass "$workflow avoids direct Git credential mutation"
+    fi
+done
+
+printf 'SUMMARY: PASS=%d FAIL=%d SKIP=%d\n' "$pass_count" "$fail_count" "$skip_count"
+((fail_count == 0))

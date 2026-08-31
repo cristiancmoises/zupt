@@ -11,11 +11,12 @@
 # value per block. This test asserts every encrypted DATA block in a
 # dedup-encrypted archive carries a distinct stored nonce.
 set -u
-ZUPT="${ZUPT_BIN:-./zupt}"
+ZUPT=${1:-${ZUPT_BIN:-./zupt}}
 echo "Dedup nonce uniqueness (keystream-reuse regression)"
 
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "  - skipped: python3 not available"; exit 0
+    echo "  FAIL: python3 is required for the dedup nonce gate" >&2
+    exit 1
 fi
 
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT

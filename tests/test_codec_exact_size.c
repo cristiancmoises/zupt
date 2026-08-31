@@ -22,6 +22,7 @@
  */
 #include "vaptvupt.h"
 #include "vaptvupt_api.h"
+#include "vv_bcj.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -72,10 +73,71 @@ static void fill_elfish(uint8_t *p, size_t n) {
     }
 }
 
+static uint32_t bcj_prng_state = 0x7a5b3c1du;
+
+static uint32_t bcj_prng(void) {
+    uint32_t x = bcj_prng_state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    bcj_prng_state = x;
+    return x;
+}
+
+static int test_bcj_bijections(void) {
+    uint8_t original[4097];
+    uint8_t transformed[4097];
+
+    for (unsigned iteration = 0; iteration < 1024; iteration++) {
+        size_t n = (size_t)(bcj_prng() % sizeof(original));
+        uint32_t ip = bcj_prng();
+        for (size_t i = 0; i < n; i++)
+            original[i] = (uint8_t)bcj_prng();
+
+        /* Force dense branch-like operands in half the corpus so both filters
+         * exercise their rewrite paths rather than only scanning random data. */
+        if ((iteration & 1u) != 0) {
+            for (size_t i = 0; i < n; i++) {
+                static const uint8_t pattern[] = {
+                    0xe8, 0x00, 0x00, 0x00, 0x00,
+                    0xe9, 0xff, 0xff, 0xff, 0xff,
+                    0x00, 0x00, 0x00, 0x94
+                };
+                original[i] = pattern[i % sizeof(pattern)];
+            }
+        }
+
+        memcpy(transformed, original, n);
+        (void)vv_bcj_x86(transformed, n, ip, 1);
+        (void)vv_bcj_x86(transformed, n, ip, 0);
+        if (memcmp(transformed, original, n) != 0) {
+            fprintf(stderr, "  x86 BCJ bijection failed: iteration=%u size=%zu\n",
+                    iteration, n);
+            return 1;
+        }
+
+        memcpy(transformed, original, n);
+        (void)vv_bcj_arm64(transformed, n, ip, 1);
+        (void)vv_bcj_arm64(transformed, n, ip, 0);
+        if (memcmp(transformed, original, n) != 0) {
+            fprintf(stderr, "  AArch64 BCJ bijection failed: iteration=%u size=%zu\n",
+                    iteration, n);
+            return 1;
+        }
+    }
+    printf("  BCJ bijections: 1024 deterministic randomized/adversarial cases passed\n");
+    return 0;
+}
+
 int main(void) {
     printf("Codec exact-content_size decode (OOB regression, codec 2.60.4)\n");
     srand(424242);
     int fail = 0, pass = 0;
+
+    if (test_bcj_bijections() != 0)
+        fail++;
+    else
+        pass++;
 
     /* Tail coverage: n mod 32 in {1, 7, 31, 32 (0), >32 leftovers} at
      * block-ish sizes, plus tiny buffers. */

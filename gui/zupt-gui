@@ -1,46 +1,31 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 
-DIR="$(cd "$(dirname "$0")" && pwd)"
-VENV="$DIR/.venv"
-PY="$VENV/bin/python3"
-PIP="$VENV/bin/pip"
-GUI="$DIR/src/zupt_gui.py"
+# Source-tree launcher for ZUPT GUI.
+# It performs no package installation and never downloads dependencies.
+set -Eeuo pipefail
 
-# ─── System deps (Qt xcb needs these on Debian/Mint/Ubuntu) ───
-NEED_APT=0
-for pkg in libxcb-cursor0 libxcb-xinerama0 libxkbcommon-x11-0 libegl1 python3-full; do
-    dpkg -s "$pkg" >/dev/null 2>&1 || NEED_APT=1
-done
-if [ "$NEED_APT" -eq 1 ]; then
-    echo "Installing system dependencies..."
-    sudo apt-get update -qq
-    sudo apt-get install -y python3-full python3-venv \
-        libxcb-cursor0 libxcb-xinerama0 libxkbcommon-x11-0 libegl1 2>/dev/null
-fi
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+gui=$script_dir/src/zupt_gui.py
+[[ -f $gui ]] || {
+    printf 'zupt-gui: GUI source is missing: %s\n' "$gui" >&2
+    exit 1
+}
 
-# ─── Venv ───
-if [ ! -x "$PY" ]; then
-    rm -rf "$VENV"
-    python3 -m venv "$VENV"
-fi
-if ! "$PY" -c "import PySide6" 2>/dev/null; then
-    echo "Installing PySide6..."
-    "$PIP" install --upgrade pip -q 2>/dev/null
-    "$PIP" install PySide6 -q
-fi
-
-# ─── Find zupt — local build FIRST, then system ───
-if [ -z "$ZUPT_BIN" ]; then
-    # Check project tree first (gui/ is inside zupt-2.1.6/)
-    for p in "$DIR/../zupt" "$DIR/../../zupt" "$DIR/zupt"; do
-        [ -x "$p" ] && export ZUPT_BIN="$(readlink -f "$p")" && break
-    done
-    # Then system PATH
-    if [ -z "$ZUPT_BIN" ]; then
-        p="$(command -v zupt 2>/dev/null)"
-        [ -x "$p" ] && export ZUPT_BIN="$p"
+if [[ -z ${ZUPT_BIN:-} ]]; then
+    if [[ -n ${VAPTVUPT_BIN:-} ]]; then
+        export ZUPT_BIN=$VAPTVUPT_BIN
+    elif [[ -x $script_dir/../zupt ]]; then
+        export ZUPT_BIN=$script_dir/../zupt
+    elif command -v zupt >/dev/null 2>&1; then
+        ZUPT_BIN=$(command -v zupt)
+        export ZUPT_BIN
+    elif [[ -x $script_dir/../vaptvupt ]]; then
+        export ZUPT_BIN=$script_dir/../vaptvupt
+    elif command -v vaptvupt >/dev/null 2>&1; then
+        ZUPT_BIN=$(command -v vaptvupt)
+        export ZUPT_BIN
     fi
 fi
 
-exec "$PY" "$GUI" "$@"
+exec python3 "$gui" "$@"

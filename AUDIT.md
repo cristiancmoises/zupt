@@ -1,85 +1,194 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-# VaptVupt — Security Audit
+# ZUPT 5.2.2 audit guide and finding history
 
-This document records the security review of VaptVupt: what is checked, how, the
-findings and their resolutions, and how to reproduce the checks. It complements
-[SECURITY.md](SECURITY.md) (policy + primitives) and
-[THREAT_MODEL.md](THREAT_MODEL.md) (what is and isn't defended).
+This document describes review surfaces and reproducible checks. It is an
+upstream self-review, not an independent audit, certification, or guarantee.
+`SECURITY.md` defines reporting policy and `THREAT_MODEL.md` defines the
+security boundary.
 
-Scope: the pure-C11 CLI (`src/`, `include/`) and the PySide6/PyQt6 GUI
-(`gui/src/zupt_gui.py`). Out of scope: the optional, separately distributed
-`libzuptsdk` / `libpqvaptvupt` binaries (only present in a `make WITH_SDK=1`
-build); the shipped source-only build contains no vendored binaries.
+## 5.2.2 scope
 
-> **Not independently certified.** This is the project's own structured review,
-> not a third-party accredited audit. Treat it as "reviewed, with reproducible
-> evidence" and do your own review for high-assurance use.
+The baseline scope is the source-only CLI and its bundled source codec:
 
-## Methodology
+- first-party C and headers under `src/` and `include/`;
+- textual architecture-specific source under `jasmin/`, distinguishing
+  compiler-generated output from separately identified hand-written assembly;
+- VaptVupt codec source at release 2.65.3, with provenance and licensing in
+  `THIRD-PARTY-NOTICES.md`;
+- CLI tests, source scanner, build system, CI, and packaging recipes;
+- the Python GUI source as a caller of the CLI.
 
-| Technique | What it covers | Where |
-|---|---|---|
-| **Cryptographic conformance vs an independent reference** | ML-KEM-768 is validated byte-for-byte against **OpenSSL 3.5's FIPS 203 ML-KEM-768** — deterministic keygen `ek` equality plus shared-secret agreement in both cross-decapsulation directions. | `tests/test_mlkem_fips203.sh`, in `make check` |
-| **NIST/RFC known-answer vectors** | SHA-256 (FIPS 180-4), SHA-3/SHAKE (FIPS 202), AES-256-CTR (SP 800-38A F.5.5/F.5.6), HMAC-SHA256 (RFC 4231), X25519 (RFC 7748), ML-KEM-768, PBKDF2. | `tests/test_vectors.c` |
-| **Byte-level tamper sweep** | Every byte position of a representative archive is flipped and re-opened; zero silent-accepts required (F-09). | `tests/` byte-sweep |
-| **Authenticated-encryption fuzzing** | HMAC / integrity-trailer fuzz over many trials (F-06, F-08). | `tests/` |
-| **Constant-time measurement** | dudect-style Welch t-test on the MAC-tag compare and the ML-KEM FO implicit-rejection compare (the two decapsulation-oracle-sensitive paths). | `tests/test_ct_timing.*` |
-| **Memory-safety sanitizers** | ASan + UBSan builds; exact-size decode cases; crafted-input decode. | `make test-asan` |
-| **Static analysis** | cppcheck (warning/style/performance) on the first-party sources; strict `-Wall -Wextra -Wpedantic -Werror` gcc + clang matrix. | CI |
-| **Formal annotations** | Frama-C/ACSL contracts on memory-safety-critical functions; 5 Jasmin-verified constant-time assembly routines (x86_64). | `include/zupt_acsl.h`, `jasmin/` |
-| **Adversarial multi-agent review** | Independent reviewers per dimension (crypto, parser/memory-safety, CLI, GUI↔CLI contract, packaging), each finding then adversarially refuted before it is accepted. | manual, per release |
+The baseline is built with `WITH_SDK=0 WITH_PQBOX=0`. The optional system
+`libvuptsdk` and `libpqvaptvupt` implementations are outside this scope unless
+their exact source packages and versions are added to an assessment. Assembly
+under `jasmin/` is disabled by default and is a separate `WITH_JASMIN=1` build
+choice on supported x86_64 compiler targets. Generated files must record their
+compiler provenance; hand-written files must not be represented as compiler
+output.
 
-## Cryptographic conformance
+## Source-only review
 
-- **ML-KEM-768 — genuine FIPS 203 (v5.0.0).** Earlier releases shipped round-3
-  CRYSTALS-Kyber under a "FIPS 203" label; it was self-consistent and secure as
-  an IND-CCA2 KEM but **not interoperable** with a compliant ML-KEM. Validating
-  against OpenSSL 3.5 revealed three deviations — a transposed matrix-`Â`
-  sampling convention (in both K-PKE.KeyGen and K-PKE.Encrypt), the round-3 final
-  KDF, and the implicit-rejection domain. All three were fixed and the result is
-  now byte-for-byte interoperable with OpenSSL in both directions. A permanent
-  conformance test guards against regression. This changed the shared secret, so
-  it is a wire-breaking change for `--pq`/`--pq-only` archives (see CHANGELOG
-  5.0.0 BREAKING).
-- **Hybrid is the flagship.** `--pq` combines ML-KEM-768 with X25519 through a
-  SHA3-512 combiner; the archive key is secure if **either** primitive holds —
-  the strongest real-world posture and the recommended default. `--pq-only`
-  offers pure ML-KEM-768 for single-primitive compliance mandates.
-- **Envelope.** AES-256-CTR with a **fresh random 128-bit nonce per block**
-  (the dedup keystream-reuse bug is fixed and regression-tested), HMAC-SHA256
-  Encrypt-then-MAC verified before any decryption, and an archive-integrity
-  trailer over the header/footer.
+Release 5.2.2 removes incomplete SDK/PQBOX header snapshots and build
+expectations for a local precompiled library. Git and new upstream source
+archives are intended to contain no compiled executable, object, shared/static
+library, distribution package, unsafe symlink, or unresolved Git LFS pointer.
 
-## Notable findings and resolutions (recent)
-
-| Sev | Finding | Resolution |
-|---|---|---|
-| High | ML-KEM-768 not FIPS 203-conformant / not interoperable | Fixed (transpose + KDF); validated vs OpenSSL; permanent conformance test |
-| High | `compress -p out.zupt f1 f2` overwrote an input file (data loss, exit 0) | Refuse to overwrite an existing non-`.zupt` output without `-y/--force`; self-overwrite guard |
-| High | `compress out.zupt dir -p pw` wrote an **unencrypted** archive (exit 0) | Error on a misplaced option after the archive (`--` escape available) |
-| Critical | AES-CTR keystream reuse across `--dedup` blocks (many-time-pad) | Fresh random per-block nonce; regression test |
-| Medium | Heap OOB read in the AVX2 decoder fast path on crafted input | Bound the 2-/3-byte offset read like the scalar tail path |
-| Medium | GUI defaulted to SDK modes absent from the source-only build (unusable) | Reworked to native `--pq`/`--pq-only`; SDK shown only when supported |
-| Low | Hybrid-decrypt did not wipe secret buffers on key-read failure | Wipe on the error path (matches the pq-only path) |
-| Low | Untruthful banner (Argon2id-default / `/zupt` URL) on source-only builds | Build-aware, accurate `version`/`help` output |
-| Critical* | Packaging (`debian/rules`, `aur`, `nix`, `homebrew`, `opensuse`) would fail a source-only build | Removed vendored-lib/`AUDIT.md` steps, fixed URLs, added completions |
-
-\* build-time failure, not a runtime security issue.
-
-## Known limitations / non-goals
-
-- No protection against a compromised endpoint, a weak password, or key
-  custody failures (see THREAT_MODEL.md).
-- Metadata (total archive size, block count) is observable.
-- The review is reproducible but not third-party certified.
-
-## Reproducing
+Run the same scanner over each representation:
 
 ```sh
-make check                 # vectors, tamper sweep, FIPS 203 conformance, guards
-make test-asan             # ASan + UBSan
-bash tests/test_mlkem_fips203.sh   # FIPS 203 interop vs OpenSSL (needs openssl 3.5+)
+# tracked files and working tree
+scripts/check-source-only.sh
+
+# committed Git tree or immutable tag
+scripts/check-source-only.sh --tag HEAD
+scripts/check-source-only.sh --tag v5.2.2
+
+# generated source archive
+scripts/check-source-only.sh --archive /path/to/zupt-5.2.2.tar.gz
 ```
 
-FIPS 203 conformance needs an ML-KEM-capable OpenSSL (3.5+); the test skips
-gracefully otherwise (e.g. inside a distro package build).
+The scanner checks extensions and magic bytes, nested archives, symlink targets,
+LFS pointers, generated compiler output, and stale vendor-library references.
+It reports paths without printing file contents. Its negative tests include
+renamed ELF, ar, PE/MZ, versioned `.so`, RPM/DEB/AppImage, escaping symlinks,
+and LFS pointers; textual assembly is a permitted source type.
+
+Archive inspection must also fail closed at bounded recursion depth, member
+count, individual expanded size, and total expanded size so a nested archive or
+decompression bomb cannot turn the release scanner into an unbounded resource
+consumer. This hardening and its adversarial fixtures are release-blocking and
+remain `PENDING` until rerun on the exact candidate.
+
+An unknown `.bin` fails by default. A necessary binary data fixture can be
+declared only through `--data-manifest`, with four tab-separated fields for
+path, purpose, provenance, and SPDX license. That manifest does not override a
+compiled/executable magic finding.
+
+An artifact is not clean merely because it has a harmless extension. Conversely,
+binary image data is not executable code: the documented GUI icon assets are
+necessary data and are reviewed separately for purpose, provenance, and license.
+
+## Reproducible project checks
+
+The baseline gates are:
+
+```sh
+make clean
+make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf 1)" \
+  WITH_SDK=0 WITH_PQBOX=0 V=1
+make WITH_SDK=0 WITH_PQBOX=0 check
+make WITH_SDK=0 WITH_PQBOX=0 test-all
+```
+
+Relevant review layers include:
+
+| Layer | Evidence source | Interpretation |
+|---|---|---|
+| Source boundary | `scripts/check-source-only.sh`, `tests/test_source_only.sh` | Fails on prohibited artifacts or unsafe source layout |
+| Primitive vectors | `tests/test_vectors.c` | Known-answer regression for implemented primitives |
+| ML-KEM interoperability | `tests/test_mlkem_fips203.sh` | Runs only with an ML-KEM-capable OpenSSL 3.5+; otherwise `SKIP` |
+| Archive behavior | quick/regression, traversal, argument-order, block-swap, nonce, and exact-size tests | Exercises current parser, integrity, and round-trip properties |
+| Password sources | `tests/test_password_sources.sh` | Exercises password-file, inherited-descriptor and explicit-prompt rejection paths without logging password contents |
+| Key files | native key regressions | Exercises no-replace private-file creation, POSIX mode `0600`/Windows current-user-only DACL, failed-partial behavior, checksum, and exact ZKEY/ZPQK version/flags/reserved/size/role validation |
+| Terminal output | archive-comment regression | Requires displayed untrusted comments to contain no raw terminal-control sequence |
+| Prompt cleanup | PTY signal regression | Requires handled POSIX interruption to restore the saved terminal state |
+| Sanitizers | `make test-asan-run` | Builds and executes separate ASan/UBSan/LSan evidence where supported; not a substitute for normal tests |
+| Static analysis | compiler analyzer, cppcheck, scan-build, clang-tidy where installed | Tool-specific findings must be reviewed, not suppressed globally |
+| Shell and metadata | shellcheck, SPDX/license checks, packaging syntax checks | Applies only when the named tool actually executed |
+| Source reproducibility | two `make dist` runs with identical committed input and epoch | Requires equal SHA-256 digests and clean archive scans |
+| Installed package | target-native package inspection and `scripts/test-installed-zupt.sh` | Applies only to the exact OS/release/architecture tested |
+
+This table identifies evidence, not results. The release validation report and
+`packaging/opensuse/README.md` record `PASS`, `FAIL`, or `SKIP` for each actual
+run. Missing tools, OBS access, other architectures, Leap, and SLE must not be
+reported as passing without evidence.
+
+The 5.2.2 key-file, terminal-comment, password-prompt, explicit-Bash regression,
+and scanner-resource-limit changes were added during the final self-audit. All
+affected checks and the complete required suite must be rerun after they land;
+no earlier result is a final-candidate `PASS`.
+
+## Cryptographic review boundary
+
+The repository includes NIST/RFC known-answer tests and a conditional OpenSSL
+ML-KEM interoperability check. These establish specific functional outputs in
+the environments where they pass; they do not prove implementation security,
+constant-time execution, or resistance to every malformed input.
+
+Portable C is the default. Sensitive comparison/select code is written to avoid
+secret-dependent branching, but compiler output remains platform-dependent.
+Optional generated Jasmin functions have a narrower assurance scope and do not
+formally verify the parser, codec, key management, or whole application. The C
+AES implementation has documented cache-timing risk on hostile shared hardware.
+
+## Historical findings
+
+The following entries are retained as release history. Their regression tests
+should be rerun, but the historical resolution does not itself constitute a
+5.2.2 test result.
+
+| First corrected | Severity | Finding | Resolution recorded at the time |
+|---|---|---|---|
+| 4.2.0 | Critical | AES-CTR nonce reuse across encrypted `--dedup` blocks | Changed to fresh random per-block nonces; older affected archives should be re-encrypted |
+| 5.0.0 | High | Native ML-KEM used round-3 CRYSTALS-Kyber semantics while labelled FIPS 203 | Corrected matrix/KDF/rejection behavior and added OpenSSL interoperability regression; native PQ compatibility changed |
+| 5.0.0 | High | A malformed password-option ordering could overwrite an input | Added output/self-overwrite and argument-order guards |
+| 5.0.0 | High | A misplaced option could cause plaintext output when encryption was intended | Reject misplaced options unless explicitly escaped |
+| 5.0.0 | Medium | AVX2 codec offset read could exceed a crafted input tail | Added the scalar-equivalent bound and exact-size regression |
+| 5.2.2 | Build/supply chain | Build and packaging paths expected local precompiled optional libraries | Removed incomplete vendor trees; optional integrations now require explicit system development packages |
+| 5.2.2 | High | Extraction used mutable string paths and could follow hostile parent/leaf links or publish partially verified output | Added strict index-path validation, descriptor/handle-relative traversal, no-replace atomic publication, exact size/hash validation, and hostile-archive regressions |
+| 5.2.2 | High | Compression or disk backup could name its own input through an alternate spelling, hardlink, or symlink | Compare open-file identity before creating the output in normal, solid, and disk-image writers; `--force` cannot bypass the guard |
+| 5.2.2 | High | Disk restore validated a pathname before destructively consuming it and did not prove raw-device capacity before writing | Snapshot the measured archive privately before target open, restore from the same stream, and fail closed on unknown or insufficient device capacity |
+| 5.2.2 | High | Some decoders did not require DATA at every payload position, and legacy encrypted+dedup disk references used a different AAD sequence | Enforce frame types in serial, threaded, solid, test, and disk readers; reconstruct the exact v5.2.1 disk AAD sequence with an actual encrypted DATA/DATA/REF/DATA fixture |
+| 5.2.2 | Medium | Benchmark scratch paths were predictable from the process ID | Create one random private scratch directory and clean it without following links |
+| 5.2.2 | High | Native private-key output and ZKEY/ZPQK readers did not uniformly enforce no-replace private permissions and every structural field | Create without replacement using POSIX mode `0600` or a Windows current-user-only DACL; validate checksum, version, flags, reserved bytes, exact size, and public/private role before use; leave a failed exclusive partial for manual removal rather than risk unlinking a pathname replacement |
+| 5.2.2 | Medium | An authenticated archive comment could still inject terminal control sequences when displayed | Render untrusted comment bytes in a terminal-safe form without changing the authenticated archive value |
+| 5.2.2 | Medium | A signal during an interactive POSIX password prompt could leave terminal echo/state altered | Restore saved terminal settings on handled interruptions; cover the behavior with a PTY regression |
+| 5.2.2 | Test reliability | `tests/regression.sh` used Bash syntax without making the interpreter contract explicit | Execute the suite explicitly with Bash and keep syntax/interpreter checks in release gates |
+| 5.2.2 | Documentation/licensing | Current documentation incorrectly denied historical MIT grants visible in published Git history | Added a factual erratum: current source follows current SPDX notices, while earlier grants and immutable tags remain valid and unmodified |
+
+See `CHANGELOG.md` for the complete per-release history and compatibility notes.
+Old tags remain immutable and may contain artifacts or build assumptions removed
+from current branches and new tags.
+
+## Packaging review
+
+The openSUSE package must build the immutable source tag with
+`WITH_SDK=0 WITH_PQBOX=0`, preserve distribution flags and debuginfo, run a real
+`%check`, install through `DESTDIR`, and omit the renamed-era `vaptvupt` alias from
+the main package. Review the built RPM for dependencies, paths, permissions,
+RPATH/RUNPATH, hardening, debug information, licenses, and unowned files, then
+test it after installation in a disposable target environment.
+
+Release-page DEB, binary RPM, SRPM, notice-bearing Linux tar.xz, Windows ZIP,
+and macOS DMG packages are separate outputs, never members of Git or source
+archives. Publish only formats built and tested for their stated target and
+include SHA-256 checksums. The gated GUI set adds the architecture-independent
+DEB, noarch/source RPM, and source-only portable GUI ZIP. Package gates include
+exact payload/dependency and installed off-screen integration checks; the
+portable ZIP additionally receives source scans, an exact safe-member allowlist,
+and an extracted launcher test. An AppImage is not promoted by the 5.2.2
+policy; AppDir and Flatpak bundles, GUI platform installers, and bare
+Linux/Windows executables are also excluded. Windows ZIP and macOS DMG outputs
+remain CLI-only.
+
+No Wine result is retained as release evidence for 5.2.2. Cross-compilation
+does not establish native-Windows behavior. Extended-length/device namespace
+paths, raw UNC output roots, and mapped/network-drive output are unsupported;
+the native Windows workflow remains a publication gate for the ZIP containing
+the executable.
+
+## Known limitations
+
+- No independent security audit or certification has been performed.
+- Fuzzing and sanitizers sample behavior; they cannot prove absence of memory or
+  parser defects.
+- Static analysis is tool-, configuration-, and path-dependent.
+- Optional SDK/PQBOX code is outside the default assessment.
+- Side-channel behavior is compiler-, CPU-, OS-, and workload-dependent.
+- A clean source archive does not by itself establish that a binary was built
+  reproducibly or on a trusted runner.
+- Passing on one OS or architecture is not evidence for another.
+
+Record exact commands, tool versions, target, exit status, and non-sensitive
+logs for every release gate. Never convert an unavailable or unexecuted check
+from `SKIP` to `PASS`.

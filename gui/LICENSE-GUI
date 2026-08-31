@@ -3,14 +3,13 @@
 
  Copyright (C) 2026 Cristian Cezar Moisés <zupt@riseup.net>
 
- VaptVupt GUI (formerly Zupt GUI; parent application renamed in v3.0.0
- due to a prior INPI Brasil trademark registration of "Zupt") is free
+ ZUPT GUI is free
  software: you can redistribute it and/or modify it under the terms of
  the GNU Affero General Public License as published by the Free
  Software Foundation, either version 3 of the License, or (at your
  option) any later version.
 
- VaptVupt GUI is distributed in the hope that it will be useful, but
+ ZUPT GUI is distributed in the hope that it will be useful, but
  WITHOUT ANY WARRANTY; without even the implied warranty of
  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  Affero General Public License for more details.
@@ -23,21 +22,26 @@
 
  ─────────────────────────────────────────────────────────────────────
 
- PRIOR LICENSE NOTE
+ HISTORICAL LICENSE NOTE
 
- Earlier copies of this file may have stated "MIT License" — that was
- a packaging mistake inherited from a template. The GUI source code's
- SPDX-License-Identifier header has always been AGPL-3.0-or-later;
- the file-level license here is corrected to match. There is no
- historical MIT-licensed release of VaptVupt GUI; do not assume MIT
- grant from any prior tarball that contained this file.
+ Published repository history includes earlier copies of this file
+ under the MIT License. In particular, commit d4660e6539c8b6eeba81751c018217d978fdd618
+ and the v2.2.2 source tag contain an MIT-form gui/LICENSE-GUI. Those
+ permissions remain applicable to the exact material distributed under
+ them; this file does not revoke or reinterpret a historical grant.
+
+ The current GUI source carries AGPL-3.0-or-later SPDX notices. Apply
+ the notices shipped with the exact source revision being used. See the
+ 5.2.2 licensing erratum in CHANGELOG.md for the repository record.
 
  ─────────────────────────────────────────────────────────────────────
 
  COMMERCIAL LICENSING
 
- The VaptVupt GUI may be commercially relicensed by the author. If
- you require relief from copyleft terms (proprietary derivatives,
- closed-source bundling, etc.), contact:
+ The applicable copyright holder may offer controlled first-party
+ rights under a separately executed commercial agreement. This notice
+ is not a commercial license grant, does not revoke a public license,
+ and cannot relicense rights that the licensor does not control. For
+ inquiries, contact:
 
      sac@securityops.co

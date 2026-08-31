@@ -5,6 +5,7 @@
  * Multi-threaded compression, AES-256 encryption, progress bars
  */
 #include "zupt.h"
+#include "zupt_internal.h"
 #include "zupt_thread.h"
 #include "zupt_cpuid.h"
 #include "vaptvupt.h"  /* VAPTVUPT: codec ID */
@@ -12,6 +13,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <limits.h>
+#include <errno.h>
 #include <sys/stat.h>   /* stat()/S_ISREG for the compress output-overwrite guard */
 
 /* MSVC's <sys/stat.h> defines _S_IFREG/S_IFREG but not the S_ISREG macro. */
@@ -21,14 +24,243 @@
 
 #ifdef _WIN32
   #include <conio.h>
+  #include <windows.h>
 #else
+  #include <signal.h>
   #include <termios.h>
 #endif
+
+static double zupt_monotonic_seconds(void) {
+#ifdef _WIN32
+    LARGE_INTEGER frequency;
+    LARGE_INTEGER counter;
+    if (QueryPerformanceFrequency(&frequency) &&
+        frequency.QuadPart > 0 &&
+        QueryPerformanceCounter(&counter)) {
+        return (double)counter.QuadPart / (double)frequency.QuadPart;
+    }
+    return (double)GetTickCount64() / 1000.0;
+#else
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+        return (double)time(NULL);
+    }
+    return (double)now.tv_sec + (double)now.tv_nsec / 1e9;
+#endif
+}
+
+static int zupt_join_temp_path(char *output, size_t capacity,
+                               const char *directory, const char *leaf) {
+    if (!output || !directory || !leaf || capacity == 0) return 0;
+    int written = snprintf(output, capacity, "%s%c%s", directory,
+                           ZUPT_PATH_SEP, leaf);
+    return written >= 0 && (size_t)written < capacity;
+}
+
+static int zupt_create_private_temp_directory(char *output, size_t capacity) {
+    if (!output || capacity == 0) return 0;
+#ifdef _WIN32
+    wchar_t temp_directory[MAX_PATH + 1];
+    DWORD length = GetTempPathW(MAX_PATH + 1, temp_directory);
+    if (length == 0 || length > MAX_PATH || length + 58u > MAX_PATH) return 0;
+    static const wchar_t hex[] = L"0123456789abcdef";
+    for (int attempt = 0; attempt < 64; attempt++) {
+        uint8_t nonce[16];
+        wchar_t candidate[MAX_PATH + 1];
+        zupt_random_bytes(nonce, sizeof(nonce));
+        memcpy(candidate, temp_directory,
+               (size_t)length * sizeof(*candidate));
+        size_t position = length;
+        if (position > 0 && candidate[position - 1] != L'\\' &&
+            candidate[position - 1] != L'/')
+            candidate[position++] = L'\\';
+        const wchar_t prefix[] = L"zupt-bench-";
+        memcpy(candidate + position, prefix,
+               wcslen(prefix) * sizeof(*candidate));
+        position += wcslen(prefix);
+        for (size_t i = 0; i < sizeof(nonce); i++) {
+            candidate[position++] = hex[nonce[i] >> 4];
+            candidate[position++] = hex[nonce[i] & 0x0f];
+        }
+        candidate[position] = L'\0';
+        if (!CreateDirectoryW(candidate, NULL)) {
+            DWORD error = GetLastError();
+            if (error == ERROR_ALREADY_EXISTS) continue;
+            return 0;
+        }
+        char *utf8 = zupt_win_wide_to_utf8_alloc(candidate);
+        if (!utf8 || strlen(utf8) >= capacity) {
+            free(utf8);
+            RemoveDirectoryW(candidate);
+            return 0;
+        }
+        memcpy(output, utf8, strlen(utf8) + 1u);
+        free(utf8);
+        return 1;
+    }
+    return 0;
+#else
+    static const char pattern[] = "/tmp/zupt-bench-XXXXXX";
+    if (sizeof(pattern) > capacity) return 0;
+    memcpy(output, pattern, sizeof(pattern));
+    if (!mkdtemp(output)) return 0;
+    if (chmod(output, 0700) != 0) {
+        rmdir(output);
+        output[0] = '\0';
+        return 0;
+    }
+    return 1;
+#endif
+}
+
+#ifdef _WIN32
+static int zupt_remove_tree_wide(const wchar_t *directory) {
+    size_t directory_length = wcslen(directory);
+    wchar_t *pattern = (wchar_t *)calloc(directory_length + 3u,
+                                         sizeof(*pattern));
+    if (!pattern) return -1;
+    memcpy(pattern, directory, directory_length * sizeof(*pattern));
+    pattern[directory_length] = L'\\';
+    pattern[directory_length + 1u] = L'*';
+
+    WIN32_FIND_DATAW data;
+    HANDLE search = FindFirstFileW(pattern, &data);
+    free(pattern);
+    int failed = 0;
+    if (search != INVALID_HANDLE_VALUE) {
+        do {
+            if (wcscmp(data.cFileName, L".") == 0 ||
+                wcscmp(data.cFileName, L"..") == 0)
+                continue;
+            size_t name_length = wcslen(data.cFileName);
+            wchar_t *child = (wchar_t *)calloc(
+                directory_length + name_length + 2u, sizeof(*child));
+            if (!child) {
+                failed = 1;
+                continue;
+            }
+            memcpy(child, directory, directory_length * sizeof(*child));
+            child[directory_length] = L'\\';
+            memcpy(child + directory_length + 1u, data.cFileName,
+                   (name_length + 1u) * sizeof(*child));
+            if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+                if ((data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+                    if (!RemoveDirectoryW(child)) failed = 1;
+                } else if (zupt_remove_tree_wide(child) != 0) {
+                    failed = 1;
+                }
+            } else {
+                SetFileAttributesW(child, FILE_ATTRIBUTE_NORMAL);
+                if (!DeleteFileW(child)) failed = 1;
+            }
+            free(child);
+        } while (FindNextFileW(search, &data));
+        if (!FindClose(search)) failed = 1;
+    } else if (GetLastError() != ERROR_FILE_NOT_FOUND) {
+        failed = 1;
+    }
+    if (!RemoveDirectoryW(directory)) failed = 1;
+    return failed ? -1 : 0;
+}
+#endif
+
+static int zupt_remove_temp_tree(const char *directory) {
+    if (!directory || directory[0] == '\0') return 0;
+#ifdef _WIN32
+    wchar_t *wide = zupt_win_utf8_to_wide_alloc(directory);
+    if (!wide) return -1;
+    int result = zupt_remove_tree_wide(wide);
+    free(wide);
+    return result;
+#else
+    DIR *stream = opendir(directory);
+    if (!stream) return errno == ENOENT ? 0 : -1;
+    int failed = 0;
+    struct dirent *entry;
+    while ((entry = readdir(stream)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 ||
+            strcmp(entry->d_name, "..") == 0)
+            continue;
+        size_t needed = strlen(directory) + strlen(entry->d_name) + 2u;
+        char *child = (char *)malloc(needed);
+        if (!child) {
+            failed = 1;
+            continue;
+        }
+        if (!zupt_join_temp_path(child, needed, directory, entry->d_name)) {
+            free(child);
+            failed = 1;
+            continue;
+        }
+        struct stat info;
+        if (lstat(child, &info) != 0) {
+            failed = 1;
+        } else if (S_ISDIR(info.st_mode)) {
+            if (zupt_remove_temp_tree(child) != 0) failed = 1;
+        } else if (unlink(child) != 0) {
+            failed = 1;
+        }
+        free(child);
+    }
+    if (closedir(stream) != 0) failed = 1;
+    if (rmdir(directory) != 0) failed = 1;
+    return failed ? -1 : 0;
+#endif
+}
+
+static int zupt_write_benchmark_corpus(const char *directory) {
+    if (zupt_mkdir(directory) != 0) return 0;
+    char path[ZUPT_MAX_PATH + 64];
+    FILE *stream = NULL;
+    int ok = 1;
+
+    if (!zupt_join_temp_path(path, sizeof(path), directory, "text.txt") ||
+        !(stream = zupt_fopen_path(path, "wb")))
+        return 0;
+    for (int i = 0; i < 15000 && ok; i++)
+        if (fprintf(stream,
+                    "The quick brown fox jumps over the lazy dog. Line %d value %d.\n",
+                    i, i * 17 % 997) < 0)
+            ok = 0;
+    if (fclose(stream) != 0) ok = 0;
+
+    if (!zupt_join_temp_path(path, sizeof(path), directory, "data.json") ||
+        !(stream = zupt_fopen_path(path, "wb")))
+        return 0;
+    for (int i = 0; i < 12000 && ok; i++)
+        if (fprintf(stream,
+                    "{\"id\":%d,\"name\":\"user_%d\",\"score\":%d}\n",
+                    i, i, i * 31 % 1000) < 0)
+            ok = 0;
+    if (fclose(stream) != 0) ok = 0;
+
+    if (!zupt_join_temp_path(path, sizeof(path), directory, "records.csv") ||
+        !(stream = zupt_fopen_path(path, "wb")))
+        return 0;
+    if (fprintf(stream, "id,name,score\n") < 0) ok = 0;
+    for (int i = 0; i < 14000 && ok; i++)
+        if (fprintf(stream, "%d,user_%d,%d\n", i, i, i * 17 % 100) < 0)
+            ok = 0;
+    if (fclose(stream) != 0) ok = 0;
+
+    if (!zupt_join_temp_path(path, sizeof(path), directory, "random.bin") ||
+        !(stream = zupt_fopen_path(path, "wb")))
+        return 0;
+    uint8_t random_bytes[4096];
+    for (int i = 0; i < 64 && ok; i++) {
+        zupt_random_bytes(random_bytes, sizeof(random_bytes));
+        if (fwrite(random_bytes, 1, sizeof(random_bytes), stream) !=
+            sizeof(random_bytes))
+            ok = 0;
+    }
+    if (fclose(stream) != 0) ok = 0;
+    return ok;
+}
 
 static void banner(void) {
     fprintf(stderr,
         "%s %s - %s\n"
-        "Format v%d.%d | Codec: VaptVupt + Zupt-LZ | Checksum: XXH64\n"
+        "Format v%d.%d | Codec: VaptVupt + ZUPT-LZ | Checksum: XXH64\n"
         "Encryption: AES-256-CTR + HMAC-SHA256 | KDF: "
 #ifdef ZUPT_WITH_SDK
         "Argon2id (default) / PBKDF2 (--kdf pbkdf2)\n\n",
@@ -50,37 +282,43 @@ static void usage(void) {
     /* ── Section 1: synopsis ── */
     fprintf(stderr,
         "Usage:\n"
-        "  vaptvupt compress [OPTIONS] <output.zupt> <files/dirs...>\n"
-        "  vaptvupt extract  [OPTIONS] <archive.zupt>\n"
-        "  vaptvupt list     [OPTIONS] <archive.zupt>\n"
-        "  vaptvupt test     [OPTIONS] <archive.zupt>\n"
-        "  vaptvupt info     <archive.zupt>           Archive metadata (no password needed)\n"
-        "  vaptvupt bench    <files/dirs...>          Compare levels 1-9\n"
-        "  vaptvupt disk     backup|restore            Full-disk backup/restore\n"
-        "  vaptvupt keygen                            Key generation\n"
-        "  vaptvupt version\n"
-        "  vaptvupt help\n"
+        "  zupt compress [OPTIONS] <output.zupt> <files/dirs...>\n"
+        "  zupt extract  [OPTIONS] <archive.zupt>\n"
+        "  zupt list     [OPTIONS] <archive.zupt>\n"
+        "  zupt test     [OPTIONS] <archive.zupt>\n"
+        "  zupt info     <archive.zupt>           Archive metadata (no password needed)\n"
+        "  zupt bench    <files/dirs...>          Compare levels 1-9\n"
+        "  zupt disk     backup|restore            Full-disk backup/restore\n"
+        "  zupt keygen                            Key generation\n"
+        "  zupt version\n"
+        "  zupt help\n"
         "\n"
-        "Note: archive extension stays .zupt for format continuity.\n"
-        "      The `zupt` command is preserved as a legacy alias.\n"
+        "Note: archive extension and format remain .zupt/v1.6.\n"
+        "      `zupt` is the primary command. A `vaptvupt` compatibility alias\n"
+        "      is optional (INSTALL_LEGACY_ALIAS=1).\n"
         "\n");
 
     /* ── Section 2: compress options ── */
     fprintf(stderr,
         "Compress Options:\n"
         "  -l, --level <1-9>     Compression level (default: 7)\n"
-        "                          1-2: fast, small window\n"
-        "                          3-5: balanced\n"
-        "                          6-7: high compression (default)\n"
-        "                          8-9: maximum, 1MB window, deep search\n"
-        "  -b, --block <SIZE>    Block size in bytes (default: 128KB)\n"
+        "                          1-2: fast, automatic 128 KiB blocks\n"
+        "                          3-4: balanced, automatic 1 MiB blocks\n"
+        "                          5-6: high, automatic 2 MiB blocks\n"
+        "                          7: default, automatic 4 MiB blocks\n"
+        "                          8-9: maximum, automatic 8 MiB blocks\n"
+        "  -b, --block <SIZE>    Override the automatic block size in bytes\n"
         "  -s, --store           Store without compression\n"
         "  -f, --fast            Use fast LZ codec (less compression)\n"
-        "  --vv, --vaptvupt      Use VaptVupt codec (LZ + ANS entropy, default)\n"
-        "  --lzhp                Use Zupt-LZHP codec (LZ77+Huffman, no SIMD needed)\n"
-        "  -p, --password <PW>   Encrypt with AES-256 (bare -p prompts). Options must\n"
-        "                          precede <output.zupt>; a value ending in .zupt is\n"
-        "                          taken as the password, so put -p before the archive.\n"
+        "      Default codec: automatic; VaptVupt LZ + ANS on AVX2/NEON,\n"
+        "      with portable ZUPT-LZHP fallback on other CPUs.\n"
+        "  --vv, --vaptvupt      Force VaptVupt codec (LZ + ANS entropy)\n"
+        "  --lzhp                Use ZUPT-LZHP codec (LZ77+Huffman, no SIMD needed)\n"
+        "  -p, --password <PW>   Encrypt with AES-256 (visible in process arguments)\n"
+        "  --password-prompt     Read the password interactively without echo\n"
+        "  --pass-file <FILE>    Read the password from the first line of FILE\n"
+        "  --pass-fd <FD>        Read the password from an inherited file descriptor\n"
+        "                          All options must precede <output.zupt>.\n"
 #ifdef ZUPT_WITH_SDK
         "  --kdf <argon2id|pbkdf2>   KDF for password mode. Default: argon2id.\n"
         "                            Use 'pbkdf2' for v2.4.0-and-older reader compatibility.\n"
@@ -105,11 +343,15 @@ static void usage(void) {
     fprintf(stderr,
         "Extract/List/Test Options:\n"
         "  -o, --output <DIR>    Output directory (extract only)\n"
-        "  -p, --password <PW>   Decryption password\n"
+        "  -p, --password <PW>   Decryption password (visible in process arguments)\n"
+        "  --password-prompt     Read the password interactively without echo\n"
+        "  --pass-file <FILE>    Read the password from the first line of FILE\n"
+        "  --pass-fd <FD>        Read the password from an inherited file descriptor\n"
         "  --pq <privkey>        Post-quantum HYBRID decryption (ML-KEM-768 + X25519)\n"
         "  --pq-only <privkey>   FULL post-quantum decryption (ML-KEM-768 only)\n"
         "  --pq-sdk <privkey>    Post-quantum decryption via libvuptsdk (WITH_SDK=1 builds only)\n"
         "  --pq-box <privkey>    Post-quantum sealed-box decryption (libpqvaptvupt)\n"
+        "  --allow-legacy-no-ait  Accept a trusted old archive without its integrity trailer\n"
         "  -v, --verbose         Verbose output\n"
         "  -t, --threads <N>     Thread count for decompression\n"
         "\n"
@@ -130,31 +372,32 @@ static void usage(void) {
     fprintf(stderr,
         "Examples:\n"
         "  # Post-quantum HYBRID workflow (--pq, recommended)\n"
-        "  vaptvupt keygen -o mykey.key                                   # Generate hybrid private key\n"
-        "  vaptvupt keygen --pub -o pub.key -k mykey.key                  # Export public key\n"
-        "  vaptvupt compress --pq pub.key backup.zupt ~/Documents/        # Encrypt\n"
-        "  vaptvupt extract  --pq mykey.key backup.zupt -o ~/restored/    # Decrypt\n"
+        "  zupt keygen -o mykey.key                                   # Generate hybrid private key\n"
+        "  zupt keygen --pub -o pub.key -k mykey.key                  # Export public key\n"
+        "  zupt compress --pq pub.key backup.zupt ~/Documents/        # Encrypt\n"
+        "  zupt extract  --pq mykey.key backup.zupt -o ~/restored/    # Decrypt\n"
         "\n"
         "  # Full (pure) post-quantum workflow (--pq-only, ML-KEM-768 only)\n"
-        "  vaptvupt keygen --pq-only -o pqkey                            # Generate pq-only private key\n"
-        "  vaptvupt keygen --pub --pq-only -o pqkey.pub -k pqkey          # Export public key\n"
-        "  vaptvupt compress --pq-only pqkey.pub backup.zupt files/       # Encrypt (no classical layer)\n"
-        "  vaptvupt extract  --pq-only pqkey backup.zupt -o out/          # Decrypt\n"
+        "  zupt keygen --pq-only -o pqkey                            # Generate pq-only private key\n"
+        "  zupt keygen --pub --pq-only -o pqkey.pub -k pqkey          # Export public key\n"
+        "  zupt compress --pq-only pqkey.pub backup.zupt files/       # Encrypt (no classical layer)\n"
+        "  zupt extract  --pq-only pqkey backup.zupt -o out/          # Decrypt\n"
         "\n"
         "  # Conventional / password (PBKDF2-SHA256)\n"
-        "  vaptvupt compress backup.zupt ~/Documents/                     # No encryption\n"
-        "  vaptvupt compress -l 9 -p mysecret secure.zupt data/           # Password + max compression\n"
-        "  vaptvupt list secure.zupt -p mysecret                          # List with password\n"
-        "  vaptvupt extract -o restored/ -p mysecret secure.zupt          # Extract with password\n"
-        "  vaptvupt bench ~/Documents/                                # Benchmark\n"
+        "  zupt compress backup.zupt ~/Documents/                     # No encryption\n"
+        "  zupt compress -l 9 -p mysecret secure.zupt data/           # Password + max compression\n"
+        "  zupt list secure.zupt -p mysecret                          # List with password\n"
+        "  zupt extract -o restored/ -p mysecret secure.zupt          # Extract with password\n"
+        "  zupt bench ~/Documents/                                # Benchmark\n"
         "\n"
-        "  # SDK v2 / sealed-box modes require an upstream 'make WITH_SDK=1' build:\n"
-        "  #   keygen --sdk / --box, compress/extract --pq-sdk / --pq-box\n"
+        "  # Optional modes require system development packages at build time:\n"
+        "  #   WITH_SDK=1: keygen --sdk, compress/extract --pq-sdk\n"
+        "  #   WITH_PQBOX=1: keygen --box, compress/extract --pq-box\n"
         "\n");
 
     /* ── Section 5: footer ── */
     fprintf(stderr,
-        "Default codec: VaptVupt LZ + ANS " ZUPT_CODEC_RELEASE " (AVX2/NEON SIMD)\n"
+        "Default codec: Auto (VaptVupt " ZUPT_CODEC_RELEASE " with AVX2/NEON; LZHP fallback)\n"
         "Encryption:    AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)\n"
 #ifdef ZUPT_WITH_SDK
         "KDF:           Argon2id (default); PBKDF2-SHA256 600k iter via --kdf pbkdf2\n"
@@ -162,49 +405,303 @@ static void usage(void) {
         "KDF:           PBKDF2-SHA256 600k iter (default; Argon2id needs WITH_SDK=1)\n"
 #endif
         "Post-quantum:  --pq (hybrid ML-KEM-768 + X25519, recommended); --pq-only (ML-KEM-768 only)\n"
-        "Format:        v1.6 (since v2.3.1); archives byte-compatible with v2.3.1+\n"
+        "Format:        v1.6; 5.2.2 adds flag-gated disk/dedup records\n"
         "\n"
-        "License: AGPL-3.0-or-later (VaptVupt) + GPL-3.0-or-later (VaptVupt codec)\n"
-        "         Dual-licensed: commercial license available: sac@securityops.co\n"
-        "Project: https://git.securityops.co/cristiancmoises/vaptvupt\n"
+        "License: AGPL-3.0-or-later (ZUPT) + GPL-3.0-or-later (codec)\n"
+        "         + BSD-2-Clause (xxHash-derived XXH64 routines)\n"
+        "         + CC0-1.0 (pq-crystals/kyber-derived ML-KEM portions)\n"
+        "         + BSD-3-Clause (curve25519-donna-derived X25519 portions)\n"
+        "         Commercial terms may be available by agreement: sac@securityops.co\n"
+        "Project: https://github.com/cristiancmoises/zupt\n"
     );
 }
 
-/* Securely prompt for password (hide input) */
-static void prompt_password(const char *prompt, char *buf, size_t cap) {
+#ifndef _WIN32
+static volatile sig_atomic_t zupt_password_prompt_signal;
+
+static void zupt_password_prompt_interrupted(int signal_number) {
+    zupt_password_prompt_signal = signal_number;
+}
+#endif
+
+/* Securely prompt for password (hide input). */
+static int prompt_password(const char *prompt, char *buf, size_t cap) {
+    if (!buf || cap < 2) return 0;
+    buf[0] = '\0';
+#ifdef _WIN32
+    if (!_isatty(_fileno(stdin))) {
+        fprintf(stderr, "Error: password prompt requires a terminal.\n");
+        return 0;
+    }
+#else
+    if (!isatty(STDIN_FILENO)) {
+        fprintf(stderr, "Error: password prompt requires a terminal.\n");
+        return 0;
+    }
+#endif
     fprintf(stderr, "%s", prompt);
 #ifdef _WIN32
     size_t i = 0;
-    while (i < cap - 1) {
+    int too_long = 0;
+    for (;;) {
         int c = _getch();
         if (c == '\r' || c == '\n') break;
-        if (c == '\b' && i > 0) { i--; continue; }
-        buf[i++] = (char)c;
+        if (c == 0 || c == 0xe0) {
+            (void)_getch();
+            continue;
+        }
+        if (c == 3) {
+            zupt_secure_wipe(buf, cap);
+            fprintf(stderr, "\nError: password prompt interrupted.\n");
+            return 0;
+        }
+        if (c == '\b') {
+            if (i > 0) i--;
+            continue;
+        }
+        if (i < cap - 1) buf[i++] = (char)c;
+        else too_long = 1;
     }
     buf[i] = '\0';
     fprintf(stderr, "\n");
+    if (too_long) {
+        fprintf(stderr, "Error: password exceeds %zu bytes.\n", cap - 1);
+        zupt_secure_wipe(buf, cap);
+        return 0;
+    }
+    return i > 0;
 #else
     struct termios old, new_t;
-    tcgetattr(0, &old);
+    static const int prompt_signals[] = {SIGINT, SIGTERM, SIGHUP, SIGQUIT};
+    struct sigaction previous[sizeof(prompt_signals) / sizeof(prompt_signals[0])];
+    struct sigaction temporary;
+    sigset_t prompt_signal_mask, previous_signal_mask;
+    size_t handlers_installed = 0;
+    if (tcgetattr(STDIN_FILENO, &old) != 0) {
+        fprintf(stderr, "\nError: cannot configure terminal input.\n");
+        return 0;
+    }
+    memset(&temporary, 0, sizeof(temporary));
+    temporary.sa_handler = zupt_password_prompt_interrupted;
+    sigemptyset(&prompt_signal_mask);
+    for (size_t index = 0;
+         index < sizeof(prompt_signals) / sizeof(prompt_signals[0]);
+         index++)
+        (void)sigaddset(&prompt_signal_mask, prompt_signals[index]);
+    temporary.sa_mask = prompt_signal_mask;
+    zupt_password_prompt_signal = 0;
+    for (size_t index = 0;
+         index < sizeof(prompt_signals) / sizeof(prompt_signals[0]);
+         index++) {
+        if (sigaction(prompt_signals[index], &temporary,
+                      &previous[index]) != 0) {
+            while (handlers_installed > 0) {
+                handlers_installed--;
+                (void)sigaction(prompt_signals[handlers_installed],
+                                &previous[handlers_installed], NULL);
+            }
+            fprintf(stderr, "\nError: cannot protect terminal state.\n");
+            return 0;
+        }
+        handlers_installed++;
+    }
     new_t = old;
     /* Clear the ECHO bit. ~ECHO is `int` (negative); c_lflag is
      * tcflag_t (unsigned int). The cast makes the conversion
      * explicit and silences -Wsign-conversion. */
     new_t.c_lflag &= (tcflag_t)~ECHO;
-    tcsetattr(0, TCSANOW, &new_t);
-    if (fgets(buf, (int)cap, stdin)) {
-        size_t len = strlen(buf);
-        if (len > 0 && buf[len-1] == '\n') buf[len-1] = '\0';
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &new_t) != 0) {
+        while (handlers_installed > 0) {
+            handlers_installed--;
+            (void)sigaction(prompt_signals[handlers_installed],
+                            &previous[handlers_installed], NULL);
+        }
+        fprintf(stderr, "\nError: cannot disable terminal echo.\n");
+        return 0;
     }
-    tcsetattr(0, TCSANOW, &old);
+    int ok = 0;
+    int too_long = 0;
+    if (zupt_password_prompt_signal == 0 && fgets(buf, (int)cap, stdin)) {
+        size_t len = strlen(buf);
+        if (len > 0 && buf[len-1] == '\n') {
+            buf[len-1] = '\0';
+        } else {
+            int ch = fgetc(stdin);
+            if (ch != '\n' && ch != EOF) {
+                too_long = 1;
+                while ((ch = fgetc(stdin)) != '\n' && ch != EOF) {}
+            }
+            if (ferror(stdin)) too_long = 1;
+        }
+        ok = buf[0] != '\0';
+    }
+    /* Block every handled prompt signal while restoring terminal state and
+     * the caller's handlers. Otherwise a second signal can interrupt the one
+     * tcsetattr attempt or land between the signal snapshot and restoration,
+     * leaving echo disabled or swallowing the later signal. */
+    int signals_blocked =
+        sigprocmask(SIG_BLOCK, &prompt_signal_mask, &previous_signal_mask) == 0;
+    if (!signals_blocked) ok = 0;
+    int terminal_restore_status;
+    do {
+        terminal_restore_status = tcsetattr(STDIN_FILENO, TCSANOW, &old);
+    } while (terminal_restore_status != 0 && errno == EINTR);
+    if (terminal_restore_status != 0) ok = 0;
+    int interrupted_by = (int)zupt_password_prompt_signal;
+    while (handlers_installed > 0) {
+        handlers_installed--;
+        if (sigaction(prompt_signals[handlers_installed],
+                      &previous[handlers_installed], NULL) != 0)
+            ok = 0;
+    }
+    if (signals_blocked &&
+        sigprocmask(SIG_SETMASK, &previous_signal_mask, NULL) != 0)
+        ok = 0;
     fprintf(stderr, "\n");
+    if (interrupted_by != 0) {
+        zupt_secure_wipe(buf, cap);
+        fprintf(stderr, "Error: password prompt interrupted.\n");
+        (void)raise(interrupted_by);
+        errno = EINTR;
+        return 0;
+    }
+    if (too_long) {
+        fprintf(stderr, "Error: password exceeds %zu bytes.\n", cap - 1);
+        zupt_secure_wipe(buf, cap);
+        ok = 0;
+    }
+    return ok;
 #endif
+}
+
+static int read_password_stream(FILE *stream, const char *source,
+                                char *password, size_t capacity) {
+    if (!stream || !password || capacity < 2) return 0;
+    size_t length = 0;
+    int ch;
+    int too_long = 0;
+    while ((ch = fgetc(stream)) != EOF && ch != '\n') {
+        if (ch == '\0') {
+            fprintf(stderr, "Error: %s contains a NUL byte.\n", source);
+            zupt_secure_wipe(password, capacity);
+            return 0;
+        }
+        if (length + 1 >= capacity) {
+            too_long = 1;
+            continue;
+        }
+        password[length++] = (char)ch;
+    }
+    if (ferror(stream) || too_long) {
+        fprintf(stderr, "Error: cannot read %s or password exceeds %zu bytes.\n",
+                source, capacity - 1);
+        zupt_secure_wipe(password, capacity);
+        return 0;
+    }
+    if (length > 0 && password[length - 1] == '\r') length--;
+    password[length] = '\0';
+    if (length == 0) {
+        fprintf(stderr, "Error: %s contains an empty password.\n", source);
+        return 0;
+    }
+    return 1;
+}
+
+/* Parse the non-argv password sources shared by every encrypted command.
+ * Return 0 when argv[*index] is unrelated, 1 on success, and -1 on error. */
+static int parse_password_source(int argc, char **argv, int *index,
+                                 zupt_options_t *opts, int confirm) {
+    const char *option = argv[*index];
+    if (strcmp(option, "--password-prompt") == 0) {
+        opts->encrypt = 1;
+        if (!prompt_password("Password: ", opts->password,
+                             sizeof(opts->password))) {
+            fprintf(stderr, "Error: password cannot be empty.\n");
+            return -1;
+        }
+        if (confirm) {
+            char confirmation[sizeof(opts->password)];
+            if (!prompt_password("Confirm:  ", confirmation,
+                                 sizeof(confirmation))) {
+                zupt_secure_wipe(confirmation, sizeof(confirmation));
+                return -1;
+            }
+            int matches = strcmp(opts->password, confirmation) == 0;
+            zupt_secure_wipe(confirmation, sizeof(confirmation));
+            if (!matches) {
+                fprintf(stderr, "Error: Passwords do not match.\n");
+                zupt_secure_wipe(opts->password, sizeof(opts->password));
+                return -1;
+            }
+        }
+        return 1;
+    }
+    if (strcmp(option, "--pass-file") == 0) {
+        if (*index + 1 >= argc) {
+            fprintf(stderr, "Error: --pass-file requires a path.\n");
+            return -1;
+        }
+        const char *path = argv[++*index];
+        FILE *stream = zupt_fopen_path(path, "rb");
+        if (!stream) {
+            fprintf(stderr, "Error: cannot open password file '%s'.\n", path);
+            return -1;
+        }
+        opts->encrypt = 1;
+        int ok = read_password_stream(stream, "password file",
+                                      opts->password, sizeof(opts->password));
+        if (fclose(stream) != 0) ok = 0;
+        return ok ? 1 : -1;
+    }
+    if (strcmp(option, "--pass-fd") == 0) {
+        if (*index + 1 >= argc) {
+            fprintf(stderr, "Error: --pass-fd requires a descriptor number.\n");
+            return -1;
+        }
+        char *end = NULL;
+        errno = 0;
+        long descriptor = strtol(argv[++*index], &end, 10);
+        if (errno || !end || *end != '\0' || descriptor < 0 ||
+            descriptor > INT_MAX) {
+            fprintf(stderr, "Error: invalid descriptor for --pass-fd.\n");
+            return -1;
+        }
+#ifdef _WIN32
+        int duplicate = _dup((int)descriptor);
+#else
+        int duplicate = dup((int)descriptor);
+#endif
+        if (duplicate < 0) {
+            fprintf(stderr, "Error: cannot duplicate --pass-fd descriptor.\n");
+            return -1;
+        }
+#ifdef _WIN32
+        FILE *stream = _fdopen(duplicate, "rb");
+#else
+        FILE *stream = fdopen(duplicate, "rb");
+#endif
+        if (!stream) {
+#ifdef _WIN32
+            _close(duplicate);
+#else
+            close(duplicate);
+#endif
+            fprintf(stderr, "Error: cannot read --pass-fd descriptor.\n");
+            return -1;
+        }
+        opts->encrypt = 1;
+        int ok = read_password_stream(stream, "password descriptor",
+                                      opts->password, sizeof(opts->password));
+        if (fclose(stream) != 0) ok = 0;
+        return ok ? 1 : -1;
+    }
+    return 0;
 }
 
 static int streq(const char *a, const char *b) { return strcmp(a,b)==0; }
 static int isopt(const char *a) { return a[0]=='-'; }
 
-int main(int argc, char **argv) {
+static int zupt_cli_main(int argc, char **argv) {
     /* Detect CPU features (AES-NI, AVX2) at startup */
     zupt_detect_cpu(&zupt_cpu);
 
@@ -213,30 +710,41 @@ int main(int argc, char **argv) {
 
     if (streq(cmd,"help")||streq(cmd,"--help")||streq(cmd,"-h")) { usage(); return 0; }
     if (streq(cmd,"version")||streq(cmd,"--version")||streq(cmd,"-V")) {
-        printf("vaptvupt %s (formerly zupt; renamed in v3.0.0 — INPI Brasil trademark)\n"
+        printf("zupt %s (ZUPT)\n"
                "Format: v%d.%d | Archive extension: .zupt (unchanged)\n"
                "Codec: VaptVupt " ZUPT_CODEC_RELEASE " (0x%04X) — LZ + ANS, optimal parser + large-window extreme\n"
                "Encryption: AES-256-CTR + HMAC-SHA256\n"
 #ifdef ZUPT_WITH_SDK
                "KDF: Argon2id (default) / PBKDF2-SHA256 %d iter (--kdf pbkdf2)\n"
-               "Post-quantum: --pq hybrid (ML-KEM-768 + X25519), --pq-only (ML-KEM-768), --pq-sdk (libvuptsdk)"
+#else
+               "KDF: PBKDF2-SHA256 %d iter (default; Argon2id needs WITH_SDK=1)\n"
+#endif
+               "Post-quantum: --pq hybrid (ML-KEM-768 + X25519), --pq-only (ML-KEM-768 only)"
+#ifdef ZUPT_WITH_SDK
+               ", --pq-sdk (libvuptsdk)"
+#endif
 #ifdef ZUPT_WITH_PQBOX
                ", --pq-box (libpqvaptvupt)"
 #endif
                "\n"
-               "Build: full (libvuptsdk: Argon2id, --pq-sdk"
-#ifdef ZUPT_WITH_PQBOX
-               ", --pq-box"
-#endif
-               " available)\n"
+               "Build integrations: libvuptsdk="
+#ifdef ZUPT_WITH_SDK
+               "enabled"
 #else
-               "KDF: PBKDF2-SHA256 %d iter (default; Argon2id needs WITH_SDK=1)\n"
-               "Post-quantum: --pq hybrid (ML-KEM-768 + X25519), --pq-only (ML-KEM-768 only) — FIPS 203 + RFC 7748\n"
-               "Build: source-only (native crypto; --pq-sdk/--pq-box/Argon2id need WITH_SDK=1)\n"
+               "disabled"
 #endif
-               "License: AGPL-3.0-or-later (VaptVupt) + GPL-3.0-or-later (codec)\n"
-               "         Dual-licensed: commercial license available\n"
-               "Project: https://git.securityops.co/cristiancmoises/vaptvupt\n"
+               ", libpqvaptvupt="
+#ifdef ZUPT_WITH_PQBOX
+               "enabled\n"
+#else
+               "disabled\n"
+#endif
+               "License: AGPL-3.0-or-later (ZUPT) + GPL-3.0-or-later (codec)\n"
+               "         + BSD-2-Clause (xxHash-derived XXH64 routines)\n"
+               "         + CC0-1.0 (pq-crystals/kyber-derived ML-KEM portions)\n"
+               "         + BSD-3-Clause (curve25519-donna-derived X25519 portions)\n"
+               "         Commercial terms may be available by agreement\n"
+               "Project: https://github.com/cristiancmoises/zupt\n"
                "Commercial: sac@securityops.co\n",
                ZUPT_VERSION_STRING, ZUPT_FORMAT_MAJOR, ZUPT_FORMAT_MINOR,
                ZUPT_CODEC_VAPTVUPT, ZUPT_KDF_ITERATIONS);
@@ -262,6 +770,10 @@ int main(int argc, char **argv) {
         int ai = 2;
         int force = 0;  /* -y/--force: allow overwriting a non-.zupt output */
         while (ai<argc && isopt(argv[ai])) {
+            int password_source = parse_password_source(
+                argc, argv, &ai, &opts, 1);
+            if (password_source < 0) return 1;
+            if (password_source > 0) { ai++; continue; }
             if ((streq(argv[ai],"-l")||streq(argv[ai],"--level"))&&ai+1<argc) {
                 opts.level=atoi(argv[++ai]); if(opts.level<1)opts.level=1; if(opts.level>9)opts.level=9;
             } else if ((streq(argv[ai],"-b")||streq(argv[ai],"--block"))&&ai+1<argc) {
@@ -281,15 +793,22 @@ int main(int argc, char **argv) {
                 if (ai+1<argc && !isopt(argv[ai+1])) {
                     strncpy(opts.password, argv[++ai], sizeof(opts.password)-1);
                 } else {
-                    prompt_password("Password: ", opts.password, sizeof(opts.password));
+                    if (!prompt_password("Password: ", opts.password,
+                                         sizeof(opts.password))) return 1;
                     char confirm[256];
-                    prompt_password("Confirm:  ", confirm, sizeof(confirm));
+                    if (!prompt_password("Confirm:  ", confirm,
+                                         sizeof(confirm))) {
+                        zupt_secure_wipe(opts.password, sizeof(opts.password));
+                        return 1;
+                    }
                     if (strcmp(opts.password, confirm)!=0) {
+                        zupt_secure_wipe(confirm, sizeof(confirm));
                         fprintf(stderr, "Error: Passwords do not match.\n"); return 1;
                     }
+                    zupt_secure_wipe(confirm, sizeof(confirm));
                 }
             } else if (streq(argv[ai],"-v")||streq(argv[ai],"--verbose")) {
-                opts.verbose=1;
+                zupt_internal_set_verbose(&opts);
             } else if (streq(argv[ai],"--solid")||streq(argv[ai],"-S")) {
                 opts.solid=1;
             } else if ((streq(argv[ai],"-t")||streq(argv[ai],"--threads"))&&ai+1<argc) {
@@ -319,7 +838,7 @@ int main(int argc, char **argv) {
                 opts.has_comment = 1;
             } else if (streq(argv[ai],"--comment-file")&&ai+1<argc) {
                 ai++;
-                FILE *cf = fopen(argv[ai], "rb");
+                FILE *cf = zupt_fopen_path(argv[ai], "rb");
                 if (!cf) {
                     fprintf(stderr, "Error: --comment-file: cannot open '%s'\n", argv[ai]);
                     return 1;
@@ -332,16 +851,21 @@ int main(int argc, char **argv) {
                 opts.has_comment = (n > 0);
                 fclose(cf);
             } else if (streq(argv[ai],"--kdf")&&ai+1<argc) {
-                /* v2.4.1: explicit KDF selection for password mode.
-                 * Default (without --kdf): Argon2id. Use --kdf pbkdf2
-                 * for compatibility with v2.4.0 and older readers. */
+                /* Argon2id is supplied only by the optional system SDK.
+                 * Never silently downgrade an explicit request to PBKDF2. */
                 ai++;
                 if (streq(argv[ai],"pbkdf2")) {
                     opts.kdf_legacy_pbkdf2 = 1;
                 } else if (streq(argv[ai],"argon2id") || streq(argv[ai],"argon2")) {
+#ifdef ZUPT_WITH_SDK
                     opts.kdf_legacy_pbkdf2 = 0;
+#else
+                    fprintf(stderr,
+                        "Error: --kdf argon2id requires a WITH_SDK=1 build with system libvuptsdk.\n");
+                    return 1;
+#endif
                 } else {
-                    fprintf(stderr, "Error: --kdf must be 'argon2id' or 'pbkdf2', got '%s'\n", argv[ai]);
+                    fprintf(stderr, "Error: unsupported --kdf value '%s'.\n", argv[ai]);
                     return 1;
                 }
             } else if (streq(argv[ai],"-y")||streq(argv[ai],"--force")) {
@@ -369,7 +893,7 @@ int main(int argc, char **argv) {
                     "Error: option '%s' appears after the output archive.\n"
                     "       In compress, all options (including -p/--pq) must come BEFORE\n"
                     "       the output archive name. Example:\n"
-                    "         vaptvupt compress -p PASSWORD %s %s ...\n",
+                    "         zupt compress -p PASSWORD %s %s ...\n",
                     argv[i], output, (i>ai ? argv[ai] : "<files>"));
                 return 1;
             }
@@ -382,10 +906,9 @@ int main(int argc, char **argv) {
          * that is not a .zupt archive unless -y/--force is given. Archives the
          * tool writes end in .zupt, so this never blocks normal use. */
         {
-            struct stat ost;
             size_t olen = strlen(output);
             int is_zupt = (olen >= 5 && strcmp(output + olen - 5, ".zupt") == 0);
-            if (!force && !is_zupt && stat(output, &ost) == 0 && S_ISREG(ost.st_mode)) {
+            if (!force && !is_zupt && zupt_is_regular_file(output)) {
                 fprintf(stderr,
                     "Error: refusing to overwrite existing file '%s' as the output archive\n"
                     "       (it does not end in .zupt). If you meant to set a password, use\n"
@@ -410,6 +933,11 @@ int main(int argc, char **argv) {
             zupt_collect_files(&fl, argv[i], argv[i]);
         }
 
+        if (zupt_internal_filelist_failed(&fl)) {
+            fprintf(stderr, "Error: input collection was incomplete; archive was not created.\n");
+            zupt_filelist_free(&fl);
+            return 1;
+        }
         if (fl.count == 0) {
             fprintf(stderr, "Error: No files found.\n");
             zupt_filelist_free(&fl); return 1;
@@ -480,13 +1008,20 @@ int main(int argc, char **argv) {
                 if (!archive) { archive = argv[ai]; ai++; continue; }
                 fprintf(stderr, "Error: unexpected extra argument '%s'\n", argv[ai]); return 1;
             }
+            int password_source = parse_password_source(
+                argc, argv, &ai, &opts, 0);
+            if (password_source < 0) return 1;
+            if (password_source > 0) { ai++; continue; }
             if ((streq(argv[ai],"-o")||streq(argv[ai],"--output"))&&ai+1<argc)
                 outdir = argv[++ai];
             else if (streq(argv[ai],"-p")||streq(argv[ai],"--password")) {
                 opts.encrypt=1;
                 if (ai+1<argc && !isopt(argv[ai+1])) strncpy(opts.password,argv[++ai],sizeof(opts.password)-1);
-                else prompt_password("Password: ", opts.password, sizeof(opts.password));
-            } else if (streq(argv[ai],"-v")||streq(argv[ai],"--verbose")) opts.verbose=1;
+                else if (!prompt_password("Password: ", opts.password,
+                                          sizeof(opts.password))) return 1;
+            } else if (streq(argv[ai],"--allow-legacy-no-ait")) {
+                zupt_internal_allow_legacy_no_ait(&opts);
+            } else if (streq(argv[ai],"-v")||streq(argv[ai],"--verbose")) zupt_internal_set_verbose(&opts);
             else if ((streq(argv[ai],"-t")||streq(argv[ai],"--threads"))&&ai+1<argc) {
                 opts.threads=atoi(argv[++ai]);
                 if(opts.threads<0)opts.threads=0;
@@ -525,11 +1060,17 @@ int main(int argc, char **argv) {
                 if (!archive) { archive = argv[ai]; ai++; continue; }
                 fprintf(stderr, "Error: unexpected extra argument '%s'\n", argv[ai]); return 1;
             }
-            if (streq(argv[ai],"-v")||streq(argv[ai],"--verbose")) opts.verbose=1;
+            int password_source = parse_password_source(
+                argc, argv, &ai, &opts, 0);
+            if (password_source < 0) return 1;
+            if (password_source > 0) { ai++; continue; }
+            if (streq(argv[ai],"--allow-legacy-no-ait")) zupt_internal_allow_legacy_no_ait(&opts);
+            else if (streq(argv[ai],"-v")||streq(argv[ai],"--verbose")) zupt_internal_set_verbose(&opts);
             else if (streq(argv[ai],"-p")||streq(argv[ai],"--password")) {
                 opts.encrypt=1;
                 if (ai+1<argc && !isopt(argv[ai+1])) strncpy(opts.password,argv[++ai],sizeof(opts.password)-1);
-                else prompt_password("Password: ", opts.password, sizeof(opts.password));
+                else if (!prompt_password("Password: ", opts.password,
+                                          sizeof(opts.password))) return 1;
             }
             else if (streq(argv[ai],"--pq-box")&&ai+1<argc) {
                 opts.pq_mode=1; opts.box_mode=1; opts.encrypt=1;
@@ -563,11 +1104,17 @@ int main(int argc, char **argv) {
                 if (!archive) { archive = argv[ai]; ai++; continue; }
                 fprintf(stderr, "Error: unexpected extra argument '%s'\n", argv[ai]); return 1;
             }
-            if (streq(argv[ai],"-v")||streq(argv[ai],"--verbose")) opts.verbose=1;
+            int password_source = parse_password_source(
+                argc, argv, &ai, &opts, 0);
+            if (password_source < 0) return 1;
+            if (password_source > 0) { ai++; continue; }
+            if (streq(argv[ai],"--allow-legacy-no-ait")) zupt_internal_allow_legacy_no_ait(&opts);
+            else if (streq(argv[ai],"-v")||streq(argv[ai],"--verbose")) zupt_internal_set_verbose(&opts);
             else if (streq(argv[ai],"-p")||streq(argv[ai],"--password")) {
                 opts.encrypt=1;
                 if (ai+1<argc && !isopt(argv[ai+1])) strncpy(opts.password,argv[++ai],sizeof(opts.password)-1);
-                else prompt_password("Password: ", opts.password, sizeof(opts.password));
+                else if (!prompt_password("Password: ", opts.password,
+                                          sizeof(opts.password))) return 1;
             }
             else if (streq(argv[ai],"--pq-box")&&ai+1<argc) {
                 opts.pq_mode=1; opts.box_mode=1; opts.encrypt=1;
@@ -600,26 +1147,23 @@ int main(int argc, char **argv) {
 
         if (!compare_mode && ai >= argc) { fprintf(stderr, "Error: bench requires <files/dirs...> or --compare\n"); return 1; }
 
-        /* Generate corpus if --compare with no files */
-        char gen_dir[256] = {0};
+        /* Every benchmark artifact lives under one private, unpredictable
+         * directory.  No predictable /tmp leaf is ever opened or truncated. */
+        char bench_root[ZUPT_MAX_PATH] = {0};
+        char gen_dir[ZUPT_MAX_PATH] = {0};
         if (compare_mode && ai >= argc) {
-            snprintf(gen_dir, sizeof(gen_dir), "/tmp/zupt_bench_corpus_%d", (int)getpid());
-            zupt_mkdir(gen_dir);
-            char p[512]; FILE *gf;
-            snprintf(p, sizeof(p), "%s/text.txt", gen_dir);
-            gf = fopen(p, "wb");
-            if (gf) { for (int i=0;i<15000;i++) fprintf(gf, "The quick brown fox jumps over the lazy dog. Line %d value %d.\n", i, i*17%997); fclose(gf); }
-            snprintf(p, sizeof(p), "%s/data.json", gen_dir);
-            gf = fopen(p, "wb");
-            if (gf) { for (int i=0;i<12000;i++) fprintf(gf, "{\"id\":%d,\"name\":\"user_%d\",\"score\":%d}\n", i, i, i*31%1000); fclose(gf); }
-            snprintf(p, sizeof(p), "%s/records.csv", gen_dir);
-            gf = fopen(p, "wb");
-            if (gf) { fprintf(gf,"id,name,score\n"); for (int i=0;i<14000;i++) fprintf(gf,"%d,user_%d,%d\n", i, i, i*17%100); fclose(gf); }
-            snprintf(p, sizeof(p), "%s/random.bin", gen_dir);
-            gf = fopen(p, "wb");
-            if (gf) { uint8_t rb[4096]; for (int i=0;i<64;i++){zupt_random_bytes(rb,sizeof(rb));fwrite(rb,1,sizeof(rb),gf);} fclose(gf); }
+            if (!zupt_create_private_temp_directory(
+                    bench_root, sizeof(bench_root)) ||
+                !zupt_join_temp_path(gen_dir, sizeof(gen_dir), bench_root,
+                                     "corpus") ||
+                !zupt_write_benchmark_corpus(gen_dir)) {
+                fprintf(stderr,
+                        "Error: cannot create private benchmark corpus.\n");
+                zupt_remove_temp_tree(bench_root);
+                return 1;
+            }
             /* Use gen_dir as the input path — need a writable argv slot */
-            static char gen_arg[256];
+            static char gen_arg[ZUPT_MAX_PATH];
             strncpy(gen_arg, gen_dir, sizeof(gen_arg)-1);
             gen_arg[sizeof(gen_arg)-1] = '\0';
             argv[argc] = gen_arg;
@@ -629,11 +1173,30 @@ int main(int argc, char **argv) {
         zupt_filelist_t fl; zupt_filelist_init(&fl);
         for (int i = ai; i < argc; i++)
             zupt_collect_files(&fl, argv[i], argv[i]);
-        if (fl.count == 0) { fprintf(stderr, "No files found.\n"); zupt_filelist_free(&fl); return 1; }
+        if (zupt_internal_filelist_failed(&fl)) {
+            fprintf(stderr, "Input collection was incomplete.\n");
+            zupt_filelist_free(&fl);
+            zupt_remove_temp_tree(bench_root);
+            return 1;
+        }
+        if (fl.count == 0) {
+            fprintf(stderr, "No files found.\n");
+            zupt_filelist_free(&fl);
+            zupt_remove_temp_tree(bench_root);
+            return 1;
+        }
+        if (bench_root[0] == '\0' &&
+            !zupt_create_private_temp_directory(
+                bench_root, sizeof(bench_root))) {
+            fprintf(stderr,
+                    "Error: cannot create private benchmark workspace.\n");
+            zupt_filelist_free(&fl);
+            return 1;
+        }
 
         uint64_t total_in = 0;
         for (int i = 0; i < fl.count; i++) {
-            FILE *tf = fopen(fl.paths[i], "rb");
+            FILE *tf = zupt_fopen_path(fl.paths[i], "rb");
             if (tf) { fseek(tf, 0, SEEK_END); total_in += (uint64_t)ftell(tf); fclose(tf); }
         }
         char isz[32]; zupt_format_size(total_in, isz, sizeof(isz));
@@ -644,16 +1207,24 @@ int main(int argc, char **argv) {
             fprintf(stderr, "  %-20s %12s %12s %10s\n", "Codec", "Compress", "Decompress", "Ratio");
             fprintf(stderr, "  ────────────────────────────────────────────────────────────\n");
 
-            char tmp_path[256], tmp_out[256];
-            snprintf(tmp_path, sizeof(tmp_path), "/tmp/zupt_cmp_%d.zupt", (int)getpid());
-            snprintf(tmp_out, sizeof(tmp_out), "/tmp/zupt_cmp_out_%d", (int)getpid());
+            char tmp_path[ZUPT_MAX_PATH + 64];
+            char tmp_out[ZUPT_MAX_PATH + 64];
+            if (!zupt_join_temp_path(tmp_path, sizeof(tmp_path), bench_root,
+                                     "comparison.zupt") ||
+                !zupt_join_temp_path(tmp_out, sizeof(tmp_out), bench_root,
+                                     "extracted")) {
+                fprintf(stderr, "Error: benchmark temporary path is too long.\n");
+                zupt_filelist_free(&fl);
+                zupt_remove_temp_tree(bench_root);
+                return 1;
+            }
 
             struct { const char *name; uint16_t codec; int level; } codecs[] = {
                 {"VaptVupt UF",  ZUPT_CODEC_VAPTVUPT, 1},
                 {"VaptVupt BAL", ZUPT_CODEC_VAPTVUPT, 5},
                 {"VaptVupt EXT", ZUPT_CODEC_VAPTVUPT, 9},
-                {"Zupt-LZHP",    ZUPT_CODEC_ZUPT_LZHP,7},
-                {"Zupt-LZ",      ZUPT_CODEC_ZUPT_LZ,  5},
+                {"ZUPT-LZHP",    ZUPT_CODEC_ZUPT_LZHP,7},
+                {"ZUPT-LZ",      ZUPT_CODEC_ZUPT_LZ,  5},
             };
             int ncodecs = (int)(sizeof(codecs)/sizeof(codecs[0]));
 
@@ -661,44 +1232,59 @@ int main(int argc, char **argv) {
                 zupt_options_t opts; zupt_default_options(&opts);
                 opts.codec_id = codecs[ci].codec; opts.level = codecs[ci].level; opts.quiet = 1;
 
-                struct timespec t0, t1;
-                clock_gettime(CLOCK_MONOTONIC, &t0);
+                double t0 = zupt_monotonic_seconds();
                 zupt_error_t cerr = zupt_compress_files(tmp_path,
                     (const char**)fl.arc_paths, (const char**)fl.paths, fl.count, &opts);
-                clock_gettime(CLOCK_MONOTONIC, &t1);
-                double csec = (double)(t1.tv_sec-t0.tv_sec)+(double)(t1.tv_nsec-t0.tv_nsec)/1e9;
+                double csec = zupt_monotonic_seconds() - t0;
                 if (csec < 0.001) csec = 0.001;
 
                 if (cerr != ZUPT_OK) { fprintf(stderr, "  %-20s  FAILED\n", codecs[ci].name); continue; }
 
-                FILE *zf = fopen(tmp_path, "rb"); uint64_t zsize = 0;
+                FILE *zf = zupt_fopen_path(tmp_path, "rb"); uint64_t zsize = 0;
                 if (zf) { fseek(zf,0,SEEK_END); zsize=(uint64_t)ftell(zf); fclose(zf); }
 
                 zupt_options_t dopts; zupt_default_options(&dopts); dopts.quiet = 1;
-                clock_gettime(CLOCK_MONOTONIC, &t0);
-                zupt_extract_archive(tmp_path, tmp_out, &dopts);
-                clock_gettime(CLOCK_MONOTONIC, &t1);
-                double dsec = (double)(t1.tv_sec-t0.tv_sec)+(double)(t1.tv_nsec-t0.tv_nsec)/1e9;
+                t0 = zupt_monotonic_seconds();
+                zupt_error_t derr =
+                    zupt_extract_archive(tmp_path, tmp_out, &dopts);
+                double dsec = zupt_monotonic_seconds() - t0;
                 if (dsec < 0.001) dsec = 0.001;
+
+                if (derr != ZUPT_OK) {
+                    fprintf(stderr, "  %-20s  EXTRACT FAILED\n",
+                            codecs[ci].name);
+                    zupt_remove_temp_tree(tmp_out);
+                    remove(tmp_path);
+                    continue;
+                }
 
                 fprintf(stderr, "  %-20s %9.1f MB/s %9.1f MB/s %8.2f:1\n",
                     codecs[ci].name, (double)total_in/csec/1048576.0,
                     (double)total_in/dsec/1048576.0,
                     total_in>0&&zsize>0?(double)total_in/(double)zsize:1.0);
 
-                char rm[512]; snprintf(rm,sizeof(rm),"rm -rf '%s'",tmp_out); if (system(rm)) { /* ignore */ }
+                if (zupt_remove_temp_tree(tmp_out) != 0)
+                    fprintf(stderr,
+                            "Warning: could not remove benchmark extraction tree.\n");
                 remove(tmp_path);
             }
 
             /* External tools */
             fprintf(stderr, "  ────────────────────────────────────────────────────────────\n");
-            char concat[256];
-            snprintf(concat, sizeof(concat), "/tmp/zupt_cmp_cat_%d", (int)getpid());
-            FILE *cf = fopen(concat, "wb");
+            char concat[ZUPT_MAX_PATH + 64];
+            if (!zupt_join_temp_path(concat, sizeof(concat), bench_root,
+                                     "concatenated-input")) {
+                fprintf(stderr, "Error: benchmark temporary path is too long.\n");
+                zupt_filelist_free(&fl);
+                zupt_remove_temp_tree(bench_root);
+                return 1;
+            }
+            FILE *cf = zupt_fopen_path(concat, "wb");
             if (cf) {
-                for (int i=0;i<fl.count;i++){FILE*inf=fopen(fl.paths[i],"rb");if(inf){uint8_t buf[65536];size_t n;while((n=fread(buf,1,sizeof(buf),inf))>0)fwrite(buf,1,n,cf);fclose(inf);}}
+                for (int i=0;i<fl.count;i++){FILE*inf=zupt_fopen_path(fl.paths[i],"rb");if(inf){uint8_t buf[65536];size_t n;while((n=fread(buf,1,sizeof(buf),inf))>0)fwrite(buf,1,n,cf);fclose(inf);}}
                 fclose(cf);
             }
+#ifndef _WIN32
             const char *exts[][3] = {
                 {"gzip -6","gzip -6 -k -f","gzip -d -k -f"},
                 {"lz4","lz4 -f","lz4 -d -f"},
@@ -709,28 +1295,33 @@ int main(int argc, char **argv) {
             const char *ext_sfx[] = {".gz",".lz4",".zst",".zst"};
             for (int ti=0; exts[ti][0]; ti++) {
                 char tn[32]; strncpy(tn,exts[ti][0],sizeof(tn)-1); char *sp=strchr(tn,' '); if(sp)*sp='\0';
-                char wh[128]; snprintf(wh,sizeof(wh),"which %s >/dev/null 2>&1",tn);
+                char wh[128]; snprintf(wh,sizeof(wh),"command -v %s >/dev/null 2>&1",tn);
                 if (system(wh)!=0) continue;
 
-                char co[256]; snprintf(co,sizeof(co),"%s%s",concat,ext_sfx[ti]);
+                char co[ZUPT_MAX_PATH + 80]; snprintf(co,sizeof(co),"%s%s",concat,ext_sfx[ti]);
                 remove(co);
-                char ccmd[512]; snprintf(ccmd,sizeof(ccmd),"%s %s >/dev/null 2>&1",exts[ti][1],concat);
-                struct timespec t0,t1;
-                clock_gettime(CLOCK_MONOTONIC,&t0); if (system(ccmd)) { /* ignore */ } clock_gettime(CLOCK_MONOTONIC,&t1);
-                double csec=(double)(t1.tv_sec-t0.tv_sec)+(double)(t1.tv_nsec-t0.tv_nsec)/1e9; if(csec<0.001)csec=0.001;
-                FILE*ef=fopen(co,"rb"); uint64_t esz=0; if(ef){fseek(ef,0,SEEK_END);esz=(uint64_t)ftell(ef);fclose(ef);}
+                char ccmd[ZUPT_MAX_PATH + 160];
+                snprintf(ccmd,sizeof(ccmd),"%s '%s' >/dev/null 2>&1",exts[ti][1],concat);
+                double t0 = zupt_monotonic_seconds();
+                if (system(ccmd)) { /* ignore */ }
+                double csec = zupt_monotonic_seconds() - t0;
+                if(csec<0.001)csec=0.001;
+                FILE*ef=zupt_fopen_path(co,"rb"); uint64_t esz=0; if(ef){fseek(ef,0,SEEK_END);esz=(uint64_t)ftell(ef);fclose(ef);}
 
-                char dcmd[512]; snprintf(dcmd,sizeof(dcmd),"%s %s >/dev/null 2>&1",exts[ti][2],co);
-                clock_gettime(CLOCK_MONOTONIC,&t0); if (system(dcmd)) { /* ignore */ } clock_gettime(CLOCK_MONOTONIC,&t1);
-                double dsec=(double)(t1.tv_sec-t0.tv_sec)+(double)(t1.tv_nsec-t0.tv_nsec)/1e9; if(dsec<0.001)dsec=0.001;
+                char dcmd[ZUPT_MAX_PATH + 160];
+                snprintf(dcmd,sizeof(dcmd),"%s '%s' >/dev/null 2>&1",exts[ti][2],co);
+                t0 = zupt_monotonic_seconds();
+                if (system(dcmd)) { /* ignore */ }
+                double dsec = zupt_monotonic_seconds() - t0;
+                if(dsec<0.001)dsec=0.001;
 
                 fprintf(stderr, "  %-20s %9.1f MB/s %9.1f MB/s %8.2f:1\n",
                     exts[ti][0], (double)total_in/csec/1048576.0, (double)total_in/dsec/1048576.0,
                     total_in>0&&esz>0?(double)total_in/(double)esz:1.0);
-                remove(co); char dec[512]; snprintf(dec,sizeof(dec),"%s.dec",concat); remove(dec);
+                remove(co); char dec[ZUPT_MAX_PATH + 80]; snprintf(dec,sizeof(dec),"%s.dec",concat); remove(dec);
             }
+#endif
             remove(concat);
-            if (gen_dir[0]) { char rm[512]; snprintf(rm,sizeof(rm),"rm -rf '%s'",gen_dir); if (system(rm)) { /* ignore */ } }
             fprintf(stderr, "\n");
         } else {
             /* ═══ ORIGINAL PER-LEVEL BENCHMARK ═══ */
@@ -738,8 +1329,14 @@ int main(int argc, char **argv) {
             fprintf(stderr, "  %-7s %12s %10s %10s %10s\n", "Level", "Compressed", "Ratio", "%", "Speed");
             fprintf(stderr, "  ─────────────────────────────────────────────────────────\n");
 
-            char tmp_path[256];
-            snprintf(tmp_path, sizeof(tmp_path), "/tmp/zupt_bench_%d.zupt", (int)getpid());
+            char tmp_path[ZUPT_MAX_PATH + 64];
+            if (!zupt_join_temp_path(tmp_path, sizeof(tmp_path), bench_root,
+                                     "levels.zupt")) {
+                fprintf(stderr, "Error: benchmark temporary path is too long.\n");
+                zupt_filelist_free(&fl);
+                zupt_remove_temp_tree(bench_root);
+                return 1;
+            }
 
             for (int lvl = 1; lvl <= 9; lvl++) {
                 zupt_options_t opts; zupt_default_options(&opts);
@@ -754,7 +1351,7 @@ int main(int argc, char **argv) {
                 if (elapsed < 1) elapsed = 1;
 
                 if (err == ZUPT_OK) {
-                    FILE *zf = fopen(tmp_path, "rb");
+                    FILE *zf = zupt_fopen_path(tmp_path, "rb");
                     uint64_t zsize = 0;
                     if (zf) { fseek(zf, 0, SEEK_END); zsize = (uint64_t)ftell(zf); fclose(zf); }
 
@@ -774,6 +1371,10 @@ int main(int argc, char **argv) {
         }
 
         zupt_filelist_free(&fl);
+        if (zupt_remove_temp_tree(bench_root) != 0) {
+            fprintf(stderr, "Error: could not remove private benchmark workspace.\n");
+            return 1;
+        }
         return 0;
     }
 
@@ -789,9 +1390,10 @@ int main(int argc, char **argv) {
             fprintf(stderr, "  -p [PW]           Password encryption\n");
             fprintf(stderr, "  --pq <keyfile>    Post-quantum encryption\n");
             fprintf(stderr, "  --vv              Force VaptVupt codec\n");
-            fprintf(stderr, "  --lzhp            Force Zupt-LZHP codec\n");
+            fprintf(stderr, "  --lzhp            Force ZUPT-LZHP codec\n");
             fprintf(stderr, "  -t <N>            Thread count\n");
             fprintf(stderr, "  -v                Verbose\n");
+            fprintf(stderr, "  --allow-legacy-no-ait  Restore a trusted old archive without AIT\n");
             fprintf(stderr, "\nExamples:\n");
             fprintf(stderr, "  zupt disk backup backup.zupt /dev/sda1\n");
             fprintf(stderr, "  zupt disk backup -p secret encrypted.zupt /dev/nvme0n1p2\n");
@@ -810,6 +1412,10 @@ int main(int argc, char **argv) {
         zupt_options_t opts; zupt_default_options(&opts);
         int ai = 3;
         while (ai<argc && isopt(argv[ai])) {
+            int password_source = parse_password_source(
+                argc, argv, &ai, &opts, streq(subcmd, "backup"));
+            if (password_source < 0) return 1;
+            if (password_source > 0) { ai++; continue; }
             if ((streq(argv[ai],"-l")||streq(argv[ai],"--level"))&&ai+1<argc) {
                 opts.level=atoi(argv[++ai]); if(opts.level<1)opts.level=1; if(opts.level>9)opts.level=9;
             } else if ((streq(argv[ai],"-b")||streq(argv[ai],"--block"))&&ai+1<argc) {
@@ -827,17 +1433,25 @@ int main(int argc, char **argv) {
                 if (ai+1<argc && !isopt(argv[ai+1])) {
                     strncpy(opts.password, argv[++ai], sizeof(opts.password)-1);
                 } else {
-                    prompt_password("Password: ", opts.password, sizeof(opts.password));
+                    if (!prompt_password("Password: ", opts.password,
+                                         sizeof(opts.password))) return 1;
                     if (streq(subcmd,"backup")) {
                         char confirm[256];
-                        prompt_password("Confirm:  ", confirm, sizeof(confirm));
+                        if (!prompt_password("Confirm:  ", confirm,
+                                             sizeof(confirm))) {
+                            zupt_secure_wipe(opts.password,
+                                             sizeof(opts.password));
+                            return 1;
+                        }
                         if (strcmp(opts.password, confirm)!=0) {
+                            zupt_secure_wipe(confirm, sizeof(confirm));
                             fprintf(stderr, "Error: Passwords do not match.\n"); return 1;
                         }
+                        zupt_secure_wipe(confirm, sizeof(confirm));
                     }
                 }
             } else if (streq(argv[ai],"-v")||streq(argv[ai],"--verbose")) {
-                opts.verbose=1;
+                zupt_internal_set_verbose(&opts);
             } else if ((streq(argv[ai],"-t")||streq(argv[ai],"--threads"))&&ai+1<argc) {
                 opts.threads=atoi(argv[++ai]);
             } else if (streq(argv[ai],"--pq-only")&&ai+1<argc) {
@@ -848,6 +1462,13 @@ int main(int argc, char **argv) {
                 strncpy(opts.keyfile, argv[++ai], sizeof(opts.keyfile)-1);
             } else if (streq(argv[ai],"--dedup")||streq(argv[ai],"-D")) {
                 opts.dedup=1;
+            } else if (streq(argv[ai],"--allow-legacy-no-ait")) {
+                if (!streq(subcmd,"restore")) {
+                    fprintf(stderr,
+                            "Error: --allow-legacy-no-ait is valid only for disk restore.\n");
+                    return 1;
+                }
+                zupt_internal_allow_legacy_no_ait(&opts);
             } else if ((streq(argv[ai],"-c")||streq(argv[ai],"--comment"))&&ai+1<argc) {
                 /* v2.4.3: free-form archive comment. Encrypted along with
                  * data blocks when -p/--pq is also set. */
@@ -857,7 +1478,7 @@ int main(int argc, char **argv) {
                 opts.has_comment = 1;
             } else if (streq(argv[ai],"--comment-file")&&ai+1<argc) {
                 ai++;
-                FILE *cf = fopen(argv[ai], "rb");
+                FILE *cf = zupt_fopen_path(argv[ai], "rb");
                 if (!cf) {
                     fprintf(stderr, "Error: --comment-file: cannot open '%s'\n", argv[ai]);
                     return 1;
@@ -870,16 +1491,21 @@ int main(int argc, char **argv) {
                 opts.has_comment = (n > 0);
                 fclose(cf);
             } else if (streq(argv[ai],"--kdf")&&ai+1<argc) {
-                /* v2.4.1: explicit KDF selection for password mode.
-                 * Default (without --kdf): Argon2id. Use --kdf pbkdf2
-                 * for compatibility with v2.4.0 and older readers. */
+                /* Argon2id is supplied only by the optional system SDK.
+                 * Never silently downgrade an explicit request to PBKDF2. */
                 ai++;
                 if (streq(argv[ai],"pbkdf2")) {
                     opts.kdf_legacy_pbkdf2 = 1;
                 } else if (streq(argv[ai],"argon2id") || streq(argv[ai],"argon2")) {
+#ifdef ZUPT_WITH_SDK
                     opts.kdf_legacy_pbkdf2 = 0;
+#else
+                    fprintf(stderr,
+                        "Error: --kdf argon2id requires a WITH_SDK=1 build with system libvuptsdk.\n");
+                    return 1;
+#endif
                 } else {
-                    fprintf(stderr, "Error: --kdf must be 'argon2id' or 'pbkdf2', got '%s'\n", argv[ai]);
+                    fprintf(stderr, "Error: unsupported --kdf value '%s'.\n", argv[ai]);
                     return 1;
                 }
             } else {
@@ -966,7 +1592,7 @@ int main(int argc, char **argv) {
             }
             fprintf(stderr, "  Private key written to: %s\n", outfile);
             fprintf(stderr, "  SECURITY: Keep this file secret. Back it up securely.\n");
-            fprintf(stderr, "  To export public key: vaptvupt keygen --pub --pq-only -o pub.key -k %s\n", outfile);
+            fprintf(stderr, "  To export public key: zupt keygen --pub --pq-only -o pub.key -k %s\n", outfile);
         } else if (box_mode) {
             fprintf(stderr, "  Generating ML-KEM-768 + X25519 keypair (pq-box format)...\n");
             char pubfile[512];
@@ -986,8 +1612,8 @@ int main(int argc, char **argv) {
                     "Error: SDK-v2 key generation is unavailable in this build.\n"
                     "       --pq-sdk needs libvuptsdk, which is not part of the source-only\n"
                     "       build. For post-quantum keys use one of the native modes:\n"
-                    "         vaptvupt keygen -o key            # hybrid ML-KEM-768 + X25519 (--pq)\n"
-                    "         vaptvupt keygen --pq-only -o key  # full PQ, ML-KEM-768 only (--pq-only)\n"
+                    "         zupt keygen -o key            # hybrid ML-KEM-768 + X25519 (--pq)\n"
+                    "         zupt keygen --pq-only -o key  # full PQ, ML-KEM-768 only (--pq-only)\n"
                     "       (Rebuild upstream with 'make WITH_SDK=1' to enable --pq-sdk.)\n");
                 return 1;
             }
@@ -1009,3 +1635,35 @@ int main(int argc, char **argv) {
     fprintf(stderr, "Unknown command '%s'. Run 'zupt help'.\n", cmd);
     return 1;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t **wide_argv);
+
+int wmain(int argc, wchar_t **wide_argv) {
+    char **utf8_argv = (char **)calloc((size_t)argc + 1, sizeof(char *));
+    if (!utf8_argv) return 1;
+    for (int i = 0; i < argc; i++) {
+        utf8_argv[i] = zupt_win_wide_to_utf8_alloc(wide_argv[i]);
+        if (!utf8_argv[i]) {
+            for (int j = 0; j < i; j++) {
+                zupt_secure_wipe(utf8_argv[j], strlen(utf8_argv[j]));
+                free(utf8_argv[j]);
+            }
+            free(utf8_argv);
+            fprintf(stderr, "Error: command line is not valid Unicode.\n");
+            return 1;
+        }
+    }
+    int result = zupt_cli_main(argc, utf8_argv);
+    for (int i = 0; i < argc; i++) {
+        zupt_secure_wipe(utf8_argv[i], strlen(utf8_argv[i]));
+        free(utf8_argv[i]);
+    }
+    free(utf8_argv);
+    return result;
+}
+#else
+int main(int argc, char **argv) {
+    return zupt_cli_main(argc, argv);
+}
+#endif

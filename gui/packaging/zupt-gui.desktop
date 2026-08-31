@@ -1,12 +1,13 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 [Desktop Entry]
 Type=Application
-Name=Zupt GUI
-GenericName=Post-Quantum Backup
-Comment=Compress, encrypt, and backup with quantum-resistant cryptography
-Exec=zupt-gui
+Name=ZUPT GUI
+GenericName=Backup and Compression Utility
+Comment=Create, inspect, verify, and extract ZUPT archives
+Exec=zupt-gui %f
 Icon=zupt-gui
-Categories=Utility;Archiving;Security;
-Keywords=backup;compress;encrypt;quantum;zupt;
+Categories=Utility;Archiving;Compression;
+Keywords=backup;archive;compression;encryption;post-quantum;zupt;
 Terminal=false
 StartupNotify=true
 MimeType=application/x-zupt;

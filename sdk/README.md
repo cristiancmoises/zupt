@@ -1,13 +1,18 @@
 # libzuptsdk
 
-Public C ABI for the [VaptVupt](https://git.securityops.co/cristiancmoises/vaptvupt) backup compression library.
+Public C ABI for the [ZUPT](https://github.com/cristiancmoises/zupt) backup compression library.
 
-Provides post-quantum encrypted compression as a stable, embeddable shared library, independent of the `vaptvupt` CLI and of any external compression library — everything is built from VaptVupt's own implementations.
+Provides post-quantum encrypted compression as a stable, embeddable shared library, independent of the `zupt` CLI and of any external compression library — everything is built from ZUPT's own implementations.
 
 - **Version:** 1.0.0
-- **License:** AGPL-3.0-or-later
+- **License of the built library:** AGPL-3.0-or-later AND GPL-3.0-or-later AND BSD-2-Clause AND BSD-3-Clause AND CC0-1.0
 - **ABI:** Stable across 1.x via versioned symbols (`ZUPTSDK_1.0`)
 - **C standard:** Public header is C99; C11 implementation; works in C++17
+
+This in-tree compatibility SDK is named **libzuptsdk**. It is not the separately
+packaged **libvuptsdk** dependency used by the CLI's optional `WITH_SDK=1`
+integration. Running `make sdk` builds `libzuptsdk` from this repository; it does
+not enable `--pq-sdk` or the libvuptsdk-backed Argon2id path in `zupt`.
 
 ## Features
 
@@ -16,7 +21,7 @@ Provides post-quantum encrypted compression as a stable, embeddable shared libra
 - **Hardware-adaptive compression** — VaptVupt on AVX2/NEON, LZHP elsewhere
 - **Streaming I/O** — read/write callbacks for sockets, pipes, encrypted volumes
 - **Secure memory** — mlock-backed buffers for passwords and keys, zeroed on destroy
-- **Constant-time crypto** — Jasmin-verified assembly on x86_64
+- **Optional assembly path** — textual Jasmin sources on supported x86_64 builds
 - **Per-context state** — no globals; safe to use from any thread on distinct contexts
 - **Custom allocator hooks** — supply your own malloc/free
 
@@ -87,21 +92,35 @@ with zuptsdk.Context() as ctx:
 ## Build & install
 
 ```sh
-git clone https://git.securityops.co/cristiancmoises/vaptvupt
-cd vaptvupt
-make            # builds CLI (required: produces jasmin/*.o assembly objects)
+git clone https://github.com/cristiancmoises/zupt
+cd zupt
+make            # builds the portable CLI (WITH_JASMIN=0 by default)
 make sdk        # builds libzuptsdk.so.1.0.0 + libzuptsdk.a + zuptsdk.pc
 make sdk-test   # runs C roundtrip suite (15 tests)
 sudo make sdk-install PREFIX=/usr/local
 ```
 
-This SDK is built from source via `make sdk`; the previously vendored prebuilt `vendor/zuptsdk/libzuptsdk.so` has been removed from the tree.
+This SDK is built from source via `make sdk`; the previously vendored prebuilt
+`vendor/zuptsdk/libzuptsdk.so` has been removed from the tree. Build output is
+written below the ignored `sdk/build/` directory and is never part of Git or an
+upstream source archive.
+
+The wrapper and application portions are AGPL-3.0-or-later. The library also
+incorporates the bundled VaptVupt codec sources identified as
+GPL-3.0-or-later, plus the BSD-2-Clause xxHash-derived routines and CC0-1.0
+pq-crystals/kyber-derived ML-KEM portions, together with BSD-3-Clause
+curve25519-donna-derived X25519 portions. Redistribution of the resulting
+shared or static library must preserve all five scopes, `LICENSE-AGPL-3.0`,
+`LICENSE-GPL-3.0`, `LICENSE-BSD-2-Clause`, `LICENSE-BSD-3-Clause`,
+`LICENSE-CC0-1.0`, `NOTICE`, and `THIRD-PARTY-NOTICES.md`; see `sdk/LICENSE`
+for the concise scope notice.
 
 This installs:
 - `/usr/local/include/zuptsdk.h`
 - `/usr/local/lib/libzuptsdk.so.1.0.0` (with versioned `.so.1` and `.so` symlinks)
 - `/usr/local/lib/libzuptsdk.a`
 - `/usr/local/lib/pkgconfig/zuptsdk.pc`
+- `/usr/local/share/licenses/libzuptsdk/` (all applicable texts and notices)
 
 ## Symbol visibility
 
@@ -174,12 +193,17 @@ sdk/
 
 ## License
 
-libzuptsdk is licensed under **AGPL-3.0-or-later** (see `sdk/LICENSE`).
+The built libzuptsdk contains AGPL-3.0-or-later wrapper/application code and
+GPL-3.0-or-later bundled codec code; its complete SPDX expression is
+**AGPL-3.0-or-later AND GPL-3.0-or-later AND BSD-2-Clause AND BSD-3-Clause AND
+CC0-1.0** (see `sdk/LICENSE`).
 
-The AGPL allows everyone to use the library freely, but anyone running it as a network service must publish their source code modifications.
+Redistributors must comply with the applicable terms and preserve all license
+texts and notices. Consult the license texts rather than this summary for the
+precise source-correspondence and network-use obligations.
 
 ## Contact
 
-- Repository: https://git.securityops.co/cristiancmoises/vaptvupt
-- Website: https://zupt.securityops.co
-- Email: zupt@riseup.net
+- Repository: https://github.com/cristiancmoises/zupt
+- Project: https://github.com/cristiancmoises/zupt
+- Email: sac@securityops.co

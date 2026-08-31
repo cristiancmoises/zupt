@@ -83,16 +83,15 @@ static void copy_match_scalar(uint8_t *dst, uint32_t offset, size_t length) {
 
 #if defined(__x86_64__) || defined(_M_X64)
 
+#ifdef __AVX2__
 #include <cpuid.h>
+#include <immintrin.h>
 
 static int vv_has_avx2(void) {
     unsigned int eax, ebx, ecx, edx;
     if (!__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx)) return 0;
     return (ebx & (1 << 5)) != 0;  /* AVX2 bit */
 }
-
-#ifdef __AVX2__
-#include <immintrin.h>
 
 static void copy_fast_avx2(uint8_t *dst, const uint8_t *src, size_t n) {
     while (n >= 32) {

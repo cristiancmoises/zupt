@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * Copyright (c) 2025-2026 Cristian Cezar Moisés
  *
- * Constant-time verification of zupt_ct_memeq (v3.5.0) — dudect-style.
+ * Constant-time timing regression measurement for zupt_ct_memeq (v3.5.0).
  *
  * The MAC-tag comparison is the most timing-sensitive operation in the
  * codebase: if "wrong on byte 0" were measurably faster than "wrong on
@@ -194,8 +194,8 @@ int main(void) {
     if (t_memcmp < CONTROL_STRONG) {
         printf("  - control |t|=%.1f below %.0f: host under contention this run;\n", t_memcmp, CONTROL_STRONG);
         printf("    control and ct_memeq are in a common noise band, ratio not meaningful\n");
-        printf("  - INCONCLUSIVE this run (zupt_ct_memeq is OR-accumulate, no branch; rerun on a quiet host)\n");
-        printf("  Constant-time: 0 passed, 0 failed (inconclusive — measurement env)\n");
+        printf("  SKIP: timing measurement inconclusive on this host; rerun on a quiet host\n");
+        printf("  Constant-time timing gate: SKIP (measurement environment)\n");
         return 0;
     }
     printf("  \xE2\x9C\x93 control: memcmp leaks strongly (|t|=%.1f, harness is sensitive)\n", t_memcmp);
@@ -204,11 +204,11 @@ int main(void) {
     double ratio = t_ct / t_memcmp;
     printf("  ratio zupt_ct_memeq/memcmp = %.3f (must be <= %.2f)\n", ratio, MAX_RATIO);
     if (ratio <= MAX_RATIO) {
-        printf("  \xE2\x9C\x93 zupt_ct_memeq shows no data-dependent timing (%.1f%% of leak signal)\n",
+        printf("  \xE2\x9C\x93 no timing-regression signal observed for zupt_ct_memeq (%.1f%% of control)\n",
                ratio * 100.0);
         pass++;
     } else {
-        printf("  \xE2\x9C\x97 zupt_ct_memeq timing tracks the data (%.1f%% of leak signal) — NOT constant-time\n",
+        printf("  \xE2\x9C\x97 zupt_ct_memeq timing tracks the input classes (%.1f%% of control)\n",
                ratio * 100.0);
         fail++;
     }
@@ -226,15 +226,13 @@ int main(void) {
      * over 1088 bytes is no longer a cleanly-leaking control (its own
      * timing is data-dependent in ways unrelated to early-exit). The
      * environment-relative ratio that is meaningful at 32 bytes is not
-     * meaningful here on a shared vCPU. What actually establishes the
-     * property is: (a) the 32-byte pass/fail check above proves
-     * zupt_ct_memeq is constant-time, and (b) zupt_ct_memeq is
-     * length-independent by construction (OR-accumulate, no early exit,
-     * no data-dependent branch — same code path for every byte and every
-     * length). The decaps compare uses exactly this primitive (verified
-     * by the source-routing assertion in tests/test_ct_timing.sh), so its
-     * constant-timeness follows from (a)+(b). We print the 1088B numbers
-     * for transparency but do not gate on them. */
+     * meaningful here on a shared vCPU. The 32-byte gate is only regression
+     * evidence when its control is conclusive; it is not a constant-time
+     * proof. Source inspection shows an OR-accumulate loop without intended
+     * data-dependent exit or access, and tests/test_ct_timing.sh confirms that
+     * decapsulation routes through this primitive. Exact compiled behavior
+     * remains compiler- and platform-dependent. We print the 1088B numbers for
+     * transparency but do not gate on them. */
     printf("\n  -- ML-KEM ciphertext compare (1088 bytes, informational) --\n");
     double mc1088_runs[5], ct1088_runs[5];
     for (int r = 0; r < 5; r++) {
@@ -246,12 +244,12 @@ int main(void) {
     printf("  memcmp 1088B:        |t| = %8.2f   (not a clean control at this size)\n",
            mc1088_runs[2]);
     printf("  zupt_ct_memeq 1088B: |t| = %8.2f\n", ct1088_runs[2]);
-    printf("  note: constant-timeness of the 1088B decaps compare follows from the\n");
-    printf("        32B pass above + zupt_ct_memeq being length-independent by\n");
-    printf("        construction; the decaps path uses this exact primitive.\n");
+    printf("  note: the 1088B result is informational; source routing uses the same\n");
+    printf("        fixed-length OR-accumulate primitive, but this is not a proof of\n");
+    printf("        constant-time behavior for the compiled target.\n");
 
     printf("\n  ───────────────────────────────────────\n");
-    printf("  Constant-time: %d passed, %d failed\n", pass, fail);
+    printf("  Timing regression checks: %d passed, %d failed\n", pass, fail);
     printf("  ───────────────────────────────────────\n");
     return fail ? 1 : 0;
 }

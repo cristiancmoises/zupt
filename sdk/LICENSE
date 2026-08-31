@@ -1,56 +1,59 @@
-                    GNU AFFERO GENERAL PUBLIC LICENSE
-                       Version 3, 19 November 2007
+libzuptsdk licensing notice
+===========================
 
- Copyright (C) 2026 Cristian Cezar Moisés <zupt@riseup.net>
+Copyright (C) 2025-2026 Cristian Cezar Moisés
 
- libzuptsdk is free software: you can redistribute it and/or modify
- it under the terms of the GNU Affero General Public License as
- published by the Free Software Foundation, either version 3 of the
- License, or (at your option) any later version.
+The libzuptsdk compatibility wrapper, public header, bindings, tests, and build
+integration carry this SPDX expression unless a file states otherwise:
 
- libzuptsdk is distributed in the hope that it will be useful, but
- WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- Affero General Public License for more details.
+    AGPL-3.0-or-later
 
- You should have received a copy of the GNU Affero General Public
- License along with this program.  If not, see:
+The shared and static libraries produced by `make sdk` also incorporate the
+bundled VaptVupt compression codec sources identified at repository level by:
 
-     https://www.gnu.org/licenses/agpl-3.0.txt
-     https://www.gnu.org/licenses/agpl-3.0.html
+    GPL-3.0-or-later
 
- SPDX-License-Identifier: AGPL-3.0-or-later
+The built library also contains the two xxHash-derived units identified by:
 
- ─────────────────────────────────────────────────────────────────────
+    BSD-2-Clause
 
- ABOUT THIS LICENSE
+It also contains pq-crystals/kyber-derived portions of native ML-KEM under the
+upstream option selected by this distribution:
 
- The GNU Affero General Public License v3 (AGPLv3) is a copyleft
- license designed for software that may be run as a network service.
- It is identical to the GNU General Public License v3, with one
- additional requirement (Section 13): if you modify libzuptsdk and
- make the modified version available to users over a computer network,
- you must offer those users access to the corresponding modified
- source code.
+    CC0-1.0
 
- This protects libzuptsdk against being adopted by SaaS providers as
- a private fork without contributing back, while keeping it freely
- usable by individuals, small businesses, and the broader open-source
- community.
+It contains curve25519-donna-derived portions of native X25519 under:
 
- If you write a separate program that is distributed alongside
- libzuptsdk (for example, statically linking it into your own
- application), the AGPL requires you to license that combined work
- under the AGPL as well — which means you must publish the source.
- If this is not acceptable for your use case, please contact the
- author for commercial licensing options:
+    BSD-3-Clause
 
-     zupt@riseup.net
-     https://github.com/cristiancmoises/zupt
+The built library therefore contains all five scopes and is described for package
+metadata by:
 
- ─────────────────────────────────────────────────────────────────────
+    AGPL-3.0-or-later AND GPL-3.0-or-later AND BSD-2-Clause AND BSD-3-Clause AND CC0-1.0
 
- The full text of the GNU Affero General Public License version 3
- should accompany this distribution as a separate file (or you may
- download it from the URLs above). It is approximately 35 KB / 619
- lines of plain text.
+The complete, unmodified public license texts and applicable notices are in:
+
+    LICENSE-AGPL-3.0
+    LICENSE-GPL-3.0
+    LICENSE-BSD-2-Clause
+    LICENSE-BSD-3-Clause
+    LICENSE-CC0-1.0
+    LICENSE
+    NOTICE
+    THIRD-PARTY-NOTICES.md
+
+Preserve per-file SPDX and copyright notices; they are authoritative for files
+outside this summary. Published historical revisions may carry different
+notices for their exact contents. This current notice does not revoke or
+reinterpret a historical grant.
+
+The in-tree libzuptsdk compatibility library is distinct from the separately
+packaged system libvuptsdk used by the ZUPT CLI's optional `WITH_SDK=1`
+integration.
+
+The applicable copyright holder may offer controlled first-party rights under
+a separately executed commercial agreement. This notice grants no commercial
+permission and cannot relicense rights the licensor does not control.
+
+Commercial licensing inquiries: sac@securityops.co
+Canonical project: https://github.com/cristiancmoises/zupt

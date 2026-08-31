@@ -3,12 +3,12 @@
  * Copyright (c) 2026 Cristian Cezar Moisés
  *
  * zupt_crypto_pqbox.c — ZUPT_ENC_PQ_BOX_V1 (0x05): hybrid PQ sealed-box
- * recipient encryption backed by vendored libpqvaptvupt (v0.6.0).
+ * recipient encryption backed by the optional system libpqvaptvupt.
  *
  * Why a third PQ mode:
  *   - legacy --pq (0x02) combines the ML-KEM and X25519 shared secrets
  *     with XOR+SHA3 — functional, but not the modern recommendation;
- *   - --pq-sdk (0x03) is libzuptsdk's v2 envelope (kept for back-compat);
+ *   - --pq-sdk (0x03) is libvuptsdk's v2 envelope (kept for back-compat);
  *   - --pq-box (0x05) uses libpqvaptvupt's sealed box, which combines the
  *     two KEM secrets through HKDF-SHA256 Extract/Expand with a
  *     domain-separating info string ("pqvv-seal-v1") — the construction
@@ -47,19 +47,23 @@
 
 static int pqbox_write_keyfile(const char *path, char role,
                                const uint8_t *key, size_t klen) {
-    FILE *f = fopen(path, "wb");
-    if (!f) return -1;
-    int ok = fwrite(PQBOX_MAGIC, 1, PQBOX_MAGIC_LEN, f) == PQBOX_MAGIC_LEN
-          && fputc(role, f) != EOF
-          && fwrite(key, 1, klen, f) == klen;
-    if (fclose(f) != 0) ok = 0;
-    return ok ? 0 : -1;
+    if (klen > SIZE_MAX - PQBOX_HDR_LEN) return -1;
+    size_t length = PQBOX_HDR_LEN + klen;
+    uint8_t *blob = (uint8_t *)malloc(length);
+    if (!blob) return -1;
+    memcpy(blob, PQBOX_MAGIC, PQBOX_MAGIC_LEN);
+    blob[PQBOX_MAGIC_LEN] = (uint8_t)role;
+    memcpy(blob + PQBOX_HDR_LEN, key, klen);
+    int result = zupt_keyfile_write_new(path, blob, length, role == 'S');
+    if (role == 'S') zupt_secure_wipe(blob, length);
+    free(blob);
+    return result;
 }
 
 /* Reads and validates a key file. Returns 0 and fills `key` on success. */
 static int pqbox_read_keyfile(const char *path, char role,
                               uint8_t *key, size_t klen) {
-    FILE *f = fopen(path, "rb");
+    FILE *f = zupt_fopen_path(path, "rb");
     if (!f) return -1;
     uint8_t hdr[PQBOX_HDR_LEN];
     int ok = fread(hdr, 1, PQBOX_HDR_LEN, f) == PQBOX_HDR_LEN
@@ -67,14 +71,18 @@ static int pqbox_read_keyfile(const char *path, char role,
           && hdr[PQBOX_MAGIC_LEN] == (uint8_t)role
           && fread(key, 1, klen, f) == klen
           && fgetc(f) == EOF;   /* exact size — no trailing bytes */
-    fclose(f);
+    if (fclose(f) != 0) ok = 0;
+    if (!ok && role == 'S') zupt_secure_wipe(key, klen);
     return ok ? 0 : -1;
 }
 
 int zupt_pqbox_keygen(const char *privkeyfile, const char *pubkeyfile) {
-    uint8_t pk[PQVV_PUBLICKEYBYTES];
-    uint8_t sk[PQVV_SECRETKEYBYTES];
-    if (pqvv_keygen(pk, sk) != PQVV_OK) return -1;
+    uint8_t pk[PQVV_PUBLICKEYBYTES] = {0};
+    uint8_t sk[PQVV_SECRETKEYBYTES] = {0};
+    if (pqvv_keygen(pk, sk) != PQVV_OK) {
+        zupt_secure_wipe(sk, sizeof(sk));
+        return -1;
+    }
 
     int rc = 0;
     if (pqbox_write_keyfile(privkeyfile, 'S', sk, sizeof(sk)) != 0) rc = -1;
@@ -146,7 +154,7 @@ int zupt_pqbox_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
     if (sealed_len != PQBOX_SEALED_SESSION || payload_len < 5 + (size_t)sealed_len)
         return -1;
 
-    uint8_t sk[PQVV_SECRETKEYBYTES];
+    uint8_t sk[PQVV_SECRETKEYBYTES] = {0};
     if (pqbox_read_keyfile(privkeyfile, 'S', sk, sizeof(sk)) != 0) {
         fprintf(stderr, "Error: '%s' is not a pq-box SECRET key file.\n", privkeyfile);
         return -1;
@@ -184,16 +192,16 @@ int zupt_pqbox_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
 
 #else  /* !ZUPT_WITH_PQBOX */
 
-/* Source-only build (no vendored libpqvaptvupt binary). The --pq-box sealed-box
- * mode is unavailable; use native --pq (ML-KEM-768 + X25519) instead, or rebuild
- * with `make WITH_SDK=1` (requires the vendored libpqvaptvupt). */
+/* Baseline build without the optional system libpqvaptvupt. The --pq-box
+ * sealed-box mode is unavailable; use native --pq (ML-KEM-768 + X25519)
+ * instead, or rebuild with WITH_PQBOX=1 and the system development package. */
 #include <stdio.h>
 
 static int pqbox_unavailable(const char *what) {
     fprintf(stderr,
             "Error: this build has no libpqvaptvupt support, so %s is unavailable.\n"
             "       Use native --pq (ML-KEM-768 + X25519) instead, or rebuild with "
-            "'make WITH_SDK=1'.\n", what);
+            "'make WITH_PQBOX=1' and the system development package.\n", what);
     return -1;
 }
 

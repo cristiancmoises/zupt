@@ -1,4 +1,249 @@
-# VaptVupt Changelog
+# ZUPT Changelog
+
+
+## [5.2.2] — 2026-08-31 — ZUPT identity, source-only upstream tree, and openSUSE packaging
+
+This maintenance release keeps the `.zupt` extension, the v1.6 version byte,
+and the bundled VaptVupt codec at 2.65.3. It adds flag-gated 5.2.2 encodings for
+authenticated encrypted-dedup references and disk-image integrity/index
+metadata. The 5.2.2 reader retains a narrow legacy v5.2.1 plain disk-index
+path; older readers are not claimed to accept every archive written by 5.2.2.
+
+### Product identity and compatibility
+
+- Restored the original **ZUPT** product name and `zupt` command across the
+  application, GUI, packages, documentation, and release artifacts.
+- Moved the canonical project location to
+  `https://github.com/cristiancmoises/zupt`.
+- Kept the `.zupt` extension, format v1.6, `ZUPT` magic bytes, codec IDs,
+  `zupt_*`/`ZUPT_*` identifiers, and `zuptsdk_*` ABI unchanged. This is a
+  product-identity change, not an archive or cryptographic format change.
+- Retained the name VaptVupt where it identifies the bundled codec, its
+  `vv_*` API/wire format, the `--vv`/`--vaptvupt` codec selector, or an external
+  compatibility contract. An optional `vaptvupt` command alias can support
+  scripts written for versions 3.0.0 through 5.2.1.
+
+### Source and build
+
+- Removed the incomplete `vendor/vuptsdk/` and `vendor/pqvaptvupt/` header
+  snapshots and every build expectation that a precompiled local `.so`, `.a`,
+  or `.o` is available. Git and newly generated source archives contain source
+  and necessary data only.
+- `WITH_SDK` and `WITH_PQBOX` are disabled by default. When requested, they
+  resolve separately installed development libraries through `pkg-config` (or
+  explicit packager-supplied flags) and fail clearly when unavailable. The
+  build never downloads dependencies or falls back to a binary under `vendor/`.
+- Reworked the Makefile to honor `CC`, `CPPFLAGS`, `CFLAGS`, `LDFLAGS`,
+  `LDLIBS`, `AR`, `RANLIB`, `STRIP`, `DESTDIR`, `PREFIX`, and install-directory
+  overrides. Architecture detection follows the compiler target. Baseline
+  builds no longer apply AVX2 to the whole program, add a private-library
+  RPATH, or strip distribution binaries.
+- `make install DESTDIR=... PREFIX=/usr` supports staged package builds. The
+  `vaptvupt` command is an optional compatibility install, not part of the
+  openSUSE main package.
+- Added `--password-prompt`, `--pass-file`, and `--pass-fd` to every CLI path
+  that accepts a password. These explicit sources avoid the historical
+  optional-argument ambiguity of `-p`; file/descriptor input rejects empty,
+  NUL-containing, and overlong values.
+- Hardened native key handling: private outputs use no-replace creation with
+  POSIX mode `0600` or a Windows current-user-only DACL, and ZKEY/ZPQK inputs
+  must pass checksum, version, flags, reserved-byte, exact-size, and
+  public/private-role validation. A write/flush/close failure leaves its
+  incomplete or durability-uncertain exclusive file for manual review and
+  removal instead of risking an unlink-after-close race against a replacement
+  pathname.
+- Added signal-aware POSIX password-prompt cleanup that restores saved terminal
+  state on handled interruption, with a PTY regression in the final gate.
+- Corrected bundled-code provenance: pq-crystals/kyber-derived ML-KEM portions
+  now carry the upstream CC0-1.0 option and complete license text; the x86 BCJ
+  state machine is identified as an adaptation of Igor Pavlov's public-domain
+  LZMA SDK source instead of making an unsupported clean-room claim; and
+  curve25519-donna-derived X25519 portions retain the conservative upstream
+  BSD-3-Clause notice. The SHA-NI path now records its immutable
+  public-domain SHA-Intrinsics reference.
+- Removed unsupported `JASMIN-VERIFIED` labels. The repository retains
+  Jasmin textual sources and generated/hand-written assembly plus runtime
+  tests, but no reproducible formal-proof certificate or log for these paths;
+  historical changelog claims below are qualified accordingly.
+- Treat older “constant-time by construction” and formal-verification wording
+  as historical design claims unless a current reproducible proof artifact is
+  named. Source review and timing regressions do not prove the behavior of
+  every compiler, CPU, or final binary.
+
+### Archive integrity and path security
+
+- Reject archive entry names containing absolute roots, `.` or `..`
+  components, control characters, NTFS alternate-stream syntax, trailing
+  dot/space components, or reserved DOS device names. Empty, overlong, and
+  embedded-NUL index paths are rejected during parsing.
+- Create output below a pinned destination. POSIX systems traverse parents with
+  `openat()`/`mkdirat()` and `O_NOFOLLOW` after resolving the user-selected root
+  to a physical path once; Windows traverses and creates each component with
+  handle-relative `NtCreateFile` and publishes with a handle-relative
+  `FileRenameInfo`. Neither implementation re-resolves a checked archive path
+  through a mutable parent.
+- Write to a private, newly created temporary file and publish it atomically
+  only after the decoded size, per-file checksum, archive integrity checks, and
+  close/flush operations succeed. Existing regular files, hardlinks, symlinks,
+  or reparse points are never overwritten.
+- Normal, solid, and disk-image compression now use the same private-temporary
+  discipline in the destination directory. Publication replaces only the
+  requested directory entry, so an output symlink or hardlink cannot truncate
+  its target; any input, encryption, or write failure preserves the previous
+  archive and removes the temporary. Disk-image indices now use the canonical
+  varint encoding and pass the normal `list` and `test` parsers. Disk backup
+  measures and reads the source through one open descriptor, rejects a size
+  change, and cannot be redirected by exchanging the source pathname. Before
+  creating the temporary output, normal compression and disk backup also reject
+  an output that identifies the same file as the input through an alternate
+  spelling, hardlink, or symlink; `--force` does not bypass this guard.
+- Disk restore now copies the measured compacted archive into one private,
+  auto-deleted scratch file before opening the destructive destination. Its
+  preflight and restore phases consume that same snapshot, so exchanging the
+  source pathname cannot change the bytes after validation. `ZUPT_TMPDIR`
+  selects an existing scratch directory and fails without fallback when it is
+  invalid or lacks space. Linux, macOS, and FreeBSD raw block-device capacity
+  is queried before the first write; an unknown or undersized device fails
+  closed. Regular-file restore retains atomic publication.
+- Bind every encrypted DATA frame to its logical file/block position (or disk
+  block position), including when deduplication is enabled. An authenticated
+  DEDUP_REF is bound to its own logical position and carries the authenticated
+  source position needed to verify the referenced DATA frame. Swapping either
+  kind of frame therefore fails authentication instead of relying on the former
+  archive-wide dedup AAD sentinel. Generic `test` and byte-exact `disk restore`
+  regressions cover encrypted `disk backup --dedup`; they remain part of the
+  exact final-candidate gate described below.
+- Require both XXH64 and an independent SHA-256/128 digest match before
+  emitting a dedup reference, and authenticate reference offsets in new
+  encrypted archives.
+- Require a valid archive-integrity trailer in the `extract`, `list`, `test`,
+  and `disk restore` paths by default, regardless of unauthenticated header
+  flags. `--allow-legacy-no-ait` is an explicit recovery-only override for
+  those commands when given a known, trusted pre-AIT archive; it emits a
+  downgrade warning. Writers never use the override or create a no-AIT archive.
+  `info` remains an unauthenticated framing inspection: it reports AIT presence
+  but does not validate the trailer or archive contents.
+- Authenticate the encrypted disk index and record a chained whole-image XXH64
+  content hash in new disk archives. Generic `test` and `disk restore` verify
+  block count, restored size, reference targets, and that content hash. XXH64
+  remains a non-cryptographic corruption check in a plain archive.
+- Retain compatibility parsers for the fixed little-endian disk index and the
+  linear encrypted-dedup AAD sequence published through 5.2.1. The regression
+  fixture is an actual v5.2.1 password-encrypted DATA/DATA/REF/DATA disk archive,
+  stored as hexadecimal text with its source tag/commit, password, input hash,
+  and archive hash. The 5.2.2 candidate lists, tests, extracts, and restores it byte-exact;
+  the legacy index has no whole-image hash and produces an explicit warning.
+  The exact final candidate must repeat this gate, and no broader historical
+  compatibility claim is made.
+- Serialize fixed-width archive/header, footer, index and PBKDF iteration
+  fields explicitly in little-endian order. Varint readers now reject overlong
+  encodings and values wider than 64 bits instead of accepting an ambiguous or
+  wrapped scalar.
+- Require a DATA frame wherever a decoder consumes file or disk payload. The
+  multithreaded and serial readers, solid reader, generic `test`, and disk
+  restore now reject type-confused frames rather than decoding COMMENT or INDEX
+  payload as ordinary data.
+- Add structurally valid hostile-archive fixtures covering traversal, absolute
+  and Windows-special paths, destination leaf/ancestor links, a relative user
+  output root, corrupt payload cleanup, nested UTF-8 paths, and safe separator
+  normalization.
+- Scope the Windows output boundary to normal local Win32 paths. Cross-build
+  and Wine results are not native-Windows evidence; the native package workflow,
+  including its Unicode round trip, remains a release gate.
+  Extended-length/device namespace paths, raw UNC output roots, and
+  mapped/network-drive output are unsupported in 5.2.2.
+- Create benchmark corpora, archives, extraction outputs, and concatenation
+  inputs below a randomly generated private temporary directory and clean it
+  recursively without following links. This replaces the predictable
+  process-ID-only scratch path used by earlier builds.
+- Render archive comments as untrusted terminal data: control bytes are shown
+  safely rather than emitted as raw terminal-control sequences. The stored and
+  authenticated comment bytes are unchanged.
+
+### Licensing and provenance erratum
+
+- Corrected prior documentation that incorrectly denied all historical MIT
+  grants. Commit `d4660e6539c8b6eeba81751c018217d978fdd618` distributed the
+  then-current first-party application and GUI with MIT license files, and the
+  immutable `v2.2.2` tag contains an MIT-form `gui/LICENSE-GUI` alongside an
+  AGPL SPDX notice in the GUI source. Those records are preserved and their
+  historical permissions are not revoked or reinterpreted by 5.2.2.
+- Current source follows its current per-file SPDX notices: the application,
+  GUI, cryptographic tool, build, test, and documentation code are
+  AGPL-3.0-or-later, while the identified bundled codec source is
+  GPL-3.0-or-later. The erratum corrects the record; it does not rewrite old
+  tags or change the license of a historical copy.
+- Distinguished Jasmin compiler output from hand-written textual assembly.
+  `zupt_aes_ctr4.s` is a hand-written production implementation corresponding
+  to an algorithm-only `.jazz` description; generated files retain their
+  available compiler provenance.
+- Corrected the stale claim that the adapted XXH64 code was public domain.
+  Both derived implementations now preserve Yann Collet's BSD-2-Clause
+  copyright, conditions, disclaimer, and compound SPDX scope; binary package
+  metadata and license payloads include BSD-2-Clause.
+
+### Audit, tests, packaging, and release
+
+- Added a reusable source-only scanner for tracked files, the working tree,
+  `git archive`, release archives, nested archives, unsafe symlinks, Git LFS
+  pointers, compiler output, executable magic, and stale vendor-library
+  references. Positive and negative regression tests cover renamed ELF, ar,
+  PE/MZ, versioned `.so`, RPM/DEB/AppImage, escaping symlinks, and LFS pointers
+  while permitting textual assembly. Necessary non-code `.bin` data requires a
+  manifest entry with purpose, provenance, and SPDX license; compiled magic is
+  never allowlisted. Nested inspection now has fail-closed recursion, member,
+  per-entry expansion, and total-expansion limits with decompression-bomb
+  regressions.
+- Make `tests/regression.sh`'s Bash interpreter requirement explicit so running
+  it through a non-Bash `/bin/sh` cannot masquerade as a product regression.
+- Added upstream openSUSE/OBS packaging under `packaging/opensuse/`, built with
+  `WITH_SDK=0 WITH_PQBOX=0`, real `%check` execution, staged installation, and
+  no installed `vaptvupt` alias. The OBS service tracks the canonical ZUPT
+  repository and an immutable release tag; no acceptance by OBS or Factory is
+  implied by files being present upstream.
+- Updated CI and release checks around clean source builds, tests, source
+  archive inspection, packaging metadata, licenses, and secret hygiene.
+- The gated release path is defined to produce the audited source archive plus
+  an Ubuntu amd64 CLI DEB, openSUSE Tumbleweed x86_64 CLI binary/source RPMs,
+  a notice-bearing Linux x86_64 CLI tar.xz, an architecture-independent GUI
+  DEB, a noarch GUI RPM and matching source RPM, a source-only portable GUI
+  ZIP, a CLI Windows x86_64 ZIP containing the executable and notices, and a
+  native-architecture CLI macOS DMG.
+  Each binary format is built separately from the tagged source and may be
+  published only after its target-specific package and functional gates pass;
+  `SHA256SUMS` covers the promoted assets. Packages never enter Git or the
+  source archive.
+- Exclude AppImage, AppDir and Flatpak bundles, GUI platform installers, and
+  bare executables from the 5.2.2 release set: the inspected type-2 runtime's
+  static dependency notice omitted mimalloc and the available inputs did not
+  provide a complete LGPL source/relink handoff. The offline helper now
+  requires runtime-specific compliance material from its operator.
+- Publish the Windows executable only inside its ZIP with AGPL, GPL,
+  BSD-2-Clause, BSD-3-Clause, CC0-1.0, toolchain-runtime, NOTICE, and
+  third-party notices; no bare EXE is promoted.
+- Limit the 5.2.2 GUI artifact promise to `zupt-gui_5.2.2_all.deb`,
+  `zupt-gui-5.2.2-1.noarch.rpm`, its matching source RPM, and
+  `zupt-gui-5.2.2-portable.zip`. Package artifacts have exact dependency and
+  installed off-screen GUI/CLI tests. The portable ZIP contains source and
+  launchers only and passes source scans, an exact safe-member allowlist, and an
+  extracted off-screen launcher test. Windows and macOS artifacts remain
+  CLI-only.
+- Remove the standalone GUI `setup.py` sdist/wheel route, whose outputs omitted
+  the complete AGPL and artwork-provenance payload. Reviewed GUI installers and
+  package helpers preserve those notices with every included icon.
+- Updated the README, installation, distribution, security, audit, GUI, and
+  manual-page documentation for the 5.2.2 source-only workflow.
+
+Validation results are recorded by the release process and the openSUSE
+packaging README. A missing tool or unexecuted platform remains `SKIP`; this
+entry does not claim successful OBS, architecture, Leap, or SLE builds without
+corresponding evidence. Runs made before the final positional-AAD and
+mandatory-AIT changes are intermediate diagnostic evidence, not final release
+gates. Private-key creation/parsing, terminal-safe comment rendering, prompt
+signal cleanup, explicit-Bash regression execution, and scanner bomb limits are
+also final self-audit release blockers. Their focused checks and the complete
+required suite remain `PENDING` until the exact candidate is rerun before
+tagging; this entry does not claim a final `PASS`.
 
 
 ## [5.2.1] — 2026-07-12 — GUI Verify/Extract robustness; refreshed comparison + audit tables
@@ -456,9 +701,10 @@ later + commercial; its own suite: 66/66):
   pristine upstream files.
 - `VV_SOURCES` gained `vv_bcj.c` (the `test-asan` target could not link
   since BCJ arrived).
-- Corrected a Makefile comment that misstated the codec license as
-  "Apache-2.0 / MIT" — the codec is **GPL-3.0-or-later**; the tool is
-  **AGPL-3.0-or-later** (never MIT).
+- Corrected a Makefile comment that misstated the current codec license as
+  "Apache-2.0 / MIT" — the current codec is **GPL-3.0-or-later** and the
+  current tool is **AGPL-3.0-or-later**. See the 5.2.2 licensing erratum for
+  preserved historical MIT grants.
 
 ### Compatibility summary
 
@@ -1513,10 +1759,10 @@ The v3.0.0 GUI's about panel had a credit line:
 zupt        Cristian Cezar Moises        MIT
 ```
 
-That was false. The GUI's SPDX header has always been
-`AGPL-3.0-or-later`, the top-level `LICENSE` is AGPL, and the project
-policy is **AGPL-3.0-or-later with commercial dual-licensing forever**.
-The MIT line was a templating mistake inherited from an early scaffold.
+That entry described the intended license of the then-current GUI, but its
+historical conclusion was incorrect. Earlier published repository revisions
+did contain MIT license notices, and those grants cannot be retroactively
+denied. See the 5.2.2 licensing erratum above.
 
 Removed. The CREDITS block now has two correctly-attributed rows:
 
@@ -1525,10 +1771,10 @@ Removed. The CREDITS block now has two correctly-attributed rows:
 
 Both rows carry the commercial-licensing contact `sac@securityops.co`.
 
-`gui/LICENSE-GUI` was an actual MIT license file. Replaced with the
-AGPL-3.0-or-later text + commercial-dual-licensing note + a historical
-note explaining the prior MIT mistake (so anyone with an old tarball
-can't legitimately claim to have received an MIT grant).
+`gui/LICENSE-GUI` was changed from an MIT-form file to an
+AGPL-3.0-or-later notice for the then-current source. That change did not revoke
+MIT permissions already conveyed for historical material. The current
+`gui/LICENSE-GUI` records both the current notice and the factual erratum.
 
 Top-level `LICENSE` preamble updated to reflect the Zupt → VaptVupt
 rename.
@@ -1576,9 +1822,10 @@ All call sites updated.
 
 ### New regression test: `tests/test_gui_branding.sh`
 
-11 assertions covering exactly the bugs we just fixed:
-- No MIT references in the GUI source (excluding the explanatory comment)
-- `gui/LICENSE-GUI` is AGPL-licensed and does not start with "MIT License"
+Assertions covering the current branding and license presentation:
+- No claim in the GUI source that the current GUI is MIT-only
+- `gui/LICENSE-GUI` presents the current AGPL notice first and preserves the
+  evidenced historical MIT grant (see the 5.2.2 erratum)
 - GUI source SPDX header is `AGPL-3.0-or-later`
 - No `replace("zupt ", ...)` parser in code
 - An anchored `_VERSION_RE` regex is present
@@ -2090,7 +2337,8 @@ Covers, with appropriate plain-language honesty:
   (encrypted modes), byte-level tamper detection (0 silent accepts
   in v1.6 sweep), authentication-failure indistinguishability
   (F-11), post-quantum forward secrecy in `--pq-sdk`, side-channel
-  resistance on Jasmin-proven hot paths
+  resistance on hot paths then described as Jasmin-proven (5.2.2 records that
+  no reproducible formal-proof artifact was retained)
 - **What Zupt does NOT protect against**: compromised endpoints,
   key compromise (no forward secrecy across archives, no rotation
   feature), weak passwords (with concrete brute-force numbers),
@@ -3651,10 +3899,9 @@ yml, and a few packaging files had no SPDX line at all. Added:
   it: `vv_ans.c`, `vv_decoder.c`, `vv_encoder.c`, `vv_huffman.c`,
   `vv_simd.c`, `vv_xxh64.c`, `vv_ans.h`, `vv_huffman.h`)
 
-The 5 Jasmin `.jazz` source files previously declared "MIT License" in
-their headers as a copy-paste artifact from an earlier draft. They have
-been **relicensed to AGPL-3.0-or-later** (sole-author relicensing — no
-external contributor's work was relicensed).
+The current headers of five Jasmin `.jazz` source files were changed from MIT
+notices to AGPL-3.0-or-later notices. This describes the current revision; it
+does not revoke the MIT permissions attached to exact historical material.
 
 The 5 VaptVupt headers in `vendor/zuptsdk/include/` (vaptvupt.h,
 vaptvupt_api.h, vv_ans.h, vv_huffman.h, vv_platform.h) were tagged
@@ -4135,7 +4382,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added — Block-Level Deduplication (`--dedup`)
 
-- **New `--dedup` / `-D` flag** for `zupt compress` and `zupt disk backup`. Eliminates redundant data blocks before compression using XXH64 fingerprinting with full content verification on match.
+- **New `--dedup` / `-D` flag** for `zupt compress` and `zupt disk backup`. Eliminates redundant data blocks before compression using XXH64 fingerprinting (strengthened with an independent SHA-256/128 match in 5.2.2).
 - **New block type `ZUPT_BLOCK_DEDUP_REF` (0x04)**: Reference blocks store an 8-byte offset to the original data block instead of the full block payload. A 4MB duplicate block becomes 8 bytes.
 - **Hash table index**: Open-addressing with linear probing, capped at 2M entries (~48MB RAM). 75% load factor limit. Secure wipe on free.
 - **Content verification**: XXH64 fingerprint match is verified by block size comparison to prevent hash-collision corruption.
@@ -4310,8 +4557,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [1.5.0] — 2026-03-28
 
 ### Added — Jasmin Assembly Integration (Sprint 1)
-- **`zupt_mac_verify_ct`** Jasmin assembly linked into `zupt_decrypt_buffer()`. Replaces the C XOR accumulation loop for HMAC-SHA256 comparison. 4×u64 unrolled XOR, proven constant-time by Jasmin type system. Symbol confirmed active via `nm`: `T zupt_mac_verify_ct`.
-- **`zupt_ct_select_32`** Jasmin assembly linked into `zupt_mlkem768_decaps()`. Replaces the C `cmov()` function for Fujisaki-Okamoto implicit rejection key selection. 4×u64 masked select, proven constant-time. Symbol confirmed active via `nm`: `T zupt_ct_select_32`.
+- **`zupt_mac_verify_ct`** Jasmin assembly linked into `zupt_decrypt_buffer()`. Replaces the C XOR accumulation loop for HMAC-SHA256 comparison. 4×u64 unrolled XOR, then described as proven constant-time; 5.2.2 records that no reproducible proof artifact was retained. Symbol confirmed active via `nm`: `T zupt_mac_verify_ct`.
+- **`zupt_ct_select_32`** Jasmin assembly linked into `zupt_mlkem768_decaps()`. Replaces the C `cmov()` function for Fujisaki-Okamoto implicit rejection key selection. 4×u64 masked select, with the same historical proof qualification above. Symbol confirmed active via `nm`: `T zupt_ct_select_32`.
 - **`include/zupt_jasmin.h`** — extern declarations for all Jasmin functions with ABI documentation.
 - **`#ifdef ZUPT_USE_JASMIN`** dispatch guards in `zupt_crypto.c` and `zupt_mlkem.c` with clean C fallback.
 - **Makefile** auto-detects `jasmin/*.s` files, assembles to `.o`, links into binary, sets `-DZUPT_USE_JASMIN`.
@@ -4343,8 +4590,9 @@ All 4 `.jazz` files rewritten to fix compilation errors:
 
 ### Changed
 - Removed all `-CT` flag references (does not exist in jasminc 2026.03.0).
-- CT enforced by Jasmin type system during normal compilation.
-- Safety: `jasminc -arch x86-64 -checksafety`.
+- The release claimed CT enforcement by the Jasmin type system during normal
+  compilation and use of `jasminc -arch x86-64 -checksafety`; no reproducible
+  certificate/log for those claims was retained (documented in 5.2.2).
 - All compound expressions split into separate register operations.
 - All output parameters changed from `reg ptr` to `reg u64` raw pointers.
 - Byte-level access avoided: 4×u64 instead of 32×u8.

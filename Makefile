@@ -1,51 +1,120 @@
-# Zupt — backup compression with hybrid post-quantum encryption
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# ZUPT — backup compression with hybrid post-quantum encryption
 # Build system. Pure GNU make, no autotools, no cmake required.
 #
 # Targets:
-#   make                Build the zupt binary (uses CC, CFLAGS, LDFLAGS env)
+#   make                Build the zupt binary
 #   make V=1            Verbose: show every command line
 #   make install        Install to /usr/local (override with PREFIX=/usr)
-#   make test           Run the full test suite (55 tests across 6 suites)
-#   make test-asan      Build and run with AddressSanitizer + UBSan
+#   make check          Run the source-only distribution test suite
+#   make test-all       Run the extended upstream test suite
+#   make test-asan      Build with AddressSanitizer + UBSan
+#   make test-asan-run  Execute the sanitizer smoke test
 #   make clean          Remove build artifacts
 #
 # Build profiles (all controllable via standard env vars):
 #   CC=clang make                          Use Clang instead of GCC
-#   CFLAGS="-O3 -march=native" make        Optimize for current host
+#   CFLAGS="-O3 -g" make                   Override the default optimization
 #   make PREFIX=/usr DESTDIR=/tmp/stage    Staged install for packagers
 #
-# Architectures supported (auto-detected from $(uname -m)):
-#   x86_64    — full speed: Jasmin constant-time crypto, AVX2 SIMD decode
-#   aarch64   — full speed: C crypto, NEON SIMD decode
-#   armhf, ppc64le, s390x, riscv64 — C crypto, scalar decode
-#
-# Operating systems supported:
-#   Linux (glibc 2.28+), macOS 10.15+, Windows (MSYS2/MinGW), Termux Android,
-#   FreeBSD, OpenBSD (with system make compatibility shims).
+# The compiler target, rather than the build host, controls architecture
+# selection. This keeps cross builds from accidentally enabling host assembly.
+CC             ?= cc
+CPPFLAGS       ?=
+CFLAGS         ?= -O2 -g
+LDFLAGS        ?=
+LDLIBS         ?=
+AR             ?= ar
+ARFLAGS        ?= rcs
+RANLIB         ?= ranlib
+STRIP          ?= strip
+PKG_CONFIG     ?= pkg-config
+ASFLAGS        ?=
 
-CC        ?= cc
-# v3.0.2: -Woverlength-strings catches usage()-style string literals
-# that violate the C99 4095-char single-string limit. F-13 was hit
-# in v3.0.1 when usage() drifted past the limit; the warning now
-# fails the build under -Werror downstream.
-CFLAGS    ?= -Wall -Wextra -Woverlength-strings -O2 -std=c11
-CFLAGS    += -Iinclude -Isrc
-LDFLAGS   ?=
-LDLIBS    ?= -lm
-
-# pthreads: link -lpthread on Linux/BSD, skip on Android/Termux (bionic built-in)
-ifeq ($(shell uname -o 2>/dev/null),Android)
-  # Termux/Android: pthreads built into bionic libc
-else
-  LDLIBS += -lpthread
+# GNU make has a built-in ARFLAGS=rv. Use archive creation flags by default,
+# while preserving values supplied through the environment or command line.
+ifeq ($(origin ARFLAGS),default)
+  ARFLAGS := rcs
 endif
 
-PREFIX    ?= /usr/local
-BINDIR    ?= $(PREFIX)/bin
-MANDIR    ?= $(PREFIX)/share/man
-MAN1DIR   ?= $(MANDIR)/man1
-GZIP      ?= gzip
-GZIPFLAGS ?= -9 -n
+DESTDIR        ?=
+PREFIX         ?= /usr/local
+BINDIR         ?= $(PREFIX)/bin
+LIBDIR         ?= $(PREFIX)/lib
+INCLUDEDIR     ?= $(PREFIX)/include
+DATADIR        ?= $(PREFIX)/share
+MANDIR         ?= $(DATADIR)/man
+MAN1DIR        ?= $(MANDIR)/man1
+BASHCOMPDIR    ?= $(DATADIR)/bash-completion/completions
+ZSHCOMPDIR     ?= $(DATADIR)/zsh/site-functions
+FISHCOMPDIR    ?= $(DATADIR)/fish/vendor_completions.d
+LICENSEDIR     ?= $(DATADIR)/licenses/zupt
+GZIP           ?= gzip
+GZIPFLAGS      ?= -9 -n
+INSTALL_LEGACY_ALIAS ?= 0
+INSTALL_LICENSES ?= 1
+LICENSE_FILES  = LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 \
+                 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 \
+                 NOTICE THIRD-PARTY-NOTICES.md
+
+# Standard packager variables above are never rewritten. Project-owned flags
+# are passed alongside them on every command line.
+PROJECT_CPPFLAGS := -D_DEFAULT_SOURCE -Iinclude -Isrc
+PROJECT_CFLAGS   := -Wall -Wextra -Woverlength-strings -std=c11
+PROJECT_LDFLAGS  :=
+PROJECT_CLI_LDFLAGS :=
+PROJECT_LDLIBS   := -lm
+EXEEXT           :=
+CREATE_TEST_ALIAS := 0
+FEATURE_CPPFLAGS :=
+FEATURE_LDLIBS   :=
+
+# Clang's -Wcast-align diagnoses the pointer casts required by the explicitly
+# unaligned x86 load/store intrinsics, and cannot infer alignment through the
+# byte-backed VaptVupt arenas.  Those arenas start at malloc alignment and all
+# typed offsets are rounded to at least 8 bytes.  Keep the compatibility
+# suppression local to the three audited translation units; every other file
+# retains a caller-supplied -Wcast-align/-Werror policy.
+CLANG_CAST_ALIGN_FLAGS :=
+ifneq ($(findstring clang,$(shell $(CC) --version 2>/dev/null | head -n 1)),)
+  CLANG_CAST_ALIGN_FLAGS := -Wno-cast-align
+endif
+CLANG_CAST_ALIGN_OBJS := src/vv_ans.o src/vv_simd.o src/zupt_sha256_shani.o
+
+TARGET_MACHINE ?= $(shell $(CC) -dumpmachine 2>/dev/null)
+TARGET_CPU     := $(firstword $(subst -, ,$(TARGET_MACHINE)))
+ifeq ($(strip $(TARGET_CPU)),)
+  TARGET_CPU := unknown
+endif
+
+# The Windows extraction path uses the documented NtCreateFile RootDirectory
+# facility so directory components are resolved relative to pinned handles.
+# A self-contained PE is required because POSIX-thread MinGW toolchains may
+# otherwise add an undeclared libwinpthread-1.dll runtime dependency.
+ifneq ($(strip $(findstring mingw,$(TARGET_MACHINE))$(findstring windows,$(TARGET_MACHINE))),)
+  EXEEXT := .exe
+  CREATE_TEST_ALIAS := 0
+  PROJECT_LDFLAGS += -static
+  PROJECT_CLI_LDFLAGS += -municode
+  PROJECT_LDLIBS += -lntdll
+endif
+
+# pthread is part of bionic and the Windows implementation uses native APIs.
+ifeq ($(findstring android,$(TARGET_MACHINE)),)
+  ifeq ($(findstring mingw,$(TARGET_MACHINE)),)
+    ifeq ($(findstring windows,$(TARGET_MACHINE)),)
+      PROJECT_CFLAGS += -pthread
+      PROJECT_LDLIBS += -pthread
+    endif
+  endif
+endif
+
+ifneq ($(filter $(INSTALL_LEGACY_ALIAS),0 1),$(INSTALL_LEGACY_ALIAS))
+  $(error INSTALL_LEGACY_ALIAS must be 0 or 1)
+endif
+ifneq ($(filter $(INSTALL_LICENSES),0 1),$(INSTALL_LICENSES))
+  $(error INSTALL_LICENSES must be 0 or 1)
+endif
 
 # --- Verbose build ---
 V ?= 0
@@ -55,7 +124,7 @@ else
   Q = @
 endif
 
-# --- Zupt core sources ---
+# --- ZUPT core sources ---
 ZUPT_SOURCES = src/zupt_main.c src/zupt_format.c src/zupt_lz.c src/zupt_lzh.c \
                src/zupt_xxh.c src/zupt_sha256.c src/zupt_sha256_shani.c src/zupt_aes256.c src/zupt_crypto.c \
                src/zupt_crypto_sdk.c src/zupt_crypto_pqbox.c \
@@ -63,48 +132,37 @@ ZUPT_SOURCES = src/zupt_main.c src/zupt_format.c src/zupt_lz.c src/zupt_lzh.c \
                src/zupt_x25519.c src/zupt_mlkem.c src/zupt_cpuid.c src/zupt_mlock.c \
                src/zupt_filetype.c src/zupt_disk.c src/zupt_dedup.c
 
-# --- Optional vendored libraries (libvuptsdk + libpqvaptvupt) ---
-#
-# These are PREBUILT shared libraries shipped only as binaries (no source), so
-# they are NOT part of the source tree and a distro/source build must not need
-# them. WITH_SDK is therefore OFF by default: the tool builds entirely from the
-# in-tree C sources, using native crypto (PBKDF2-SHA256 password KDF and native
-# ML-KEM-768 + X25519 via --pq). The SDK-backed modes (--pq-sdk, --pq-box, and
-# the Argon2id password KDF) compile to "unsupported" stubs in that case.
-#
-# libvuptsdk is the renamed libzuptsdk (git.securityops.co/cristiancmoises/
-# libvuptsdk); only the .so filename/SONAME changed (libzuptsdk.so.2 ->
-# libvuptsdk.so.2), the C API (zuptsdk_* symbols, zuptsdk.h) is unchanged.
-#
-# WITH_SDK=1 links libvuptsdk (--pq-sdk + Argon2id password KDF). WITH_PQBOX=1
-# links the SEPARATE libpqvaptvupt (--pq-box sealed box); it is independent of
-# WITH_SDK because the two are different upstream libraries. Enable either or
-# both, given the corresponding vendored .so is present.
+# --- Optional system libraries (never vendored, never downloaded) ---
 WITH_SDK ?= 0
-ifeq ($(WITH_SDK),1)
-ZUPTSDK_DIR ?= vendor/vuptsdk
-ZUPTSDK_ABS := $(abspath $(ZUPTSDK_DIR))
-CFLAGS  += -DZUPT_WITH_SDK -I$(ZUPTSDK_DIR)/include
-LDFLAGS += -L$(ZUPTSDK_DIR) -Wl,-rpath,$(ZUPTSDK_ABS) -Wl,-rpath,'$$ORIGIN/$(ZUPTSDK_DIR)'
-# libvuptsdk pulls in OpenSSL 3 (libcrypto) and Argon2; the final link must be
-# able to resolve those transitive symbols. On a distro they are on the default
-# library path; on Guix pass their -L via `guix shell openssl argon2`. Override
-# SDK_DEPLIBS= if your SDK build has different runtime deps.
-SDK_DEPLIBS ?= -lcrypto -largon2
-LDLIBS  += -lvuptsdk $(SDK_DEPLIBS)
-# Installed layout: vendored libs live in $(PREFIX)/lib/$(TARGET)/ — give the
-# binary a matching relative rpath so `make install` is self-contained.
-LDFLAGS += -Wl,-rpath,'$$ORIGIN/../lib/vaptvupt'
+WITH_PQBOX ?= 0
+
+ifneq ($(filter $(WITH_SDK),0 1),$(WITH_SDK))
+  $(error WITH_SDK must be 0 or 1)
+endif
+ifneq ($(filter $(WITH_PQBOX),0 1),$(WITH_PQBOX))
+  $(error WITH_PQBOX must be 0 or 1)
 endif
 
-WITH_PQBOX ?= 0
+ifeq ($(WITH_SDK),1)
+  SDK_PKG_CONFIG ?= libvuptsdk
+  SDK_CPPFLAGS ?= $(shell $(PKG_CONFIG) --cflags $(SDK_PKG_CONFIG) 2>/dev/null)
+  SDK_LDLIBS   ?= $(shell $(PKG_CONFIG) --libs $(SDK_PKG_CONFIG) 2>/dev/null)
+  ifeq ($(strip $(SDK_LDLIBS)),)
+    $(error WITH_SDK=1 requires the system libvuptsdk development package; set SDK_CPPFLAGS and SDK_LDLIBS to explicit system paths if no pkg-config file is provided)
+  endif
+  FEATURE_CPPFLAGS += -DZUPT_WITH_SDK $(SDK_CPPFLAGS)
+  FEATURE_LDLIBS   += $(SDK_LDLIBS)
+endif
+
 ifeq ($(WITH_PQBOX),1)
-PQVV_DIR ?= vendor/pqvaptvupt
-PQVV_ABS := $(abspath $(PQVV_DIR))
-CFLAGS  += -DZUPT_WITH_PQBOX -I$(PQVV_DIR)/include
-LDFLAGS += -L$(PQVV_DIR) -Wl,-rpath,$(PQVV_ABS) -Wl,-rpath,'$$ORIGIN/$(PQVV_DIR)'
-LDFLAGS += -Wl,-rpath,'$$ORIGIN/../lib/vaptvupt'
-LDLIBS  += -lpqvaptvupt
+  PQBOX_PKG_CONFIG ?= libpqvaptvupt
+  PQBOX_CPPFLAGS ?= $(shell $(PKG_CONFIG) --cflags $(PQBOX_PKG_CONFIG) 2>/dev/null)
+  PQBOX_LDLIBS   ?= $(shell $(PKG_CONFIG) --libs $(PQBOX_PKG_CONFIG) 2>/dev/null)
+  ifeq ($(strip $(PQBOX_LDLIBS)),)
+    $(error WITH_PQBOX=1 requires the system libpqvaptvupt development package; set PQBOX_CPPFLAGS and PQBOX_LDLIBS to explicit system paths if no pkg-config file is provided)
+  endif
+  FEATURE_CPPFLAGS += -DZUPT_WITH_PQBOX $(PQBOX_CPPFLAGS)
+  FEATURE_LDLIBS   += $(PQBOX_LDLIBS)
 endif
 
 # --- VAPTVUPT: VaptVupt codec sources (GPL-3.0-or-later; tool is AGPL-3.0-or-later) ---
@@ -118,201 +176,211 @@ HEADERS  = include/zupt.h include/zupt_keccak.h include/zupt_mlkem.h \
            include/zupt_acsl.h \
            include/vaptvupt.h include/vaptvupt_api.h include/vv_huffman.h include/vv_ans.h \
            include/vv_platform.h \
-           src/zupt_thread.h src/zupt_parallel.h
+           src/zupt_thread.h src/zupt_parallel.h src/zupt_internal.h
 
-TARGET     = vaptvupt
-LEGACY_LINK = zupt
-MANPAGE    = doc/vaptvupt.1
-MANPAGE_GZ = $(TARGET).1.gz
+PROGRAM     = zupt
+TARGET      = $(PROGRAM)$(EXEEXT)
+LEGACY_PROGRAM = vaptvupt
+LEGACY_LINK = $(LEGACY_PROGRAM)$(EXEEXT)
+MANPAGE    = doc/zupt.1
+MANPAGE_GZ = $(PROGRAM).1.gz
 
-# ═══════════════════════════════════════════════════════════════════
-# ARCHITECTURE DETECTION
-#
-# Jasmin CT assembly:    x86_64 only (pre-compiled .s files)
-# AVX2 SIMD decode:      x86_64 only (-mavx2 on VV decode/encode/simd)
-# NEON SIMD decode:      aarch64 (auto-detected by compiler, no extra flags)
-# Scalar fallback:       all architectures
-# ═══════════════════════════════════════════════════════════════════
-
-ARCH := $(shell uname -m)
-
-# --- AVX2: enable SIMD for VaptVupt on x86_64 ---
-ifeq ($(ARCH),x86_64)
-  VV_SIMD_FLAGS = -mavx2
-  SHANI_FLAGS = -msha -mssse3 -msse4.1
-else
-  VV_SIMD_FLAGS =
-  SHANI_FLAGS =
+# Architecture-specific code is opt-in and isolated. The normal x86_64 build
+# stays at the ABI baseline; in particular, no complete codec TU gets -mavx2.
+SHANI_FLAGS :=
+ifneq ($(filter x86_64 amd64 i386 i486 i586 i686,$(TARGET_CPU)),)
+  SHANI_FLAGS := -msha -mssse3 -msse4.1
 endif
 
-# --- Jasmin: enable only on x86_64 with pre-compiled .s files ---
+# Optional textual assembly is disabled by default so every
+# compiler/architecture has the audited C fallback. Four files are jasminc
+# outputs and zupt_aes_ctr4.s is separately identified as hand-written. When
+# requested, the compiler driver assembles them while preserving cross-target
+# and sysroot settings.
+WITH_JASMIN ?= 0
+ifneq ($(filter $(WITH_JASMIN),0 1),$(WITH_JASMIN))
+  $(error WITH_JASMIN must be 0 or 1)
+endif
 JAZZ_S = jasmin/zupt_mac_verify.s jasmin/zupt_mlkem_select.s \
          jasmin/zupt_aes_ctr.s jasmin/zupt_x25519_fe.s jasmin/zupt_aes_ctr4.s
-JAZZ_O =
-
-ifeq ($(ARCH),x86_64)
-  JAZZ_AVAILABLE := $(wildcard $(JAZZ_S))
-  ifeq ($(JAZZ_AVAILABLE),$(JAZZ_S))
-    CFLAGS += -DZUPT_USE_JASMIN
-    JAZZ_O = jasmin/zupt_mac_verify.o jasmin/zupt_mlkem_select.o \
-             jasmin/zupt_aes_ctr.o jasmin/zupt_x25519_fe.o jasmin/zupt_aes_ctr4.o
-    $(info [jasmin] Enabled (x86_64) — linking CT crypto)
-  else
-    $(info [jasmin] Assembly not found — using C fallback)
+JAZZ_O :=
+ifeq ($(WITH_JASMIN),1)
+  ifeq ($(filter x86_64 amd64,$(TARGET_CPU)),)
+    $(error WITH_JASMIN=1 is supported only for an x86_64 compiler target; detected $(TARGET_MACHINE))
   endif
-else
-  $(info [jasmin] Disabled on $(ARCH) — using C fallback)
+  ifneq ($(words $(wildcard $(JAZZ_S))),$(words $(JAZZ_S)))
+    $(error WITH_JASMIN=1 requested, but one or more optional .s sources are missing)
+  endif
+  FEATURE_CPPFLAGS += -DZUPT_USE_JASMIN
+  JAZZ_O := $(JAZZ_S:.s=.o)
 endif
 
 # --- Object files ---
-# VV SIMD files need -mavx2 on x86_64 (no-op on other arches)
+# These objects contain the baseline codec implementation. Optimized SHA-NI
+# remains in its own translation unit below and is guarded at runtime.
 VV_SIMD_OBJS  = src/vv_encoder.o src/vv_decoder.o src/vv_simd.o
 
-# Vendored codec sources follow the UPSTREAM warning policy (kept byte-exact
-# to canonical releases for clean future drop-ins). Two benign clang-only
-# categories are silenced here instead of patching upstream files:
-#   vv_decoder.c: unused helper retained upstream; vv_ans.c: stats variable.
-VV_WPOLICY = -Wno-unused-function -Wno-unused-but-set-variable
-$(VV_SOURCES:.c=.o): CFLAGS += $(VV_WPOLICY)
+# The bundled codec uses the same warning policy as the application.  Do not
+# add broad -Wno-* flags here: localized upstream changes are recorded in
+# THIRD-PARTY-NOTICES.md and must compile without masked diagnostics.
 VV_PLAIN_OBJS = src/vv_ans.o src/vv_huffman.o src/vv_xxh64.o src/vv_bcj.o src/vaptvupt_api.o
 ZUPT_OBJS     = $(patsubst %.c,%.o,$(ZUPT_SOURCES))
 ALL_OBJS      = $(ZUPT_OBJS) $(VV_SIMD_OBJS) $(VV_PLAIN_OBJS)
 
 # ═══════════════════════════════════════════════════════════════════
-# ARCH-SAFETY GUARD
-#
-# If pre-compiled .o files from a different architecture are present
-# (e.g. x86_64 .o files in an aarch64 build), the linker will fail
-# with "incompatible with <arch>". Detect and remove stale objects.
-# This happens when tarballs accidentally include build artifacts,
-# or when the same source tree is shared between different machines.
-#
-# Detection: uses $(CC) -dumpmachine which works on ALL platforms
-# including Termux (where /bin/sh does not exist).
-# ═══════════════════════════════════════════════════════════════════
-
-STALE_OBJS := $(wildcard src/*.o jasmin/*.o)
-ifneq ($(STALE_OBJS),)
-  FIRST_OBJ := $(firstword $(STALE_OBJS))
-  # Normalise to a canonical token (no '-' / '_' so x86-64 == x86_64).
-  OBJ_ARCH := $(shell file $(FIRST_OBJ) 2>/dev/null | grep -oiE 'x86.64|aarch64|arm|powerpc|s390|riscv' | head -1 | tr -d '_-' | tr '[:upper:]' '[:lower:]')
-  HOST_TRIPLE := $(shell $(CC) -dumpmachine 2>/dev/null)
-  HOST_ARCH_CC := $(shell echo "$(HOST_TRIPLE)" | grep -oiE 'x86.64|aarch64|arm|powerpc|s390|riscv' | head -1 | tr -d '_-' | tr '[:upper:]' '[:lower:]')
-  # Fallback: try uname -m if CC -dumpmachine fails
-  ifeq ($(HOST_ARCH_CC),)
-    HOST_ARCH_CC := $(shell uname -m 2>/dev/null | grep -oiE 'x86.64|aarch64|arm|powerpc|s390|riscv' | head -1 | tr -d '_-' | tr '[:upper:]' '[:lower:]')
-  endif
-  ifneq ($(OBJ_ARCH),)
-    ifneq ($(HOST_ARCH_CC),)
-      ifneq ($(OBJ_ARCH),$(HOST_ARCH_CC))
-        $(info [arch] Removing stale $(OBJ_ARCH) objects for $(HOST_ARCH_CC) build)
-        $(shell rm -f src/*.o jasmin/*.o)
-      endif
-    endif
-  endif
-endif
-
-# ═══════════════════════════════════════════════════════════════════
 # BUILD RULES
 # ═══════════════════════════════════════════════════════════════════
 
-.PHONY: all clean install uninstall test test-all test-asan test-asan-run test-vectors test-vv fuzz-build fuzz-format fuzz-format-run help audit-licenses dist check
+.DELETE_ON_ERROR:
+.PHONY: all clean install uninstall test test-all release-check test-asan test-asan-run \
+        test-vectors test-f06 test-vv fuzz-build fuzz-format fuzz-format-run \
+        help audit-licenses source-audit dist check
 
 all: $(TARGET)
 
 # ═══════════════════════════════════════════════════════════════════
-# audit-licenses — verify every source file carries the correct SPDX
-# header. AGPL-3.0-or-later for all Zupt code, GPL-3.0-or-later for
-# VaptVupt files (vv_* and vaptvupt*) — see THIRD-PARTY-NOTICES.md
-# for the rationale.
+# audit-licenses — verify covered code, build, CI, and packaging files carry
+# the correct SPDX marker.  Legal-document completeness is audited separately
+# through LICENSE*, NOTICE, and THIRD-PARTY-NOTICES.md; this target is not a
+# claim of full REUSE conformance.
+# AGPL-3.0-or-later for the application/core, GPL-3.0-or-later for the
+# bundled codec files, BSD-2-Clause for the two xxHash-derived units, and
+# CC0-1.0 for the pq-crystals/kyber-derived portions of native ML-KEM, and
+# BSD-3-Clause for curve25519-donna-derived X25519 portions.
+# See THIRD-PARTY-NOTICES.md.
 # ═══════════════════════════════════════════════════════════════════
 audit-licenses:
 	@MISSING=0; WRONG=0; \
 	for f in $$(find . -type f \( -name '*.c' -o -name '*.h' -o -name '*.hpp' \
-	             -o -name '*.py' -o -name '*.sh' -o -name '*.yml' \
-	             -o -name '*.jazz' -o -name '*.s' -o -name 'Makefile' \
-	             -o -name '*.map' \) \
+	             -o -name '*.py' -o -name '*.sh' -o -name '*.yml' -o -name '*.yaml' \
+	             -o -name '*.jazz' -o -name '*.s' -o -name '*.S' -o -name 'Makefile' \
+	             -o -name '*.map' -o -name '*.bat' -o -name '*.command' \
+	             -o -name '*.desktop' -o -name '*.nemo_action' -o -name '*.spec' \
+	             -o -name '*.rb' -o -name '*.scm' -o -name '*.nix' \
+	             -o -name '*.iss' -o -name '*.nsi' -o -name '*.fish' \
+	             -o -name 'PKGBUILD' -o -name '_service' -o -name 'rules' \) \
 	             -not -path './build/*' \
 	             -not -path './build_obj/*' \
-	             -not -path './sdk/build/*' \
-	             -not -path './vendor/vuptsdk/include/*'); do \
+	             -not -path './sdk/build/*'); do \
 	    case "$$f" in \
+	        ./src/zupt_mlkem.c) \
+	            EXPECTED_ID="AGPL-3.0-or-later AND CC0-1.0" ;; \
+	        ./src/zupt_x25519.c) \
+	            EXPECTED_ID="AGPL-3.0-or-later AND BSD-3-Clause" ;; \
+	        ./src/zupt_xxh.c) \
+	            EXPECTED_ID="AGPL-3.0-or-later AND BSD-2-Clause" ;; \
+	        ./src/vv_xxh64.c) \
+	            EXPECTED_ID="GPL-3.0-or-later AND BSD-2-Clause" ;; \
 	        ./src/vv_*.c|./src/vaptvupt_api.c|./include/vv_*.h|./include/vaptvupt*.h) \
-	            EXPECTED="SPDX-License-Identifier: GPL-3.0-or-later" ;; \
+	            EXPECTED_ID="GPL-3.0-or-later" ;; \
 	        *) \
-	            EXPECTED="SPDX-License-Identifier: AGPL-3.0-or-later" ;; \
+	            EXPECTED_ID="AGPL-3.0-or-later" ;; \
 	    esac; \
-	    if ! grep -q "SPDX-License-Identifier" "$$f"; then \
+	    HEADER=$$(sed -n '1,12p' "$$f"); \
+	    HEADER_COUNT=$$(printf '%s\n' "$$HEADER" | \
+	        grep -c 'SPDX-License-Identifier:' || true); \
+	    ACTUAL_ID=$$(printf '%s\n' "$$HEADER" | \
+	        sed -n 's/^.*SPDX-License-Identifier:[[:space:]]*//p' | \
+	        sed 's/[[:space:]]*\*\/[[:space:]]*$$//; s/[[:space:]]*-->[[:space:]]*$$//; s/[[:space:]]*$$//' | \
+	        head -n 1); \
+	    if [ "$$HEADER_COUNT" -eq 0 ]; then \
 	        echo "  ✗ $$f (missing SPDX)"; \
 	        MISSING=$$((MISSING+1)); \
-	    elif ! grep -q "$$EXPECTED" "$$f"; then \
-	        echo "  ✗ $$f (wrong SPDX, expected: $$EXPECTED)"; \
+	    elif [ "$$HEADER_COUNT" -ne 1 ] || [ "$$ACTUAL_ID" != "$$EXPECTED_ID" ]; then \
+	        echo "  ✗ $$f (wrong SPDX header, expected exactly once: $$EXPECTED_ID)"; \
 	        WRONG=$$((WRONG+1)); \
 	    fi; \
 	done; \
 	if [ $$MISSING -eq 0 ] && [ $$WRONG -eq 0 ]; then \
-	    echo "  ✓ All source files carry correct SPDX headers"; \
-	    echo "    (AGPL-3.0-or-later for Zupt, GPL-3.0-or-later for VaptVupt)"; \
+	    echo "  ✓ Covered code/build/CI/packaging files carry correct SPDX markers"; \
+	    echo "    (AGPL core; GPL codec; BSD-2 XXH64; BSD-3 X25519; CC0 ML-KEM)"; \
 	else \
 	    echo ""; \
 	    echo "  $$MISSING missing, $$WRONG with wrong SPDX. Aborting."; \
 	    exit 1; \
 	fi
 
-# Jasmin pre-compiled assembly (x86_64 only)
-# Jasmin emits GNU-as syntax (macros with C-style trailing comments);
-# clang's integrated assembler rejects it, so assemble with as(1) directly.
+# Optional Jasmin textual assembly (x86_64 only). Use the compiler driver so a
+# cross compiler's target, sysroot, assembler and reproducibility flags apply.
 jasmin/%.o: jasmin/%.s
-	$(Q)as -o $@ $<
+	$(Q)$(CC) $(CPPFLAGS) $(ASFLAGS) -c -o $@ $<
 
-# VaptVupt SIMD files: compile with AVX2 on x86_64
+# VaptVupt codec files are compiled for the target ABI baseline.
 $(VV_SIMD_OBJS): src/%.o: src/%.c $(HEADERS)
-	$(Q)$(CC) $(CFLAGS) $(VV_SIMD_FLAGS) -c -o $@ $<
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) \
+		$(if $(filter $@,$(CLANG_CAST_ALIGN_OBJS)),$(CLANG_CAST_ALIGN_FLAGS)) \
+		-c -o $@ $<
 
-# VaptVupt non-SIMD files
+# VaptVupt non-SIMD files use the same warning policy.
 $(VV_PLAIN_OBJS): src/%.o: src/%.c $(HEADERS)
-	$(Q)$(CC) $(CFLAGS) -c -o $@ $<
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) \
+		$(if $(filter $@,$(CLANG_CAST_ALIGN_OBJS)),$(CLANG_CAST_ALIGN_FLAGS)) \
+		-c -o $@ $<
 
-# Zupt core files (the SHA-NI object has its own rule below with -msha)
+# ZUPT core files (the SHA-NI object has its own rule below with -msha)
 ZUPT_OBJS_GENERIC = $(filter-out src/zupt_sha256_shani.o,$(ZUPT_OBJS))
 $(ZUPT_OBJS_GENERIC): src/%.o: src/%.c $(HEADERS)
-	$(Q)$(CC) $(CFLAGS) -c -o $@ $<
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) -c -o $@ $<
 
 # SHA-NI path needs -msha -mssse3 -msse4.1 on x86_64.
 # On non-x86_64, SHANI_FLAGS is empty and the file is a no-op TU.
 src/zupt_sha256_shani.o: src/zupt_sha256_shani.c $(HEADERS)
-	$(Q)$(CC) $(CFLAGS) $(SHANI_FLAGS) -c -o $@ $<
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(SHANI_FLAGS) \
+		$(if $(filter $@,$(CLANG_CAST_ALIGN_OBJS)),$(CLANG_CAST_ALIGN_FLAGS)) \
+		-c -o $@ $<
 
 # Final link step. Order matters: CFLAGS before LDFLAGS, then objects,
 # then LDLIBS — keeps GCC/Clang happy when LDFLAGS contains -pie or
 # similar position-sensitive flags.
 $(TARGET): $(ALL_OBJS) $(JAZZ_O)
-	$(Q)$(CC) $(CFLAGS) $(LDFLAGS) $(ALL_OBJS) $(JAZZ_O) -o $(TARGET) $(LDLIBS)
-	@# v3.0.0: in-tree legacy symlink. Existing tests, scripts and IDE
-	@# launchers reference `./zupt`; we keep that working without
-	@# modifying 27 test files. The install rule emits the same symlink
-	@# at $(BINDIR)/zupt for runtime users.
-	$(Q)ln -sf $(TARGET) $(LEGACY_LINK)
-	@echo "Build complete: ./$(TARGET) [$(ARCH)] (legacy: ./$(LEGACY_LINK) -> $(TARGET))"
+	$(Q)$(CC) $(CFLAGS) $(PROJECT_CFLAGS) $(LDFLAGS) $(PROJECT_LDFLAGS) $(PROJECT_CLI_LDFLAGS) \
+		$(ALL_OBJS) $(JAZZ_O) -o $(TARGET) \
+		$(FEATURE_LDLIBS) $(PROJECT_LDLIBS) $(LDLIBS)
+	@# In-tree test compatibility only. Installation emits the legacy
+	@# alias solely when INSTALL_LEGACY_ALIAS=1 is requested explicitly.
+	$(Q)if [ "$(CREATE_TEST_ALIAS)" = 0 ]; then \
+		:; \
+	elif [ -L "$(LEGACY_LINK)" ]; then \
+		test "$$(readlink "$(LEGACY_LINK)")" = "$(TARGET)" || { \
+			echo "ERROR: refusing to replace non-ZUPT symlink: $(LEGACY_LINK)" >&2; exit 1; \
+		}; \
+	elif [ -e "$(LEGACY_LINK)" ]; then \
+		echo "ERROR: refusing to replace existing path: $(LEGACY_LINK)" >&2; exit 1; \
+	fi; \
+	if [ "$(CREATE_TEST_ALIAS)" = 1 ]; then ln -sf "$(TARGET)" "$(LEGACY_LINK)"; fi
+	@if [ "$(CREATE_TEST_ALIAS)" = 1 ]; then \
+		echo "Build complete: ./$(TARGET) [$(TARGET_MACHINE)] (test alias: ./$(LEGACY_LINK) -> $(TARGET))"; \
+	else \
+		echo "Build complete: ./$(TARGET) [$(TARGET_MACHINE)] (no in-tree compatibility alias)"; \
+	fi
 
 # ═══════════════════════════════════════════════════════════════════
 # INSTALL / UNINSTALL
 # ═══════════════════════════════════════════════════════════════════
 
 install: $(TARGET)
-	$(Q)mkdir -p $(DESTDIR)$(BINDIR)
-	$(Q)install -m 755 $(TARGET) $(DESTDIR)$(BINDIR)/$(TARGET)
-	# v3.0.0 (INPI Brasil rename): legacy `zupt` symlink so existing
-	# scripts and shell history keep working. Distros may strip this
-	# after one major version cycle.
-	$(Q)ln -sf $(TARGET) $(DESTDIR)$(BINDIR)/$(LEGACY_LINK)
+	$(Q)mkdir -p "$(DESTDIR)$(BINDIR)"
+	$(Q)install -m 0755 "$(TARGET)" "$(DESTDIR)$(BINDIR)/$(TARGET)"
+	$(Q)if [ "$(INSTALL_LICENSES)" = 1 ]; then \
+		mkdir -p "$(DESTDIR)$(LICENSEDIR)"; \
+		install -m 0644 $(LICENSE_FILES) "$(DESTDIR)$(LICENSEDIR)/"; \
+	fi
+	$(Q)if [ "$(INSTALL_LEGACY_ALIAS)" = 1 ]; then \
+		ln -sf "$(TARGET)" "$(DESTDIR)$(BINDIR)/$(LEGACY_LINK)"; \
+	fi
 
 	$(Q)if [ -f "$(MANPAGE)" ]; then \
-		mkdir -p $(DESTDIR)$(MAN1DIR); \
+		mkdir -p "$(DESTDIR)$(MAN1DIR)"; \
 		$(GZIP) $(GZIPFLAGS) -c "$(MANPAGE)" > "$(DESTDIR)$(MAN1DIR)/$(MANPAGE_GZ)"; \
 		chmod 0644 "$(DESTDIR)$(MAN1DIR)/$(MANPAGE_GZ)"; \
-		ln -sf "$(MANPAGE_GZ)" "$(DESTDIR)$(MAN1DIR)/$(LEGACY_LINK).1.gz"; \
-		echo "Installed: $(DESTDIR)$(MAN1DIR)/$(MANPAGE_GZ) (+ $(LEGACY_LINK).1.gz symlink)"; \
+		if [ "$(INSTALL_LEGACY_ALIAS)" = 1 ]; then \
+			ln -sf "$(MANPAGE_GZ)" "$(DESTDIR)$(MAN1DIR)/$(LEGACY_PROGRAM).1.gz"; \
+		fi; \
+		echo "Installed: $(DESTDIR)$(MAN1DIR)/$(MANPAGE_GZ)"; \
 	else \
 		echo "Warning: man page not found: $(MANPAGE)"; \
 	fi
@@ -320,54 +388,54 @@ install: $(TARGET)
 	# Shell completions (v2.4.7+). Honour distro path conventions where
 	# possible; downstream packagers can override DESTDIR + the specific
 	# dirs as needed.
-	$(Q)if [ -f completions/vaptvupt.bash ]; then \
-		mkdir -p "$(DESTDIR)$(PREFIX)/share/bash-completion/completions"; \
-		install -m 0644 completions/vaptvupt.bash \
-			"$(DESTDIR)$(PREFIX)/share/bash-completion/completions/$(TARGET)"; \
-		ln -sf "$(TARGET)" "$(DESTDIR)$(PREFIX)/share/bash-completion/completions/$(LEGACY_LINK)"; \
-		echo "Installed: $(DESTDIR)$(PREFIX)/share/bash-completion/completions/$(TARGET) (+ $(LEGACY_LINK) symlink)"; \
+	$(Q)if [ -f completions/zupt.bash ]; then \
+		mkdir -p "$(DESTDIR)$(BASHCOMPDIR)"; \
+		install -m 0644 completions/zupt.bash \
+			"$(DESTDIR)$(BASHCOMPDIR)/$(PROGRAM)"; \
+		if [ "$(INSTALL_LEGACY_ALIAS)" = 1 ]; then \
+			ln -sf "$(PROGRAM)" "$(DESTDIR)$(BASHCOMPDIR)/$(LEGACY_PROGRAM)"; \
+		fi; \
+		echo "Installed: $(DESTDIR)$(BASHCOMPDIR)/$(PROGRAM)"; \
 	fi
-	$(Q)if [ -f completions/_vaptvupt ]; then \
-		mkdir -p "$(DESTDIR)$(PREFIX)/share/zsh/site-functions"; \
-		install -m 0644 completions/_vaptvupt \
-			"$(DESTDIR)$(PREFIX)/share/zsh/site-functions/_$(TARGET)"; \
-		ln -sf "_$(TARGET)" "$(DESTDIR)$(PREFIX)/share/zsh/site-functions/_$(LEGACY_LINK)"; \
-		echo "Installed: $(DESTDIR)$(PREFIX)/share/zsh/site-functions/_$(TARGET) (+ _$(LEGACY_LINK) symlink)"; \
+	$(Q)if [ -f completions/_zupt ]; then \
+		mkdir -p "$(DESTDIR)$(ZSHCOMPDIR)"; \
+		install -m 0644 completions/_zupt \
+			"$(DESTDIR)$(ZSHCOMPDIR)/_$(PROGRAM)"; \
+		if [ "$(INSTALL_LEGACY_ALIAS)" = 1 ]; then \
+			ln -sf "_$(PROGRAM)" "$(DESTDIR)$(ZSHCOMPDIR)/_$(LEGACY_PROGRAM)"; \
+		fi; \
+		echo "Installed: $(DESTDIR)$(ZSHCOMPDIR)/_$(PROGRAM)"; \
 	fi
-	$(Q)if [ -f completions/vaptvupt.fish ]; then \
-		mkdir -p "$(DESTDIR)$(PREFIX)/share/fish/vendor_completions.d"; \
-		install -m 0644 completions/vaptvupt.fish \
-			"$(DESTDIR)$(PREFIX)/share/fish/vendor_completions.d/$(TARGET).fish"; \
-		echo "Installed: $(DESTDIR)$(PREFIX)/share/fish/vendor_completions.d/$(TARGET).fish"; \
+	$(Q)if [ -f completions/zupt.fish ]; then \
+		mkdir -p "$(DESTDIR)$(FISHCOMPDIR)"; \
+		install -m 0644 completions/zupt.fish \
+			"$(DESTDIR)$(FISHCOMPDIR)/$(PROGRAM).fish"; \
+		if [ "$(INSTALL_LEGACY_ALIAS)" = 1 ]; then \
+			ln -sf "$(PROGRAM).fish" "$(DESTDIR)$(FISHCOMPDIR)/$(LEGACY_PROGRAM).fish"; \
+		fi; \
+		echo "Installed: $(DESTDIR)$(FISHCOMPDIR)/$(PROGRAM).fish"; \
 	fi
 
-	# Vendored runtime libraries — installed ONLY for a WITH_SDK=1 build. In the
-	# default source-only build the binary links no external library and there is
-	# nothing to install here (the vendored .so are prebuilt binaries kept out of
-	# the source tree).
-ifeq ($(WITH_SDK),1)
-	$(Q)mkdir -p $(DESTDIR)$(PREFIX)/lib/vaptvupt
-	$(Q)install -m 755 vendor/vuptsdk/libvuptsdk.so.2.0.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libvuptsdk.so.2.0.0
-	$(Q)ln -sf libvuptsdk.so.2.0.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libvuptsdk.so.2
-	$(Q)ln -sf libvuptsdk.so.2.0.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libvuptsdk.so
-endif
-ifeq ($(WITH_PQBOX),1)
-	$(Q)mkdir -p $(DESTDIR)$(PREFIX)/lib/vaptvupt
-	$(Q)install -m 755 vendor/pqvaptvupt/libpqvaptvupt.so.0.6.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libpqvaptvupt.so.0.6.0
-	$(Q)ln -sf libpqvaptvupt.so.0.6.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libpqvaptvupt.so.0
-	$(Q)ln -sf libpqvaptvupt.so.0.6.0 $(DESTDIR)$(PREFIX)/lib/vaptvupt/libpqvaptvupt.so
-endif
-
-	@echo "Installed: $(DESTDIR)$(BINDIR)/$(TARGET) (legacy: $(DESTDIR)$(BINDIR)/$(LEGACY_LINK) -> $(TARGET))"
+	@echo "Installed: $(DESTDIR)$(BINDIR)/$(TARGET)"
 
 uninstall:
-	$(Q)rm -rf $(DESTDIR)$(PREFIX)/lib/vaptvupt
-	$(Q)rm -f $(DESTDIR)$(BINDIR)/$(TARGET) $(DESTDIR)$(BINDIR)/$(LEGACY_LINK)
-	$(Q)rm -f $(DESTDIR)$(MAN1DIR)/$(MANPAGE_GZ) $(DESTDIR)$(MAN1DIR)/$(LEGACY_LINK).1.gz
-	$(Q)rm -f $(DESTDIR)$(PREFIX)/share/bash-completion/completions/$(TARGET) \
-	          $(DESTDIR)$(PREFIX)/share/bash-completion/completions/$(LEGACY_LINK)
-	$(Q)rm -f $(DESTDIR)$(PREFIX)/share/zsh/site-functions/_zupt
-	$(Q)rm -f $(DESTDIR)$(PREFIX)/share/fish/vendor_completions.d/zupt.fish
+	$(Q)rm -f "$(DESTDIR)$(BINDIR)/$(TARGET)"
+	$(Q)rm -f "$(DESTDIR)$(MAN1DIR)/$(MANPAGE_GZ)"
+	$(Q)rm -f "$(DESTDIR)$(BASHCOMPDIR)/$(PROGRAM)"
+	$(Q)rm -f "$(DESTDIR)$(ZSHCOMPDIR)/_$(PROGRAM)"
+	$(Q)rm -f "$(DESTDIR)$(FISHCOMPDIR)/$(PROGRAM).fish"
+	$(Q)set -eu; for license_file in $(LICENSE_FILES); do \
+		rm -f "$(DESTDIR)$(LICENSEDIR)/$${license_file##*/}"; \
+	done
+	$(Q)for item in \
+		"$(DESTDIR)$(BINDIR)/$(LEGACY_LINK):$(TARGET)" \
+		"$(DESTDIR)$(MAN1DIR)/$(LEGACY_PROGRAM).1.gz:$(MANPAGE_GZ)" \
+		"$(DESTDIR)$(BASHCOMPDIR)/$(LEGACY_PROGRAM):$(PROGRAM)" \
+		"$(DESTDIR)$(ZSHCOMPDIR)/_$(LEGACY_PROGRAM):_$(PROGRAM)" \
+		"$(DESTDIR)$(FISHCOMPDIR)/$(LEGACY_PROGRAM).fish:$(PROGRAM).fish"; do \
+		path=$${item%:*}; expected=$${item##*:}; \
+		if [ -L "$$path" ] && [ "$$(readlink "$$path")" = "$$expected" ]; then rm -f "$$path"; fi; \
+	done
 
 # ═══════════════════════════════════════════════════════════════════
 # DIST — reproducible source tarball for distro packaging
@@ -377,98 +445,112 @@ uninstall:
 # the same input source tree. Properties:
 #
 #   - Files sorted by name (stable order regardless of filesystem layout)
-#   - mtime fixed to SOURCE_DATE_EPOCH (or to the version-string-derived
-#     epoch when SOURCE_DATE_EPOCH is unset)
+#   - mtime fixed to SOURCE_DATE_EPOCH (`.source-date-epoch`, then HEAD fallback)
 #   - uid/gid fixed to root (0/0) via --owner / --group
 #   - gzip wrapped with --no-name (no embedded timestamp/filename)
 #   - No binaries, no .o, no .so. Source only.
 #
-# Used by AUR / Debian / Homebrew / RPM upstream packaging.
-# Output: /tmp/zupt-VERSION.tar.gz so it doesn't pollute the source tree.
+# The archive always represents the tree of committed HEAD, never ignored build
+# output or uncommitted files.  Archiving the tree object also avoids Git's
+# commit-ID PAX header, so an export-ignored-only commit cannot change its bytes.
+# Override DIST_TARBALL for a packaging work directory.
+DIST_VERSION = $(shell sed -n 's/^\#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+DIST_NAME = $(PROGRAM)-$(DIST_VERSION)
+DIST_TARBALL ?= /tmp/$(DIST_NAME).tar.gz
+SOURCE_DATE_EPOCH ?= $(shell epoch=$$(sed -n 's/^[[:space:]]*\([0-9][0-9]*\)[[:space:]]*$$/\1/p' .source-date-epoch 2>/dev/null | head -n 1); if test -n "$$epoch"; then printf '%s' "$$epoch"; else git log -1 --format=%ct HEAD 2>/dev/null; fi)
+SOURCE_AUDIT ?= scripts/check-source-only.sh
 
-DIST_VERSION = $(shell grep '^\#define ZUPT_VERSION_STRING' include/zupt.h | awk -F'"' '{print $$2}')
-DIST_NAME    = $(TARGET)-$(DIST_VERSION)
-DIST_DIR     = /tmp/$(DIST_NAME).distbuild
-DIST_TARBALL = /tmp/$(DIST_NAME).tar.gz
-SOURCE_DATE_EPOCH ?= 1747699200   # 2025-05-20 UTC — stable epoch for this release line
+source-audit:
+	$(Q)test -f "$(SOURCE_AUDIT)" || { \
+		echo "ERROR: source-only scanner not found: $(SOURCE_AUDIT)" >&2; \
+		exit 1; \
+	}
+	$(Q)bash "$(SOURCE_AUDIT)"
 
-dist: clean
-	$(Q)rm -rf $(DIST_DIR) $(DIST_TARBALL)
-	$(Q)mkdir -p $(DIST_DIR)/$(DIST_NAME)
-	$(Q)git ls-files 2>/dev/null > $(DIST_DIR)/filelist.txt || \
-	    find . \( -type f -o -type l \) \! -path './.git/*' \! -path './*.o' \! -name '*.o' \! -name '$(TARGET)' \
-	         \! -name '$(LEGACY_LINK)' \
-	         \! -name 'zupt_asan' \! -name 'test_vectors' \! -name 'test_vaptvupt' \
-	         \! -name 'fuzz_decompress' \! -name 'fuzz_vv_decompress' \
-	         \! -path './.distbuild*' 2>/dev/null | sed 's|^\./||' | sort > $(DIST_DIR)/filelist.txt
-	$(Q)tar -cf - --files-from=$(DIST_DIR)/filelist.txt | tar -xf - -C $(DIST_DIR)/$(DIST_NAME)
-	$(Q)find $(DIST_DIR)/$(DIST_NAME) -exec touch -d "@$(SOURCE_DATE_EPOCH)" {} +
-	$(Q)tar --sort=name \
-	       --owner=0 --group=0 --numeric-owner \
-	       --mtime="@$(SOURCE_DATE_EPOCH)" \
-	       -C $(DIST_DIR) -cf - $(DIST_NAME) \
-	    | gzip -9n > $(DIST_TARBALL)
-	$(Q)rm -rf $(DIST_DIR)
-	@echo ""
-	@echo "  Reproducible source tarball:"
-	@echo "    $(DIST_TARBALL)"
-	@echo "    sha256: `sha256sum $(DIST_TARBALL) | awk '{print $$1}'`"
-	@echo "    bytes:  `wc -c < $(DIST_TARBALL)`"
-	@echo "  Reproducibility: re-run 'make dist' on the same tree, sha256 MUST match."
+dist:
+	$(Q)set -eu; \
+	export LC_ALL=C; \
+	umask 022; \
+	unset TAR_OPTIONS; \
+	test -n "$(DIST_VERSION)" || { echo "ERROR: cannot determine source version" >&2; exit 1; }; \
+	test -n "$(SOURCE_DATE_EPOCH)" || { echo "ERROR: SOURCE_DATE_EPOCH is empty" >&2; exit 1; }; \
+	case "$(SOURCE_DATE_EPOCH)" in *[!0-9]*) echo "ERROR: SOURCE_DATE_EPOCH must be an integer" >&2; exit 1;; esac; \
+	test -f "$(SOURCE_AUDIT)" || { echo "ERROR: source-only scanner not found: $(SOURCE_AUDIT)" >&2; exit 1; }; \
+	git rev-parse --verify 'HEAD^{commit}' >/dev/null; \
+	git rev-parse --verify 'HEAD^{tree}' >/dev/null; \
+	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/zupt-dist.XXXXXXXX"); \
+	trap 'rm -rf -- "$$tmp"' EXIT HUP INT TERM; \
+	git archive --format=tar --mtime="@$(SOURCE_DATE_EPOCH)" \
+		--prefix="$(DIST_NAME)/" 'HEAD^{tree}' | \
+		$(GZIP) $(GZIPFLAGS) > "$$tmp/$(DIST_NAME).tar.gz"; \
+	bash "$(SOURCE_AUDIT)" --archive "$$tmp/$(DIST_NAME).tar.gz"; \
+	mkdir -p "$$(dirname "$(DIST_TARBALL)")"; \
+	mv -f "$$tmp/$(DIST_NAME).tar.gz" "$(DIST_TARBALL)"; \
+	trap - EXIT HUP INT TERM; \
+	rm -rf -- "$$tmp"; \
+	if command -v sha256sum >/dev/null 2>&1; then \
+		digest=$$(sha256sum "$(DIST_TARBALL)" | awk '{print $$1}'); \
+	elif command -v shasum >/dev/null 2>&1; then \
+		digest=$$(shasum -a 256 "$(DIST_TARBALL)" | awk '{print $$1}'); \
+	else \
+		echo "ERROR: sha256sum or shasum is required" >&2; exit 1; \
+	fi; \
+	bytes=$$(wc -c < "$(DIST_TARBALL)"); \
+	printf '\n  Reproducible source tarball:\n    %s\n    sha256: %s\n    bytes: %s\n' \
+		"$(DIST_TARBALL)" "$$digest" "$$bytes"
 
 # ═══════════════════════════════════════════════════════════════════
 # CLEAN
 # ═══════════════════════════════════════════════════════════════════
 
 clean:
-	$(Q)rm -f $(TARGET) $(MANPAGE_GZ) zupt_asan test_vectors test_vaptvupt \
-		fuzz_decompress fuzz_vv_decompress jasmin/*.o src/*.o
+	$(Q)rm -f $(PROGRAM) $(PROGRAM).exe $(LEGACY_PROGRAM) $(LEGACY_PROGRAM).exe $(MANPAGE_GZ) \
+		zupt_asan \
+		test_vectors test_f06 test_vaptvupt \
+		fuzz_decompress fuzz_vv_decompress tests/fuzz_format \
+		*.gcda *.gcno *.profraw *.profdata \
+		src/*.o src/*.gcda src/*.gcno jasmin/*.o jasmin/*.gcda jasmin/*.gcno \
+		tests/*.gcda tests/*.gcno sdk/*.gcda sdk/*.gcno
+	$(Q)for link in $(LEGACY_PROGRAM) $(LEGACY_PROGRAM).exe; do \
+		if [ -L "$$link" ]; then \
+			case "$$(readlink "$$link")" in $(PROGRAM)|$(PROGRAM).exe) rm -f "$$link" ;; esac; \
+		fi; \
+	done
+	$(Q)rm -rf sdk/build build build_obj coverage
 
 # ═══════════════════════════════════════════════════════════════════
 # TEST TARGETS
 # ═══════════════════════════════════════════════════════════════════
 
-test: $(TARGET)
-	$(Q)sh tests/run_quick.sh
-	$(Q)bash tests/test_sdk.sh
-	$(Q)bash tests/test_audit.sh
-	$(Q)bash tests/test_dedup_props.sh
-	$(Q)bash tests/test_path_traversal.sh
-	$(Q)bash tests/test_arg_order.sh
-	$(Q)bash tests/test_block_swap.sh
-	$(Q)bash tests/test_dedup_nonce.sh
-	$(Q)bash tests/test_mlkem_fips203.sh
-	$(Q)bash tests/test_f08_topmac.sh
-	$(Q)bash tests/test_f09_preface.sh
-	$(Q)bash tests/test_f10_kdf_default.sh
-	$(Q)bash tests/test_f11_authfail_message.sh
-	$(Q)bash tests/test_f12_comment.sh
-	$(Q)bash tests/test_gui_branding.sh
-	$(Q)bash tests/test_help_consistency.sh
-	$(Q)bash tests/test_static_analysis.sh
-	$(Q)bash tests/test_vv_decode_slack.sh
-	$(Q)bash tests/test_sha256_shani.sh
-	$(Q)bash tests/test_hmac_incremental.sh
-	$(Q)bash tests/test_kdf_transparency.sh
+test: check
+
+test-all: check
+	$(Q)bash tests/regression.sh ./$(TARGET)
+	$(Q)sh tests/test_threaded.sh ./$(TARGET)
+	$(Q)sh tests/test_pq.sh ./$(TARGET)
+	$(Q)bash tests/test_dedup_props.sh ./$(TARGET)
 	$(Q)bash tests/test_ct_timing.sh
 	$(Q)bash tests/test_codec_exact_size.sh
+	$(Q)bash tests/test_mlkem_fips203.sh
+	$(Q)bash tests/test_sdk.sh
 	$(Q)bash tests/test_pqbox.sh
-	$(Q)bash tests/test_packaging_syntax.sh
-	$(Q)bash tests/test_completions_manpage.sh
-	$(Q)bash tests/test_dist_reproducible.sh
+	$(Q)bash tests/test_audit.sh
+	$(Q)bash tests/test_kdf_transparency.sh
 
-test-all: $(TARGET) test-vectors test-vv
-	@echo "==============================================="
-	@sh tests/regression.sh 2>&1 | tail -3
-	@echo ""
-	@sh tests/test_threaded.sh 2>&1 | tail -3
-	@echo ""
-	@sh tests/test_pq.sh ./zupt 2>&1 | tail -3
-	@echo ""
-	@./test_vectors 2>&1 | tail -2
-	@echo ""
-	@./test_vaptvupt 2>&1 | tail -2
-	@echo "==============================================="
+# Release-only gates need a committed Git checkout and packaging metadata.
+# Keep them out of downstream %check, which intentionally has no dist rebuild.
+release-check: test-all audit-licenses
+	$(Q)bash tests/test_static_analysis.sh
+	$(Q)bash tests/test_packaging_syntax.sh
+	$(Q)bash scripts/test-installed-zupt.sh ./$(TARGET)
+	$(Q)if [ "$(WITH_SDK)" = 1 ]; then \
+		bash tests/test_audit_flake.sh "$${AUDIT_FLAKE_RUNS:-3}"; \
+	else \
+		echo "SKIP: audit flake stress needs WITH_SDK=1 and system libvuptsdk"; \
+	fi
+	$(Q)$(MAKE) clean
+	$(Q)bash "$(SOURCE_AUDIT)"
+	$(Q)bash tests/test_dist_reproducible.sh
 
 # ═══════════════════════════════════════════════════════════════════
 # CHECK — distro-friendly safe subset
@@ -483,72 +565,105 @@ test-all: $(TARGET) test-vectors test-vv
 #     (no python3 PyYAML, no ruby, no dpkg-parsechangelog)
 #   - Doesn't depend on multi-threading that's flaky under emulation
 #     (skips test_threaded.sh and test_pq.sh's MT subset)
-#   - Covers the security-critical regressions: F-06 HMAC, F-08 AIT,
-#     F-09 byte-level integrity, F-10 KDF default, F-11 auth-fail
-#     wording, F-12 comments
+#   - Covers the source-only CLI, archive safety, HMAC/integrity regressions,
+#     codec checks and cryptographic primitive vectors
 #   - Verifies cryptographic primitives against NIST/RFC vectors
 #
 # This is the recommended target for OBS %check sections.
 
-check: $(TARGET) test-vectors
-	$(Q)sh tests/run_quick.sh
-	$(Q)bash tests/test_audit.sh
-	$(Q)bash tests/test_path_traversal.sh
-	$(Q)bash tests/test_arg_order.sh
-	$(Q)bash tests/test_block_swap.sh
-	$(Q)bash tests/test_dedup_nonce.sh
-	$(Q)bash tests/test_mlkem_fips203.sh
-	$(Q)bash tests/test_f08_topmac.sh
-	$(Q)bash tests/test_f10_kdf_default.sh
-	$(Q)bash tests/test_f11_authfail_message.sh
-	$(Q)bash tests/test_f12_comment.sh
-	$(Q)bash tests/test_gui_branding.sh
-	$(Q)bash tests/test_help_consistency.sh
-	$(Q)bash tests/test_static_analysis.sh
-	$(Q)bash tests/test_vv_decode_slack.sh
+check: $(TARGET) test-vectors test-f06 test-vv
+	$(Q)sh tests/run_quick.sh ./$(TARGET)
+	$(Q)bash tests/test_path_traversal.sh ./$(TARGET)
+	$(Q)bash tests/test_arg_order.sh ./$(TARGET)
+	$(Q)bash tests/test_password_sources.sh ./$(TARGET)
+	$(Q)bash tests/test_password_prompt_signal.sh ./$(TARGET)
+	$(Q)bash tests/test_key_files.sh ./$(TARGET)
+	$(Q)ZUPT_BIN="$(CURDIR)/$(TARGET)" bash tests/test_f08_topmac.sh
+	$(Q)ZUPT_BIN="$(CURDIR)/$(TARGET)" bash tests/test_f09_preface.sh
+	$(Q)ZUPT_BIN="$(CURDIR)/$(TARGET)" bash tests/test_f10_kdf_default.sh
+	$(Q)ZUPT_BIN="$(CURDIR)/$(TARGET)" bash tests/test_f11_authfail_message.sh
+	$(Q)ZUPT_BIN="$(CURDIR)/$(TARGET)" bash tests/test_f12_comment.sh
+	$(Q)bash tests/test_atomic_archive_output.sh ./$(TARGET)
+	$(Q)bash tests/test_legacy_disk_5_2_1.sh ./$(TARGET)
+	$(Q)bash tests/test_disk_device_capacity.sh ./$(TARGET)
+	$(Q)bash tests/test_block_swap.sh ./$(TARGET)
+	$(Q)bash tests/test_block_type_confusion.sh ./$(TARGET)
+	$(Q)bash tests/test_authenticated_dedup_reorder.sh ./$(TARGET)
+	$(Q)bash tests/test_format_little_endian.sh ./$(TARGET)
+	$(Q)bash tests/test_dedup_nonce.sh ./$(TARGET)
+	$(Q)bash tests/test_gui_branding.sh ./$(TARGET)
+	$(Q)bash tests/test_help_consistency.sh ./$(TARGET)
+	$(Q)bash tests/test_benchmark_temp_safety.sh ./$(TARGET)
+	$(Q)bash tests/test_vv_decode_slack.sh ./$(TARGET)
 	$(Q)bash tests/test_sha256_shani.sh
 	$(Q)bash tests/test_hmac_incremental.sh
-	$(Q)bash tests/test_kdf_transparency.sh
-	$(Q)bash tests/test_ct_timing.sh
-	$(Q)bash tests/test_codec_exact_size.sh
-	$(Q)bash tests/test_pqbox.sh
+	$(Q)bash tests/test_completions_manpage.sh
+	$(Q)bash tests/test_source_only.sh
 	$(Q)./test_vectors
 	@echo ""
 	@echo "  ═════════════════════════════════════════"
-	@echo "  All distro-safe checks passed."
+	@echo "  All executed distro-safe checks passed (see SKIP lines above)."
 	@echo "  ═════════════════════════════════════════"
 
-test-vectors: tests/test_vectors.c $(HEADERS)
-	$(Q)$(CC) -O2 -std=c11 -Iinclude -Isrc $(SHANI_FLAGS) $(LDFLAGS) tests/test_vectors.c \
-	    src/zupt_sha256.c src/zupt_sha256_shani.c src/zupt_crypto.c src/zupt_aes256.c src/zupt_xxh.c \
-	    src/zupt_keccak.c src/zupt_x25519.c src/zupt_mlkem.c src/zupt_cpuid.c \
-	    src/zupt_mlock.c \
-	    -o test_vectors $(LDLIBS)
+TEST_CRYPTO_SOURCES = src/zupt_sha256.c src/zupt_sha256_shani.c \
+	src/zupt_crypto.c src/zupt_aes256.c src/zupt_xxh.c src/zupt_keccak.c \
+	src/zupt_x25519.c src/zupt_mlkem.c src/zupt_cpuid.c src/zupt_mlock.c
+TEST_CRYPTO_OBJS = $(TEST_CRYPTO_SOURCES:.c=.o)
 
-# F-06 regression — HMAC accept-on-disjoint-bits (Zupt 2.2.5).
+test-vectors: tests/test_vectors.c $(HEADERS) $(TEST_CRYPTO_OBJS) $(JAZZ_O)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(LDFLAGS) $(PROJECT_LDFLAGS) \
+		tests/test_vectors.c $(TEST_CRYPTO_OBJS) $(JAZZ_O) \
+		-o test_vectors $(FEATURE_LDLIBS) $(PROJECT_LDLIBS) $(LDLIBS)
+
+# F-06 regression — HMAC accept-on-disjoint-bits (ZUPT 2.2.5).
 # Inherits $(CFLAGS) so ZUPT_USE_JASMIN is defined on x86_64 (exercising
 # the original buggy path). Links the same crypto modules as test-vectors
 # plus the Jasmin .o files when available.
-test-f06: tests/test_f06_hmac.c $(HEADERS) $(JAZZ_O)
-	$(Q)$(CC) $(CFLAGS) $(SHANI_FLAGS) $(LDFLAGS) tests/test_f06_hmac.c \
-	    src/zupt_sha256.c src/zupt_sha256_shani.c src/zupt_crypto.c src/zupt_aes256.c src/zupt_xxh.c \
-	    src/zupt_keccak.c src/zupt_cpuid.c src/zupt_mlock.c \
-	    src/zupt_x25519.c src/zupt_mlkem.c $(JAZZ_O) \
-	    -o test_f06 $(LDLIBS)
+test-f06: tests/test_f06_hmac.c $(HEADERS) $(TEST_CRYPTO_OBJS) $(JAZZ_O)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(LDFLAGS) $(PROJECT_LDFLAGS) \
+		tests/test_f06_hmac.c $(TEST_CRYPTO_OBJS) $(JAZZ_O) -o test_f06 \
+		$(FEATURE_LDLIBS) $(PROJECT_LDLIBS) $(LDLIBS)
 	$(Q)./test_f06
 
 # VAPTVUPT: VaptVupt codec unit tests
-test-vv: tests/test_vaptvupt.c $(HEADERS)
-	$(Q)$(CC) $(CFLAGS) $(VV_SIMD_FLAGS) $(LDFLAGS) tests/test_vaptvupt.c \
-	    src/vv_encoder.c src/vv_decoder.c src/vv_ans.c src/vv_huffman.c \
-	    src/vv_simd.c src/vv_xxh64.c src/vaptvupt_api.c src/zupt_xxh.c src/zupt_cpuid.c \
-	    -o test_vaptvupt $(LDLIBS)
+TEST_VV_OBJS = $(VV_SIMD_OBJS) $(VV_PLAIN_OBJS) src/zupt_xxh.o src/zupt_cpuid.o
+test-vv: tests/test_vaptvupt.c $(HEADERS) $(TEST_VV_OBJS)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(LDFLAGS) $(PROJECT_LDFLAGS) tests/test_vaptvupt.c $(TEST_VV_OBJS) \
+		-o test_vaptvupt $(PROJECT_LDLIBS) $(LDLIBS)
 	$(Q)./test_vaptvupt
 
-test-asan: $(SOURCES) $(HEADERS) $(JAZZ_O)
-	$(Q)$(CC) $(CFLAGS) -fsanitize=address,undefined -g -O1 \
-	    $(VV_SIMD_FLAGS) $(SHANI_FLAGS) $(LDFLAGS) \
-	    $(SOURCES) $(JAZZ_O) -o zupt_asan $(LDLIBS)
+ASAN_BUILD_DIR = build/asan
+ASAN_CFLAGS ?= -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined
+ASAN_LDFLAGS ?= -fsanitize=address,undefined
+ASAN_OBJS = $(patsubst src/%.c,$(ASAN_BUILD_DIR)/%.o,$(SOURCES))
+
+$(ASAN_BUILD_DIR):
+	$(Q)mkdir -p "$@"
+
+$(ASAN_BUILD_DIR)/zupt_sha256_shani.o: src/zupt_sha256_shani.c $(HEADERS) | $(ASAN_BUILD_DIR)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) $(SHANI_FLAGS) -c -o $@ $<
+
+$(ASAN_BUILD_DIR)/vv_%.o: src/vv_%.c $(HEADERS) | $(ASAN_BUILD_DIR)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) -c -o $@ $<
+
+$(ASAN_BUILD_DIR)/vaptvupt_api.o: src/vaptvupt_api.c $(HEADERS) | $(ASAN_BUILD_DIR)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) -c -o $@ $<
+
+$(ASAN_BUILD_DIR)/%.o: src/%.c $(HEADERS) | $(ASAN_BUILD_DIR)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) -c -o $@ $<
+
+test-asan: $(ASAN_OBJS) $(JAZZ_O)
+	$(Q)$(CC) $(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) \
+		$(LDFLAGS) $(PROJECT_LDFLAGS) $(ASAN_LDFLAGS) \
+		$(ASAN_OBJS) $(JAZZ_O) -o zupt_asan \
+		$(FEATURE_LDLIBS) $(PROJECT_LDLIBS) $(LDLIBS)
 	@echo "ASAN build: ./zupt_asan"
 
 # Build the format-parser fuzz harness. Runs against ./zupt_asan to catch
@@ -556,77 +671,123 @@ test-asan: $(SOURCES) $(HEADERS) $(JAZZ_O)
 fuzz-format: tests/fuzz_format
 
 tests/fuzz_format: tests/fuzz_format.c
-	$(Q)$(CC) -std=c11 -O2 -Wall tests/fuzz_format.c -o tests/fuzz_format
+	$(Q)$(CC) $(CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(LDFLAGS) $(PROJECT_LDFLAGS) tests/fuzz_format.c \
+		-o tests/fuzz_format $(PROJECT_LDLIBS) $(LDLIBS)
 	@echo "Format fuzz harness: ./tests/fuzz_format"
 
 # Run 5000 iterations of mutation fuzz against the ASAN binary.
 # Any crash or sanitizer error fails CI.
 fuzz-format-run: tests/fuzz_format test-asan $(TARGET)
-	@echo "Building seed archive..."
-	@echo "fuzz seed file" > /tmp/_zupt_fuzz_input.txt
-	@./zupt c /tmp/_zupt_fuzz_seed.zupt /tmp/_zupt_fuzz_input.txt > /dev/null 2>&1
-	@ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 \
-	    ./tests/fuzz_format 1000 ./zupt_asan /tmp/_zupt_fuzz_seed.zupt
-	@rm -f /tmp/_zupt_fuzz_input.txt /tmp/_zupt_fuzz_seed.zupt
-	@echo "  Format fuzz: 1000 iters under ASAN/UBSAN — no crashes."
+	$(Q)set -eu; \
+	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/zupt-fuzz.XXXXXXXX"); \
+	trap 'rm -rf -- "$$tmp"' EXIT HUP INT TERM; \
+	printf '%s\n' 'fuzz seed file' > "$$tmp/input.txt"; \
+	./$(TARGET) c "$$tmp/seed.zupt" "$$tmp/input.txt" >/dev/null; \
+	ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 \
+		./tests/fuzz_format 1000 ./zupt_asan "$$tmp/seed.zupt"
+	@echo "  Format fuzz: 1000 iterations under ASAN/UBSAN — no crashes."
 
-# Runs the test suites against the ASAN-instrumented binary.
-# Catches use-after-free, OOB, leaks, signed-overflow that aren't visible
-# in the optimized release build.
+# Runs a round-trip smoke test against the ASAN/UBSAN/LSAN-instrumented binary.
+# The exhaustive codec exact-size sanitizer loop remains part of test-all.
 test-asan-run: test-asan
-	@echo "Running test suites under ASAN/UBSAN..."
-	@ZUPT_BIN_OVERRIDE=$$(realpath ./zupt_asan); \
-	  cp $$ZUPT_BIN_OVERRIDE zupt.bak 2>/dev/null; \
-	  ln -sf zupt_asan zupt_asan_run; \
-	  mv zupt zupt.real; \
-	  ln -sf zupt_asan zupt; \
-	  ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 sh tests/run_quick.sh; \
-	  rc1=$$?; \
-	  ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 bash tests/test_sdk.sh; \
-	  rc2=$$?; \
-	  ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 bash tests/test_audit.sh; \
-	  rc3=$$?; \
-	  rm zupt zupt_asan_run; mv zupt.real zupt; \
-	  if [ $$rc1 -eq 0 ] && [ $$rc2 -eq 0 ] && [ $$rc3 -eq 0 ]; then \
-	    echo ""; echo "  ASAN/UBSAN: all tests pass cleanly."; \
-	  else \
-	    echo ""; echo "  ASAN/UBSAN: failures detected (run codes $$rc1 $$rc2 $$rc3)."; exit 1; \
-	  fi
+	$(Q)set -eu; \
+	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/zupt-asan.XXXXXXXX"); \
+	trap 'rm -rf -- "$$tmp"' EXIT HUP INT TERM; \
+	export ASAN_OPTIONS=detect_leaks=1:abort_on_error=1; \
+	export UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1; \
+	printf '%s\n' 'sanitizer round-trip' > "$$tmp/input.txt"; \
+	./zupt_asan c "$$tmp/archive.zupt" "$$tmp/input.txt" >/dev/null; \
+	./zupt_asan t "$$tmp/archive.zupt" >/dev/null; \
+	mkdir "$$tmp/out"; \
+	(cd "$$tmp/out" && "$(CURDIR)/zupt_asan" x "$$tmp/archive.zupt" >/dev/null); \
+	extracted=$$(find "$$tmp/out" -type f -print -quit); \
+	test -n "$$extracted"; \
+	cmp "$$tmp/input.txt" "$$extracted"; \
+	dd if=/dev/urandom of="$$tmp/block" bs=65536 count=1 2>/dev/null; \
+	cp "$$tmp/block" "$$tmp/disk.img"; \
+	dd if="$$tmp/block" of="$$tmp/disk.img" bs=65536 seek=1 conv=notrunc 2>/dev/null; \
+	printf '%s\n' 'sanitizer-disk-password' > "$$tmp/password"; \
+	./zupt_asan disk backup --dedup -b 65536 --pass-file "$$tmp/password" -s \
+		"$$tmp/disk.zupt" "$$tmp/disk.img" >/dev/null; \
+	./zupt_asan t --pass-file "$$tmp/password" "$$tmp/disk.zupt" >/dev/null; \
+	./zupt_asan disk restore --pass-file "$$tmp/password" \
+		"$$tmp/disk.zupt" "$$tmp/restored.img" >/dev/null; \
+	cmp "$$tmp/disk.img" "$$tmp/restored.img"; \
+	./zupt_asan --help >/dev/null; \
+	./zupt_asan --version >/dev/null
+	@echo "  ASAN/UBSAN: source-only smoke test passed."
 
-# AFL++ fuzzing harnesses (requires afl-clang-fast)
-fuzz-build:
-	@echo "Building AFL++ fuzzing harnesses..."
-	$(Q)afl-clang-fast -fsanitize=address,undefined -g -O1 -std=c11 \
-	    -Iinclude -Isrc $(VV_SIMD_FLAGS) $(LDFLAGS) \
-	    $(filter-out src/zupt_main.c,$(SOURCES)) tests/fuzz_decompress.c \
-	    -o fuzz_decompress $(LDLIBS)
-	$(Q)afl-clang-fast -fsanitize=address,undefined -g -O1 -std=c11 \
-	    -Iinclude -Isrc $(VV_SIMD_FLAGS) $(LDFLAGS) \
-	    tests/fuzz_vv_decompress.c \
-	    src/vv_encoder.c src/vv_decoder.c src/vv_ans.c src/vv_huffman.c \
-	    src/vv_simd.c src/zupt_xxh.c src/zupt_cpuid.c \
-	    -o fuzz_vv_decompress $(LDLIBS)
+# AFL++ fuzzing harnesses (requires afl-clang-fast). Compile every source with
+# instrumentation while retaining translation-unit-local ISA flags.
+AFL_CC ?= afl-clang-fast
+FUZZ_BUILD_DIR = build/fuzz
+FUZZ_SOURCES = $(filter-out src/zupt_main.c,$(SOURCES))
+FUZZ_OBJS = $(patsubst src/%.c,$(FUZZ_BUILD_DIR)/%.o,$(FUZZ_SOURCES))
+FUZZ_VV_OBJS = $(addprefix $(FUZZ_BUILD_DIR)/,vv_encoder.o vv_decoder.o \
+	vv_ans.o vv_huffman.o vv_simd.o zupt_xxh.o zupt_cpuid.o)
+
+$(FUZZ_BUILD_DIR):
+	$(Q)mkdir -p "$@"
+
+$(FUZZ_BUILD_DIR)/zupt_sha256_shani.o: src/zupt_sha256_shani.c $(HEADERS) | $(FUZZ_BUILD_DIR)
+	$(Q)$(AFL_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) $(SHANI_FLAGS) -c -o $@ $<
+
+$(FUZZ_BUILD_DIR)/vv_%.o: src/vv_%.c $(HEADERS) | $(FUZZ_BUILD_DIR)
+	$(Q)$(AFL_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) $(VV_WARNING_FLAGS) \
+		$(if $(filter $(FUZZ_BUILD_DIR)/vv_decoder.o,$@),$(VV_DECODER_WARNING_FLAGS)) -c -o $@ $<
+
+$(FUZZ_BUILD_DIR)/vaptvupt_api.o: src/vaptvupt_api.c $(HEADERS) | $(FUZZ_BUILD_DIR)
+	$(Q)$(AFL_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) $(VV_WARNING_FLAGS) -c -o $@ $<
+
+$(FUZZ_BUILD_DIR)/%.o: src/%.c $(HEADERS) | $(FUZZ_BUILD_DIR)
+	$(Q)$(AFL_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) -c -o $@ $<
+
+fuzz_decompress: tests/fuzz_decompress.c $(FUZZ_OBJS)
+	$(Q)$(AFL_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) \
+		$(LDFLAGS) $(PROJECT_LDFLAGS) $(ASAN_LDFLAGS) \
+		tests/fuzz_decompress.c $(FUZZ_OBJS) -o $@ \
+		$(FEATURE_LDLIBS) $(PROJECT_LDLIBS) $(LDLIBS)
+
+fuzz_vv_decompress: tests/fuzz_vv_decompress.c $(FUZZ_VV_OBJS)
+	$(Q)$(AFL_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) \
+		$(LDFLAGS) $(PROJECT_LDFLAGS) $(ASAN_LDFLAGS) \
+		tests/fuzz_vv_decompress.c $(FUZZ_VV_OBJS) -o $@ \
+		$(PROJECT_LDLIBS) $(LDLIBS)
+
+fuzz-build: fuzz_decompress fuzz_vv_decompress
 	@echo "Fuzz harnesses built. Run:"
 	@echo "  afl-fuzz -i corpus -o findings -- ./fuzz_decompress"
 	@echo "  afl-fuzz -i corpus_vv -o findings_vv -- ./fuzz_vv_decompress"
 
 help:
-	@echo "Zupt v$(shell grep '^#define ZUPT_VERSION_STRING' include/zupt.h | awk -F'\"' '{print $$2}') build targets:"
+	@echo "ZUPT v$(DIST_VERSION) build targets:"
 	@echo "  make              Build zupt binary"
 	@echo "  make V=1          Build with verbose output"
-	@echo "  make test         Quick test"
-	@echo "  make test-all     Full test suite (regression + threaded + PQ + vectors + VV)"
+	@echo "  make check        Distro-safe source-only test suite"
+	@echo "  make test-all     Complete runtime suite; unavailable integrations SKIP"
+	@echo "  make release-check Runtime, static, packaging, source and dist gates"
 	@echo "  make test-vv      VaptVupt codec unit tests"
 	@echo "  make test-asan    Build with AddressSanitizer"
 	@echo "  make fuzz-build   Build AFL++ fuzzing harnesses"
+	@echo "  make dist         Reproducible, audited source archive"
+	@echo "  make source-audit Audit tracked, worktree and HEAD archive content"
 	@echo "  make install      Install to $(PREFIX)"
 	@echo "  make uninstall    Remove from $(PREFIX)"
 	@echo "  make clean        Remove build artifacts"
 	@echo ""
-	@echo "Architecture: $(ARCH)"
-	@echo "  x86_64:   Jasmin CT crypto + AVX2 SIMD decode"
-	@echo "  aarch64:  C crypto fallback + NEON SIMD decode"
-	@echo "  other:    C crypto fallback + scalar decode"
+	@echo "Compiler target: $(TARGET_MACHINE)"
+	@echo "Optional integrations (off by default):"
+	@echo "  WITH_SDK=1       system libvuptsdk via pkg-config/overrides"
+	@echo "  WITH_PQBOX=1     system libpqvaptvupt via pkg-config/overrides"
+	@echo "  WITH_JASMIN=1    optional textual assembly on x86_64"
+	@echo "  INSTALL_LEGACY_ALIAS=1 installs opt-in 'vaptvupt' compatibility links"
 
 # ─────────────────────────────────────────────────────────────────────
 #  SDK targets — see sdk/Makefile.sdk

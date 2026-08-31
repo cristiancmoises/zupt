@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later
  * Copyright (c) 2025-2026 Cristian Cezar Moisés
  *
- * F-06 regression test (Zupt 2.2.5).
+ * F-06 regression test (ZUPT 2.2.5).
  *
  * The original combined-diff in zupt_decrypt_buffer was
  *     uint64_t diff = diff_v2 & diff_v1;

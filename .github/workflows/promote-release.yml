@@ -1,0 +1,644 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2025-2026 Cristian Cezar Moisés
+
+name: Promote a tested release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful manually dispatched CI run that produced the assets
+        required: true
+        type: number
+      tag:
+        description: Existing annotated release tag, for example v5.2.2
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: promote-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote tested assets to the canonical GitHub release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Validate the tag and source CI run through the GitHub API
+        id: provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          [[ $SOURCE_RUN_ID =~ ^[1-9][0-9]*$ ]] || {
+            echo 'source_run_id must be a positive integer' >&2
+            exit 1
+          }
+          [[ $RELEASE_TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo 'tag must have the form vX.Y.Z' >&2
+            exit 1
+          }
+
+          tag_ref_api="repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG"
+          tag_object_type=$(gh api "$tag_ref_api" --jq '.object.type')
+          tag_object_sha=$(gh api "$tag_ref_api" --jq '.object.sha')
+          [[ $tag_object_type == tag && $tag_object_sha =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'GitHub release ref is not an annotated tag' >&2
+            exit 1
+          }
+          tag_object_api="repos/$GITHUB_REPOSITORY/git/tags/$tag_object_sha"
+          target_type=$(gh api "$tag_object_api" --jq '.object.type')
+          peeled_sha=$(gh api "$tag_object_api" --jq '.object.sha')
+          [[ $target_type == commit && $peeled_sha =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'annotated tag does not point directly to a commit' >&2
+            exit 1
+          }
+
+          run_api="repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID"
+          run_status=$(gh api "$run_api" --jq '.status')
+          run_conclusion=$(gh api "$run_api" --jq '.conclusion')
+          run_event=$(gh api "$run_api" --jq '.event')
+          run_head_branch=$(gh api "$run_api" --jq '.head_branch // ""')
+          run_workflow_id=$(gh api "$run_api" --jq '.workflow_id')
+          run_sha=$(gh api "$run_api" --jq '.head_sha')
+          run_repository=$(gh api "$run_api" --jq '.head_repository.full_name // ""')
+          workflow_path=$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/$run_workflow_id" \
+            --jq '.path')
+          [[ $run_status == completed && $run_conclusion == success ]] || {
+            echo 'source CI run is not completed successfully' >&2
+            exit 1
+          }
+          [[ $run_event == workflow_dispatch ]] || {
+            echo 'source CI run must have been started with workflow_dispatch' >&2
+            exit 1
+          }
+          [[ $run_head_branch == "$RELEASE_TAG" ]] || {
+            echo 'source CI run must have been dispatched from the release tag' >&2
+            exit 1
+          }
+          [[ $workflow_path == .github/workflows/ci.yml ]] || {
+            echo 'source run did not execute .github/workflows/ci.yml' >&2
+            exit 1
+          }
+          [[ $run_repository == "$GITHUB_REPOSITORY" ]] || {
+            echo 'source CI run belongs to a different head repository' >&2
+            exit 1
+          }
+          [[ $run_sha =~ ^[0-9a-f]{40}$ && $run_sha == "$peeled_sha" ]] || {
+            echo 'source CI head SHA does not match the peeled release tag' >&2
+            exit 1
+          }
+
+          artifact_json=$RUNNER_TEMP/source-run-artifacts.json
+          gh api "$run_api/artifacts?per_page=100" > "$artifact_json"
+          python3 - "$artifact_json" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          expected = {
+              "release-source",
+              "release-deb",
+              "release-rpm",
+              "release-gui-deb",
+              "release-gui-rpm",
+              "release-linux-x86_64",
+              "release-gui-portable",
+              "release-windows-x86_64",
+              "release-macos-native",
+          }
+          artifacts = payload.get("artifacts", [])
+          names = [artifact.get("name", "") for artifact in artifacts]
+          if payload.get("total_count") != len(expected):
+              raise SystemExit("source CI run artifact count mismatch")
+          if set(names) != expected or len(names) != len(set(names)):
+              raise SystemExit("source CI run artifact-name allowlist mismatch")
+          if any(artifact.get("expired") for artifact in artifacts):
+              raise SystemExit("one or more source CI artifacts have expired")
+          PY
+          {
+            printf 'head_sha=%s\n' "$peeled_sha"
+            printf 'tag_object_sha=%s\n' "$tag_object_sha"
+            printf 'tag=%s\n' "$RELEASE_TAG"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check out the exact tested commit without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.provenance.outputs.head_sha }}
+          persist-credentials: false
+          fetch-depth: 0
+          lfs: false
+          submodules: false
+
+      - name: Confirm the local annotated tag and source version
+        id: release
+        env:
+          RELEASE_TAG: ${{ steps.provenance.outputs.tag }}
+          EXPECTED_SHA: ${{ steps.provenance.outputs.head_sha }}
+          EXPECTED_TAG_OBJECT: ${{ steps.provenance.outputs.tag_object_sha }}
+        run: |
+          set -Eeuo pipefail
+          [[ $(git rev-parse HEAD) == "$EXPECTED_SHA" ]] || {
+            echo 'checked-out commit differs from the validated source run' >&2
+            exit 1
+          }
+          [[ $(git cat-file -t "refs/tags/$RELEASE_TAG") == tag ]] || {
+            echo 'checked-out release ref is not an annotated tag' >&2
+            exit 1
+          }
+          [[ $(git rev-parse "refs/tags/$RELEASE_TAG") == "$EXPECTED_TAG_OBJECT" ]] || {
+            echo 'local annotated tag object differs from the validated GitHub tag' >&2
+            exit 1
+          }
+          [[ $(git rev-parse "$RELEASE_TAG^{commit}") == "$EXPECTED_SHA" ]] || {
+            echo 'local peeled tag does not match the tested commit' >&2
+            exit 1
+          }
+          version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' \
+            include/zupt.h)
+          [[ -n $version && $RELEASE_TAG == "v$version" ]] || {
+            echo 'tag does not match include/zupt.h' >&2
+            exit 1
+          }
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y file libarchive-tools python3 python3-pyqt6 rpm unzip xz-utils
+
+      - name: Download the exact source artifact from the validated run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-source
+          path: ${{ runner.temp }}/incoming/release-source
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download the exact DEB artifact from the validated run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-deb
+          path: ${{ runner.temp }}/incoming/release-deb
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download the exact RPM artifact from the validated run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-rpm
+          path: ${{ runner.temp }}/incoming/release-rpm
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download the exact GUI DEB artifact from the validated run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-gui-deb
+          path: ${{ runner.temp }}/incoming/release-gui-deb
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download the exact GUI RPM artifacts from the validated run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-gui-rpm
+          path: ${{ runner.temp }}/incoming/release-gui-rpm
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download the exact Linux tar.xz artifact from the validated run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-linux-x86_64
+          path: ${{ runner.temp }}/incoming/release-linux-x86_64
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download the exact portable GUI source bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-gui-portable
+          path: ${{ runner.temp }}/incoming/release-gui-portable
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download the exact Windows artifact from the validated run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-windows-x86_64
+          path: ${{ runner.temp }}/incoming/release-windows-x86_64
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download the exact macOS artifact from the validated run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-macos-native
+          path: ${{ runner.temp }}/incoming/release-macos-native
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Enforce the allowlist and validate every release format
+        env:
+          RELEASE_TAG: ${{ steps.provenance.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          export LC_ALL=C
+          incoming=$RUNNER_TEMP/incoming
+          asset_dir=$RUNNER_TEMP/release-assets
+          mkdir -p "$asset_dir"
+
+          artifact_names=(
+            release-source
+            release-deb
+            release-rpm
+            release-gui-deb
+            release-gui-rpm
+            release-linux-x86_64
+            release-gui-portable
+            release-windows-x86_64
+            release-macos-native
+          )
+          expected_dirs=$RUNNER_TEMP/artifact-dirs.expected
+          actual_dirs=$RUNNER_TEMP/artifact-dirs.actual
+          printf '%s\0' "${artifact_names[@]}" | LC_ALL=C sort -z > "$expected_dirs"
+          find "$incoming" -mindepth 1 -maxdepth 1 -type d -printf '%f\0' | \
+            LC_ALL=C sort -z > "$actual_dirs"
+          cmp "$expected_dirs" "$actual_dirs" || {
+            echo 'downloaded artifact directory allowlist mismatch' >&2
+            exit 1
+          }
+          if find "$incoming" -mindepth 1 -maxdepth 1 ! -type d -print -quit | \
+              grep -q .; then
+            echo 'unexpected non-directory entry in artifact download root' >&2
+            exit 1
+          fi
+          if find "$incoming" -mindepth 2 ! -type f -print -quit | grep -q .; then
+            echo 'artifact contains a directory, symlink, or special file' >&2
+            exit 1
+          fi
+
+          source_name="zupt-$VERSION.tar.gz"
+          source_sidecar="$source_name.sha256"
+          deb_name="zupt_${VERSION}_amd64.deb"
+          rpm_name="zupt-$VERSION-0.x86_64.rpm"
+          srpm_name="zupt-$VERSION-0.src.rpm"
+          gui_deb_name="zupt-gui_${VERSION}_all.deb"
+          gui_rpm_name="zupt-gui-$VERSION-1.noarch.rpm"
+          gui_srpm_name="zupt-gui-$VERSION-1.src.rpm"
+          linux_tar_name="zupt-$VERSION-linux-x86_64.tar.xz"
+          gui_portable_name="zupt-gui-$VERSION-portable.zip"
+          windows_zip_name="zupt-$VERSION-windows-x86_64.zip"
+          dmg_relative=()
+          for arch in x86_64 arm64; do
+            candidate="release-macos-native/ZUPT-$VERSION-macOS-$arch.dmg"
+            [[ ! -f $incoming/$candidate || -L $incoming/$candidate ]] || \
+              dmg_relative+=("$candidate")
+          done
+          ((${#dmg_relative[@]} == 1)) || {
+            echo 'expected exactly one native macOS DMG' >&2
+            exit 1
+          }
+
+          expected_relative=(
+            "release-source/$source_name"
+            "release-source/$source_sidecar"
+            "release-deb/$deb_name"
+            "release-rpm/$rpm_name"
+            "release-rpm/$srpm_name"
+            "release-gui-deb/$gui_deb_name"
+            "release-gui-rpm/$gui_rpm_name"
+            "release-gui-rpm/$gui_srpm_name"
+            "release-linux-x86_64/$linux_tar_name"
+            "release-gui-portable/$gui_portable_name"
+            "release-windows-x86_64/$windows_zip_name"
+            "${dmg_relative[0]}"
+          )
+          expected_relative_list=$RUNNER_TEMP/artifact-files.expected
+          actual_relative_list=$RUNNER_TEMP/artifact-files.actual
+          printf '%s\0' "${expected_relative[@]}" | LC_ALL=C sort -z \
+            > "$expected_relative_list"
+          find "$incoming" -mindepth 2 -type f -printf '%P\0' | LC_ALL=C sort -z \
+            > "$actual_relative_list"
+          cmp "$expected_relative_list" "$actual_relative_list" || {
+            echo 'downloaded file allowlist mismatch' >&2
+            exit 1
+          }
+
+          expected_assets=()
+          for relative in "${expected_relative[@]}"; do
+            name=${relative#*/}
+            cp -- "$incoming/$relative" "$asset_dir/$name"
+            expected_assets+=("$name")
+          done
+          expected_list=$RUNNER_TEMP/release-assets.expected
+          printf '%s\0' "${expected_assets[@]}" | LC_ALL=C sort -z > "$expected_list"
+
+          source_tar=$asset_dir/$source_name
+          sidecar=$asset_dir/$source_sidecar
+          actual_source_sha=$(sha256sum "$source_tar" | awk '{print $1}')
+          [[ $(<"$sidecar") == "$actual_source_sha  $source_name" ]] || {
+            echo 'source archive sidecar is not the exact expected SHA-256 record' >&2
+            exit 1
+          }
+          (cd "$asset_dir" && sha256sum -c -- "$source_sidecar")
+          file "$source_tar" | grep -Eqi 'gzip compressed data'
+          tar -tzf "$source_tar" >/dev/null
+          bash scripts/check-source-only.sh --archive "$source_tar"
+          archive_version=$(tar -xOf "$source_tar" \
+            "zupt-$VERSION/include/zupt.h" | sed -n \
+            's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p')
+          [[ $archive_version == "$VERSION" && $RELEASE_TAG == "v$archive_version" ]] || {
+            echo 'source archive version does not match the release tag' >&2
+            exit 1
+          }
+
+          deb=$asset_dir/$deb_name
+          dpkg-deb --info "$deb" >/dev/null
+          [[ $(dpkg-deb -f "$deb" Package) == zupt ]]
+          [[ $(dpkg-deb -f "$deb" Version) == "$VERSION" ]]
+          [[ $(dpkg-deb -f "$deb" Architecture) == amd64 ]]
+
+          rpm_file=$asset_dir/$rpm_name
+          [[ $(rpm -qp --qf '%{NAME}' "$rpm_file") == zupt ]]
+          [[ $(rpm -qp --qf '%{VERSION}' "$rpm_file") == "$VERSION" ]]
+          [[ $(rpm -qp --qf '%{RELEASE}' "$rpm_file") == 0 ]]
+          [[ $(rpm -qp --qf '%{ARCH}' "$rpm_file") == x86_64 ]]
+          srpm=$asset_dir/$srpm_name
+          [[ $(rpm -qp --qf '%{NAME}' "$srpm") == zupt ]]
+          [[ $(rpm -qp --qf '%{VERSION}' "$srpm") == "$VERSION" ]]
+          [[ $(rpm -qp --qf '%{RELEASE}' "$srpm") == 0 ]]
+          [[ $(rpm -qp --qf '%{ARCH}' "$srpm") == src ]]
+
+          gui_deb=$asset_dir/$gui_deb_name
+          dpkg-deb --info "$gui_deb" >/dev/null
+          [[ $(dpkg-deb -f "$gui_deb" Package) == zupt-gui ]]
+          [[ $(dpkg-deb -f "$gui_deb" Version) == "$VERSION" ]]
+          [[ $(dpkg-deb -f "$gui_deb" Architecture) == all ]]
+
+          gui_rpm=$asset_dir/$gui_rpm_name
+          [[ $(rpm -qp --qf '%{NAME}' "$gui_rpm") == zupt-gui ]]
+          [[ $(rpm -qp --qf '%{VERSION}' "$gui_rpm") == "$VERSION" ]]
+          [[ $(rpm -qp --qf '%{RELEASE}' "$gui_rpm") == 1 ]]
+          [[ $(rpm -qp --qf '%{ARCH}' "$gui_rpm") == noarch ]]
+          rpm -qp --requires "$gui_rpm" | grep -Fx "zupt >= $VERSION"
+          gui_srpm=$asset_dir/$gui_srpm_name
+          [[ $(rpm -qp --qf '%{NAME}' "$gui_srpm") == zupt-gui ]]
+          [[ $(rpm -qp --qf '%{VERSION}' "$gui_srpm") == "$VERSION" ]]
+          [[ $(rpm -qp --qf '%{RELEASE}' "$gui_srpm") == 1 ]]
+          [[ $(rpm -qp --qf '%{ARCH}' "$gui_srpm") == src ]]
+
+          linux_tar=$asset_dir/$linux_tar_name
+          python3 - "$linux_tar" "zupt-$VERSION-linux-x86_64" <<'PY'
+          import pathlib
+          import sys
+          import tarfile
+
+          archive = pathlib.Path(sys.argv[1])
+          root = sys.argv[2]
+          expected_files = {
+              "zupt", "README.md", "CHANGELOG.md", "SECURITY.md",
+              "THREAT_MODEL.md", "LICENSE", "LICENSE-AGPL-3.0",
+              "LICENSE-GPL-3.0", "LICENSE-BSD-2-Clause",
+              "LICENSE-BSD-3-Clause", "LICENSE-CC0-1.0", "NOTICE",
+              "THIRD-PARTY-NOTICES.md",
+          }
+          with tarfile.open(archive, "r:xz") as package:
+              members = package.getmembers()
+              names = [member.name for member in members]
+              if len(names) != len(set(names)):
+                  raise SystemExit("duplicate Linux tar member")
+              actual_files = set()
+              for member in members:
+                  path = pathlib.PurePosixPath(member.name)
+                  if (path.is_absolute() or ".." in path.parts or not path.parts or
+                          path.parts[0] != root or member.issym() or member.islnk() or
+                          not (member.isdir() or member.isfile())):
+                      raise SystemExit("unsafe Linux tar member")
+                  if member.isfile():
+                      actual_files.add("/".join(path.parts[1:]))
+              if actual_files != expected_files:
+                  raise SystemExit("Linux tar member allowlist mismatch")
+          PY
+          linux_extract=$RUNNER_TEMP/linux-package
+          mkdir -p "$linux_extract"
+          tar -xJf "$linux_tar" -C "$linux_extract"
+          linux_binary="$linux_extract/zupt-$VERSION-linux-x86_64/zupt"
+          file "$linux_binary" | grep -Eqi 'ELF.*executable'
+          bash scripts/test-installed-zupt.sh "$linux_binary"
+
+          gui_portable=$asset_dir/$gui_portable_name
+          python3 - "$gui_portable" "zupt-gui-$VERSION-portable" <<'PY'
+          import pathlib
+          import sys
+          import zipfile
+
+          archive = pathlib.Path(sys.argv[1])
+          root = sys.argv[2]
+          expected = {
+              f"{root}/", f"{root}/assets/", f"{root}/zupt_gui.py",
+              f"{root}/zupt-gui.sh", f"{root}/zupt-gui.command",
+              f"{root}/zupt-gui.bat", f"{root}/README.txt",
+              f"{root}/assets/zupt-icon.png", f"{root}/assets/zupt.ico",
+              f"{root}/LICENSE-AGPL-3.0", f"{root}/LICENSE-GUI",
+              f"{root}/ASSET-PROVENANCE.md", f"{root}/CHANGELOG.md",
+          }
+          with zipfile.ZipFile(archive) as package:
+              names = package.namelist()
+              if len(names) != len(set(names)) or set(names) != expected:
+                  raise SystemExit("portable GUI ZIP member allowlist mismatch")
+              for name in names:
+                  path = pathlib.PurePosixPath(name)
+                  if path.is_absolute() or ".." in path.parts or path.parts[0] != root:
+                      raise SystemExit("unsafe portable GUI ZIP member")
+          PY
+          bash scripts/check-source-only.sh --archive "$gui_portable"
+          gui_extract=$RUNNER_TEMP/gui-portable
+          mkdir -p "$gui_extract"
+          unzip -q "$gui_portable" -d "$gui_extract"
+          QT_QPA_PLATFORM=offscreen ZUPT_BIN="$linux_binary" \
+            "$gui_extract/zupt-gui-$VERSION-portable/zupt-gui.sh" --version | \
+            grep -Fx "zupt-gui $VERSION"
+
+          windows_zip=$asset_dir/$windows_zip_name
+          unzip -t "$windows_zip" >/dev/null
+          python3 - "$windows_zip" "zupt-$VERSION-windows-x86_64" <<'PY'
+          import pathlib
+          import sys
+          import zipfile
+
+          archive = pathlib.Path(sys.argv[1])
+          root = sys.argv[2]
+          with zipfile.ZipFile(archive) as package:
+              names = package.namelist()
+              if len(names) != len(set(names)):
+                  raise SystemExit("duplicate Windows ZIP member")
+              expected = {
+                  f"{root}/",
+                  f"{root}/zupt.exe",
+                  f"{root}/README.md",
+                  f"{root}/CHANGELOG.md",
+                  f"{root}/LICENSE",
+                  f"{root}/LICENSE-AGPL-3.0",
+                  f"{root}/LICENSE-GPL-3.0",
+                  f"{root}/LICENSE-BSD-2-Clause",
+                  f"{root}/LICENSE-BSD-3-Clause",
+                  f"{root}/LICENSE-CC0-1.0",
+                  f"{root}/NOTICE",
+                  f"{root}/THIRD-PARTY-NOTICES.md",
+                  f"{root}/MINGW-CRT-COPYING.txt",
+                  f"{root}/COPYING.MinGW-w64-runtime.txt",
+                  f"{root}/COPYING.MinGW-w64.txt",
+                  f"{root}/GCC-COPYING3.txt",
+                  f"{root}/GCC-RUNTIME-LIBRARY-EXCEPTION.txt",
+              }
+              if set(names) != expected:
+                  raise SystemExit("Windows ZIP member allowlist mismatch")
+              for name in names:
+                  path = pathlib.PurePosixPath(name)
+                  if (path.is_absolute() or "\\" in name or ".." in path.parts or
+                          not path.parts or path.parts[0] != root):
+                      raise SystemExit("unsafe or unexpected Windows ZIP member")
+              executable = f"{root}/zupt.exe"
+              if names.count(executable) != 1:
+                  raise SystemExit("Windows ZIP executable is missing or duplicated")
+              for notice in (
+                  f"{root}/MINGW-CRT-COPYING.txt",
+                  f"{root}/COPYING.MinGW-w64-runtime.txt",
+                  f"{root}/COPYING.MinGW-w64.txt",
+                  f"{root}/GCC-COPYING3.txt",
+                  f"{root}/GCC-RUNTIME-LIBRARY-EXCEPTION.txt",
+              ):
+                  if not package.read(notice):
+                      raise SystemExit("Windows toolchain notice is empty")
+          PY
+          unzip -p "$windows_zip" \
+            "zupt-$VERSION-windows-x86_64/zupt.exe" \
+            > "$RUNNER_TEMP/windows-zip-zupt.exe"
+          python3 - "$RUNNER_TEMP/windows-zip-zupt.exe" <<'PY'
+          import pathlib
+          import struct
+          import sys
+
+          executable = pathlib.Path(sys.argv[1])
+          with executable.open("rb") as stream:
+              header = stream.read(64)
+              if len(header) != 64 or header[:2] != b"MZ":
+                  raise SystemExit("Windows ZIP executable lacks MZ magic")
+              pe_offset = struct.unpack_from("<I", header, 0x3C)[0]
+              stream.seek(pe_offset)
+              if stream.read(4) != b"PE\0\0":
+                  raise SystemExit("Windows ZIP executable lacks PE signature")
+          PY
+
+          dmg_name=${dmg_relative[0]#*/}
+          dmg=$asset_dir/$dmg_name
+          python3 - "$dmg" <<'PY'
+          import pathlib
+          import sys
+
+          image = pathlib.Path(sys.argv[1])
+          with image.open("rb") as stream:
+              stream.seek(-512, 2)
+              if stream.read(4) != b"koly":
+                  raise SystemExit("DMG lacks the UDIF trailer magic")
+          PY
+
+          checksum_tmp=$RUNNER_TEMP/SHA256SUMS
+          (cd "$asset_dir" && xargs -0 sha256sum < "$expected_list") \
+            > "$checksum_tmp"
+          mv "$checksum_tmp" "$asset_dir/SHA256SUMS"
+          (cd "$asset_dir" && sha256sum -c SHA256SUMS)
+          cp "$expected_list" "$RUNNER_TEMP/release-assets.list"
+          printf 'SHA256SUMS\0' >> "$RUNNER_TEMP/release-assets.list"
+          echo 'All downloaded release assets match the exact allowlist and formats.'
+
+      - name: Refuse to mutate an existing GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.provenance.outputs.tag }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          existing_tags=$RUNNER_TEMP/github-release-tags
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq '.[].tag_name' > "$existing_tags"
+          if grep -Fxq -- "$RELEASE_TAG" "$existing_tags"; then
+            echo 'GitHub release already exists; refusing to replace or add assets' >&2
+            exit 1
+          fi
+
+      - name: Publish the already-tested byte-identical asset set
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.provenance.outputs.tag }}
+          RELEASE_COMMIT: ${{ steps.provenance.outputs.head_sha }}
+          VERSION: ${{ steps.release.outputs.version }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          asset_dir=$RUNNER_TEMP/release-assets
+          (cd "$asset_dir" && sha256sum -c SHA256SUMS)
+          mapfile -d '' -t asset_names < "$RUNNER_TEMP/release-assets.list"
+          release_assets=()
+          for name in "${asset_names[@]}"; do
+            path=$asset_dir/$name
+            [[ -f $path && ! -L $path ]] || {
+              printf 'validated release asset disappeared or changed type: %q\n' \
+                "$name" >&2
+              exit 1
+            }
+            release_assets+=("$path")
+          done
+          cat > "$RUNNER_TEMP/release-notes.md" <<EOF
+          ZUPT $VERSION was built and tested by manually dispatched CI run
+          https://github.com/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID
+          for annotated tag $RELEASE_TAG at commit $RELEASE_COMMIT. The job
+          definitions and logs in that run record the runner images,
+          architectures, toolchains, results, and explicit skips.
+
+          The attached source archive, CLI DEB/RPM/source RPM, GUI
+          DEB/RPM/source RPM, notice-bearing Linux x86_64 tar.xz, source-only
+          portable GUI ZIP, Windows CLI ZIP, and native macOS CLI DMG are the
+          exact artifacts validated by that run. SHA256SUMS records every
+          attached payload asset. GitHub is the canonical upstream release.
+
+          Binary packages are release-page assets only. The Git tree and source
+          archive remain source-only, built with WITH_SDK=0 and WITH_PQBOX=0.
+          AppImage and bare executables are intentionally excluded: the former
+          lacks an audited runtime source/relink handoff, while the latter does
+          not carry the required license and notice payload beside the program.
+          EOF
+          gh release create "$RELEASE_TAG" "${release_assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+            --title "ZUPT $VERSION" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false

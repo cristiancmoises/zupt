@@ -1617,7 +1617,7 @@ static void est_huff_lengths(const uint32_t freq[NSYM], uint8_t len[NSYM]) {
     /* Depth of each node = depth(parent) + 1; parents always have
      * higher ids, so one reverse pass suffices. */
     uint8_t depth[2 * NSYM];
-    depth[nn - 1] = 0;
+    memset(depth, 0, sizeof(depth));
     for (int i = nn - 2; i >= 0; i--)
         depth[i] = (uint8_t)(depth[parent[i]] + 1);
     for (int i = 0; i < n; i++)

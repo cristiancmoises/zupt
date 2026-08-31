@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Honour Debian's reproducible-build epoch when set by dpkg-buildpackage.
-export SOURCE_DATE_EPOCH ?= 1747699200
+export SOURCE_DATE_EPOCH ?= 1788134400
 
 # Hardening flags — Debian's defaults are already strong, this adds project-
 # specific ones.
@@ -15,21 +15,18 @@ export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
 
 override_dh_auto_build:
 	# Source-only build: no vendored libraries, native crypto only.
-	$(MAKE) WITH_SDK=0 -j$$(nproc)
+	$(MAKE) WITH_SDK=0 WITH_PQBOX=0 -j$$(nproc)
 
 override_dh_auto_test:
-	# Distro-safe regression subset (F-06..F-12, dedup-nonce, NIST/RFC vectors).
-	$(MAKE) WITH_SDK=0 check
+	# Distro-safe quick, traversal, integrity, codec and NIST/RFC checks.
+	$(MAKE) WITH_SDK=0 WITH_PQBOX=0 check
 
 override_dh_auto_install:
-	# Binary package is `vaptvupt` -> stage into debian/vaptvupt (dh derives the
+	# Binary package is `zupt` -> stage into debian/zupt (dh derives the
 	# staging dir from the Package: name in debian/control). Source-only: nothing
 	# to install beyond `make install` (no .so).
-	$(MAKE) DESTDIR=$(CURDIR)/debian/vaptvupt PREFIX=/usr WITH_SDK=0 install
+	$(MAKE) DESTDIR=$(CURDIR)/debian/zupt PREFIX=/usr \
+		WITH_SDK=0 WITH_PQBOX=0 INSTALL_LEGACY_ALIAS=0 install
 
 override_dh_auto_clean:
 	$(MAKE) clean
-
-# Skip dh_strip's separate -dbgsym packages for a single-source-package layout.
-override_dh_strip:
-	dh_strip --no-automatic-dbgsym

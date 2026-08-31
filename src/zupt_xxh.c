@@ -1,5 +1,6 @@
 /*
- * SPDX-License-Identifier: AGPL-3.0-or-later
+ * SPDX-License-Identifier: AGPL-3.0-or-later AND BSD-2-Clause
+ * Copyright (c) 2012-2021 Yann Collet
  * Copyright (c) 2025-2026 Cristian Cezar Moisés
  * ZUPT - XXH64 Hash (based on xxHash by Yann Collet, BSD-2)
  */

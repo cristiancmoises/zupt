@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
 set +e
-ZUPT="./zupt"
+ZUPT="${1:-./zupt}"
 T="/tmp/zupt_mt_$$"
 PASS=0; FAIL=0; TOTAL=0
 mkdir -p "$T"
@@ -207,7 +207,8 @@ T4_MS=$(( (T4_END - T4_START) / 1000000 ))
 
 echo "  N=1: ${T1_MS}ms  N=4: ${T4_MS}ms"
 if [ "$T4_MS" -gt 0 ] && [ "$T1_MS" -gt 0 ]; then
-    SPEEDUP=$(echo "scale=1; $T1_MS / $T4_MS" | bc 2>/dev/null || echo "?")
+    SPEEDUP=$(awk -v one="$T1_MS" -v four="$T4_MS" \
+        'BEGIN { if (four > 0) printf "%.1f", one / four; else print "?" }')
     echo "  Speedup: ${SPEEDUP}x"
     pass "Throughput comparison (N=1: ${T1_MS}ms, N=4: ${T4_MS}ms, ${SPEEDUP}x)"
 else

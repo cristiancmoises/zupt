@@ -1,10 +1,11 @@
 /*
- * Zupt — Backup-oriented compression with AES-256 encryption
+ * ZUPT — Backup-oriented compression with AES-256 encryption
  * Copyright (c) 2026 Cristian Cezar Moisés
  * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * X25519 Diffie-Hellman key agreement (RFC 7748).
- * Montgomery ladder — constant-time by construction.
+ * Fixed-iteration Montgomery ladder, designed without secret-dependent
+ * branches or table lookups; compiled timing remains platform-dependent.
  */
 #ifndef ZUPT_X25519_H
 #define ZUPT_X25519_H
@@ -12,7 +13,8 @@
 #include <stdint.h>
 
 /* X25519(scalar, point) → result. All inputs/outputs are 32 bytes.
- * CT-REQUIRED: Montgomery ladder is inherently constant-time. */
+ * CT-REQUIRED: keep the ladder free of intended secret-dependent branches and
+ * memory access. This source-level property is not a compiled timing proof. */
 void zupt_x25519(uint8_t out[32], const uint8_t scalar[32], const uint8_t point[32]);
 
 /* X25519 with the standard basepoint (9).

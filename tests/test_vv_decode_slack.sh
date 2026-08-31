@@ -26,8 +26,7 @@ PASS=0; FAIL=0
 P() { echo "  ✓ $1"; PASS=$((PASS+1)); }
 F() { echo "  ✗ $1"; FAIL=$((FAIL+1)); }
 
-BIN=./vaptvupt
-[ -x ./vaptvupt ] || BIN=./zupt
+BIN=${1:-${ZUPT_BIN:-./zupt}}
 [ -x "$BIN" ] || { echo "ERROR: no built binary"; exit 2; }
 
 echo "VaptVupt decode over-copy guard"

@@ -1,0 +1,132 @@
+#compdef zupt
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+local context state state_descr line
+local -a _zupt_disk_legacy_options
+typeset -A opt_args
+
+_zupt_password_options=(
+  '(-p --password)'{-p,--password}'[password in process arguments]:password:'
+  '--password-prompt[read password interactively without echo]'
+  '--pass-file[read password from first line of file]:password file:_files'
+  '--pass-fd[read password from inherited file descriptor]:file descriptor:'
+)
+
+_zupt_pq_options=(
+  '--pq[native ML-KEM-768 + X25519 hybrid key]:key file:_files'
+  '--pq-only[native ML-KEM-768-only key]:key file:_files'
+  '--pq-sdk[optional system libvuptsdk key]:key file:_files'
+  '--pq-box[optional system libpqvaptvupt key]:key file:_files'
+)
+
+_zupt_read_options=(
+  "${_zupt_password_options[@]}"
+  "${_zupt_pq_options[@]}"
+  '(-v --verbose)'{-v,--verbose}'[additional diagnostics]'
+  '--allow-legacy-no-ait[recover a trusted old archive without an integrity trailer]'
+)
+
+_arguments -C \
+  '1:command:->command' \
+  '*::argument:->arguments'
+
+case $state in
+  command)
+    _values 'command' \
+      'compress:create an archive' 'c:create an archive' \
+      'extract:extract an archive' 'x:extract an archive' \
+      'list:list archive entries' 'l:list archive entries' \
+      'test:verify archive integrity' 't:verify archive integrity' \
+      'info:show framing metadata' 'i:show framing metadata' \
+      'bench:benchmark compression levels' 'b:benchmark compression levels' \
+      'disk:back up or restore a disk image' \
+      'keygen:generate or export a recipient key' \
+      'version:show version and build information' \
+      'help:show command help' '--version:show version and build information' \
+      '-V:show version and build information' '--help:show command help' \
+      '-h:show command help'
+    ;;
+  arguments)
+    case ${line[1]} in
+      compress|c)
+        _arguments \
+          '(-l --level)'{-l,--level}'[compression level]:level:(1 2 3 4 5 6 7 8 9)' \
+          '(-b --block)'{-b,--block}'[block size in bytes]:bytes:' \
+          '(-s --store)'{-s,--store}'[store without compression]' \
+          '(-f --fast)'{-f,--fast}'[use fast LZ codec]' \
+          '(--vv --vaptvupt)'{--vv,--vaptvupt}'[force VaptVupt LZ + ANS codec]' \
+          '--lzhp[force portable LZHP codec]' \
+          "${_zupt_password_options[@]}" \
+          '--kdf[password KDF]:KDF:(pbkdf2 argon2id)' \
+          '(-c --comment)'{-c,--comment}'[archive comment]:comment:' \
+          '--comment-file[read archive comment from file]:comment file:_files' \
+          "${_zupt_pq_options[@]}" \
+          '(-D --dedup)'{-D,--dedup}'[block-level deduplication]' \
+          '(-S --solid)'{-S,--solid}'[solid single-stream compression]' \
+          '(-y --force)'{-y,--force}'[overwrite an existing non-.zupt output]' \
+          '(-v --verbose)'{-v,--verbose}'[additional progress output]' \
+          '(-t --threads)'{-t,--threads}'[compression thread count]:threads:' \
+          '1:output archive:_files -g "*.zupt"' \
+          '*:input file or directory:_files'
+        ;;
+      extract|x)
+        _arguments \
+          '(-o --output)'{-o,--output}'[output directory]:directory:_directories' \
+          "${_zupt_read_options[@]}" \
+          '(-t --threads)'{-t,--threads}'[decompression thread count]:threads:' \
+          '1:archive:_files -g "*.zupt"'
+        ;;
+      list|l|test|t)
+        _arguments \
+          "${_zupt_read_options[@]}" \
+          '1:archive:_files -g "*.zupt"'
+        ;;
+      info|i)
+        _arguments '1:archive:_files -g "*.zupt"'
+        ;;
+      bench|b)
+        _arguments '--compare[compare available external compressors]' \
+          '*:input file or directory:_files'
+        ;;
+      disk)
+        _zupt_disk_legacy_options=()
+        if [[ ${line[2]-} == restore ]]; then
+          _zupt_disk_legacy_options=(
+            '--allow-legacy-no-ait[recover a trusted old disk archive without an integrity trailer]'
+          )
+        fi
+        _arguments -C \
+          '1:disk command:(backup restore)' \
+          '(-l --level)'{-l,--level}'[compression level]:level:(1 2 3 4 5 6 7 8 9)' \
+          '(-b --block)'{-b,--block}'[block size in bytes]:bytes:' \
+          '(-s --store)'{-s,--store}'[store without compression]' \
+          '(--vv --vaptvupt)'{--vv,--vaptvupt}'[force VaptVupt LZ + ANS codec]' \
+          '--lzhp[force portable LZHP codec]' \
+          "${_zupt_password_options[@]}" \
+          '--kdf[password KDF]:KDF:(pbkdf2 argon2id)' \
+          '(-c --comment)'{-c,--comment}'[archive comment]:comment:' \
+          '--comment-file[read archive comment from file]:comment file:_files' \
+          '--pq[native hybrid key]:key file:_files' \
+          '--pq-only[native ML-KEM-768-only key]:key file:_files' \
+          '(-D --dedup)'{-D,--dedup}'[block-level deduplication]' \
+          '(-v --verbose)'{-v,--verbose}'[additional progress output]' \
+          '(-t --threads)'{-t,--threads}'[thread count]:threads:' \
+          "${_zupt_disk_legacy_options[@]}" \
+          '2:archive:_files' \
+          '3:device or file:_files'
+        ;;
+      keygen)
+        _arguments \
+          '(-o --output)'{-o,--output}'[output key file]:output file:_files' \
+          '--pub[export a public key]' \
+          '(-k --key)'{-k,--key}'[source private key]:private key:_files' \
+          '(--pq-only --pqonly)'{--pq-only,--pqonly}'[native ML-KEM-768-only key format]' \
+          '(--sdk --pq-sdk)'{--sdk,--pq-sdk}'[optional system libvuptsdk key format]' \
+          '(--box --pq-box)'{--box,--pq-box}'[optional system libpqvaptvupt key format]'
+        ;;
+    esac
+    ;;
+esac
+
+unset _zupt_password_options _zupt_pq_options _zupt_read_options
+unset _zupt_disk_legacy_options

@@ -1,134 +1,139 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
-#
-# Build self-contained vaptvupt CLI .deb package.
-#
-# v3.0.0 rename: the binary is now `vaptvupt`; we install it at
-# /usr/bin/vaptvupt and create /usr/bin/zupt → /usr/bin/vaptvupt as
-# a legacy symlink for one major version cycle. The package name
-# is `vaptvupt` with Provides/Replaces/Conflicts on `zupt` so
-# `apt install zupt` still resolves cleanly.
-#
-# Bundles libzuptsdk.so.2 under /usr/lib/vaptvupt/ so users do NOT
-# need to separately install the libzuptsdk package.
 
-set -e
-cd "$(dirname "$0")/.."
+set -Eeuo pipefail
 
-VERSION="${VERSION:-3.0.0}"
-ARCH="${ARCH:-amd64}"
-PKGNAME="vaptvupt"
-LEGACY="zupt"
+umask 022
+export LC_ALL=C
 
-PKG="${PKGNAME}_${VERSION}_${ARCH}"
-ROOT="/tmp/$PKG"
-
-# Vendored libzuptsdk path (relative to project root)
-SDK_LIB="vendor/zuptsdk/libzuptsdk.so.2.0.0"
-if [ ! -f "$SDK_LIB" ]; then
-    echo "ERROR: $SDK_LIB not found. Vendor the libzuptsdk shared object first." >&2
+die() {
+    printf 'FAIL: %s\n' "$*" >&2
     exit 1
-fi
-PQVV_LIB="vendor/pqvaptvupt/libpqvaptvupt.so.0.6.0"
-if [ ! -f "$PQVV_LIB" ]; then
-    echo "ERROR: $PQVV_LIB not found. Vendor the libpqvaptvupt shared object first." >&2
-    exit 1
-fi
+}
 
-echo "[deb] Building vaptvupt"
-make clean >/dev/null 2>&1 || true
-make -j"$(nproc)" >/dev/null
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+cd -- "$repo_root"
 
-echo "[deb] Patching rpath -> /usr/lib/$PKGNAME:/usr/lib64/$PKGNAME"
-patchelf --set-rpath "/usr/lib/$PKGNAME:/usr/lib64/$PKGNAME" $PKGNAME
+header_version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+version=${VERSION:-$header_version}
+[[ -n $version && $version == "$header_version" ]] || \
+    die "VERSION '$version' does not match include/zupt.h '$header_version'"
+[[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid package version: $version"
 
-if ! readelf -d $PKGNAME | grep -q "RUNPATH.*\[/usr/lib/$PKGNAME:/usr/lib64/$PKGNAME\]"; then
-    echo "ERROR: built $PKGNAME does not have correct RUNPATH" >&2
-    readelf -d $PKGNAME | grep -E "RPATH|RUNPATH"
-    exit 1
-fi
+native_arch=$(dpkg --print-architecture)
+arch=${ARCH:-$native_arch}
+[[ $arch == "$native_arch" ]] || \
+    die "ARCH=$arch does not match the native dpkg architecture $native_arch"
+dist_dir=${DIST_DIR:-${TMPDIR:-/tmp}/zupt-release}
+mkdir -p -- "$dist_dir"
+dist_dir=$(cd -- "$dist_dir" && pwd -P)
+output=$dist_dir/zupt_${version}_${arch}.deb
+[[ ! -e $output ]] || die "refusing to overwrite existing output: $output"
 
-rm -rf "$ROOT"
-mkdir -p "$ROOT/DEBIAN" \
-         "$ROOT/usr/bin" \
-         "$ROOT/usr/lib/$PKGNAME" \
-         "$ROOT/usr/share/doc/$PKGNAME" \
-         "$ROOT/usr/share/man/man1" \
-         "$ROOT/usr/share/bash-completion/completions" \
-         "$ROOT/usr/share/zsh/site-functions" \
-         "$ROOT/usr/share/fish/vendor_completions.d"
-
-# Binary + legacy symlink
-install -m 755 $PKGNAME "$ROOT/usr/bin/$PKGNAME"
-ln -sf $PKGNAME "$ROOT/usr/bin/$LEGACY"
-
-# Bundled libzuptsdk
-install -m 755 "$SDK_LIB" "$ROOT/usr/lib/$PKGNAME/libzuptsdk.so.2.0.0"
-ln -sf libzuptsdk.so.2.0.0 "$ROOT/usr/lib/$PKGNAME/libzuptsdk.so.2"
-ln -sf libzuptsdk.so.2.0.0 "$ROOT/usr/lib/$PKGNAME/libzuptsdk.so"
-install -m 755 "$PQVV_LIB" "$ROOT/usr/lib/$PKGNAME/libpqvaptvupt.so.0.6.0"
-ln -sf libpqvaptvupt.so.0.6.0 "$ROOT/usr/lib/$PKGNAME/libpqvaptvupt.so.0"
-ln -sf libpqvaptvupt.so.0.6.0 "$ROOT/usr/lib/$PKGNAME/libpqvaptvupt.so"
-
-# Manpage (gzip-compressed); install + legacy alias
-if [ -f doc/vaptvupt.1 ]; then
-    gzip -9n -c doc/vaptvupt.1 > "$ROOT/usr/share/man/man1/$PKGNAME.1.gz"
-    ln -sf $PKGNAME.1.gz "$ROOT/usr/share/man/man1/$LEGACY.1.gz"
+for command_name in make dpkg dpkg-deb readelf sha256sum; do
+    command -v -- "$command_name" >/dev/null 2>&1 || die "required command not found: $command_name"
+done
+run_checks=${RUN_CHECKS:-1}
+[[ $run_checks == 0 || $run_checks == 1 ]] || die 'RUN_CHECKS must be 0 or 1'
+if [[ $run_checks == 1 ]]; then
+    command -v git >/dev/null 2>&1 || die 'git is required when RUN_CHECKS=1'
 fi
 
-# Shell completions
-if [ -f completions/vaptvupt.bash ]; then
-    install -m 0644 completions/vaptvupt.bash "$ROOT/usr/share/bash-completion/completions/$PKGNAME"
-    ln -sf $PKGNAME "$ROOT/usr/share/bash-completion/completions/$LEGACY"
-fi
-if [ -f completions/_vaptvupt ]; then
-    install -m 0644 completions/_vaptvupt "$ROOT/usr/share/zsh/site-functions/_$PKGNAME"
-    ln -sf _$PKGNAME "$ROOT/usr/share/zsh/site-functions/_$LEGACY"
-fi
-if [ -f completions/vaptvupt.fish ]; then
-    install -m 0644 completions/vaptvupt.fish "$ROOT/usr/share/fish/vendor_completions.d/$PKGNAME.fish"
+jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1')}
+work=$(mktemp -d "${TMPDIR:-/tmp}/zupt-deb.XXXXXXXX")
+stage=$work/stage
+extract=$work/extract
+
+cleanup() {
+    make -C "$repo_root" clean >/dev/null 2>&1 || true
+    chmod -R u+rwX "$work" 2>/dev/null || true
+    rm -rf -- "$work"
+}
+trap cleanup EXIT HUP INT TERM
+
+printf '[deb] source-only build of ZUPT %s (%s)\n' "$version" "$arch"
+make clean
+make -j"$jobs" V=1 WITH_SDK=0 WITH_PQBOX=0 INSTALL_LEGACY_ALIAS=0
+if [[ $run_checks == 1 ]]; then
+    make V=1 WITH_SDK=0 WITH_PQBOX=0 INSTALL_LEGACY_ALIAS=0 check
 fi
 
-# Docs
-install -m 0644 README.md "$ROOT/usr/share/doc/$PKGNAME/README.md"
-install -m 0644 LICENSE   "$ROOT/usr/share/doc/$PKGNAME/copyright"
-[ -f SECURITY.md ]      && install -m 0644 SECURITY.md      "$ROOT/usr/share/doc/$PKGNAME/SECURITY.md"
-[ -f CHANGELOG.md ]     && install -m 0644 CHANGELOG.md     "$ROOT/usr/share/doc/$PKGNAME/CHANGELOG.md"
-[ -f THREAT_MODEL.md ]  && install -m 0644 THREAT_MODEL.md  "$ROOT/usr/share/doc/$PKGNAME/THREAT_MODEL.md"
+make DESTDIR="$stage" PREFIX=/usr WITH_SDK=0 WITH_PQBOX=0 \
+    INSTALL_LEGACY_ALIAS=0 install
 
-# DEBIAN/control
-INSTALLED_KB=$(du -sk "$ROOT/usr" | awk '{print $1}')
-cat > "$ROOT/DEBIAN/control" <<EOF
-Package: $PKGNAME
-Version: $VERSION
+binary=$stage/usr/bin/zupt
+[[ -x $binary ]] || die 'staged /usr/bin/zupt is missing'
+[[ ! -e $stage/usr/bin/vaptvupt ]] || die 'legacy /usr/bin/vaptvupt must not be packaged'
+
+if readelf -d "$binary" 2>/dev/null | grep -Eq '(RPATH|RUNPATH)'; then
+    readelf -d "$binary" | grep -E '(RPATH|RUNPATH)' >&2
+    die 'staged executable contains RPATH/RUNPATH'
+fi
+if readelf -d "$binary" 2>/dev/null | grep -Eqi '(vendor/|libvuptsdk|libpqvaptvupt)'; then
+    die 'staged executable references a vendored optional library'
+fi
+
+forbidden=$(find "$stage" -type f \( \
+    -name '*.o' -o -name '*.obj' -o -name '*.a' -o -name '*.so' -o \
+    -name '*.so.*' -o -name '*.dll' -o -name '*.dylib' -o -name '*.exe' \
+    \) -print)
+[[ -z $forbidden ]] || {
+    printf '%s\n' "$forbidden" >&2
+    die 'compiled library or object found in package staging tree'
+}
+
+docdir=$stage/usr/share/doc/zupt
+mkdir -p -- "$docdir"
+install -m 0644 README.md CHANGELOG.md SECURITY.md "$docdir/"
+for document in THREAT_MODEL.md NOTICE THIRD-PARTY-NOTICES.md LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0; do
+    [[ ! -f $document ]] || install -m 0644 "$document" "$docdir/"
+done
+install -m 0644 LICENSE "$docdir/copyright"
+
+mkdir -p -- "$work/debian" "$stage/DEBIAN"
+if [[ -n ${DEB_DEPENDS:-} ]]; then
+    depends=$DEB_DEPENDS
+else
+    command -v dpkg-shlibdeps >/dev/null 2>&1 || \
+        die 'dpkg-shlibdeps is required unless DEB_DEPENDS is explicitly set'
+    printf 'Source: zupt\nPackage: zupt\n' > "$work/debian/control"
+    shlib_line=$(cd -- "$work" && dpkg-shlibdeps -O -e"$binary")
+    depends=${shlib_line#shlibs:Depends=}
+    [[ -n $depends && $depends != "$shlib_line" ]] || \
+        die 'dpkg-shlibdeps did not determine runtime dependencies'
+fi
+
+installed_kib=$(du -sk "$stage/usr" | awk '{print $1}')
+cat > "$stage/DEBIAN/control" <<EOF
+Package: zupt
+Version: $version
 Section: utils
 Priority: optional
-Architecture: $ARCH
-Provides: $LEGACY (= $VERSION)
-Replaces: $LEGACY (<< 3.0.0)
-Conflicts: $LEGACY (<< 3.0.0)
-Depends: libargon2-1, libssl3 | libssl3t64
-Installed-Size: $INSTALLED_KB
+Architecture: $arch
+Depends: $depends
+Installed-Size: $installed_kib
 Maintainer: Cristian Cezar Moisés <sac@securityops.co>
-Homepage: https://git.securityops.co/cristiancmoises/zupt
-Description: Post-quantum backup compression utility (formerly zupt)
- VaptVupt (renamed from Zupt in v3.0.0 due to a prior INPI Brasil
- trademark on the name) is a pure-C11 backup compression utility
- featuring post-quantum hybrid encryption (ML-KEM-768 + X25519,
- FIPS 203), AES-256-CTR + HMAC-SHA256 authenticated encryption,
- Argon2id KDF (PBKDF2-SHA256 via --kdf pbkdf2), multi-threaded
- compression with the VaptVupt LZ + ANS codec 2.48.5, full-disk
- backup with sparse-region detection, and end-to-end byte-level
- tamper detection on encrypted archives (F-09: 0/1827 silent
- accepts).
- .
- The .zupt archive extension is unchanged; v2.x and v3.0.0
- archives are bidirectionally compatible. The legacy /usr/bin/zupt
- symlink is preserved for one major version cycle.
+Homepage: https://github.com/cristiancmoises/zupt
+Description: Backup compression with authenticated and post-quantum encryption
+ ZUPT creates compressed backup archives with optional password encryption
+ or ML-KEM-768 and X25519 hybrid key encapsulation. This package is built from
+ source with the optional libvuptsdk and libpqvaptvupt integrations disabled.
 EOF
 
-DEB_OUT="/tmp/${PKGNAME}_${VERSION}_${ARCH}.deb"
-dpkg-deb --build --root-owner-group "$ROOT" "$DEB_OUT" >/dev/null
-echo "Built: $DEB_OUT ($(du -h "$DEB_OUT" | cut -f1))"
-dpkg-deb -I "$DEB_OUT" | sed -n '1,20p'
+package_tmp=$work/$(basename -- "$output")
+dpkg-deb --build --root-owner-group "$stage" "$package_tmp" >/dev/null
+dpkg-deb --info "$package_tmp" >/dev/null
+dpkg-deb --contents "$package_tmp" > "$work/contents.txt"
+if grep -Eq '(/usr/bin/vaptvupt$|\.(o|obj|a|so|so\.[^/]+|dll|dylib)$)' "$work/contents.txt"; then
+    cat "$work/contents.txt" >&2
+    die 'forbidden alias or compiled library/object found in .deb contents'
+fi
+
+mkdir -p -- "$extract"
+dpkg-deb --extract "$package_tmp" "$extract"
+bash scripts/test-installed-zupt.sh "$extract/usr/bin/zupt"
+
+mv -- "$package_tmp" "$output"
+sha256sum "$output"
+printf 'PASS: built and extracted-package-tested %s\n' "$output"

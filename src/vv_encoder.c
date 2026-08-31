@@ -901,8 +901,6 @@ typedef struct { uint32_t off; int32_t len; } opt_cand_t;
  * captures most of the available win at zero added complexity, so this
  * sprint ships it and defers the two-pass design until the window-size
  * lever has been measured (matters more for nci-class fixtures). */
-static inline int32_t opt_lit_price(void) { return 8; }
-
 /* SPRINT 129: per-byte literal prices from the block's byte histogram.
  * The flat-8 model (Sprint 44) was chosen as the best single constant,
  * but the real literal coder delivers ~4-6 bits/byte on text and 7-8
@@ -1127,6 +1125,10 @@ static int opt_collect(const matcher_t *m, const uint8_t *data,
 static size_t compress_block_optimal(const uint8_t *src, size_t start_pos,
                                      size_t block_len, uint8_t *dst,
                                      size_t dst_cap, matcher_t *m, int min_match) {
+    if (min_match < 1 || block_len > (size_t)INT32_MAX ||
+        start_pos > (size_t)INT32_MAX - block_len)
+        return 0;
+
     uint8_t *op = dst;
     int32_t base = (int32_t)start_pos;
     int32_t end = (int32_t)(start_pos + block_len);
@@ -1249,8 +1251,8 @@ static size_t compress_block_optimal(const uint8_t *src, size_t start_pos,
                  * bounds worst-case work on repetitive data: instead of
                  * O(match_len) work per interior position, we jump over
                  * the whole match. */
-                int32_t use = best_len;
-                if (i + use > N) use = N - i;
+                int32_t remaining_len = N - i;
+                int32_t use = best_len > remaining_len ? remaining_len : best_len;
                 int32_t np = price[i] + opt_match_price(prep[i], best_off, use, of_bits);
                 int32_t j = i + use;
                 if (np < price[j]) {
@@ -1270,11 +1272,14 @@ static size_t compress_block_optimal(const uint8_t *src, size_t start_pos,
             }
             for (int c = 0; c < nc; c++) {
                 int32_t mlen = cands[c].len; uint32_t moff = cands[c].off;
-                if (i + mlen > N) mlen = N - i;
+                int32_t remaining_len = N - i;
+                if (mlen > remaining_len) mlen = remaining_len;
                 if (mlen < min_match) continue;
                 for (int32_t L = mlen; L >= min_match; L--) {
+                    if (L <= 0 || L > remaining_len) continue;
                     int32_t np = price[i] + opt_match_price(prep[i], moff, L, of_bits);
-                    int32_t j = i + L;
+                    size_t j = (size_t)i + (size_t)L;
+                    if (j > (size_t)N) continue;
                     if (np < price[j]) {
                         price[j] = np; plen[j] = L; poff[j] = moff;
                         opt_rep_push(prep[j], prep[i], moff);

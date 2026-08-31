@@ -1,181 +1,252 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
-#
-# Cross-platform GUI + CLI binaries, built on REAL Windows and macOS runners.
-#
-# Why a dedicated workflow: the GUI is a PySide6/PyQt6 app and the CLI is
-# portable C11, but self-contained native installers (Windows .exe/.msi,
-# macOS .app/.dmg) can only be produced on the target OS. This workflow builds
-# them on GitHub's windows-latest and macos-latest runners and attaches them to
-# the GitHub release on a `v*` tag. Run it manually with "Run workflow"
-# (workflow_dispatch) to smoke-test the build before tagging.
-#
-# Artifacts produced:
-#   Windows: vaptvupt.exe (CLI, mingw), vaptvupt-gui.exe (PyInstaller onefile),
-#            VaptVupt-Setup-<ver>.exe (Inno Setup installer)
-#   macOS:   vaptvupt (CLI, universal where possible), VaptVupt-<ver>.dmg
-#   All:     vaptvupt-gui-<ver>-portable.zip (Python GUI + launchers)
 
-name: cross-platform
+name: target release packages
 
 on:
-  push:
-    tags: ['v*']
+  workflow_call:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  # ─────────────────────────── Windows ───────────────────────────
-  windows:
+  windows-x86_64:
+    name: Windows x86_64 package and smoke test
     runs-on: windows-latest
     defaults:
       run:
-        shell: 'msys2 {0}'
+        shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up MSYS2 (mingw gcc + make)
-        uses: msys2/setup-msys2@v2
+      - name: Check out the audited source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          lfs: false
+          submodules: false
+
+      - name: Install the Windows C toolchain
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
         with:
           msystem: UCRT64
           update: true
           install: >-
+            mingw-w64-ucrt-x86_64-binutils
             mingw-w64-ucrt-x86_64-gcc
-            make
+            bsdtar
             coreutils
-      - name: Build CLI (vaptvupt.exe, source-only, C fallback crypto)
-        run: |
-          make CC=gcc WITH_SDK=0 -j2
-          ./vaptvupt.exe version || ./vaptvupt version
-          cp "$(ls vaptvupt.exe vaptvupt 2>/dev/null | head -1)" vaptvupt.exe 2>/dev/null || true
-      - name: Set up Python
-        shell: pwsh
-        run: |
-          # Use the runner's native Python (not MSYS) for PyInstaller so the
-          # produced .exe targets the standard Windows Python ABI.
-          python -m pip install --upgrade pip
-          python -m pip install PySide6 pyinstaller
-      - name: Get version
-        id: ver
-        shell: pwsh
-        run: |
-          $ver = (Select-String -Path include/zupt.h -Pattern '^#define ZUPT_VERSION_STRING "([^"]+)"').Matches.Groups[1].Value
-          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-      - name: Bundle GUI with PyInstaller (vaptvupt-gui.exe)
-        shell: pwsh
-        run: |
-          # onefile GUI that carries the CLI beside it via --add-binary.
-          pyinstaller --noconfirm --onefile --windowed `
-            --name vaptvupt-gui `
-            --icon gui/assets/zupt-icon.png `
-            --add-binary "vaptvupt.exe;." `
-            --add-data "gui/assets/zupt-icon.png;assets" `
-            gui/src/zupt_gui.py
-      - name: Build Inno Setup installer
-        shell: pwsh
-        run: |
-          choco install innosetup --no-progress -y
-          & "$env:ChocolateyInstall\bin\ISCC.exe" `
-            "/DAppVersion=${{ steps.ver.outputs.version }}" `
-            packaging/windows/vaptvupt-gui.iss
-      - name: Collect artifacts
-        shell: pwsh
-        run: |
-          $v = "${{ steps.ver.outputs.version }}"
-          New-Item -ItemType Directory -Force out | Out-Null
-          Copy-Item vaptvupt.exe "out/vaptvupt-$v-windows-x86_64.exe"
-          Copy-Item dist/vaptvupt-gui.exe "out/vaptvupt-gui-$v-windows-x86_64.exe"
-          if (Test-Path "packaging/windows/Output") {
-            Copy-Item packaging/windows/Output/*.exe "out/" -ErrorAction SilentlyContinue
-          }
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows
-          path: out/*
-      - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: out/*
+            diffutils
+            file
+            findutils
+            git
+            gzip
+            make
+            python
+            tar
+            unzip
+            zip
 
-  # ─────────────────────────── macOS ───────────────────────────
-  macos:
+      - name: Audit source before building
+        run: bash scripts/check-source-only.sh
+
+      - name: Build from source
+        run: |
+          test "$(uname -m)" = x86_64
+          make clean
+          make -j2 CC=gcc V=1 WITH_SDK=0 WITH_PQBOX=0 INSTALL_LEGACY_ALIAS=0
+
+      - name: Run the source-only distribution checks on Windows
+        run: make CC=gcc V=1 WITH_SDK=0 WITH_PQBOX=0 INSTALL_LEGACY_ALIAS=0 check
+
+      - name: Native CLI smoke and round-trip
+        run: |
+          version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+          if [[ -x ./zupt.exe ]]; then
+            exe=$PWD/zupt.exe
+          elif [[ -x ./zupt ]]; then
+            exe=$PWD/zupt
+          else
+            echo 'ZUPT executable was not produced' >&2
+            exit 1
+          fi
+          version_output=$("$exe" --version)
+          version_line=${version_output%%$'\n'*}
+          read -r product reported_version _ <<< "$version_line"
+          if [[ $product != zupt || $reported_version != "$version" ]]; then
+            echo 'native Windows executable version does not match include/zupt.h' >&2
+            exit 1
+          fi
+          "$exe" --help >/dev/null
+          if "$exe" --definitely-invalid-option >/dev/null 2>&1; then
+            echo 'invalid option returned success' >&2
+            exit 1
+          fi
+          test_root=$(mktemp -d)
+          trap 'chmod -R u+rwX "$test_root" 2>/dev/null || true; rm -rf -- "$test_root"' EXIT
+          output_dir="$test_root/saída-安全"
+          archive="$test_root/cópia-安全.zupt"
+          mkdir -p "$test_root/input/subdir" "$output_dir"
+          printf 'Windows release smoke test\n' > "$test_root/input/café.txt"
+          printf 'UTF-8: café-安全\n' > "$test_root/input/subdir/ação-安全.txt"
+          printf 'emoji filename\n' > "$test_root/input/subdir/emoji-😀.bin"
+          : > "$test_root/input/empty"
+          dd if=/dev/urandom of="$test_root/input/subdir/random.bin" bs=4096 count=4 2>/dev/null
+          (cd "$test_root" && "$exe" compress "$archive" input)
+          "$exe" test "$archive"
+          "$exe" list "$archive" > "$test_root/list.txt" 2>&1
+          grep -F 'café.txt' "$test_root/list.txt"
+          grep -F 'ação-安全.txt' "$test_root/list.txt"
+          grep -F 'emoji-😀.bin' "$test_root/list.txt"
+          "$exe" extract -o "$output_dir" "$archive"
+          diff -r "$test_root/input" "$output_dir/input"
+          objdump -p "$exe" > "$test_root/imports.txt"
+          if grep -Eqi '(vendor[/\\]|libvuptsdk|libpqvaptvupt|libgcc_s|libstdc\+\+|libwinpthread|msys-2[.]0|cygwin1)[^[:space:]]*[.]dll' \
+              "$test_root/imports.txt"; then
+            echo 'Windows binary imports a non-system or vendored runtime' >&2
+            exit 1
+          fi
+          version_output=$(env PATH='/c/Windows/System32:/c/Windows' "$exe" --version)
+          version_line=${version_output%%$'\n'*}
+          read -r product reported_version _ <<< "$version_line"
+          if [[ $product != zupt || $reported_version != "$version" ]]; then
+            echo 'restricted-PATH Windows executable version does not match include/zupt.h' >&2
+            exit 1
+          fi
+
+      - name: Assemble Windows release files
+        run: |
+          version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+          bundle="out/work/zupt-$version-windows-x86_64"
+          mkdir -p out "$bundle"
+          if [[ -x ./zupt.exe ]]; then source_exe=./zupt.exe; else source_exe=./zupt; fi
+          install -m 0755 "$source_exe" "$bundle/zupt.exe"
+          install -m 0644 README.md CHANGELOG.md LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 \
+            LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 \
+            NOTICE THIRD-PARTY-NOTICES.md "$bundle/"
+          toolchain_prefix=${MINGW_PREFIX:-/ucrt64}
+          install -m 0644 \
+            "$toolchain_prefix/share/licenses/crt/COPYING" \
+            "$bundle/MINGW-CRT-COPYING.txt"
+          install -m 0644 \
+            "$toolchain_prefix/share/licenses/crt/COPYING.MinGW-w64-runtime.txt" \
+            "$bundle/COPYING.MinGW-w64-runtime.txt"
+          install -m 0644 \
+            "$toolchain_prefix/share/licenses/crt/COPYING.MinGW-w64.txt" \
+            "$bundle/COPYING.MinGW-w64.txt"
+          install -m 0644 \
+            "$toolchain_prefix/share/licenses/gcc-libs/COPYING3" \
+            "$bundle/GCC-COPYING3.txt"
+          install -m 0644 \
+            "$toolchain_prefix/share/licenses/gcc-libs/COPYING.RUNTIME" \
+            "$bundle/GCC-RUNTIME-LIBRARY-EXCEPTION.txt"
+          zip_path=$PWD/out/zupt-$version-windows-x86_64.zip
+          (cd out/work && zip -9 -r "$zip_path" \
+            "zupt-$version-windows-x86_64")
+
+      - name: Extract and functionally test the Windows ZIP
+        run: |
+          set -Eeuo pipefail
+          version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+          zip_path=$PWD/out/zupt-$version-windows-x86_64.zip
+          unzip -t "$zip_path"
+          extract_root=$(mktemp -d)
+          cleanup() {
+            chmod -R u+rwX "$extract_root" 2>/dev/null || true
+            rm -rf -- "$extract_root"
+          }
+          trap cleanup EXIT HUP INT TERM
+          unzip -q "$zip_path" -d "$extract_root"
+          for notice in MINGW-CRT-COPYING.txt COPYING.MinGW-w64-runtime.txt \
+              COPYING.MinGW-w64.txt GCC-COPYING3.txt \
+              GCC-RUNTIME-LIBRARY-EXCEPTION.txt; do
+            test -s "$extract_root/zupt-$version-windows-x86_64/$notice"
+          done
+          packaged_exe=$extract_root/zupt-$version-windows-x86_64/zupt.exe
+          test -x "$packaged_exe"
+          version_output=$(env PATH='/c/Windows/System32:/c/Windows' \
+            "$packaged_exe" --version)
+          version_line=${version_output%%$'\n'*}
+          read -r product reported_version _ <<< "$version_line"
+          if [[ $product != zupt || $reported_version != "$version" ]]; then
+            echo 'Windows ZIP executable version does not match include/zupt.h' >&2
+            exit 1
+          fi
+          env PATH='/c/Windows/System32:/c/Windows' "$packaged_exe" --help >/dev/null
+          mkdir -p "$extract_root/smoke/input" "$extract_root/smoke/saída-安全"
+          printf 'Windows ZIP package test\n' > "$extract_root/smoke/input/payload-ação-😀.txt"
+          (
+            cd "$extract_root/smoke"
+            env PATH='/c/Windows/System32:/c/Windows' \
+              "$packaged_exe" compress cópia-安全.zupt input
+            env PATH='/c/Windows/System32:/c/Windows' \
+              "$packaged_exe" test cópia-安全.zupt
+            env PATH='/c/Windows/System32:/c/Windows' \
+              "$packaged_exe" extract -o saída-安全 cópia-安全.zupt
+          )
+          cmp "$extract_root/smoke/input/payload-ação-😀.txt" \
+            "$extract_root/smoke/saída-安全/input/payload-ação-😀.txt"
+
+      - name: Upload tested Windows files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-windows-x86_64
+          path: out/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  macos-native:
+    name: macOS native DMG and installed-image test
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Build CLI (vaptvupt, clang)
-        run: |
-          make CC=clang WITH_SDK=0 -j3
-          ./vaptvupt version
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.12' }
-      - name: Install GUI build deps
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install PySide6 pyinstaller
-          brew install create-dmg || true
-      - name: Get version
-        id: ver
-        run: echo "version=$(awk -F'\"' '/^#define ZUPT_VERSION_STRING/{print $2}' include/zupt.h)" >> "$GITHUB_OUTPUT"
-      - name: Bundle GUI (.app) with PyInstaller
-        run: |
-          pyinstaller --noconfirm --windowed \
-            --name "VaptVupt" \
-            --add-binary "vaptvupt:." \
-            --add-data "gui/assets/zupt-icon.png:assets" \
-            gui/src/zupt_gui.py
-      - name: Build .dmg
-        run: |
-          V="${{ steps.ver.outputs.version }}"
-          create-dmg --volname "VaptVupt $V" --window-size 500 300 \
-            --app-drop-link 350 120 --icon "VaptVupt.app" 150 120 \
-            "VaptVupt-$V.dmg" "dist/VaptVupt.app" || \
-            { mkdir -p dmgroot && cp -R dist/VaptVupt.app dmgroot/ && \
-              hdiutil create -volname "VaptVupt $V" -srcfolder dmgroot -ov -format UDZO "VaptVupt-$V.dmg"; }
-      - name: Collect artifacts
-        run: |
-          V="${{ steps.ver.outputs.version }}"
-          mkdir -p out
-          cp vaptvupt "out/vaptvupt-$V-macos"
-          cp "VaptVupt-$V.dmg" out/
-      - uses: actions/upload-artifact@v4
+      - name: Check out the audited source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: macos
-          path: out/*
-      - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: out/*
+          persist-credentials: false
+          fetch-depth: 0
+          lfs: false
+          submodules: false
 
-  # ─────────────── Portable GUI (works on every OS) ───────────────
-  portable:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Get version
-        id: ver
-        run: echo "version=$(awk -F'\"' '/^#define ZUPT_VERSION_STRING/{print $2}' include/zupt.h)" >> "$GITHUB_OUTPUT"
-      - name: Assemble portable package
+      - name: Audit source before building
+        run: bash scripts/check-source-only.sh
+
+      - name: Build and validate the native DMG
         run: |
-          V="${{ steps.ver.outputs.version }}"
-          D="vaptvupt-gui-$V-portable"
-          mkdir -p "$D/assets"
-          cp gui/src/zupt_gui.py "$D/"
-          cp gui/assets/zupt-icon.png "$D/assets/"
-          cp packaging/portable/vaptvupt-gui.bat "$D/"
-          cp packaging/portable/vaptvupt-gui.command "$D/"
-          cp packaging/portable/vaptvupt-gui.sh "$D/"
-          cp packaging/portable/README.txt "$D/"
-          chmod +x "$D/vaptvupt-gui.command" "$D/vaptvupt-gui.sh"
-          zip -r "$D.zip" "$D"
-      - uses: actions/upload-artifact@v4
+          mkdir -p out
+          DIST_DIR="$PWD/out" RUN_CHECKS=1 bash packaging/build-dmg.sh
+
+      - name: Mount and functionally test the packaged binary
+        run: |
+          dmg=$(find out -maxdepth 1 -type f -name '*.dmg' -print -quit)
+          test -n "$dmg"
+          mount_point=$(mktemp -d)
+          cleanup() {
+            hdiutil detach "$mount_point" >/dev/null 2>&1 || true
+            chmod -R u+rwX "$mount_point" 2>/dev/null || true
+            rm -rf -- "$mount_point"
+          }
+          trap cleanup EXIT HUP INT TERM
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount_point" "$dmg" >/dev/null
+          version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' \
+            include/zupt.h)
+          packaged_binary=$mount_point/ZUPT.app/Contents/MacOS/zupt
+          version_output=$("$packaged_binary" --version)
+          version_line=${version_output%%$'\n'*}
+          read -r product reported_version _ <<< "$version_line"
+          if [[ $product != zupt || $reported_version != "$version" ]]; then
+            echo 'mounted macOS executable version does not match include/zupt.h' >&2
+            exit 1
+          fi
+          bash packaging/build-dmg.sh --test-binary \
+            "$packaged_binary"
+          hdiutil detach "$mount_point"
+          trap - EXIT HUP INT TERM
+          rmdir "$mount_point"
+
+      - name: Upload tested macOS DMG
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: portable
-          path: vaptvupt-gui-*-portable.zip
-      - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: vaptvupt-gui-*-portable.zip
+          name: release-macos-native
+          path: out/*.dmg
+          if-no-files-found: error
+          retention-days: 7

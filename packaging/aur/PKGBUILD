@@ -1,56 +1,60 @@
 # Maintainer: Cristian Cezar Moisés <sac@securityops.co>
+# SPDX-License-Identifier: AGPL-3.0-or-later
 #
 # AUR submission instructions:
 #   1. Run `make dist` upstream to produce zupt-VERSION.tar.gz.
-#   2. Upload that tarball somewhere stable (GitHub release / git.securityops.co).
+#   2. Upload that tarball to the canonical GitHub release.
 #   3. Update `source=()` URL and `sha256sums=()` below.
 #   4. Run `makepkg --printsrcinfo > .SRCINFO` in this directory.
-#   5. Commit and push to ssh://aur@aur.archlinux.org/zupt.git
+#   5. Commit and push to the separately maintained AUR package repository.
 #
-# Test locally: `makepkg -s` in this directory after dropping a copy of the
-# zupt-VERSION.tar.gz alongside the PKGBUILD.
+# Test locally with `makepkg -s` after the release archive is published.
 
-pkgname=vaptvupt
-pkgver=5.0.0
+pkgname=zupt
+pkgver=5.2.2
 pkgrel=1
-provides=('zupt')
-replaces=('zupt')
-conflicts=('zupt')
 pkgdesc='Pure-C11 post-quantum backup compression utility (AES-256-CTR + HMAC-SHA256 + ML-KEM-768 + X25519)'
-arch=('x86_64' 'aarch64')
-url='https://git.securityops.co/cristiancmoises/vaptvupt'
-license=('AGPL-3.0-or-later')
+arch=('x86_64')
+url='https://github.com/cristiancmoises/zupt'
+license=('AGPL-3.0-or-later AND GPL-3.0-or-later AND BSD-2-Clause AND BSD-3-Clause AND CC0-1.0')
 depends=('glibc')
-makedepends=('gcc')
+makedepends=('gcc' 'git' 'make')
 checkdepends=('python')
 
-# Replace SHA256 placeholder with output of:
-#   sha256sum /tmp/zupt-2.4.4.tar.gz
-source=("${pkgname}-${pkgver}.tar.gz::https://git.securityops.co/cristiancmoises/vaptvupt/releases/download/v${pkgver}/${pkgname}-${pkgver}.tar.gz")
-sha256sums=('SKIP')
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/cristiancmoises/zupt/releases/download/v${pkgver}/${pkgname}-${pkgver}.tar.gz")
+# Updated from the byte-reproducible upstream release archive before publishing.
+sha256sums=('REPLACE_AFTER_FINAL_RELEASE_ARCHIVE_IS_BUILT')
 
 build() {
     cd "${pkgname}-${pkgver}"
     # Source-only build (WITH_SDK=0) with the project's strict warning set.
     CFLAGS="${CFLAGS:--O2 -std=c11} -Wall -Wextra -Wpedantic" \
-        make WITH_SDK=0 -j"$(nproc)"
+        make WITH_SDK=0 WITH_PQBOX=0 -j"$(nproc)"
 }
 
 check() {
     cd "${pkgname}-${pkgver}"
-    # Distro-safe regression subset (F-06..F-12, dedup-nonce, NIST/RFC vectors).
-    make WITH_SDK=0 check
+    # Distro-safe quick, traversal, integrity, codec and NIST/RFC checks.
+    make WITH_SDK=0 WITH_PQBOX=0 check
 }
 
 package() {
     cd "${pkgname}-${pkgver}"
     # Source-only build (no vendored libraries); `make install` places the
-    # binary, the zupt symlink, the man pages and the shell completions.
-    make DESTDIR="${pkgdir}" PREFIX=/usr WITH_SDK=0 install
+    # binary, man page and shell completions under the public zupt name.
+    make DESTDIR="${pkgdir}" PREFIX=/usr WITH_SDK=0 WITH_PQBOX=0 \
+        INSTALL_LEGACY_ALIAS=0 install
 
     # Docs that aren't part of `make install`
     install -Dm644 README.md    "${pkgdir}/usr/share/doc/${pkgname}/README.md"
     install -Dm644 SECURITY.md  "${pkgdir}/usr/share/doc/${pkgname}/SECURITY.md"
     install -Dm644 CHANGELOG.md "${pkgdir}/usr/share/doc/${pkgname}/CHANGELOG.md"
-    install -Dm644 LICENSE      "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+    install -Dm644 LICENSE-AGPL-3.0 "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE-AGPL-3.0"
+    install -Dm644 LICENSE-GPL-3.0  "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE-GPL-3.0"
+    install -Dm644 LICENSE-BSD-2-Clause "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE-BSD-2-Clause"
+    install -Dm644 LICENSE-BSD-3-Clause "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE-BSD-3-Clause"
+    install -Dm644 LICENSE-CC0-1.0 "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE-CC0-1.0"
+    install -Dm644 NOTICE           "${pkgdir}/usr/share/licenses/${pkgname}/NOTICE"
+    install -Dm644 THIRD-PARTY-NOTICES.md \
+        "${pkgdir}/usr/share/licenses/${pkgname}/THIRD-PARTY-NOTICES.md"
 }

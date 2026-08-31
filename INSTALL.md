@@ -1,232 +1,227 @@
-# VaptVupt + VaptVupt GUI — Install Guide for Linux
+# Installing ZUPT 5.2.2
 
-If you're seeing the error:
+This guide covers the ZUPT command-line program and the optional Python GUI.
+The canonical source repository is
+`https://github.com/cristiancmoises/zupt`.
 
-```
-vaptvupt-gui depende de python3-pyqt6 | python3-pyside6; porém:
-  Pacote python3-pyqt6 não está instalado.
-vaptvupt-gui depende de vaptvupt (>= 5.0.0); porém:
-  Versão de vaptvupt no sistema é 2.1.7-1.
-```
+## Choosing an installation method
 
-This is correct behavior. The `vaptvupt-gui` deb requires:
-- Python 3 with **PyQt6** or **PySide6** (the GUI toolkit)
-- The **vaptvupt CLI 5.0.0** or newer
+- Build from the immutable source tag when you want the upstream source-only
+  path described below.
+- Use a distribution package only when it matches your distribution release
+  and architecture.
+- Release-page DEB, RPM, Linux tar.xz, portable GUI ZIP, Windows ZIP, and macOS
+  files are separate artifacts. Their presence does not make them part of the
+  Git tree or upstream source archive. Use only artifacts whose release notes
+  record a successful format-specific test for your target.
 
-## The fastest fix — one command (Linux Mint, Ubuntu, Debian)
+The promoted 5.2.2 package set, only after each target gate succeeds, is:
 
-Put all the downloaded files in the same folder, then:
-
-```bash
-sudo bash install-zupt-gui.sh
-```
-
-This script auto-detects your distribution and installs everything in
-the right order.
-
-## Manual fix — three commands (if you prefer)
-
-### Linux Mint / Ubuntu / Debian / Pop!_OS
-
-```bash
-# 1. Install the Qt6 Python binding
-sudo apt update
-sudo apt install -y python3-pyqt6
-
-# 2. Upgrade vaptvupt CLI to 5.0.0
-sudo dpkg -i vaptvupt_5.0.0_amd64.deb
-
-# 3. Install the GUI
-sudo dpkg -i vaptvupt-gui_1.3.0_all.deb
-```
-
-If step 3 still complains about deps, run:
-
-```bash
-sudo apt --fix-broken install
-```
-
-### Fedora / RHEL / Rocky / AlmaLinux
-
-```bash
-sudo dnf install -y python3-pyqt6
-sudo dnf install -y vaptvupt-5.0.0-1.x86_64.rpm vaptvupt-gui-1.3.0-1.noarch.rpm
-```
-
-(Or build the RPM from the SRPM tarball with `rpmbuild -bb SPECS/vaptvupt.spec`)
-
-### openSUSE Leap / Tumbleweed
-
-```bash
-sudo zypper install python3-pyqt6
-# Build the RPM from the source tarball — see the SRPM .tar.gz
-```
-
-### Arch Linux / Manjaro / EndeavourOS
-
-```bash
-sudo pacman -S python-pyqt6
-# Build vaptvupt from the source tarball
-```
-
-### Anything else (or no apt/dnf/pacman handy)
-
-Use the AppImage — no install needed:
-
-```bash
-tar xzf VaptVupt-GUI-1.3.0-x86_64.AppDir.tar.gz
-cd vaptvupt-gui.AppDir
-./AppRun
-```
-
-The AppImage still needs Python 3 + Qt6 binding on the host. For a
-fully standalone executable with no Python dependency, use a future
-PyInstaller-built version (not in this release).
-
-## Why does the GUI need Qt6?
-
-The VaptVupt GUI is written in Python, using either PyQt6 or PySide6 (it
-auto-detects whichever is installed). These are bindings to the Qt 6
-graphical toolkit — they're how the GUI draws windows, buttons, and
-dialogs.
-
-PyQt6 is in the default repositories of major Linux distributions, so
-installing it is one apt/dnf/zypper/pacman command away. We don't bundle
-Qt6 inside the deb because:
-
-- It's already on most modern systems
-- Bundling would make the deb 80 MB+ instead of 35 KB
-- Distribution-managed Qt gets security updates automatically
-
-## Why does the GUI need vaptvupt 5.0.0?
-
-The GUI calls `vaptvupt --pq` and `vaptvupt keygen` for native
-post-quantum encryption (ML-KEM-768 + X25519, in-tree implementation).
-Older CLI versions lack these flags, so the GUI's compress/extract will
-fail against them.
-
-## After installing — verify
-
-```bash
-vaptvupt version       # should show: 5.0.0
-vaptvupt-gui           # should launch the GUI window
-```
-
-## If the GUI window still doesn't appear
-
-```bash
-# Run from terminal to see error messages
-vaptvupt-gui
-
-# If you see "ImportError: No module named 'PyQt6'":
-#   The GUI fell back through both PyQt6 and PySide6 imports.
-#   Re-check: python3 -c 'import PyQt6.QtWidgets'
-
-# If you see "DISPLAY not set":
-#   You're on SSH without X forwarding. Use ssh -X or run locally.
-
-# If you see "qt.qpa.plugin: Could not load the Qt platform plugin":
-#   Missing Qt platform plugin. On Mint/Ubuntu:
-#   sudo apt install qt6-qpa-plugins
-```
-
-## Reporting issues
-
-If you've tried the above and vaptvupt-gui still won't work, open an issue
-at https://git.securityops.co/cristiancmoises/vaptvupt/issues with:
-
-1. Output of `lsb_release -a` (or `cat /etc/os-release`)
-2. Output of `python3 --version`
-3. Output of `python3 -c 'import PyQt6; print(PyQt6.__version__)' 2>&1`
-4. Output of `vaptvupt version`
-5. Output of `vaptvupt-gui` (the error message it printed to terminal)
-
----
-
-## Building from source
-
-If you want to build VaptVupt from the source tarball instead of installing
-the pre-built `.deb` / `.rpm` packages, you'll need only a C compiler and
-make. The default build has NO external crypto dependency and installs no
-shared library.
-
-### Build dependencies (default build)
-
-| Component | Why needed |
+| Component | Gated artifacts |
 |---|---|
-| `gcc` ≥ 7 or `clang` ≥ 10 | C11 compiler |
-| `make` | build driver |
-| libm, pthread | math and threading (part of the standard C library/toolchain) |
+| CLI | `zupt-5.2.2.tar.gz`, `zupt_5.2.2_amd64.deb`, openSUSE x86_64 binary/source RPMs, `zupt-5.2.2-linux-x86_64.tar.xz`, `zupt-5.2.2-windows-x86_64.zip`, and `ZUPT-5.2.2-macOS-*.dmg` |
+| GUI | `zupt-gui_5.2.2_all.deb`, `zupt-gui-5.2.2-1.noarch.rpm`, `zupt-gui-5.2.2-1.src.rpm`, and `zupt-gui-5.2.2-portable.zip` |
 
-The default build uses PBKDF2-SHA256 (600k iterations) for password KDF
-and the in-tree native `--pq` mode (ML-KEM-768 + X25519) for post-quantum
-encryption. No `libzuptsdk`, no OpenSSL, no libargon2 is required.
+The GUI packages require the matching `zupt` CLI package and must pass exact
+payload/dependency checks plus an installed off-screen GUI/CLI integration
+test. The source-only portable GUI ZIP bundles launchers, notices, and GUI
+source, but not Python, Qt, or the CLI. The Linux tar.xz carries the tested CLI
+beside the complete public license/notice payload. AppImage, AppDir, Flatpak
+bundles, GUI platform installers, and bare Linux/Windows executables are not
+promoted for 5.2.2. The Windows ZIP and macOS DMG contain the CLI only. Exact
+target boundaries are listed in `README.md`.
+The release's `SHA256SUMS` and validation notes, not the mere presence of a
+download link, identify an artifact that completed its gate.
 
-### Install build dependencies (Debian/Ubuntu/Mint)
+Do not install a package for a different distribution or CPU architecture.
 
-```bash
-sudo apt install build-essential
+## Build requirements
+
+The default CLI build requires:
+
+- a C11 compiler;
+- GNU make;
+- the platform C library, math library, and threading support;
+- standard build utilities including `gzip` for installation and source export.
+
+It does not need a vendored binary, OpenSSL, libargon2, `libvuptsdk`, or
+`libpqvaptvupt`. Dependencies must be installed before the build; `make` does
+not download anything.
+
+Typical package-manager commands are:
+
+```sh
+# Debian / Ubuntu
+sudo apt install build-essential gzip
+
+# Fedora / RHEL family
+sudo dnf install gcc make gzip
+
+# openSUSE
+sudo zypper install gcc make gzip
+
+# Arch Linux
+sudo pacman -S base-devel gzip
 ```
 
-### Install build dependencies (Fedora/RHEL/openSUSE)
+Package names can differ by distribution release. These commands are examples,
+not a statement that 5.2.2 has been accepted into each distribution repository.
 
-```bash
-sudo dnf install gcc make        # Fedora/RHEL
-sudo zypper install gcc make     # openSUSE
+## Build and test from source
+
+Verify the checkout or extracted archive, then use the source-only feature set:
+
+```sh
+scripts/check-source-only.sh
+make clean
+make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf 1)" \
+  WITH_SDK=0 WITH_PQBOX=0 V=1
+make WITH_SDK=0 WITH_PQBOX=0 check
+./zupt --version
+./zupt --help
 ```
 
-### Build VaptVupt itself
+From a release archive, run the scanner as follows before extraction or from a
+trusted checkout after download:
 
-```bash
-tar -xzf vaptvupt-5.0.0-source.tar.gz
-cd vaptvupt-5.0.0
-
-make                 # build the `./vaptvupt` binary
-sudo make install    # install to /usr/local/bin (override with PREFIX=/usr)
-
-./vaptvupt version       # verify
+```sh
+scripts/check-source-only.sh --archive /path/to/zupt-5.2.2.tar.gz
 ```
 
-The `make` step takes 10-30 seconds. The build emits the binary as
-`./vaptvupt`. The default install prefix is `/usr/local`; override with
-`PREFIX=/usr` for system-wide install.
+The default build provides the native password, ML-KEM-768 + X25519 hybrid
+`--pq`, and ML-KEM-768 `--pq-only` paths. See `SECURITY.md` and
+`THREAT_MODEL.md` before selecting an encryption mode.
 
-### Run the test suite
+For password encryption, prefer one of the explicit non-argv inputs:
 
-```bash
-make test
+```sh
+# Interactive, without terminal echo; compress confirms the password.
+zupt compress --password-prompt backup.zupt files/
+
+# Read the first line of a mode-0600 file.
+zupt test --pass-file /secure/path/password.txt backup.zupt
+
+# Read the first line from an inherited descriptor.
+zupt extract --pass-fd 3 -o restored backup.zupt 3</secure/path/password.txt
 ```
 
-Covers roundtrip, multi-file, cross-block, dedup property, path-traversal,
-argument-order, and block-swap regression. Each suite reports its own
-pass/fail count.
+`-p/--password PASSWORD` remains available for compatibility, but the password
+can be visible in shell history and process listings. `--pass-file` and
+`--pass-fd` reject empty, NUL-containing, or overlong input and remove the
+line-ending delimiter.
 
-### Cross-compilation
+`make check` is the downstream-safe test gate. `make test-all` runs the broader
+upstream suite. Optional tests remain conditional on their corresponding
+system-built dependencies and must be reported as skipped when unavailable.
 
-VaptVupt builds on x86_64, aarch64, armhf, ppc64le, s390x, and riscv64. To
-cross-compile:
+## Install
 
-```bash
-make CC=aarch64-linux-gnu-gcc      # for AArch64
-make CC=arm-linux-gnueabihf-gcc    # for ARMv7 (Raspberry Pi 32-bit)
+The upstream default prefix is `/usr/local`:
+
+```sh
+sudo make WITH_SDK=0 WITH_PQBOX=0 install
+zupt --version
 ```
 
-The Makefile auto-detects target architecture via `$(CC) -dumpmachine`
-and selects the appropriate SIMD flags (NEON on AArch64, SSE4/AVX2 on
-x86_64).
+For a distribution-style `/usr` installation, or when building a package:
 
-### Optional: WITH_SDK=1 build
-
-The SDK-backed modes — `--pq-sdk`, `--pq-box` (sealed-box), and the
-Argon2id KDF — are optional. They are not in the default build and require
-building against the separately distributed `libzuptsdk` / `libpqvaptvupt`
-libraries:
-
-```bash
-make WITH_SDK=1
+```sh
+make DESTDIR="$pkgroot" PREFIX=/usr \
+  WITH_SDK=0 WITH_PQBOX=0 INSTALL_LEGACY_ALIAS=0 install
 ```
 
-This build additionally needs the SDK development package and its runtime
-dependencies (OpenSSL libcrypto, libargon2), which ship with the SDK
-distribution. Without `WITH_SDK=1`, the `--pq-sdk` and `--pq-box` flags are
-unavailable; use the native `--pq` mode instead.
+`DESTDIR` stages the files below a package root; it is not embedded in installed
+paths. `PREFIX`, `BINDIR`, `LIBDIR`, `INCLUDEDIR`, and `MANDIR` can be overridden
+without replacing packager-supplied compiler or linker flags.
+
+The default installation provides `zupt`. To install the `vaptvupt` command
+and manual-page compatibility aliases for versions 3.0.0 through 5.2.1, use:
+
+```sh
+sudo make INSTALL_LEGACY_ALIAS=1 install
+```
+
+The openSUSE main package installs `/usr/bin/zupt` as the primary command and
+does not need the optional compatibility alias.
+
+To remove an installation made with the same prefix:
+
+```sh
+sudo make PREFIX=/usr/local uninstall
+```
+
+## Optional system integrations
+
+The SDK and PQBOX integrations are independent and disabled by default:
+
+```sh
+# Requires a system libvuptsdk development package or explicit SDK_* flags
+make WITH_SDK=1 WITH_PQBOX=0
+
+# Requires a system libpqvaptvupt development package or explicit PQBOX_* flags
+make WITH_SDK=0 WITH_PQBOX=1
+
+# Enable both only when both system dependencies are installed
+make WITH_SDK=1 WITH_PQBOX=1
+```
+
+The Makefile normally obtains flags from `pkg-config`. A packager may provide
+`SDK_CPPFLAGS`/`SDK_LDLIBS` or `PQBOX_CPPFLAGS`/`PQBOX_LDLIBS` explicitly. A
+missing dependency is an error: there is no download and no fallback to a local
+precompiled library.
+
+Textual assembly under `jasmin/` can be selected separately with
+`WITH_JASMIN=1` on a supported x86_64 compiler target. The directory contains
+Jasmin-generated outputs and a separately identified hand-written production
+unit; it is off by default and the portable C implementations are the baseline
+build. Do not infer that an architecture is supported until that target has
+actually built and passed its tests.
+
+## GUI
+
+The GUI invokes the `zupt` CLI; it does not replace the CLI or implement
+archive cryptography in Python. Install and verify the CLI first:
+
+```sh
+zupt --version
+python3 -m venv ~/.local/share/zupt-gui-venv
+~/.local/share/zupt-gui-venv/bin/pip install PySide6
+~/.local/share/zupt-gui-venv/bin/python gui/src/zupt_gui.py
+```
+
+The GUI can use PySide6 or PyQt6. Prefer a distribution-managed Qt binding when
+available. A package-specific installer may provide launchers and desktop
+integration; consult its release notes instead of assuming a particular GUI
+package version or filename.
+
+For a headless sanity check:
+
+```sh
+python3 gui/src/zupt_gui.py --version
+python3 gui/src/zupt_gui.py --selftest
+```
+
+## Troubleshooting
+
+If the CLI is not found, inspect the selected prefix:
+
+```sh
+command -v zupt
+printf '%s\n' "$PATH"
+```
+
+If the GUI cannot find it, install the CLI in a directory on `PATH` or set
+`ZUPT_BIN` to its absolute path. `VAPTVUPT_BIN` remains a compatibility
+fallback. For Qt import failures, verify the same
+Python interpreter that starts the GUI:
+
+```sh
+python3 -c 'import PySide6.QtWidgets'
+```
+
+For build failures, rerun with `V=1` and include the compiler target, full build
+command, and first error in the issue report. Do not attach credentials,
+private keys, passwords, or sensitive archives.
+
+Report issues at:
+`https://github.com/cristiancmoises/zupt/issues`.

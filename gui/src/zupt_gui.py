@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
-"""VaptVupt GUI — Cross-Platform Post-Quantum Backup.
+"""ZUPT GUI — Cross-platform post-quantum backup.
 
-Renamed from "Zupt" in v3.0.0 due to INPI Brasil trademark.
-The .zupt file extension is preserved.
+The original ZUPT product name was restored in 5.2.2. The .zupt archive
+extension, format, codec identifiers, and compatibility remain unchanged.
 
 Tries PySide6 first (preferred), falls back to PyQt6 if PySide6 is
 not installed. PyQt6 is the default available package on Debian/Ubuntu
@@ -40,32 +40,32 @@ except ImportError:
     except ImportError:
         if sys.stderr is not None:   # None under PyInstaller --windowed
             sys.stderr.write(
-                "ERROR: vaptvupt-gui requires PySide6 or PyQt6. Install one of:\n"
+                "ERROR: zupt-gui requires PySide6 or PyQt6. Install one of:\n"
                 "  Debian/Ubuntu:  sudo apt install python3-pyqt6\n"
                 "  Fedora/RHEL:    sudo dnf install python3-pyqt6\n"
                 "  pip (any OS):   pip install PySide6\n"
             )
         sys.exit(1)
 
-# ── Find vaptvupt binary ──
+# ── Find the ZUPT binary ──
 #
-# v3.0.0 rename: the binary is now `vaptvupt`; older installations
-# (1.x/2.x) ship `zupt`. We try the new name first, fall back to the
-# old name, and on every candidate verify it's actually executable
+# ZUPT 5.2.2 restores `zupt` as the primary command. Renamed-era
+# installations may still provide `vaptvupt`, so discovery accepts it as a
+# compatibility fallback. Every candidate is verified as actually executable
 # (not just present). After picking a candidate, we run a quick
 # `version` liveness check — this catches the case where the binary
 # exists but can't load its shared library (the original bug report:
 # "GUI doesn't find zupt; copying to /usr/local/bin fixes it").
 #
-# Diagnostic output goes to stderr so users can `vaptvupt-gui 2>log`
+# Diagnostic output goes to stderr so users can `zupt-gui 2>log`
 # to see exactly which path was tried and why each failed.
 
 _DISCOVERY_LOG = []
 
 def _discovery_log(msg):
     _DISCOVERY_LOG.append(msg)
-    # Echo to stderr if VAPTVUPT_DEBUG or ZUPT_DEBUG is set
-    if ((os.environ.get("VAPTVUPT_DEBUG") or os.environ.get("ZUPT_DEBUG"))
+    # Echo to stderr if ZUPT_DEBUG or its renamed-era alias is set.
+    if ((os.environ.get("ZUPT_DEBUG") or os.environ.get("VAPTVUPT_DEBUG"))
             and sys.stderr is not None):   # None under PyInstaller --windowed
         sys.stderr.write(f"  [discovery] {msg}\n")
 
@@ -91,9 +91,9 @@ def _is_runnable(path):
     except OSError as e:
         return False, f"OSError: {e}"
 
-def _find_vaptvupt():
+def _find_zupt():
     # 1. Explicit env override
-    for env in ("VAPTVUPT_BIN", "ZUPT_BIN"):
+    for env in ("ZUPT_BIN", "VAPTVUPT_BIN"):
         p = os.environ.get(env)
         if p:
             ok, reason = _is_runnable(p)
@@ -102,18 +102,18 @@ def _find_vaptvupt():
                 return p
 
     # 2. Local project tree (running from a source checkout)
-    #    Try BOTH names (vaptvupt is v3.0.0+, zupt is legacy).
+    #    Prefer the canonical name, then the renamed-era compatibility name.
     here = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
     for parent in (here.parent.parent, here.parent, here):
-        for name in ("vaptvupt", "zupt", "vaptvupt.exe", "zupt.exe"):
+        for name in ("zupt", "vaptvupt", "zupt.exe", "vaptvupt.exe"):
             c = parent / name
             ok, reason = _is_runnable(c)
             _discovery_log(f"local {c}: {reason}")
             if ok:
                 return str(c.resolve())
 
-    # 3. System PATH — try new name first, then legacy
-    for name in ("vaptvupt", "zupt"):
+    # 3. System PATH — try the canonical name first, then compatibility.
+    for name in ("zupt", "vaptvupt"):
         found = shutil.which(name)
         if found:
             ok, reason = _is_runnable(found)
@@ -127,17 +127,17 @@ def _find_vaptvupt():
     #    from a desktop session with a minimal PATH that omits /usr/bin"
     #    scenario reported against v2.4.8.
     common = [
-        # New name (v3.0.0+)
-        "/usr/local/bin/vaptvupt", "/usr/bin/vaptvupt",
-        "/opt/vaptvupt/bin/vaptvupt", "/opt/homebrew/bin/vaptvupt",
-        # Legacy name (1.x/2.x)
+        # Canonical name
         "/usr/local/bin/zupt", "/usr/bin/zupt",
         "/opt/zupt/bin/zupt", "/opt/homebrew/bin/zupt",
+        # Renamed-era compatibility name
+        "/usr/local/bin/vaptvupt", "/usr/bin/vaptvupt",
+        "/opt/vaptvupt/bin/vaptvupt", "/opt/homebrew/bin/vaptvupt",
         # Termux (Android) install path
-        "/data/data/com.termux/files/usr/bin/vaptvupt",
         "/data/data/com.termux/files/usr/bin/zupt",
+        "/data/data/com.termux/files/usr/bin/vaptvupt",
         # Flatpak sandbox runtime path
-        "/app/bin/vaptvupt", "/app/bin/zupt",
+        "/app/bin/zupt", "/app/bin/vaptvupt",
     ]
     for path in common:
         ok, reason = _is_runnable(path)
@@ -145,15 +145,13 @@ def _find_vaptvupt():
         if ok:
             return path
 
-    # 5. Last resort — return "vaptvupt" and let exec fail loudly later.
+    # 5. Last resort — return "zupt" and let exec fail loudly later.
     #    A caller-visible error is better than silently returning a path
     #    that doesn't work.
-    _discovery_log("FAILED: no runnable vaptvupt/zupt binary found")
-    return "vaptvupt"
+    _discovery_log("FAILED: no runnable zupt/vaptvupt binary found")
+    return "zupt"
 
-# Backward-compat: code elsewhere in this file still uses `ZUPT`.
-VAPTVUPT = _find_vaptvupt()
-ZUPT = VAPTVUPT  # legacy alias used throughout the rest of zupt_gui.py
+ZUPT_CLI = _find_zupt()
 
 # ── Query version ONCE at import (cached) ──
 #
@@ -174,11 +172,11 @@ ZUPT = VAPTVUPT  # legacy alias used throughout the rest of zupt_gui.py
 _VERSION_RE = re.compile(r'^(?:vaptvupt|zupt)\s+(\d+\.\d+\.\d+(?:[._A-Za-z0-9-]*)?)')
 
 def _get_version():
-    short = "vaptvupt (not found)"
+    short = "zupt (not found)"
     number = "?"
     full = ""
     try:
-        r = subprocess.run([VAPTVUPT, "version"], capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=5)
+        r = subprocess.run([ZUPT_CLI, "version"], capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=5)
         if r.returncode == 0:
             full = r.stdout.strip()
             lines = full.split("\n")
@@ -194,24 +192,30 @@ ZUPT_VER_SHORT, ZUPT_VER_NUMBER, ZUPT_VER_FULL = _get_version()
 
 # ── Detect build capabilities from `version` (and `help` as fallback) ──
 #
-# The default build is SOURCE-ONLY: the libvuptsdk-backed modes (Argon2id
-# KDF, --pq-sdk, --pq-box) are absent and fail with exit 1. Offering them in
+# The default build is SOURCE-ONLY: the system-lib-backed modes (Argon2id,
+# --pq-sdk and --pq-box) are absent and fail with exit 1. Offering them in
 # the UI is the #1 reason "functions don't work". We detect what THIS binary
 # actually supports and build the encryption UI around it:
-#   - SDK_AVAILABLE  : --pq-sdk / --pq-box / Argon2id compiled in (WITH_SDK=1)
+#   - SDK_AVAILABLE  : --pq-sdk / Argon2id compiled in (WITH_SDK=1)
+#   - PQBOX_AVAILABLE: --pq-box compiled in (WITH_PQBOX=1)
 #   - PQONLY_AVAILABLE: native --pq-only (full post-quantum, v4.2.0+)
 #   - DEFAULT_KDF    : the password KDF this build actually uses
-# The `version` banner carries a machine-readable "Build:" line (v4.2.1+);
+# The `version` banner carries a machine-readable "Build integrations:" line;
 # for older binaries we fall back to `help` text and default SDK off (safe:
 # the native --pq / --pq-only / password modes work on every build).
 def _get_caps():
     sdk = False
+    pqbox = False
     pqonly = False
     default_kdf = "PBKDF2-SHA256"
     blob = ZUPT_VER_FULL or ""
     for line in blob.splitlines():
         low = line.lower()
-        if low.startswith("build:"):
+        if low.startswith("build integrations:"):
+            sdk = "libvuptsdk=enabled" in low
+            pqbox = "libpqvaptvupt=enabled" in low
+        elif low.startswith("build:"):
+            # Compatibility with the pre-5.2.2 combined build banner.
             sdk = ("full" in low) and ("vuptsdk" in low)
         elif low.startswith("kdf:"):
             default_kdf = "Argon2id" if "argon2id (default)" in low else "PBKDF2-SHA256"
@@ -219,15 +223,15 @@ def _get_caps():
             pqonly = True
     if not pqonly:
         try:
-            h = subprocess.run([VAPTVUPT, "help"], capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=5)
+            h = subprocess.run([ZUPT_CLI, "help"], capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=5)
             txt = (h.stdout or "") + (h.stderr or "")
             if "--pq-only" in txt:
                 pqonly = True
         except Exception:
             pass
-    return sdk, pqonly, default_kdf
+    return sdk, pqbox, pqonly, default_kdf
 
-SDK_AVAILABLE, PQONLY_AVAILABLE, DEFAULT_KDF = _get_caps()
+SDK_AVAILABLE, PQBOX_AVAILABLE, PQONLY_AVAILABLE, DEFAULT_KDF = _get_caps()
 
 # Post-quantum recipient modes offered in the UI, keyed to CLI flags.
 #   token -> (label, keygen-flag-list, compress/extract-flag)
@@ -242,6 +246,8 @@ def pq_mode_options(include_auto=False):
         opts.append(("Full PQ — ML-KEM-768 only", "pqonly"))
     if SDK_AVAILABLE:
         opts.append(("SDK v2 — HKDF + commitment + HPKE", "sdk"))
+    if PQBOX_AVAILABLE:
+        opts.append(("PQ sealed box — system libpqvaptvupt", "box"))
     return opts
 
 # token -> (extra keygen flags, encrypt/decrypt flag)
@@ -249,12 +255,13 @@ _PQ_FLAG = {
     "pq":     ([],           "--pq"),
     "pqonly": (["--pq-only"], "--pq-only"),
     "sdk":    (["--sdk"],     "--pq-sdk"),
+    "box":   (["--box"],     "--pq-box"),
 }
 
 def _archive_info_text(archive):
     """Return the `info` output for an archive (no password/key needed), or ""."""
     try:
-        r = subprocess.run([VAPTVUPT, "info", archive], capture_output=True,
+        r = subprocess.run([ZUPT_CLI, "info", archive], capture_output=True,
                            stdin=subprocess.DEVNULL, text=True, timeout=15)
         return (r.stdout or "") + (r.stderr or "")
     except Exception:
@@ -263,6 +270,8 @@ def _archive_info_text(archive):
 def _detect_archive_pq(archive):
     """Inspect an archive's `info` and return the matching PQ token, or None."""
     low = _archive_info_text(archive).lower()
+    if "pq box" in low or "pq-box" in low or "sealed box" in low or "sealed-box" in low:
+        return "box"
     if "ml-kem-768 only" in low or "no classical" in low:
         return "pqonly"
     if "sdk v2" in low or "hpke" in low:
@@ -274,7 +283,7 @@ def _detect_archive_pq(archive):
 def _detect_archive_enc(archive):
     """Detect how an archive is protected, reading only its header (`info`, no
     credential). Returns (kind, human_label):
-      kind: "none" | "password" | "pq" | "pqonly" | "sdk" | "unknown"
+      kind: "none" | "password" | "pq" | "pqonly" | "sdk" | "box" | "unknown"
     Used to guide the user (which credential to supply) and to pick the right
     decrypt flag automatically instead of relying on a mode dropdown."""
     txt = _archive_info_text(archive)
@@ -289,6 +298,8 @@ def _detect_archive_enc(archive):
             break
     if encrypted is False:
         return "none", "not encrypted"
+    if "pq box" in low or "pq-box" in low or "sealed box" in low or "sealed-box" in low:
+        return "box", "PQ sealed box (system libpqvaptvupt)"
     if "ml-kem-768 only" in low or "no classical" in low:
         return "pqonly", "full post-quantum (ML-KEM-768)"
     if "sdk v2" in low or "hpke" in low:
@@ -362,10 +373,10 @@ QFrame#sep { background: #1a2a30; max-height: 1px; }
 
 def run_zupt(args, timeout=30):
     try:
-        r = subprocess.run([ZUPT]+list(args), capture_output=True, text=True,
+        r = subprocess.run([ZUPT_CLI]+list(args), capture_output=True, text=True,
                            stdin=subprocess.DEVNULL, timeout=timeout)
         return r.returncode, r.stdout, r.stderr
-    except FileNotFoundError: return -1, "", f"vaptvupt not found: {VAPTVUPT}\n\nDiscovery log:\n" + "\n".join(_DISCOVERY_LOG[-10:])
+    except FileNotFoundError: return -1, "", f"zupt not found: {ZUPT_CLI}\n\nDiscovery log:\n" + "\n".join(_DISCOVERY_LOG[-10:])
     except subprocess.TimeoutExpired: return -1, "", "Timed out"
 
 class Worker(QObject):
@@ -382,7 +393,7 @@ class Worker(QObject):
     def __init__(self, args):
         super().__init__(); self.args = args; self.proc = None; self._cancelled = False
     def run(self):
-        self.log.emit(f"$ {Path(VAPTVUPT).name} {' '.join(self.args)}")
+        self.log.emit(f"$ {Path(ZUPT_CLI).name} {' '.join(self.args)}")
         try:
             # stdin=DEVNULL: the CLI prompts on a terminal for some inputs
             # (e.g. bare -p); a child that reads stdin inherited from the GUI's
@@ -391,7 +402,7 @@ class Worker(QObject):
             # (the CLI's human output is on stderr; stdout is empty) — no
             # second pipe that could fill while we drain the first.
             self.proc = proc = subprocess.Popen(
-                [ZUPT]+self.args, stdout=subprocess.PIPE,
+                [ZUPT_CLI]+self.args, stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
             if self._cancelled:   # cancel() ran before Popen finished (see below)
                 proc.kill()
@@ -424,7 +435,7 @@ class Worker(QObject):
             if buf.strip() and not self._PCT_RE.search(buf):
                 lines.append(buf); self.log.emit(buf)
             self.done.emit(proc.returncode, "", "\n".join(lines))
-        except FileNotFoundError: self.done.emit(-1, "", f"vaptvupt not found: {VAPTVUPT}")
+        except FileNotFoundError: self.done.emit(-1, "", f"zupt not found: {ZUPT_CLI}")
         except subprocess.TimeoutExpired: proc.kill(); self.done.emit(-1, "", "Timed out")
         except Exception as exc:
             # Any escape from this slot would strand the job forever (done never
@@ -611,10 +622,10 @@ class KeysTab(QWidget):
         v.addWidget(QLabel("Writes a private key and its matching public key."))
 
         v.addWidget(H("Private key output"))
-        self.gen_priv = PathField("e.g. ~/vaptvupt_private.key", "save", "Key (*.key);;All (*)")
+        self.gen_priv = PathField("e.g. ~/zupt_private.key", "save", "Key (*.key);;All (*)")
         v.addWidget(self.gen_priv)
         v.addWidget(H("Public key output"))
-        self.gen_pub = PathField("e.g. ~/vaptvupt_public.key", "save", "Key (*.key);;All (*)")
+        self.gen_pub = PathField("e.g. ~/zupt_public.key", "save", "Key (*.key);;All (*)")
         v.addWidget(self.gen_pub)
 
         self.gen_btn = QPushButton("Generate Keypair")
@@ -634,7 +645,7 @@ class KeysTab(QWidget):
         v.addWidget(self.exp_priv)
 
         v.addWidget(H("Public key output"))
-        self.exp_pub = PathField("e.g. ~/vaptvupt_public.key", "save", "Key (*.key);;All (*)")
+        self.exp_pub = PathField("e.g. ~/zupt_public.key", "save", "Key (*.key);;All (*)")
         v.addWidget(self.exp_pub)
 
         self.exp_btn = QPushButton("Export Public Key")
@@ -653,7 +664,7 @@ class KeysTab(QWidget):
         return (priv.rsplit(".", 1)[0] + "_public.key") if "." in priv else priv + ".pub"
 
     def _generate(self):
-        p = self.gen_priv.path() or str(Path.home() / "vaptvupt_private.key")
+        p = self.gen_priv.path() or str(Path.home() / "zupt_private.key")
         self.gen_priv.edit.setText(p)
         pub = self.gen_pub.path() or self._default_pub(p)
         self.gen_pub.edit.setText(pub)
@@ -679,7 +690,7 @@ class KeysTab(QWidget):
     def _export(self):
         priv = self.exp_priv.path()
         pub = self.exp_pub.path()
-        if not priv: QMessageBox.warning(self, "VaptVupt", "Select the private key file."); return
+        if not priv: QMessageBox.warning(self, "ZUPT", "Select the private key file."); return
         if not pub:
             pub = self._default_pub(priv); self.exp_pub.edit.setText(pub)
         tok = self._token()
@@ -701,7 +712,7 @@ class CompressTab(QWidget):
         v.addWidget(H("Source files / directory"))
         self.src = PathField("Drop files here or browse", "multi"); v.addWidget(self.src)
         v.addWidget(H("Output archive"))
-        self.dst = PathField("e.g. backup.zupt", "save", "VaptVupt archive (*.zupt);;All (*)"); v.addWidget(self.dst)
+        self.dst = PathField("e.g. backup.zupt", "save", "ZUPT archive (*.zupt);;All (*)"); v.addWidget(self.dst)
         row = QHBoxLayout(); row.setSpacing(16)
         for label, widget in [("Codec", self._mk_codec()), ("Level", self._mk_level())]:
             c = QVBoxLayout(); c.addWidget(H(label)); c.addWidget(widget); row.addLayout(c)
@@ -735,7 +746,7 @@ class CompressTab(QWidget):
 
     def _run(self):
         srcs = self.src.paths()
-        if not srcs or not srcs[0]: QMessageBox.warning(self, "VaptVupt", "Select files."); return
+        if not srcs or not srcs[0]: QMessageBox.warning(self, "ZUPT", "Select files."); return
         dst = self.dst.path() or srcs[0] + ".zupt"; self.dst.edit.setText(dst)
         cmd = ["compress", "-l", str(self.level.value())]
         cm = {"AUTO": None, "VaptVupt": "--vv", "LZHP": "--lzhp", "Store": "-s"}
@@ -758,7 +769,7 @@ class ExtractTab(QWidget):
         v = QVBoxLayout(inner); v.setContentsMargins(24,24,24,24); v.setSpacing(10)
         v.addWidget(QLabel("Extract and decrypt a .zupt archive."))
         v.addWidget(Sep())
-        v.addWidget(H("Archive")); self.arc = PathField("Drop .zupt here", filters="VaptVupt archive (*.zupt);;All (*)"); v.addWidget(self.arc)
+        v.addWidget(H("Archive")); self.arc = PathField("Drop .zupt here", filters="ZUPT archive (*.zupt);;All (*)"); v.addWidget(self.arc)
         v.addWidget(H("Output directory")); self.out = PathField("Same as archive", "dir"); v.addWidget(self.out)
         enc = QHBoxLayout(); enc.setSpacing(16)
         pw = QVBoxLayout(); pw.addWidget(H("Password")); self.pw = PwField(); pw.addWidget(self.pw); enc.addLayout(pw)
@@ -768,7 +779,7 @@ class ExtractTab(QWidget):
         self._pqmodes = pq_mode_options(include_auto=True)
         for label, _tok in self._pqmodes:
             self.pqmode.addItem(label)
-        self.pqmode.setToolTip("Auto-detect reads the archive header (vaptvupt info) to pick the\n"
+        self.pqmode.setToolTip("Auto-detect reads the archive header (zupt info) to pick the\n"
                                "right mode. Or choose it explicitly to match your private key.")
         mode_box.addWidget(self.pqmode); mode_box.addStretch(); enc.addLayout(mode_box)
         v.addLayout(enc)
@@ -780,7 +791,7 @@ class ExtractTab(QWidget):
 
     def _run(self):
         arc = self.arc.path()
-        if not arc: QMessageBox.warning(self, "VaptVupt", "Select an archive."); return
+        if not arc: QMessageBox.warning(self, "ZUPT", "Select an archive."); return
         if not os.path.isfile(arc):
             self.log.clear(); self.log.append(f"No such file: {arc}"); return
         # Read the header (no credential) so we can guide the user instead of
@@ -791,7 +802,7 @@ class ExtractTab(QWidget):
             self.log.append("This archive is password-encrypted.\n"
                             "Enter the password above, then click Extract again.")
             return
-        if kind in ("pq", "pqonly", "sdk") and not self.pq.path():
+        if kind in ("pq", "pqonly", "sdk", "box") and not self.pq.path():
             self.log.clear()
             self.log.append(f"This archive uses {label} encryption.\n"
                             "Select the matching private key above, then click Extract again.")
@@ -803,7 +814,7 @@ class ExtractTab(QWidget):
         if self.pq.path():
             # Prefer the header-detected mode; fall back to the dropdown for an
             # unreadable header. Auto-detect can't pick the wrong flag this way.
-            tok = kind if kind in ("pq", "pqonly", "sdk") else self._pqmodes[self.pqmode.currentIndex()][1]
+            tok = kind if kind in ("pq", "pqonly", "sdk", "box") else self._pqmodes[self.pqmode.currentIndex()][1]
             if tok == "auto":
                 tok = _detect_archive_pq(arc) or "pq"
             _, flag = _PQ_FLAG[tok]
@@ -822,7 +833,7 @@ class VerifyTab(QWidget):
         v.addWidget(QLabel("Verify checksums or inspect archive metadata."))
         v.addWidget(Sep())
         v.addWidget(H("Verify integrity"))
-        self.varc = PathField("Archive to verify", filters="VaptVupt archive (*.zupt);;All (*)"); v.addWidget(self.varc)
+        self.varc = PathField("Archive to verify", filters="ZUPT archive (*.zupt);;All (*)"); v.addWidget(self.varc)
         enc = QHBoxLayout(); enc.setSpacing(16)
         pw = QVBoxLayout(); pw.addWidget(H("Password (if encrypted)")); self.vpw = PwField("Leave empty if not encrypted"); pw.addWidget(self.vpw); enc.addLayout(pw)
         pq = QVBoxLayout(); pq.addWidget(H("PQ private key (if post-quantum)")); self.vpq = PathField("Auto-detected; needed for --pq / --pq-only archives", filters="Key (*.key);;All (*)"); pq.addWidget(self.vpq); enc.addLayout(pq)
@@ -836,7 +847,7 @@ class VerifyTab(QWidget):
         self.vlog = Log(120); v.addWidget(self.vlog)
         v.addWidget(Sep())
         v.addWidget(H("Archive info (no password needed)"))
-        self.iarc = PathField("Archive to inspect", filters="VaptVupt archive (*.zupt);;All (*)"); v.addWidget(self.iarc)
+        self.iarc = PathField("Archive to inspect", filters="ZUPT archive (*.zupt);;All (*)"); v.addWidget(self.iarc)
         self.ibtn = QPushButton("Show Info"); self.ibtn.clicked.connect(self._info); v.addWidget(self.ibtn)
         self.ilog = Log(140); v.addWidget(self.ilog); v.addStretch()
         lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0); lay.addWidget(scrollable(inner))
@@ -844,7 +855,7 @@ class VerifyTab(QWidget):
     def _verify(self):
         arc = self.varc.path()
         if not arc:
-            QMessageBox.warning(self, "VaptVupt", "Select an archive to verify."); return
+            QMessageBox.warning(self, "ZUPT", "Select an archive to verify."); return
         if not os.path.isfile(arc):
             self.vlog.clear(); self.vlog.append(f"No such file: {arc}"); return
         self.vlog.clear()
@@ -860,7 +871,7 @@ class VerifyTab(QWidget):
                                  "Enter the password above, then click Verify again.")
                 return
             cmd += ["-p", self.vpw.text()]
-        elif kind in ("pq", "pqonly", "sdk"):
+        elif kind in ("pq", "pqonly", "sdk", "box"):
             if not self.vpq.path():
                 self.vlog.append(f"This archive uses {label} encryption.\n"
                                  "Select the matching private key above, then click Verify again.")
@@ -899,7 +910,7 @@ class DiskTab(QWidget):
         v.addWidget(H("Backup — source device or image"))
         self.bsrc = PathField("/dev/sdX or disk.img"); v.addWidget(self.bsrc)
         v.addWidget(H("Backup — output archive"))
-        self.bout = PathField("backup.zupt", "save", "VaptVupt archive (*.zupt);;All (*)"); v.addWidget(self.bout)
+        self.bout = PathField("backup.zupt", "save", "ZUPT archive (*.zupt);;All (*)"); v.addWidget(self.bout)
         bopt = QHBoxLayout(); bopt.setSpacing(16)
         oc = QVBoxLayout(); oc.addWidget(H("Options")); self.bdedup = QCheckBox("Block deduplication"); oc.addWidget(self.bdedup); bopt.addLayout(oc)
         pc = QVBoxLayout(); pc.addWidget(H("Password")); self.bpw = PwField("Optional — AES-256"); pc.addWidget(self.bpw); bopt.addLayout(pc)
@@ -908,7 +919,7 @@ class DiskTab(QWidget):
         self.blog = Log(100); v.addWidget(self.blog)
         v.addWidget(Sep())
         v.addWidget(H("Restore — archive"))
-        self.rarc = PathField("backup.zupt", filters="VaptVupt archive (*.zupt);;All (*)"); v.addWidget(self.rarc)
+        self.rarc = PathField("backup.zupt", filters="ZUPT archive (*.zupt);;All (*)"); v.addWidget(self.rarc)
         v.addWidget(H("Restore — target device or file"))
         self.rtgt = PathField("/dev/sdX or output.img", "save"); v.addWidget(self.rtgt)
         v.addWidget(H("Restore — password"))
@@ -919,7 +930,7 @@ class DiskTab(QWidget):
 
     def _backup(self):
         s, o = self.bsrc.path(), self.bout.path()
-        if not s or not o: QMessageBox.warning(self, "VaptVupt", "Set source and output."); return
+        if not s or not o: QMessageBox.warning(self, "ZUPT", "Set source and output."); return
         cmd = ["disk", "backup"]
         if self.bdedup.isChecked(): cmd.append("--dedup")
         if self.bpw.text(): cmd += ["-p", self.bpw.text()]
@@ -927,7 +938,7 @@ class DiskTab(QWidget):
 
     def _restore(self):
         a, t = self.rarc.path(), self.rtgt.path()
-        if not a or not t: QMessageBox.warning(self, "VaptVupt", "Set archive and target."); return
+        if not a or not t: QMessageBox.warning(self, "ZUPT", "Set archive and target."); return
         SB = QMessageBox.StandardButton
         if QMessageBox.warning(self, "Confirm", f"OVERWRITE {t}?", SB.Yes|SB.Cancel) != SB.Yes: return
         cmd = ["disk", "restore"]
@@ -941,14 +952,14 @@ class AboutTab(QWidget):
         inner = QWidget()
         v = QVBoxLayout(inner); v.setContentsMargins(24,24,24,24); v.setSpacing(4)
         for text, style in [
-            ("VAPTVUPT", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
+            ("ZUPT", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
             (ZUPT_VER_NUMBER, "color:white;font-size:28px;font-weight:800;font-family:monospace;"),
             ("", ""),
             ("Post-quantum backup compression with ML-KEM-768: --pq hybrid", "color:#6a8898;font-size:13px;"),
             (f"(+ X25519) or --pq-only (pure). {DEFAULT_KDF} password KDF,", "color:#6a8898;font-size:13px;"),
             ("block deduplication, and full-disk backup.", "color:#6a8898;font-size:13px;"),
-            ("Renamed from Zupt in v3.0.0 (INPI Brasil trademark); .zupt", "color:#6a8898;font-size:13px;"),
-            ("archive extension and v1.6 wire format are unchanged.", "color:#6a8898;font-size:13px;"),
+            ("Original ZUPT name restored in 5.2.2; the .zupt extension", "color:#6a8898;font-size:13px;"),
+            ("and v1.6 version byte remain; 5.2.2 adds flag-gated records.", "color:#6a8898;font-size:13px;"),
             ("", ""),
             ("CRYPTOGRAPHIC STACK", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
             ("ML-KEM-768     FIPS 203     Post-Quantum KEM", "color:#5a7a88;font-size:12px;font-family:monospace;"),
@@ -963,22 +974,21 @@ class AboutTab(QWidget):
             ("XXH64          (non-crypto) Per-block checksum (inside AEAD)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("", ""),
             ("COMPRESSION CODEC", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
-            ("VaptVupt LZ + ANS  2.60.4  LZ77 + tabled ANS entropy", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("AVX2 / NEON SIMD acceleration; CBMC-verified BCJ filters", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("VaptVupt LZ + ANS  2.65.3  LZ77 + tabled ANS entropy", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("AVX2 / NEON SIMD acceleration; portable scalar fallbacks", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("", ""),
             ("CREDITS", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
-            ("VaptVupt application                    Cristian Cezar Moisés", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("    License: AGPL-3.0-or-later (commercial license available)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("    git.securityops.co/cristiancmoises/vaptvupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
+            ("ZUPT application                        Cristian Cezar Moisés", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("    License: AGPL-3.0-or-later (commercial terms may be available)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("    github.com/cristiancmoises/zupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
             ("", ""),
             ("VaptVupt LZ + ANS codec                 Cristian Cezar Moisés", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("    License: GPL-3.0-or-later (commercial license available)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("    git.securityops.co/cristiancmoises/vaptvupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
+            ("    License: GPL-3.0-or-later (commercial terms may be available)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("    github.com/cristiancmoises/zupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
             ("", ""),
             ("WEBSITE & CONTACT", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
-            ("https://zupt.securityops.co", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("sac@securityops.co  (commercial licensing)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("zupt@riseup.net     (general / bugs)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("https://github.com/cristiancmoises/zupt", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("sac@securityops.co  (commercial-terms inquiries)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("", ""),
             (ZUPT_VER_SHORT, "color:#3a5868;font-size:11px;font-family:monospace;"),
         ]:
@@ -995,7 +1005,7 @@ class AboutTab(QWidget):
 class ZuptWindow(QMainWindow):
     def __init__(self, compress_files=None, extract_file=None):
         super().__init__()
-        self.setWindowTitle(f"VaptVupt {ZUPT_VER_NUMBER}")
+        self.setWindowTitle(f"ZUPT {ZUPT_VER_NUMBER}")
         self.setMinimumSize(720, 500)
         self.resize(880, 640)
         self.setAcceptDrops(True)
@@ -1010,7 +1020,7 @@ class ZuptWindow(QMainWindow):
         # Header
         hdr = QFrame(); hdr.setStyleSheet("background:#050a0e;border-bottom:1px solid #1a2a30;")
         hl = QHBoxLayout(hdr); hl.setContentsMargins(20,10,20,10)
-        title = QLabel("VAPTVUPT"); title.setStyleSheet("color:white;font-size:15px;font-weight:800;letter-spacing:3px;")
+        title = QLabel("ZUPT"); title.setStyleSheet("color:white;font-size:15px;font-weight:800;letter-spacing:3px;")
         hl.addWidget(title)
         sub = QLabel("Post-Quantum Backup"); sub.setStyleSheet("color:#3a5868;font-size:10px;font-weight:600;letter-spacing:1px;margin-left:8px;")
         hl.addWidget(sub); hl.addStretch()
@@ -1033,7 +1043,7 @@ class ZuptWindow(QMainWindow):
         layout.addWidget(self.tabs)
 
         sb = QStatusBar()
-        sb.showMessage(f"VaptVupt {ZUPT_VER_NUMBER}  |  {VAPTVUPT}")
+        sb.showMessage(f"ZUPT {ZUPT_VER_NUMBER}  |  {ZUPT_CLI}")
         self.setStatusBar(sb)
 
     def dragEnterEvent(self, e):
@@ -1058,7 +1068,7 @@ class ZuptWindow(QMainWindow):
             # leaves the target half-written), so never do it silently.
             SB = QMessageBox.StandardButton
             if QMessageBox.warning(
-                    self, "VaptVupt",
+                    self, "ZUPT",
                     "An operation is still running.\nQuit and abort it?",
                     SB.Yes | SB.Cancel) != SB.Yes:
                 e.ignore(); return
@@ -1081,19 +1091,19 @@ class ZuptWindow(QMainWindow):
 def main():
     args = sys.argv[1:]
 
-    # Lightweight non-GUI flags first, so `vaptvupt-gui --version|--help|--selftest`
+    # Lightweight non-GUI flags first, so `zupt-gui --version|--help|--selftest`
     # work with no display and aren't mistaken for files to compress. `--selftest`
     # is a headless-friendly smoke test: it builds the whole UI and spins the event
     # loop once, then exits 0 — the reliable way to confirm the GUI stack launches
     # on a machine where the window itself is hard to see (tiling WM, remote, CI).
     if args and args[0] in ("--version", "-V", "version"):
-        print(f"vaptvupt-gui {ZUPT_VER_NUMBER} ({QT_BINDING})  |  CLI: {VAPTVUPT}")
+        print(f"zupt-gui {ZUPT_VER_NUMBER} ({QT_BINDING})  |  CLI: {ZUPT_CLI}")
         return 0
     if args and args[0] in ("--help", "-h", "help"):
-        print("usage: vaptvupt-gui [ARCHIVE.zupt | --extract ARCHIVE.zupt |\n"
+        print("usage: zupt-gui [ARCHIVE.zupt | --extract ARCHIVE.zupt |\n"
               "                     --compress FILE [FILE ...]]\n"
-              "       vaptvupt-gui --selftest   # verify the GUI launches (no window kept)\n"
-              "       vaptvupt-gui --version")
+              "       zupt-gui --selftest   # verify the GUI launches (no window kept)\n"
+              "       zupt-gui --version")
         return 0
 
     compress_files = extract_file = None
@@ -1105,7 +1115,7 @@ def main():
         else: compress_files = args
 
     app = QApplication(sys.argv)
-    app.setApplicationName("VaptVupt")
+    app.setApplicationName("ZUPT")
     if ICON_PATH: app.setWindowIcon(QIcon(ICON_PATH))
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
@@ -1126,7 +1136,7 @@ def main():
         QTimer.singleShot(400, app.quit)
         rc = app.exec()
         print(f"selftest OK — {QT_BINDING}: window + {win.tabs.count()} tabs built, "
-              f"event loop ran (rc={rc}); CLI={VAPTVUPT}")
+              f"event loop ran (rc={rc}); CLI={ZUPT_CLI}")
         return rc
 
     # Center + raise + focus ONLY on X11 (xcb), where a stacking WM may place
@@ -1162,7 +1172,7 @@ def main():
     # is unaffected. The sentinel env var prevents any relaunch loop (e.g.
     # "-platform wayland" in argv outranks the env override and would come up
     # wayland again). Nothing auto-starts jobs before the deadline, so the exec
-    # cannot interrupt real work. Opt out with VAPTVUPT_NO_XCB_FALLBACK=1.
+    # cannot interrupt real work. Opt out with ZUPT_NO_XCB_FALLBACK=1.
     if app.platformName().startswith("wayland"):
         class _ExposeLatch(QObject):
             exposed_once = False
@@ -1177,10 +1187,14 @@ def main():
         def _wayland_map_check():
             if latch.exposed_once or (handle is not None and handle.isExposed()):
                 return
+            no_fallback = (os.environ.get("ZUPT_NO_XCB_FALLBACK")
+                           or os.environ.get("VAPTVUPT_NO_XCB_FALLBACK"))
+            fallback_done = (os.environ.get("ZUPT_XCB_FALLBACK_DONE")
+                             or os.environ.get("VAPTVUPT_XCB_FALLBACK_DONE"))
             can_fallback = (os.environ.get("DISPLAY")
                             and sys.executable
-                            and os.environ.get("VAPTVUPT_NO_XCB_FALLBACK") != "1"
-                            and os.environ.get("VAPTVUPT_XCB_FALLBACK_DONE") != "1")
+                            and no_fallback != "1"
+                            and fallback_done != "1")
             if sys.stderr is not None:
                 try:
                     sys.stderr.write(
@@ -1195,7 +1209,7 @@ def main():
                     pass
             if can_fallback:
                 env = dict(os.environ, QT_QPA_PLATFORM="xcb",
-                           VAPTVUPT_XCB_FALLBACK_DONE="1")
+                           ZUPT_XCB_FALLBACK_DONE="1")
                 argv = (list(sys.argv) if getattr(sys, "frozen", False)
                         else [sys.executable] + sys.argv)
                 try:
@@ -1217,7 +1231,7 @@ def main():
     # a courtesy notice must never take the GUI down.
     if sys.stderr is not None:
         try:
-            sys.stderr.write(f"VaptVupt {ZUPT_VER_NUMBER} GUI started — "
+            sys.stderr.write(f"ZUPT {ZUPT_VER_NUMBER} GUI started — "
                              f"window open (close it to exit).\n")
             sys.stderr.flush()
         except OSError:

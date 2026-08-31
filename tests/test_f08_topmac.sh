@@ -2,36 +2,20 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
 #
-# F-08 regression test (Zupt 2.3.0).
+# F-08 regression test (VaptVupt 2.3.0).
 #
-# Two directions:
-#   1. v1.5 archive: tamper at each previously-cosmetic header/footer byte
-#      MUST be detected (top-MAC verifies header+footer[0..23]).
-#   2. v1.4 archive (built by Zupt 2.2.5 binary, embedded as a fixture):
-#      MUST extract cleanly with the legacy-downgrade warning on stderr.
-#
-# The v1.4 fixture is built at test time IF a 2.2.5 binary is available
-# under tests/fixtures/, else direction #2 is skipped with a NOTE.
+# A v1.5+ archive is tampered at each previously-cosmetic header/footer byte;
+# every mutation MUST be detected (top-MAC verifies header+footer[0..23]).
+# Removing the AIT entirely must also fail closed without a compatibility opt-in.
+# Legacy v1.4 compatibility needs a reproducible source-generated fixture and
+# is reported as skipped until one is available; compiled fixtures are banned.
 
-set -u
+set -Eeuo pipefail
 
 PASS=0
 FAIL=0
-ZUPT="${ZUPT_BIN:-./zupt}"
-# Source-only build (WITH_SDK=0) has no libzuptsdk: the SDK-mode paths this
-# test exercises are unavailable, so skip cleanly instead of failing.
-_sdkck="$(mktemp -d)"
-if ! "$ZUPT" keygen --sdk -o "$_sdkck/p" >/dev/null 2>&1; then
-    rm -rf "$_sdkck"; echo "  SKIP: built without libzuptsdk (source-only) - SDK-mode test not applicable"; exit 0
-fi
-rm -rf "$_sdkck"
-
-# Resolve to absolute path so the test continues to find the binary after cd.
-case "$ZUPT" in
-    /*) ;;
-    *)  ZUPT="$PWD/$ZUPT" ;;
-esac
-ROOT="$PWD"
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
+ZUPT=${ZUPT_BIN:-$repo_root/zupt}
 
 P() { PASS=$((PASS+1)); echo "  ✓ $1"; }
 F() { FAIL=$((FAIL+1)); echo "  ✗ $1"; }
@@ -40,16 +24,75 @@ if [ ! -x "$ZUPT" ]; then
     echo "  ✗ $ZUPT not found — run 'make' first" >&2
     exit 1
 fi
+if ! command -v python3 >/dev/null 2>&1; then
+    echo '  ✗ python3 is required for structural archive mutations' >&2
+    exit 1
+fi
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
 cd "$TMPDIR"
 
-echo "  [Direction 1: v1.5 archive detects header+footer tamper]"
+echo "  [AIT removal is rejected by default]"
+
+printf 'data\n' > input.txt
+printf 'source-only-test-password\n' > password.txt
+chmod 600 password.txt
+if "$ZUPT" c --kdf pbkdf2 --pass-file password.txt \
+        password.zupt input.txt >/dev/null 2>&1 &&
+        "$ZUPT" t --pass-file password.txt password.zupt >/dev/null 2>&1; then
+    P "clean password archive passes authentication"
+else
+    F "clean password archive could not be authenticated"
+fi
+
+if python3 "$repo_root/tests/archive_surgery.py" strip-ait \
+        password.zupt stripped-ait.zupt; then
+    if "$ZUPT" t --pass-file password.txt stripped-ait.zupt \
+            >/dev/null 2>&1; then
+        F "archive with its AIT removed was accepted by default"
+    else
+        P "archive with its AIT removed is rejected by default"
+    fi
+
+    if "$ZUPT" list --pass-file password.txt stripped-ait.zupt \
+            >/dev/null 2>&1; then
+        F "list accepted an archive with its AIT removed"
+    else
+        P "list rejects an archive with its AIT removed"
+    fi
+
+    mkdir stripped-output
+    printf 'existing extraction target\n' > stripped-output/sentinel
+    cp stripped-output/sentinel stripped-output.expected
+    if "$ZUPT" extract --pass-file password.txt -o stripped-output \
+            stripped-ait.zupt >/dev/null 2>&1; then
+        F "extract accepted an archive with its AIT removed"
+    elif cmp stripped-output.expected stripped-output/sentinel >/dev/null 2>&1 &&
+            [ ! -e stripped-output/input.txt ]; then
+        P "AIT-removal rejection preserves the extraction destination"
+    else
+        F "AIT-removal rejection changed the extraction destination"
+    fi
+else
+    F "could not construct archive with a structurally removed AIT"
+fi
+
+version=$("$ZUPT" --version 2>&1)
+if ! grep -Fq 'libvuptsdk=enabled' <<<"$version"; then
+    echo '  SKIP: exhaustive SDK top-MAC sweep needs WITH_SDK=1 and system libvuptsdk'
+    echo
+    echo "  ───────────────────────────────────────"
+    echo "  F-08 regression: $PASS passed, $FAIL failed"
+    echo "  ───────────────────────────────────────"
+    [ "$FAIL" = 0 ] || exit 1
+    exit 0
+fi
+
+echo "  [v1.5+ archive detects header+footer tamper]"
 
 "$ZUPT" keygen --sdk -o k.priv >/dev/null 2>&1
-echo "data" > input.txt
 "$ZUPT" c --pq-sdk k.priv.pub a.zupt input.txt >/dev/null 2>&1
 
 SZ=$(wc -c < a.zupt)
@@ -85,8 +128,7 @@ b=bytearray(open('t.zupt','rb').read())
 b[$POS] ^= 1
 open('t.zupt','wb').write(bytes(b))"
     rm -rf out && mkdir out
-    ( cd out && "$ZUPT" x --pq-sdk ../k.priv ../t.zupt >/dev/null 2>&1 )
-    if [ -f out/input.txt ]; then
+    if (cd out && "$ZUPT" x --pq-sdk ../k.priv ../t.zupt >/dev/null 2>&1); then
         ALL_DETECTED=0
         echo "    silent-accepted tamper at byte $POS"
     fi
@@ -109,7 +151,7 @@ b=bytearray(open('t.zupt','rb').read())
 b[20] ^= 1  # archive_id byte
 open('t.zupt','wb').write(bytes(b))"
 rm -rf out && mkdir out
-ERR=$( cd out && "$ZUPT" x --pq-sdk ../k.priv ../t.zupt 2>&1 || true )
+ERR=$( (cd out && "$ZUPT" x --pq-sdk ../k.priv ../t.zupt) 2>&1 || true )
 if echo "$ERR" | grep -qE "Authentication failed|top-MAC"; then
     P "tamper produces a clear auth/integrity error"
 else
@@ -118,7 +160,7 @@ fi
 
 # Verbose mode: top-MAC wording must still surface for debugging
 rm -rf out && mkdir out
-ERR_V=$( cd out && "$ZUPT" x --verbose --pq-sdk ../k.priv ../t.zupt 2>&1 || true )
+ERR_V=$( (cd out && "$ZUPT" x --verbose --pq-sdk ../k.priv ../t.zupt) 2>&1 || true )
 if echo "$ERR_V" | grep -q "top-MAC"; then
     P "tamper with --verbose surfaces top-MAC detail"
 else
@@ -126,35 +168,8 @@ else
 fi
 
 echo ""
-echo "  [Direction 2: v1.4 backward-compat]"
-
-FIXTURE_BIN="$ROOT/tests/fixtures/zupt-2.2.5"
-if [ -x "$FIXTURE_BIN" ]; then
-    # Build v1.4 archive using the 2.2.5 binary.
-    "$FIXTURE_BIN" keygen --sdk -o k14.priv >/dev/null 2>&1
-    "$FIXTURE_BIN" c --pq-sdk k14.priv.pub a14.zupt input.txt >/dev/null 2>&1
-
-    # v2.3.0 info should say v1.4 / no top-MAC.
-    INFO14=$("$ZUPT" info a14.zupt 2>&1)
-    if echo "$INFO14" | grep -q "Format: *v1.4" && echo "$INFO14" | grep -q "Top-MAC: *no"; then
-        P "v1.4 archive reported as v1.4 / no top-MAC"
-    else
-        F "v1.4 info report wrong"
-    fi
-
-    # v2.3.0 extract should succeed with warning.
-    mkdir out14
-    OUT=$( cd out14 && "$ZUPT" x --pq-sdk ../k14.priv ../a14.zupt 2>&1 )
-    if [ -f out14/input.txt ] && echo "$OUT" | grep -qi "legacy v1.4 archive"; then
-        P "v1.4 archive extracts with legacy warning"
-    else
-        F "v1.4 backward-compat broken: $OUT"
-    fi
-else
-    echo "  NOTE: tests/fixtures/zupt-2.2.5 not present — direction 2 skipped"
-    echo "        (build it once with: cd tests/fixtures && tar xzf zupt-2.2.5.tar.gz"
-    echo "         && cd zupt-2.2.5 && make && cp zupt ../zupt-2.2.5)"
-fi
+echo "  SKIP: v1.4 compatibility needs a reproducible source-generated fixture"
+echo "        (compiled historical fixtures are not permitted in this repository)"
 
 echo ""
 echo "  ───────────────────────────────────────"

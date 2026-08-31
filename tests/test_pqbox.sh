@@ -1,88 +1,135 @@
 #!/bin/bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2026 Cristian Cezar Moisés
-#
-# ZUPT_ENC_PQ_BOX_V1 (--pq-box, vendored libpqvaptvupt) — functional and
-# adversarial coverage: keygen file format, byte-exact roundtrips on both
-# frame formats, wrong-key and key-type-confusion rejection, envelope and
-# data tampering, and cross-mode isolation.
+# Functional and adversarial coverage for the optional system libpqvaptvupt.
 
-set -u
-P=0; F=0
-ok()  { echo "  ✓ $1"; P=$((P+1)); }
-bad() { echo "  ✗ $1"; F=$((F+1)); }
-T=$(mktemp -d)
-FX=/tmp/bench/fixtures
-BIN=./vaptvupt
-# Source-only build (WITH_SDK=0) has no libzuptsdk: the SDK-mode paths this
-# test exercises are unavailable, so skip cleanly instead of failing.
-_sdkck="$(mktemp -d)"
-if ! "$BIN" keygen --box -o "$_sdkck/p" >/dev/null 2>&1; then
-    rm -rf "$_sdkck"; echo "  SKIP: built without libzuptsdk (source-only) - SDK-mode test not applicable"; exit 0
+set -Eeuo pipefail
+
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
+zupt=${ZUPT_BIN:-$repo_root/zupt}
+
+if [[ ! -x $zupt ]]; then
+    printf '  FAIL: %s not found; build ZUPT first\n' "$zupt" >&2
+    exit 1
 fi
-rm -rf "$_sdkck"
 
+version=$("$zupt" --version 2>&1)
+if ! grep -Fq 'libpqvaptvupt=enabled' <<<"$version"; then
+    echo '  SKIP: system libpqvaptvupt integration is disabled (build with WITH_PQBOX=1)'
+    exit 0
+fi
 
-echo "pq-box mode (ZUPT_ENC_PQ_BOX_V1)"
+tmpdir=$(mktemp -d)
+trap 'rm -rf -- "$tmpdir"' EXIT
+cd "$tmpdir"
 
-# 1. keygen + file format
-$BIN keygen --box -o $T/k.key >/dev/null 2>&1
-[ "$(stat -c%s $T/k.key 2>/dev/null)" = "2441" ] && ok "secret keyfile size (9+2432)" || bad "secret keyfile size"
-[ "$(stat -c%s $T/k.key.pub 2>/dev/null)" = "1225" ] && ok "public keyfile size (9+1216)" || bad "public keyfile size"
-head -c8 $T/k.key | grep -q "PQVVBOX1" && ok "keyfile magic" || bad "keyfile magic"
+passed=0
+failed=0
+pass() { printf '  ✓ %s\n' "$1"; passed=$((passed + 1)); }
+fail() { printf '  ✗ %s\n' "$1"; failed=$((failed + 1)); }
 
-# 2. roundtrips: L1 (v1 frame) and L9 (format_v2 + auto-filter), text + binary
-for case in "1 text" "9 text" "9 binary"; do
-  set -- $case; L=$1; fx=$2
-  $BIN c -l $L --pq-box $T/k.key.pub $T/a$L$fx.zupt $FX/$fx.dat >/dev/null 2>&1
-  rm -rf $T/o$L$fx; mkdir -p $T/o$L$fx
-  $BIN x --pq-box $T/k.key -o $T/o$L$fx $T/a$L$fx.zupt >/dev/null 2>&1
-  Fp=$(find $T/o$L$fx -type f | head -1)
-  [ -n "$Fp" ] && diff -q "$Fp" $FX/$fx.dat >/dev/null 2>&1 \
-    && ok "roundtrip L$L $fx byte-exact" || bad "roundtrip L$L $fx"
+echo 'pq-box mode (ZUPT_ENC_PQ_BOX_V1)'
+
+if "$zupt" keygen --box -o k.key >/dev/null 2>&1 &&
+   [[ -f k.key && -f k.key.pub ]]; then
+    pass 'pq-box keygen produces private and public key files'
+else
+    fail 'pq-box keygen using system libpqvaptvupt'
+    exit 1
+fi
+if [[ $(wc -c <k.key) -eq 2441 ]]; then
+    pass 'secret keyfile size is 9+2432 bytes'
+else
+    fail 'secret keyfile size'
+fi
+if [[ $(wc -c <k.key.pub) -eq 1225 ]]; then
+    pass 'public keyfile size is 9+1216 bytes'
+else
+    fail 'public keyfile size'
+fi
+if [[ $(head -c 8 k.key) == PQVVBOX1 ]]; then
+    pass 'keyfile magic is PQVVBOX1'
+else
+    fail 'keyfile magic'
+fi
+
+printf 'ZUPT pq-box text fixture with UTF-8: segurança\n' >text.dat
+dd if=/dev/urandom of=binary.dat bs=65536 count=4 2>/dev/null
+
+for level in 1 9 9; do
+    if [[ $level -eq 1 ]]; then
+        fixture=text.dat
+        label='L1 text'
+    elif [[ ! -e a9text.zupt ]]; then
+        fixture=text.dat
+        label='L9 text'
+    else
+        fixture=binary.dat
+        label='L9 binary'
+    fi
+    archive="a${level}${fixture%.dat}.zupt"
+    outdir="out-${level}-${fixture%.dat}"
+    if "$zupt" c -l "$level" --pq-box k.key.pub "$archive" "$fixture" >/dev/null 2>&1; then
+        mkdir "$outdir"
+        if "$zupt" x --pq-box k.key -o "$outdir" "$archive" >/dev/null 2>&1 &&
+           cmp -s "$fixture" "$outdir/$fixture"; then
+            pass "roundtrip $label is byte-exact"
+        else
+            fail "roundtrip $label is byte-exact"
+        fi
+    else
+        fail "encrypt $label"
+    fi
 done
 
-# 3. wrong key rejected
-$BIN keygen --box -o $T/w.key >/dev/null 2>&1
-rm -rf $T/ow; mkdir -p $T/ow
-$BIN x --pq-box $T/w.key -o $T/ow $T/a9text.zupt >/dev/null 2>&1 \
-  && bad "wrong key accepted" || ok "wrong key rejected"
+"$zupt" keygen --box -o wrong.key >/dev/null 2>&1
+mkdir wrong-out
+if "$zupt" x --pq-box wrong.key -o wrong-out a9text.zupt >/dev/null 2>&1; then
+    fail 'wrong pq-box key is rejected'
+else
+    pass 'wrong pq-box key is rejected'
+fi
 
-# 4. key-type confusion rejected (pub-as-priv, priv-as-pub, legacy key)
-rm -rf $T/oc; mkdir -p $T/oc
-$BIN x --pq-box $T/k.key.pub -o $T/oc $T/a9text.zupt >/dev/null 2>&1 \
-  && bad "PUBLIC key accepted as secret" || ok "public-as-secret rejected"
-$BIN c -l 1 --pq-box $T/k.key $T/cc.zupt $FX/text.dat >/dev/null 2>&1 \
-  && bad "SECRET key accepted as public" || ok "secret-as-public rejected"
-$BIN keygen -o $T/legacy.key >/dev/null 2>&1
-rm -rf $T/ol; mkdir -p $T/ol
-$BIN x --pq-box $T/legacy.key -o $T/ol $T/a9text.zupt >/dev/null 2>&1 \
-  && bad "legacy key accepted on box archive" || ok "legacy-key-on-box rejected"
+mkdir confusion-out
+if "$zupt" x --pq-box k.key.pub -o confusion-out a9text.zupt >/dev/null 2>&1; then
+    fail 'public key is rejected as a secret key'
+else
+    pass 'public key is rejected as a secret key'
+fi
+if "$zupt" c -l 1 --pq-box k.key secret-as-public.zupt text.dat >/dev/null 2>&1; then
+    fail 'secret key is rejected as a public key'
+else
+    pass 'secret key is rejected as a public key'
+fi
+"$zupt" keygen -o native.key >/dev/null 2>&1
+mkdir native-confusion-out
+if "$zupt" x --pq-box native.key -o native-confusion-out a9text.zupt >/dev/null 2>&1; then
+    fail 'native key is rejected for a pq-box archive'
+else
+    pass 'native key is rejected for a pq-box archive'
+fi
 
-# 5. tamper: envelope byte (offset inside the sealed blob) and data region
-for spot in 64 -1024; do
-  cp $T/a9text.zupt $T/t.zupt
-  python3 - "$T/t.zupt" "$spot" << 'PY'
-import sys
-p, off = sys.argv[1], int(sys.argv[2])
-d = bytearray(open(p,'rb').read())
-i = off if off >= 0 else len(d)+off
-d[i] ^= 0x01
-open(p,'wb').write(d)
-PY
-  rm -rf $T/ot; mkdir -p $T/ot
-  $BIN x --pq-box $T/k.key -o $T/ot $T/t.zupt >/dev/null 2>&1 \
-    && bad "tamper@$spot accepted" || ok "tamper@$spot rejected"
+for position in envelope body; do
+    kind=data
+    [[ $position == envelope ]] && kind=enc
+    python3 "$repo_root/tests/archive_surgery.py" flip-payload \
+        a9text.zupt "tampered-$position.zupt" --kind "$kind" \
+        --require-encrypted
+    mkdir "tampered-out-$position"
+    if "$zupt" x --pq-box k.key -o "tampered-out-$position" \
+        "tampered-$position.zupt" >/dev/null 2>&1; then
+        fail "$position tamper is rejected"
+    else
+        pass "$position tamper is rejected"
+    fi
 done
 
-# 6. cross-mode isolation: box archive demands box key, not password
-rm -rf $T/op; mkdir -p $T/op
-$BIN x -p somepass -o $T/op $T/a9text.zupt >/dev/null 2>&1 \
-  && bad "password accepted on box archive" || ok "password-on-box rejected"
+mkdir password-out
+if "$zupt" x -p somepass -o password-out a9text.zupt >/dev/null 2>&1; then
+    fail 'password mode is rejected for a pq-box archive'
+else
+    pass 'password mode is rejected for a pq-box archive'
+fi
 
-echo ""
-echo "  ───────────────────────────────────────"
-echo "  pq-box: $P passed, $F failed"
-echo "  ───────────────────────────────────────"
-rm -rf $T
-exit $([ $F -eq 0 ] && echo 0 || echo 1)
+printf '\n  pq-box: %d passed, %d failed\n' "$passed" "$failed"
+((failed == 0))
