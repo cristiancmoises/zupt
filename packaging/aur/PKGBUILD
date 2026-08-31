@@ -22,8 +22,8 @@ makedepends=('gcc' 'git' 'make')
 checkdepends=('python')
 
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/cristiancmoises/zupt/releases/download/v${pkgver}/${pkgname}-${pkgver}.tar.gz")
-# Final byte-reproducible upstream v5.2.4 archive checksum (pending).
-sha256sums=('REPLACE_AFTER_FINAL_ARCHIVE_SHA256')
+# Byte-reproducible upstream v5.2.4 source archive.
+sha256sums=('729377a50caaadcb6861bdc4c13379eade2f6cf413f9fb64a769677a5497c057')
 
 build() {
     cd "${pkgname}-${pkgver}"
