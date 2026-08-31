@@ -22,8 +22,8 @@ makedepends=('gcc' 'git' 'make')
 checkdepends=('python')
 
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/cristiancmoises/zupt/releases/download/v${pkgver}/${pkgname}-${pkgver}.tar.gz")
-# Replace only after generating the byte-reproducible final release archive.
-sha256sums=('REPLACE_AFTER_FINAL_ARCHIVE_SHA256')
+# Byte-reproducible upstream v5.2.3 source archive.
+sha256sums=('062f008751a4333bd88ad8a826b98066704b4cb9bc08a016f2f5083365b449d4')
 
 build() {
     cd "${pkgname}-${pkgver}"
