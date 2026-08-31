@@ -1,3 +1,12 @@
+zupt (5.2.5-1) UNRELEASED; urgency=medium
+
+  * Run the standalone OBS source-service chain from its isolated working
+    directory and add a packaging-policy regression for that contract.
+  * Preserve the immutable, unpromoted 5.2.4 history and require fresh 5.2.5
+    package, checksum, native-platform, and promotion gates.
+
+ -- Cristian Cezar Moisés <sac@securityops.co>  Mon, 31 Aug 2026 19:55:00 +0000
+
 zupt (5.2.4-1) UNRELEASED; urgency=medium
 
   * Make the static Windows GUI package-version check robust to canonical

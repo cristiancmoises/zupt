@@ -13,7 +13,7 @@ rem runtime files embedded by this local build.
 setlocal EnableExtensions
 for %%I in ("%~dp0\..\..\..") do set "REPO_ROOT=%%~fI"
 set "VERSION=%~1"
-if not defined VERSION set "VERSION=5.2.4"
+if not defined VERSION set "VERSION=5.2.5"
 if not defined ZUPT_DIST_DIR set "ZUPT_DIST_DIR=%TEMP%\zupt-release"
 if not defined ZUPT_CLI_EXE set "ZUPT_CLI_EXE=%REPO_ROOT%\zupt.exe"
 set "WORK=%TEMP%\zupt-gui-build-%RANDOM%-%RANDOM%"

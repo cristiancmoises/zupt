@@ -1,4 +1,4 @@
-# Installing ZUPT 5.2.4
+# Installing ZUPT 5.2.5
 
 This guide covers the ZUPT command-line program and the optional Python GUI.
 The canonical source repository is
@@ -18,14 +18,21 @@ The canonical source repository is
 The immutable `v5.2.2` candidate was not promoted after CI integration
 failures. The immutable `v5.2.3` candidate was not promoted because its
 source-policy test assumed LF for a Windows `.bat` file checked out as the
-required CRLF. Do not treat either candidate's artifacts as 5.2.4 packages.
+required CRLF. The immutable `v5.2.4` candidate was not promoted after exact-tag
+GitHub Actions run `33431386002`: 12 jobs succeeded, the sole openSUSE
+service-harness job failed because its executor did not enter the service
+directory, and dependent Windows/macOS jobs were skipped. A local Tumbleweed
+reproduction confirmed both the explicit tag ref and the corrected
+working-directory contract. This is release/test integration only; the product,
+archive format, cryptography, codec, and SDK ABI are unchanged. Do not treat any
+prior candidate's artifacts or evidence as 5.2.5 packages or validation.
 
-The 5.2.4 package set eligible for promotion after each target gate succeeds is:
+The 5.2.5 package set eligible for promotion after each target gate succeeds is:
 
 | Component | Gated artifacts |
 |---|---|
-| CLI | `zupt-5.2.4.tar.gz`, `zupt_5.2.4_amd64.deb`, openSUSE x86_64 binary/source RPMs, `zupt-5.2.4-linux-x86_64.tar.xz`, `zupt-5.2.4-windows-x86_64.zip`, and `ZUPT-5.2.4-macOS-*.dmg` |
-| GUI | `zupt-gui_5.2.4_all.deb`, `zupt-gui-5.2.4-1.noarch.rpm`, `zupt-gui-5.2.4-1.src.rpm`, and `zupt-gui-5.2.4-portable.zip` |
+| CLI | `zupt-5.2.5.tar.gz`, `zupt_5.2.5_amd64.deb`, openSUSE x86_64 binary/source RPMs, `zupt-5.2.5-linux-x86_64.tar.xz`, `zupt-5.2.5-windows-x86_64.zip`, and `ZUPT-5.2.5-macOS-*.dmg` |
+| GUI | `zupt-gui_5.2.5_all.deb`, `zupt-gui-5.2.5-1.noarch.rpm`, `zupt-gui-5.2.5-1.src.rpm`, and `zupt-gui-5.2.5-portable.zip` |
 
 The GUI packages require the matching `zupt` CLI package and must pass exact
 payload/dependency checks plus an installed off-screen GUI/CLI integration
@@ -33,7 +40,7 @@ test. The source-only portable GUI ZIP bundles launchers, notices, and GUI
 source, but not Python, Qt, or the CLI. The Linux tar.xz carries the tested CLI
 beside the complete public license/notice payload. AppImage, AppDir, Flatpak
 bundles, GUI platform installers, and bare Linux/Windows executables are not
-promoted for 5.2.4. The Windows ZIP and macOS DMG contain the CLI only. Exact
+promoted for 5.2.5. The Windows ZIP and macOS DMG contain the CLI only. Exact
 target boundaries are listed in `README.md`.
 The release's `SHA256SUMS` and validation notes, not the mere presence of a
 download link, identify an artifact that completed its gate.
@@ -70,7 +77,7 @@ sudo pacman -S base-devel gzip
 ```
 
 Package names can differ by distribution release. These commands are examples,
-not a statement that 5.2.4 has been accepted into each distribution repository.
+not a statement that 5.2.5 has been accepted into each distribution repository.
 
 ## Build and test from source
 
@@ -90,7 +97,7 @@ From a release archive, run the scanner as follows before extraction or from a
 trusted checkout after download:
 
 ```sh
-scripts/check-source-only.sh --archive /path/to/zupt-5.2.4.tar.gz
+scripts/check-source-only.sh --archive /path/to/zupt-5.2.5.tar.gz
 ```
 
 The default build provides the native password, ML-KEM-768 + X25519 hybrid

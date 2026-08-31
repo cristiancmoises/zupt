@@ -377,11 +377,13 @@ jobs:
           # Use osc's installed service executor to validate this standalone,
           # repository-owned _service file with the exact same local services.
           python3 - "$service_dir" <<'PY'
+          import os
           import sys
           from xml.etree import ElementTree
           from osc.obs_scm.serviceinfo import Serviceinfo
 
           service_dir = sys.argv[1]
+          os.chdir(service_dir)
           service_info = Serviceinfo()
           service_info.read(ElementTree.parse(f"{service_dir}/_service").getroot())
           raise SystemExit(service_info.execute(service_dir, "all", verbose=True))

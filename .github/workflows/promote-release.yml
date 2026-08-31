@@ -11,7 +11,7 @@ on:
         required: true
         type: number
       tag:
-        description: Existing annotated release tag, for example v5.2.4
+        description: Existing annotated release tag, for example v5.2.5
         required: true
         type: string
 

@@ -195,6 +195,12 @@ tumbleweed_job=$(sed -n '/^  tumbleweed-rpm:/,/^  gui-rpm-package:/p' \
     .github/workflows/ci.yml)
 fedora_gui_job=$(sed -n '/^  gui-rpm-package:/,/^  linux-portable:/p' \
     .github/workflows/ci.yml)
+if grep -Fq 'os.chdir(service_dir)' <<<"$tumbleweed_job"; then
+    pass 'OBS service executor enters its isolated working directory'
+else
+    fail 'OBS service executor does not enter its isolated working directory'
+fi
+
 # These matches intentionally assert the literal Actions variable in YAML.
 # shellcheck disable=SC2016
 if grep -Fq 'git config --global --add safe.directory "$GITHUB_WORKSPACE"' \

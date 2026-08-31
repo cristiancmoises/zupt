@@ -20,7 +20,7 @@
 # installed smoke test.
 
 Name:           zupt
-Version:        5.2.4
+Version:        5.2.5
 Release:        1%{?dist}
 Summary:        Backup compression with authenticated and post-quantum encryption
 
@@ -101,6 +101,11 @@ comments. Plain archives use non-cryptographic checksums.
 %endif
 
 %changelog
+* Mon Aug 31 2026 Cristian Cezar Moisés <sac@securityops.co> - 5.2.5-1
+- Run the standalone OBS source-service chain from its isolated working
+  directory and add a packaging-policy regression for that contract.
+- Preserve immutable, unpromoted 5.2.4 history and require fresh 5.2.5 gates.
+
 * Mon Aug 31 2026 Cristian Cezar Moisés <sac@securityops.co> - 5.2.4-1
 - Make the static Windows GUI package-version check robust to canonical CRLF
   checkouts, advance source-only package metadata, and prepare final hashes.

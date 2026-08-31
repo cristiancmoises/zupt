@@ -1,5 +1,27 @@
 # ZUPT Changelog
 
+## [5.2.5] — 2026-08-31 — OBS service working-directory correction
+
+Corrective successor to the immutable `v5.2.4` candidate. GitHub Actions run
+`33431386002` did not promote that tag: 12 jobs passed, the openSUSE Tumbleweed
+RPM gate failed because its standalone `Serviceinfo` executor inherited the
+repository working directory instead of the isolated service directory, and
+the dependent Windows/macOS gate was skipped. The tag and its recorded
+checksums remain unchanged.
+
+- Run the standalone OBS `obs_scm` → `tar` → `recompress` chain from its
+  isolated service directory so downstream services can find `.obsinfo`.
+- Add a packaging-policy regression for the OBS executor working directory
+  while retaining the immutable `refs/tags/v5.2.5` service revision assertion.
+- Record the successful local Tumbleweed reproduction of the corrected service
+  chain; it produced one source archive that passed the source-only scanner.
+- Carry the 5.2.4 security and source-only baseline forward without changing
+  the archive format, cryptography, bundled codec release, or SDK ABI.
+- Realign current package, workflow, artifact, and tag references to 5.2.5;
+  leave AUR, Homebrew, and Guix hashes pending the final source archive.
+- Require fresh exact-`v5.2.5` source, checksum, hosted CI, native-platform,
+  package, and promotion evidence; no v5.2.4 result transfers automatically.
+
 ## [5.2.4] — 2026-08-31 — Source-policy line-ending correction
 
 Corrective successor to the immutable `v5.2.3` candidate. That candidate was

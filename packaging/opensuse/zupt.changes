@@ -1,4 +1,14 @@
 -------------------------------------------------------------------
+Mon Aug 31 19:55:00 UTC 2026 - Cristian Cezar Moisés <sac@securityops.co>
+
+- Update to 5.2.5:
+  * Run the standalone OBS source-service chain from its isolated working
+    directory so downstream services can find .obsinfo.
+  * Add a packaging-policy regression for the executor working directory.
+  * Preserve immutable, unpromoted 5.2.4 history and require fresh 5.2.5 gates.
+  * Pin the OBS source service to the immutable v5.2.5 tag.
+
+-------------------------------------------------------------------
 Mon Aug 31 18:55:00 UTC 2026 - Cristian Cezar Moisés <sac@securityops.co>
 
 - Update to 5.2.4:

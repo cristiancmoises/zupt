@@ -1,26 +1,40 @@
-# ZUPT 5.2.4
+# ZUPT 5.2.5
 
 ZUPT is a command-line backup archiver written in C11. It combines the
 bundled VaptVupt compression codec with authenticated AES-256-CTR +
 HMAC-SHA256 encryption, native ML-KEM-768/X25519 hybrid encryption, archive
 integrity checks, multithreaded operation, and a Python/Qt graphical frontend.
 
-Version 5.2.4 corrects release/source-policy integration. The immutable
-`v5.2.3` candidate was not promoted because its source-policy test assumed LF
-for a Windows `.bat` file that Git correctly checks out as CRLF. This correction
-does not change the archive format, cryptography, codec, or SDK ABI.
+Version 5.2.5 corrects the working-directory contract in the exact-tag
+openSUSE source-service harness. The immutable `v5.2.4` candidate was not
+promoted after GitHub Actions run `33431386002`: 12 jobs succeeded, the sole
+openSUSE job failed in the standalone service executor, and its dependent
+Windows and macOS jobs were skipped. A local Tumbleweed reproduction confirmed
+that `refs/tags/v5.2.4` resolves correctly and that running the executor after
+`os.chdir(service_dir)` completes `obs_scm`, `tar`, and `recompress`. This is a
+release/test integration correction; it does not change the archive format,
+cryptography, codec, or SDK ABI. No v5.2.4 evidence transfers automatically to
+v5.2.5.
 
 Version 5.2.2 restored the original ZUPT product name and the `zupt` command.
 The `.zupt` archive extension, format v1.6, magic bytes, codec identifiers, and
 SDK ABI remain unchanged. An optional `vaptvupt` command alias may be provided
 for scripts written against versions 3.0.0 through 5.2.1.
 
-## Corrective changes in 5.2.4
+## Corrective changes in 5.2.5
+
+The exact-tag openSUSE gate now executes its standalone service chain from the
+directory containing `_service`. All current release paths move to 5.2.5 and
+require fresh exact-tag hosted CI, package, native-platform, source-only, and
+checksum evidence before promotion. The `v5.2.4` tag remains immutable and
+unpromoted.
+
+## Corrective changes introduced in 5.2.4
 
 The release gate now validates the required CRLF checkout form without treating
-it as source drift. All current release paths move to 5.2.4 and require fresh
-exact-tag CI, package, native-platform, source-only, and checksum evidence before
-promotion. The `v5.2.3` tag remains immutable and unpromoted.
+it as source drift. That candidate required fresh exact-tag CI, package,
+native-platform, source-only, and checksum evidence before promotion. The
+`v5.2.3` tag remains immutable and unpromoted.
 
 ## Corrective changes introduced in 5.2.3
 
@@ -120,9 +134,9 @@ users. Those assets must be built from the tagged source, tested on their target
 environment, and kept outside Git and the source archive. A format that was not
 built and tested is not presented as supported.
 
-## 5.2.4 release artifacts
+## 5.2.5 release artifacts
 
-The 5.2.4 release workflow is defined to produce the following files only after
+The 5.2.5 release workflow is defined to produce the following files only after
 the corresponding target gate succeeds. `SHA256SUMS` records the exact promoted
 filenames and digests. The release notes identify the tested commit and the
 manually dispatched CI run; that run's job definitions and logs are the runtime
@@ -131,23 +145,23 @@ skips. This table is not a substitute for that evidence.
 
 | Format | Intended target and validation boundary |
 | --- | --- |
-| `zupt-5.2.4.tar.gz` | Reproducible, source-only archive; scanned twice-built input plus SHA-256. |
-| `zupt_5.2.4_amd64.deb` | Ubuntu 24.04 amd64 package; install, functional round trip, and uninstall gate. |
-| `zupt-5.2.4-*.x86_64.rpm` and `.src.rpm` | openSUSE Tumbleweed x86_64 source/binary RPM gate; package inspection, install, round trip, and uninstall. |
-| `zupt-5.2.4-linux-x86_64.tar.xz` | Linux x86_64 CLI plus the complete public license/notice payload; dependency allowlist and extracted-package functional gate. |
-| `zupt-gui_5.2.4_all.deb` | Architecture-independent Python/Qt GUI package; exact dependency/payload checks plus installed off-screen GUI/CLI integration gate. |
-| `zupt-gui-5.2.4-1.noarch.rpm` | Architecture-independent Python/Qt GUI RPM; package inspection plus installed off-screen GUI/CLI integration gate. |
-| `zupt-gui-5.2.4-1.src.rpm` | Source RPM corresponding exactly to the gated noarch GUI RPM. |
-| `zupt-gui-5.2.4-portable.zip` | Source-only GUI and launchers with licenses/provenance; source scan, exact member allowlist, and extracted off-screen GUI/CLI gate. |
-| `zupt-5.2.4-windows-x86_64.zip` | Native Windows x86_64 executable with notices; extracted-ZIP round-trip gate. |
-| `ZUPT-5.2.4-macOS-*.dmg` | Native macOS image; mounted packaged executable round-trip gate, with the actual architecture in the filename. |
+| `zupt-5.2.5.tar.gz` | Reproducible, source-only archive; scanned twice-built input plus SHA-256. |
+| `zupt_5.2.5_amd64.deb` | Ubuntu 24.04 amd64 package; install, functional round trip, and uninstall gate. |
+| `zupt-5.2.5-*.x86_64.rpm` and `.src.rpm` | openSUSE Tumbleweed x86_64 source/binary RPM gate; package inspection, install, round trip, and uninstall. |
+| `zupt-5.2.5-linux-x86_64.tar.xz` | Linux x86_64 CLI plus the complete public license/notice payload; dependency allowlist and extracted-package functional gate. |
+| `zupt-gui_5.2.5_all.deb` | Architecture-independent Python/Qt GUI package; exact dependency/payload checks plus installed off-screen GUI/CLI integration gate. |
+| `zupt-gui-5.2.5-1.noarch.rpm` | Architecture-independent Python/Qt GUI RPM; package inspection plus installed off-screen GUI/CLI integration gate. |
+| `zupt-gui-5.2.5-1.src.rpm` | Source RPM corresponding exactly to the gated noarch GUI RPM. |
+| `zupt-gui-5.2.5-portable.zip` | Source-only GUI and launchers with licenses/provenance; source scan, exact member allowlist, and extracted off-screen GUI/CLI gate. |
+| `zupt-5.2.5-windows-x86_64.zip` | Native Windows x86_64 executable with notices; extracted-ZIP round-trip gate. |
+| `ZUPT-5.2.5-macOS-*.dmg` | Native macOS image; mounted packaged executable round-trip gate, with the actual architecture in the filename. |
 
 An asset absent from the release was not promoted through its mandatory gate.
 Do not infer support for another distribution release, OS version, CPU
 architecture, raw UNC/SMB destination, or package manager from a similarly
 named file. Binary assets are release outputs, never source-build inputs.
 
-No AppImage is promised for 5.2.4. The inspected upstream type-2 runtime lacked
+No AppImage is promised for 5.2.5. The inspected upstream type-2 runtime lacked
 a complete notice/source-relink handoff for every statically linked component,
 so redistributing it would not meet this release's provenance gate. AppDir and
 Flatpak bundles and GUI platform installers are likewise outside the promoted
@@ -177,8 +191,8 @@ bash tests/test_source_only.sh
 For a tag or an existing source archive:
 
 ~~~sh
-bash scripts/check-source-only.sh --tag v5.2.4
-bash scripts/check-source-only.sh --archive /path/to/zupt-5.2.4.tar.gz
+bash scripts/check-source-only.sh --tag v5.2.5
+bash scripts/check-source-only.sh --archive /path/to/zupt-5.2.5.tar.gz
 ~~~
 
 Unknown `.bin` files fail the scan. A necessary binary data fixture may be
@@ -314,16 +328,22 @@ sanitizer-detected crash. An earlier off-screen GUI smoke run remains supporting
 evidence rather than an exact-candidate package result.
 
 Those results are historical upstream self-audit evidence, not independent
-certification and not 5.2.4 results. Post-tag CI integration failures prevented
+certification and not 5.2.5 results. Post-tag CI integration failures prevented
 5.2.2 promotion. The immutable 5.2.3 candidate was also not promoted because its
 source-policy test assumed LF for a `.bat` checkout that correctly used CRLF.
-The exact 5.2.4 candidate must repeat all required gates;
+The immutable v5.2.4 candidate then recorded 12 successful jobs in exact-tag CI
+run `33431386002`; the sole openSUSE service-harness job failed because the
+standalone executor did not enter its service directory, so dependent Windows
+and macOS jobs were skipped. A local Tumbleweed reproduction proved the explicit
+tag ref and corrected working-directory contract, but neither that reproduction
+nor the successful v5.2.4 jobs are v5.2.5 evidence. The exact 5.2.5 candidate
+must repeat all required gates;
 native Windows and macOS, hosted GitHub CI/release promotion, authenticated OBS,
 and resolution of the openSUSE automatic `debugsource` rpmlint `no-binary`
 finding remain pending until recorded otherwise. Unexecuted gates are `SKIP`,
 never `PASS`.
 
-On Windows, 5.2.4 scopes output handling to normal local Win32 paths. A MinGW
+On Windows, 5.2.5 scopes output handling to normal local Win32 paths. A MinGW
 cross-build or Wine run is not native-Windows evidence; the `windows-latest`
 package job, including its Unicode round trip, remains a mandatory publication
 gate. Win32 extended-length and device-namespace paths, raw UNC output roots
@@ -345,7 +365,7 @@ downgrading authentication of header and footer metadata.
 `disk restore`, and exists only to recover a known, trusted archive created
 before AIT was introduced. Do not use that override for an archive from
 untrusted or attacker-writable storage; verify and migrate the recovered data to
-a newly created 5.2.4 archive. Compression and disk backup never create a
+a newly created 5.2.5 archive. Compression and disk backup never create a
 no-AIT archive.
 
 `info` is deliberately different: it reports unauthenticated framing metadata,
@@ -363,7 +383,7 @@ lists, tests, extracts, and restores it byte-exact. The full local Linux gate
 passed on commit `ff99770`. This is not a claim that a 5.2.1 reader understands every new
 flag-gated 5.2.2 encoding or that every historical combination was tested.
 
-The candidate commands and outcome fields for 5.2.4 are maintained in the
+The candidate commands and outcome fields for 5.2.5 are maintained in the
 release handoff and
 [packaging/opensuse/README.md](packaging/opensuse/README.md). They must be
 updated from the final release candidate before tagging. No architecture or
@@ -375,9 +395,9 @@ Generate the reproducible source archive outside the repository:
 
 ~~~sh
 make dist
-sha256sum /tmp/zupt-5.2.4.tar.gz
+sha256sum /tmp/zupt-5.2.5.tar.gz
 bash scripts/check-source-only.sh \
-    --archive /tmp/zupt-5.2.4.tar.gz
+    --archive /tmp/zupt-5.2.5.tar.gz
 ~~~
 
 Archive ordering, ownership and timestamps are normalized. The default epoch is
@@ -393,7 +413,7 @@ final digest before the tag is published.
 ## openSUSE and OBS
 
 The maintained upstream recipe is in packaging/opensuse. It is prepared for an
-immutable v5.2.4 tag, disables submodules and Git LFS, builds with
+immutable v5.2.5 tag, disables submodules and Git LFS, builds with
 WITH_SDK=0 WITH_PQBOX=0, runs real checks, and installs without the renamed-era
 `vaptvupt` alias.
 
@@ -436,7 +456,7 @@ The optional GUI is under `gui/`. It invokes the `zupt` CLI and needs Python 3
 plus PySide6 or PyQt6. GUI image assets are data files whose purpose,
 provenance and license are recorded in [gui/assets/README.md](gui/assets/README.md).
 The integrated source and lightweight consistency checks do not constitute a
-target-native audit of every historical GUI format. The 5.2.4 artifact promise
+target-native audit of every historical GUI format. The 5.2.5 artifact promise
 is limited to the gated GUI DEB, noarch/source RPM, and source-only portable ZIP
 listed above; AppImage, AppDir, Flatpak bundles, and platform GUI installers
 remain excluded.
@@ -445,13 +465,14 @@ remain excluded.
 
 Cristian Cezar Moisés is the creator and current upstream maintainer of ZUPT and
 the author of the current upstream source, build, test, documentation, and
-packaging changes, including the 5.2.2 baseline and corrective 5.2.3/5.2.4 work.
+packaging changes, including the 5.2.2 baseline and corrective
+5.2.3/5.2.4/5.2.5 work.
 
 Alessandro de Oliveira Faria (Cabelo) is credited as the openSUSE collaborator
 and downstream package maintainer. He reviews the handoff, commits it in the
 OBS project he maintains, and may make the additional openSUSE-side adjustments
 he considers necessary. That downstream role is not attribution of ZUPT source
-authorship or of the upstream 5.2.2, 5.2.3, or 5.2.4 changes.
+authorship or of the upstream 5.2.2, 5.2.3, 5.2.4, or 5.2.5 changes.
 
 ## License
 
