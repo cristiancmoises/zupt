@@ -49,8 +49,8 @@ unchanged.
   ABI forward unchanged. These are implementation and test-integration
   corrections, not a wire-format or API change.
 - Realign current code, package, workflow, artifact, and documentation
-  references to 5.2.8. AUR/Homebrew SHA-256 and Guix content pins remain
-  pending until the final reproducible archive is generated.
+  references to 5.2.8, and pin the AUR/Homebrew SHA-256 and Guix content hash
+  to the final reproducible source archive before tagging.
 - Require fresh exact-`v5.2.8` source, checksum, hosted CI, native-platform,
   package, OBS, and promotion evidence. This entry does not claim those gates
   passed, and no v5.2.7 result transfers automatically.
