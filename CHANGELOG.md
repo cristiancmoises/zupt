@@ -14,6 +14,9 @@ not promoted because its source-policy test assumed LF bytes for a Windows
   change.
 - Realign current documentation, package, workflow, artifact, and tag references
   to 5.2.4 while keeping generated binaries outside Git and source archives.
+- Correct three internal regression-test headers so pre-3.0 product releases
+  retain the historical ZUPT name; VaptVupt remains only the bundled codec and
+  compatibility-facing identifier where applicable.
 - Require fresh exact-`v5.2.4` source, checksum, hosted CI, native-platform,
   package, and promotion evidence; no 5.2.3 result transfers automatically.
 - Keep authenticated OBS/Factory validation pending and retain the unresolved,

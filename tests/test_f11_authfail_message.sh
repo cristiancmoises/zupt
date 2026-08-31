@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
 #
-# F-11 regression test (VaptVupt 2.4.2).
+# F-11 regression test (ZUPT 2.4.2).
 #
 # F-11: pre-2.4.2 the AIT-fail message said "archive header or footer has
 # been tampered with" in both the actual-tamper case AND the wrong-password

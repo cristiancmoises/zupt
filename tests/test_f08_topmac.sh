@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
 #
-# F-08 regression test (VaptVupt 2.3.0).
+# F-08 regression test (ZUPT 2.3.0).
 #
 # A v1.5+ archive is tampered at each previously-cosmetic header/footer byte;
 # every mutation MUST be detected (top-MAC verifies header+footer[0..23]).

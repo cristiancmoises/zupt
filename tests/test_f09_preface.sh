@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
 #
-# F-09 regression test (VaptVupt 2.3.1).
+# F-09 regression test (ZUPT 2.3.1).
 #
 # F-09 closed the per-block frame preface tamper window by:
 #   1. Binding the canonical preface (block_type, codec_id, block_flags,
