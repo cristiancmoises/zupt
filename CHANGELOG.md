@@ -1,5 +1,27 @@
 # ZUPT Changelog
 
+## [5.2.7] — 2026-08-31 — Native test-harness portability corrections
+
+Corrective successor to the immutable, unpromoted `v5.2.6` candidate. Exact-tag
+GitHub Actions run `33442264243` completed 13 jobs successfully, but the native
+Windows and macOS jobs failed, so no 5.2.6 assets were promoted. The tag and its
+recorded evidence remain unchanged.
+
+- Scope the SHA-NI regression helper declarations to the supported x86 build
+  path so macOS arm64 strict compilation does not diagnose unused declarations
+  under `-Werror`.
+- Carry the safe printable UTF-8 path fixture through an explicit
+  byte-stable Windows argument representation so argv transcoding cannot abort
+  the regression before its intended archive and diagnostic assertions.
+- Carry the 5.2.6 source-only and security baseline forward without changing
+  the archive format, cryptography, bundled codec release, or SDK ABI.
+- Realign current source, package, workflow, artifact, and tag references to
+  5.2.7, then pin the final reproducible release-archive checksum and content
+  hash in the downstream recipes before tagging.
+- Require fresh exact-`v5.2.7` source, checksum, hosted CI, native-platform,
+  package, OBS, and promotion evidence. No prior candidate result transfers
+  automatically, and this entry does not claim those gates passed.
+
 ## [5.2.6] — 2026-08-31 — Native release-gate portability corrections
 
 Corrective successor to the immutable, unpromoted `v5.2.5` candidate. Exact-tag

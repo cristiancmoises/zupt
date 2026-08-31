@@ -62,7 +62,7 @@
         xcb-util-renderutil xcb-util-wm xcb-util-cursor
         libinput-minimal mtdev libevdev eudev))
 
-(define %zupt-version "5.2.6")
+(define %zupt-version "5.2.7")
 
 (define %zupt-source
   (origin

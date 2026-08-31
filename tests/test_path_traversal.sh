@@ -248,11 +248,26 @@ else
     fail 'backslash separators are normalized within the extraction root'
 fi
 
-make_fixture "$TEST_ROOT/legitimate.zupt" 'safe dir/ação.txt'
+legitimate_entry_hex=73616665206469722f61c3a7c3a36f2e747874
+MSYS2_ARG_CONV_EXCL='--entry-hex=' \
+    "$FIXTURE" "$TEST_ROOT/legitimate.zupt" \
+    "--entry-hex=$legitimate_entry_hex"
 mkdir "$TEST_ROOT/legitimate-out"
-if "$ZUPT_BIN" extract -o "$TEST_ROOT/legitimate-out" \
+if file_contains_hex_bytes "$TEST_ROOT/legitimate.zupt" \
+        "$legitimate_entry_hex" &&
+   "$ZUPT_BIN" extract -o "$TEST_ROOT/legitimate-out" \
         "$TEST_ROOT/legitimate.zupt" > "$TEST_ROOT/legitimate.log" 2>&1 &&
-   [[ $(<"$TEST_ROOT/legitimate-out/safe dir/ação.txt") == 'fixture content' ]]; then
+   python3 - "$TEST_ROOT/legitimate-out" "$legitimate_entry_hex" <<'PY'
+import pathlib
+import sys
+
+# All process arguments are ASCII.  Decode the exact UTF-8 archive bytes here
+# so the native MinGW fixture's narrow-argv transcoding cannot affect the test.
+relative_path = bytes.fromhex(sys.argv[2]).decode("utf-8")
+extracted = pathlib.Path(sys.argv[1]).joinpath(*relative_path.split("/"))
+raise SystemExit(0 if extracted.read_bytes() == b"fixture content\n" else 1)
+PY
+then
     pass 'safe nested UTF-8 path extracts normally'
 else
     fail 'safe nested UTF-8 path extracts normally'

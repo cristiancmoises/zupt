@@ -121,7 +121,8 @@ static inline int zupt_win_mkdir_utf8(const char *path) {
 /* v5.2.4 makes package metadata checks CRLF-safe; format remains v1.6. */
 /* v5.2.5 corrects the OBS service harness cwd; format remains v1.6. */
 /* v5.2.6 corrects native release-gate portability; format remains v1.6. */
-#define ZUPT_VERSION_STRING "5.2.6"
+/* v5.2.7 corrects native test-harness portability; format remains v1.6. */
+#define ZUPT_VERSION_STRING "5.2.7"
 /* Vendored codec release (upstream tag) — single source for display strings.
  * The codec's own VV_VERSION_* is its internal API version, not the release. */
 #define ZUPT_CODEC_RELEASE "2.65.3"

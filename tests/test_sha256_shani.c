@@ -30,6 +30,7 @@
 #define HAVE_SHANI_BUILD 1
 #endif
 
+#ifdef HAVE_SHANI_BUILD
 static const uint32_t IV[8] = {
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
     0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
@@ -45,6 +46,7 @@ static void bad(const char *m) { printf("  \xE2\x9C\x97 %s\n", m); fail++; }
 static void hex(const uint8_t *b, int n, char *out) {
     for (int i = 0; i < n; i++) sprintf(out + i*2, "%02x", b[i]);
 }
+#endif
 
 int main(void) {
     zupt_detect_cpu(&zupt_cpu);

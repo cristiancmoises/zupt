@@ -1,4 +1,13 @@
 -------------------------------------------------------------------
+Mon Aug 31 23:00:00 UTC 2026 - Cristian Cezar Moisés <sac@securityops.co>
+
+- Update to 5.2.7:
+  * Scope SHA-NI test helpers away from unsupported macOS arm64 builds.
+  * Preserve safe UTF-8 fixture bytes across the Windows argv boundary.
+  * Preserve immutable, unpromoted 5.2.6 history and require fresh 5.2.7 gates.
+  * Pin the OBS source service to the immutable v5.2.7 tag.
+
+-------------------------------------------------------------------
 Mon Aug 31 21:30:00 UTC 2026 - Cristian Cezar Moisés <sac@securityops.co>
 
 - Update to 5.2.6:

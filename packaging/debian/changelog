@@ -1,3 +1,13 @@
+zupt (5.2.7-1) UNRELEASED; urgency=medium
+
+  * Scope SHA-NI test helpers to supported x86 builds so macOS arm64 strict
+    compilation does not fail on unused declarations.
+  * Preserve safe UTF-8 fixture bytes across the Windows argv boundary.
+  * Preserve the immutable, unpromoted 5.2.6 history and require fresh 5.2.7
+    package, checksum, native-platform, OBS, and promotion gates.
+
+ -- Cristian Cezar Moisés <sac@securityops.co>  Mon, 31 Aug 2026 23:00:00 +0000
+
 zupt (5.2.6-1) UNRELEASED; urgency=medium
 
   * Use the compiler-resistant volatile wipe fallback on macOS and NetBSD, and
