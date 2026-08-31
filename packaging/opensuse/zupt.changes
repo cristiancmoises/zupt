@@ -1,4 +1,19 @@
 -------------------------------------------------------------------
+Mon Aug 31 23:30:00 UTC 2026 - Cristian Cezar Moisés <sac@securityops.co>
+
+- Update to 5.2.8:
+  * Close CodeQL High path-race findings in SDK key publication,
+    descriptor-first disk restore, and benchmark workspace cleanup.
+  * Make the raw-C1 scanner fixture explicitly skip filesystems that reject
+    the byte with EILSEQ, reject redirected Windows prompts before _getch, and
+    add sdk-test to release/hosted Linux gates.
+  * Preserve immutable, unpromoted v5.2.7 run 33445470664: 13 jobs succeeded,
+    macOS failed the raw-C1 fixture, and Windows was cancelled after the hosted
+    job stalled; a MinGW/Wine reproduction isolated redirected _getch entry.
+  * Pin the OBS source service to the immutable v5.2.8 tag and require fresh
+    exact-candidate evidence before promotion.
+
+-------------------------------------------------------------------
 Mon Aug 31 23:00:00 UTC 2026 - Cristian Cezar Moisés <sac@securityops.co>
 
 - Update to 5.2.7:

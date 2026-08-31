@@ -1,32 +1,56 @@
-# ZUPT 5.2.7
+# ZUPT 5.2.8
 
 ZUPT is a command-line backup archiver written in C11. It combines the
 bundled VaptVupt compression codec with authenticated AES-256-CTR +
 HMAC-SHA256 encryption, native ML-KEM-768/X25519 hybrid encryption, archive
 integrity checks, multithreaded operation, and a Python/Qt graphical frontend.
 
-Version 5.2.7 corrects two test-harness portability defects exposed after the
-immutable `v5.2.6` tag. Exact-tag GitHub Actions run `33442264243` completed 13
-jobs successfully, but the native macOS job failed because x86 SHA-NI test
-helper declarations were unused on arm64 under `-Werror`, and the native
-Windows job aborted while argv transcoding a safe UTF-8 fixture before its
-intended assertions. No 5.2.6 assets were promoted. These are release/test
-integration corrections; they do not change the archive format, cryptography,
-bundled codec, or SDK ABI. No v5.2.6 evidence transfers automatically to
-v5.2.7.
+Version 5.2.8 closes three CodeQL High path-race findings: SDK key copies now
+publish atomically through an already-open private object, POSIX disk restore
+classifies and retains the descriptor it actually opened, and benchmark cleanup
+traverses only pinned descriptors or handles without following links or Windows
+reparse points. It also makes the raw-C1 scanner fixture explicitly skip a
+filesystem that rejects creation with `EILSEQ`, and brings `sdk-test` into the
+release and hosted Linux gates. Windows password prompts now reject redirected
+input before entering `_getch` and treat console EOF as an error. These
+corrections do not change archive format v1.6, cryptography, the bundled codec
+release, or the SDK ABI.
+
+The predecessor `v5.2.7` tag is immutable and was not promoted. Exact-tag run
+`33445470664` concluded `cancelled` at `2026-08-31T23:11:19Z`, with 13
+successful jobs, a macOS raw-C1/EILSEQ fixture failure, and a cancelled Windows
+job. The hosted Windows job stalled in `make check`; a MinGW/Wine reproduction
+attributed the stall to a non-console password prompt entering `_getch`. No
+v5.2.7 evidence transfers automatically to v5.2.8.
 
 Version 5.2.2 restored the original ZUPT product name and the `zupt` command.
 The `.zupt` archive extension, format v1.6, magic bytes, codec identifiers, and
 SDK ABI remain unchanged. An optional `vaptvupt` command alias may be provided
 for scripts written against versions 3.0.0 through 5.2.1.
 
-## Corrective changes in 5.2.7
+## Corrective changes in 5.2.8
 
-The SHA-NI regression now keeps x86-only helper declarations out of unsupported
+SDK key saves use atomic descriptor/handle-backed publication and preserve the
+requested private/public modes without reopening the destination. Disk restore
+opens a POSIX target once before its type, identity, and device-capacity
+decisions, and benchmark cleanup is descriptor-relative on POSIX and
+handle/reparse-point aware on Windows. The live-workspace symlink regression,
+SDK link-target/mode regression, static path-race guards, portable raw-C1
+fixture, native redirected-prompt regression, and `sdk-test` CI step cover
+these boundaries. All current release paths move to 5.2.8 and require fresh
+exact-tag hosted CI, package,
+native-platform, source-only, checksum, OBS, and promotion evidence.
+
+## Corrective changes introduced in 5.2.7
+
+The SHA-NI regression keeps x86-only helper declarations out of unsupported
 arm64 builds, and the safe UTF-8 Windows fixture crosses the argv boundary in a
-byte-stable representation. All current release paths move to 5.2.7 and require
-fresh exact-tag hosted CI, package, native-platform, source-only, checksum, OBS,
-and promotion evidence. The `v5.2.6` tag remains immutable and unpromoted.
+byte-stable representation. Those test-harness changes did not alter the
+archive format, cryptography, codec, or SDK ABI. Exact-tag run `33445470664`
+subsequently exposed the separate macOS raw-C1/EILSEQ fixture failure; Windows
+was cancelled after the hosted job stalled in `make check`; MinGW/Wine then
+isolated the stall to a non-console password prompt entering `_getch`. The run recorded 13 successful jobs, one
+failure, and one cancellation; v5.2.7 remained unpromoted.
 
 ## Corrective changes introduced in 5.2.6
 
@@ -151,9 +175,9 @@ users. Those assets must be built from the tagged source, tested on their target
 environment, and kept outside Git and the source archive. A format that was not
 built and tested is not presented as supported.
 
-## 5.2.7 release artifacts
+## 5.2.8 release artifacts
 
-The 5.2.7 release workflow is defined to produce the following files only after
+The 5.2.8 release workflow is defined to produce exactly the following 13 files only after
 the corresponding target gate succeeds. `SHA256SUMS` records the exact promoted
 filenames and digests. The release notes identify the tested commit and the
 manually dispatched CI run; that run's job definitions and logs are the runtime
@@ -162,23 +186,26 @@ skips. This table is not a substitute for that evidence.
 
 | Format | Intended target and validation boundary |
 | --- | --- |
-| `zupt-5.2.7.tar.gz` | Reproducible, source-only archive; scanned twice-built input plus SHA-256. |
-| `zupt_5.2.7_amd64.deb` | Ubuntu 24.04 amd64 package; install, functional round trip, and uninstall gate. |
-| `zupt-5.2.7-*.x86_64.rpm` and `.src.rpm` | openSUSE Tumbleweed x86_64 source/binary RPM gate; package inspection, install, round trip, and uninstall. |
-| `zupt-5.2.7-linux-x86_64.tar.xz` | Linux x86_64 CLI plus the complete public license/notice payload; dependency allowlist and extracted-package functional gate. |
-| `zupt-gui_5.2.7_all.deb` | Architecture-independent Python/Qt GUI package; exact dependency/payload checks plus installed off-screen GUI/CLI integration gate. |
-| `zupt-gui-5.2.7-1.noarch.rpm` | Architecture-independent Python/Qt GUI RPM; package inspection plus installed off-screen GUI/CLI integration gate. |
-| `zupt-gui-5.2.7-1.src.rpm` | Source RPM corresponding exactly to the gated noarch GUI RPM. |
-| `zupt-gui-5.2.7-portable.zip` | Source-only GUI and launchers with licenses/provenance; source scan, exact member allowlist, and extracted off-screen GUI/CLI gate. |
-| `zupt-5.2.7-windows-x86_64.zip` | Native Windows x86_64 executable with notices; extracted-ZIP round-trip gate. |
-| `ZUPT-5.2.7-macOS-*.dmg` | Native macOS image; mounted packaged executable round-trip gate, with the actual architecture in the filename. |
+| `zupt-5.2.8.tar.gz` | Reproducible, source-only archive; scanned twice-built input plus SHA-256. |
+| `zupt-5.2.8.tar.gz.sha256` | SHA-256 sidecar for the reproducible source archive. |
+| `zupt_5.2.8_amd64.deb` | Ubuntu 24.04 amd64 package; install, functional round trip, and uninstall gate. |
+| `zupt-5.2.8-0.x86_64.rpm` | openSUSE Tumbleweed x86_64 binary RPM; package inspection, install, round trip, and uninstall gate. |
+| `zupt-5.2.8-0.src.rpm` | Source RPM corresponding exactly to the gated openSUSE binary RPM. |
+| `zupt-5.2.8-linux-x86_64.tar.xz` | Linux x86_64 CLI plus the complete public license/notice payload; dependency allowlist and extracted-package functional gate. |
+| `zupt-gui_5.2.8_all.deb` | Architecture-independent Python/Qt GUI package; exact dependency/payload checks plus installed off-screen GUI/CLI integration gate. |
+| `zupt-gui-5.2.8-1.noarch.rpm` | Architecture-independent Python/Qt GUI RPM; package inspection plus installed off-screen GUI/CLI integration gate. |
+| `zupt-gui-5.2.8-1.src.rpm` | Source RPM corresponding exactly to the gated noarch GUI RPM. |
+| `zupt-gui-5.2.8-portable.zip` | Source-only GUI and launchers with licenses/provenance; source scan, exact member allowlist, and extracted off-screen GUI/CLI gate. |
+| `zupt-5.2.8-windows-x86_64.zip` | Native Windows x86_64 executable with notices; extracted-ZIP round-trip gate. |
+| Exactly one `ZUPT-5.2.8-macOS-{x86_64\|arm64}.dmg` | Native macOS image; mounted packaged executable round-trip gate, with the actual runner architecture in the filename. |
+| `SHA256SUMS` | Deterministic manifest covering the other 12 promoted files. |
 
 An asset absent from the release was not promoted through its mandatory gate.
 Do not infer support for another distribution release, OS version, CPU
 architecture, raw UNC/SMB destination, or package manager from a similarly
 named file. Binary assets are release outputs, never source-build inputs.
 
-No AppImage is promised for 5.2.7. The inspected upstream type-2 runtime lacked
+No AppImage is promised for 5.2.8. The inspected upstream type-2 runtime lacked
 a complete notice/source-relink handoff for every statically linked component,
 so redistributing it would not meet this release's provenance gate. AppDir and
 Flatpak bundles and GUI platform installers are likewise outside the promoted
@@ -208,8 +235,8 @@ bash tests/test_source_only.sh
 For a tag or an existing source archive:
 
 ~~~sh
-bash scripts/check-source-only.sh --tag v5.2.7
-bash scripts/check-source-only.sh --archive /path/to/zupt-5.2.7.tar.gz
+bash scripts/check-source-only.sh --tag v5.2.8
+bash scripts/check-source-only.sh --archive /path/to/zupt-5.2.8.tar.gz
 ~~~
 
 Unknown `.bin` files fail the scan. A necessary binary data fixture may be
@@ -313,6 +340,7 @@ The principal source-only gates are:
 ~~~sh
 make WITH_SDK=0 WITH_PQBOX=0 check
 make WITH_SDK=0 WITH_PQBOX=0 test-all
+make sdk-test
 make test-asan
 make test-asan-run
 make audit-licenses
@@ -345,7 +373,7 @@ sanitizer-detected crash. An earlier off-screen GUI smoke run remains supporting
 evidence rather than an exact-candidate package result.
 
 Those results are historical upstream self-audit evidence, not independent
-certification and not 5.2.7 results. Post-tag CI integration failures prevented
+certification and not 5.2.8 results. Post-tag CI integration failures prevented
 5.2.2 promotion. The immutable 5.2.3 candidate was also not promoted because its
 source-policy test assumed LF for a `.bat` checkout that correctly used CRLF.
 The immutable v5.2.4 candidate then recorded 12 successful jobs in exact-tag CI
@@ -353,20 +381,25 @@ run `33431386002`; the sole openSUSE service-harness job failed because the
 standalone executor did not enter its service directory, so dependent Windows
 and macOS jobs were skipped. A local Tumbleweed reproduction proved the explicit
 tag ref and corrected working-directory contract, but neither that reproduction
-nor the successful v5.2.4 jobs are v5.2.7 evidence. The immutable v5.2.5
+nor the successful v5.2.4 jobs are v5.2.8 evidence. The immutable v5.2.5
 candidate was not promoted after exact-tag GitHub Actions run `33434986357`:
 13 jobs succeeded, but the native Windows hostile-path fixture and macOS
 build/check gate failed. Their 5.2.6 corrections were followed by exact-tag run
 `33442264243`, which also completed 13 jobs successfully but failed native
 macOS on arm64-unused SHA-NI helper declarations under `-Werror` and native
 Windows during safe UTF-8 fixture argv transcoding. The immutable v5.2.6 tag was
-not promoted. The exact 5.2.7 candidate must repeat all required gates. Native Windows and macOS,
+not promoted. The immutable v5.2.7 tag was also not promoted: exact-tag run
+`33445470664` reached the macOS raw-C1 filename-creation failure with `EILSEQ`,
+recorded 13 successful jobs, and cancelled Windows after the hosted job stalled
+in `make check`; a MinGW/Wine reproduction isolated the stall to
+`test --password-prompt ... </dev/null` entering `_getch`. The
+exact 5.2.8 candidate must repeat all required gates. Native Windows and macOS,
 hosted GitHub CI/release promotion, authenticated OBS, and resolution of the
 openSUSE automatic `debugsource` rpmlint `no-binary`
 finding remain pending until recorded otherwise. Unexecuted gates are `SKIP`,
 never `PASS`.
 
-On Windows, 5.2.7 scopes output handling to normal local Win32 paths. A MinGW
+On Windows, 5.2.8 scopes output handling to normal local Win32 paths. A MinGW
 cross-build or Wine run is not native-Windows evidence; the `windows-latest`
 package job, including its Unicode round trip, remains a mandatory publication
 gate. Win32 extended-length and device-namespace paths, raw UNC output roots
@@ -388,7 +421,7 @@ downgrading authentication of header and footer metadata.
 `disk restore`, and exists only to recover a known, trusted archive created
 before AIT was introduced. Do not use that override for an archive from
 untrusted or attacker-writable storage; verify and migrate the recovered data to
-a newly created 5.2.7 archive. Compression and disk backup never create a
+a newly created 5.2.8 archive. Compression and disk backup never create a
 no-AIT archive.
 
 `info` is deliberately different: it reports unauthenticated framing metadata,
@@ -406,7 +439,7 @@ lists, tests, extracts, and restores it byte-exact. The full local Linux gate
 passed on commit `ff99770`. This is not a claim that a 5.2.1 reader understands every new
 flag-gated 5.2.2 encoding or that every historical combination was tested.
 
-The candidate commands and outcome fields for 5.2.7 are maintained in the
+The candidate commands and outcome fields for 5.2.8 are maintained in the
 release handoff and
 [packaging/opensuse/README.md](packaging/opensuse/README.md). They must be
 updated from the final release candidate before tagging. No architecture or
@@ -418,9 +451,9 @@ Generate the reproducible source archive outside the repository:
 
 ~~~sh
 make dist
-sha256sum /tmp/zupt-5.2.7.tar.gz
+sha256sum /tmp/zupt-5.2.8.tar.gz
 bash scripts/check-source-only.sh \
-    --archive /tmp/zupt-5.2.7.tar.gz
+    --archive /tmp/zupt-5.2.8.tar.gz
 ~~~
 
 Archive ordering, ownership and timestamps are normalized. The default epoch is
@@ -436,7 +469,7 @@ final digest before the tag is published.
 ## openSUSE and OBS
 
 The maintained upstream recipe is in packaging/opensuse. It is prepared for an
-immutable v5.2.7 tag, disables submodules and Git LFS, builds with
+immutable v5.2.8 tag, disables submodules and Git LFS, builds with
 WITH_SDK=0 WITH_PQBOX=0, runs real checks, and installs without the renamed-era
 `vaptvupt` alias.
 
@@ -479,7 +512,7 @@ The optional GUI is under `gui/`. It invokes the `zupt` CLI and needs Python 3
 plus PySide6 or PyQt6. GUI image assets are data files whose purpose,
 provenance and license are recorded in [gui/assets/README.md](gui/assets/README.md).
 The integrated source and lightweight consistency checks do not constitute a
-target-native audit of every historical GUI format. The 5.2.7 artifact promise
+target-native audit of every historical GUI format. The 5.2.8 artifact promise
 is limited to the gated GUI DEB, noarch/source RPM, and source-only portable ZIP
 listed above; AppImage, AppDir, Flatpak bundles, and platform GUI installers
 remain excluded.
@@ -489,13 +522,14 @@ remain excluded.
 Cristian Cezar Moisés is the creator and current upstream maintainer of ZUPT and
 the author of the current upstream source, build, test, documentation, and
 packaging changes, including the 5.2.2 baseline and corrective
-5.2.3/5.2.4/5.2.5/5.2.6/5.2.7 work.
+5.2.3/5.2.4/5.2.5/5.2.6/5.2.7/5.2.8 work.
 
 Alessandro de Oliveira Faria (Cabelo) is credited as the openSUSE collaborator
 and downstream package maintainer. He reviews the handoff, commits it in the
 OBS project he maintains, and may make the additional openSUSE-side adjustments
 he considers necessary. That downstream role is not attribution of ZUPT source
-authorship or of the upstream 5.2.2, 5.2.3, 5.2.4, 5.2.5, 5.2.6, or 5.2.7 changes.
+authorship or of the upstream 5.2.2, 5.2.3, 5.2.4, 5.2.5, 5.2.6, 5.2.7, or
+5.2.8 changes.
 
 ## License
 

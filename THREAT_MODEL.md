@@ -1,4 +1,4 @@
-# ZUPT 5.2.7 threat model
+# ZUPT 5.2.8 threat model
 
 This document defines the security boundary of the ZUPT archive tool. It is
 not a certification, a guarantee against every hostile input, or a substitute
@@ -17,7 +17,7 @@ plausibly deniable.
 
 ## Baseline considered here
 
-The upstream baseline is built from the 5.2.7 source with:
+The upstream baseline is built from the 5.2.8 source with:
 
 ```sh
 make WITH_SDK=0 WITH_PQBOX=0
@@ -88,6 +88,8 @@ duplicates but shares the underlying stream/offset and may buffer beyond the
 line, so callers should provide a descriptor dedicated to that password read.
 On POSIX, handled prompt interruptions restore the saved terminal state before
 termination; an exact-candidate PTY regression is required before release.
+On Windows, a prompt is entered only for a real console input handle;
+redirected input and console EOF fail instead of blocking in `_getch`.
 
 Native private-key generation uses no-replace creation with POSIX mode `0600`
 or a Windows current-user-only DACL. A failed write, flush/fsync, or close leaves
@@ -98,6 +100,13 @@ are accepted only after checksum, version, flags, reserved bytes, exact size,
 and public/private role validation. This prevents role confusion and
 partial/trailing-key acceptance; it does not protect a key after endpoint or
 account compromise.
+
+When the optional system SDK is enabled, the in-repository adapter copies a key
+through the core atomic publisher, applies POSIX mode through the already-open
+temporary descriptor, and publishes only after copy/close checks succeed. Its
+`sdk-test` regression preserves existing symlink/hardlink targets and verifies
+private/public modes. This narrows the adapter boundary; it does not extend the
+baseline assessment to the external SDK implementation.
 
 ### Encrypted archive integrity
 
@@ -175,22 +184,37 @@ temporary through its descriptor or handle. These controls reduce traversal,
 link, race, and partial-output risks, but do not establish that no parser or
 filesystem bug can exist.
 
-The Windows handle-relative boundary in 5.2.7 covers normal local Win32 paths.
+Benchmark scratch data lives in a random private directory. Cleanup resolves
+POSIX components without following links and deletes relative to pinned
+descriptors. On Windows it retains no-delete-sharing ancestor handles, refuses
+reparse-point recursion, then reopens each emptied directory relative to its
+pinned parent and verifies its filesystem identity before handle-based
+deletion. An attacker who inserts a link can cause cleanup failure, but the
+cleanup must not traverse to the link target.
+
+The Windows handle-relative boundary in 5.2.8 covers normal local Win32 paths.
 Win32 extended-length and device-namespace paths, raw UNC output roots, and
 mapped/network-drive output are not supported. Cross-build and Wine results are
 not a substitute for the required native `windows-latest` Unicode package
 gate. Restore locally before moving verified output to network storage.
 
 Disk restore copies the measured compacted archive into one exclusively
-created, auto-deleted scratch file before it opens a destructive destination.
-Preflight and restoration consume that same open snapshot. An explicit
-`ZUPT_TMPDIR` selects an existing scratch directory; failure there does not
-fall back to consuming the mutable source pathname. On supported Linux, macOS,
-and FreeBSD interfaces, a raw block-device target is rejected before writing if
-its capacity is unknown or smaller than the image. These controls reduce source
-exchange and immediate overrun risk but do not protect against a compromised
-kernel/device, a wrongly selected sufficiently large device, power loss, or
-hardware failure.
+created, auto-deleted scratch file. Preflight and restoration consume that same
+open snapshot. An explicit `ZUPT_TMPDIR` selects an existing scratch directory;
+failure there does not fall back to consuming the mutable source pathname. On
+POSIX, the destination is opened once without truncation or final-symlink
+following, classified with `fstat`, and the same raw-device descriptor is
+retained for supported Linux, macOS, and FreeBSD capacity checks and writes.
+Regular-file output retains atomic publication. A raw target is rejected before
+writing if its capacity is unknown or smaller than the image. These controls
+reduce source exchange, target exchange, and immediate overrun risk but do not
+protect against a compromised kernel/device, a wrongly selected sufficiently
+large device, power loss, or hardware failure.
+
+The SDK publication, POSIX disk-target, and benchmark-cleanup changes address
+CodeQL High #5, #6, and #7 respectively. Their source review and regressions
+are project evidence, not independent certification or proof that the exact
+5.2.8 hosted/native gates passed.
 
 For an untrusted archive:
 
@@ -250,9 +274,9 @@ tagged source. Each artifact extends the trust boundary to its builder,
 toolchain, runner image, and packaging scripts. Treat it as validated only when
 the exact target has a recorded build, content/package inspection, extracted or
 installed smoke test, and applicable archive round trip. An AppImage is not
-promoted for 5.2.7; bare Linux and Windows executables are also excluded.
+promoted for 5.2.8; bare Linux and Windows executables are also excluded.
 
-For 5.2.7, that gated artifact scope covers the CLI files plus the exact GUI
+For 5.2.8, that gated artifact scope covers the CLI files plus the exact GUI
 DEB, noarch/source RPM, and source-only portable ZIP named in the README. The
 portable ZIP contains no compiled runtime and crosses the release boundary only
 after source scans and an exact safe-member check. AppDir and Flatpak bundles
@@ -265,7 +289,7 @@ strict Clang, GCC `-fanalyzer`, the 9/9 tool-enabled static-analysis run,
 ASan/UBSan/LSan, and 1,000 mutation-fuzz iterations passed. Earlier off-screen
 GUI smoke evidence is retained separately. Post-tag CI integration failures
 prevented 5.2.2 promotion. This upstream self-review is not an independent
-certification and is not 5.2.7 evidence. The immutable 5.2.3 candidate was not
+certification and is not 5.2.8 evidence. The immutable 5.2.3 candidate was not
 promoted because its source-policy test assumed LF for a Windows `.bat` checkout
 that correctly used CRLF. The immutable v5.2.4 candidate was not promoted after
 exact-tag GitHub Actions run `33431386002`: 12 jobs succeeded, the sole openSUSE
@@ -275,17 +299,24 @@ Tumbleweed reproduction established that the explicit `refs/tags/v5.2.4`
 revision works and that `os.chdir(service_dir)` completes the source-service
 chain. This narrows the failure to release/test integration; it changes no
 product, archive, cryptographic, codec, or SDK ABI boundary and supplies no
-automatic 5.2.7 evidence. The immutable v5.2.5 candidate was not promoted after
+automatic 5.2.8 evidence. The immutable v5.2.5 candidate was not promoted after
 exact-tag GitHub Actions run `33434986357`: 13 jobs succeeded, but native
 Windows and macOS failed on fixture-byte preservation and Darwin/Bash 3.2
 portability respectively. The corresponding 5.2.6 corrections were followed by
 exact-tag run `33442264243`: 13 jobs succeeded, while native macOS failed on
 x86-only SHA-NI helper declarations unused on arm64 under `-Werror`, and native
 Windows aborted during safe UTF-8 fixture argv transcoding. The v5.2.6 tag was
-not promoted. The corresponding 5.2.7 test-harness corrections do not establish
-their own test result. Hosted GitHub CI and release promotion, native
+not promoted. Version 5.2.7 corrected those two boundaries, but its exact-tag
+run `33445470664` concluded `cancelled` at `2026-08-31T23:11:19Z`, with 13
+successful jobs, one failed macOS job after raw-C1 filename creation returned
+`EILSEQ`, and one cancelled Windows job after the hosted job stalled in `make
+check`; a MinGW/Wine reproduction isolated the cause to a redirected password
+prompt entering `_getch`.
+The corresponding 5.2.8 fixture and prompt corrections do not establish their
+own test result. CI now exercises `sdk-test`, but its inclusion is not a pass.
+Hosted GitHub CI and release promotion, native
 Windows/macOS, authenticated OBS, and the openSUSE automatic `debugsource`
-rpmlint `no-binary` finding remain pending until an exact 5.2.7 candidate
+rpmlint `no-binary` finding remain pending until an exact 5.2.8 candidate
 records them.
 
 ## Historical compatibility notes
@@ -313,7 +344,7 @@ These are historical facts about earlier releases, retained to support recovery:
   combinations remain unclaimed.
 
 Historical test counts in the changelog describe those releases. They do not
-automatically become 5.2.7 results; current outcomes belong in the release
+automatically become 5.2.8 results; current outcomes belong in the release
 validation record, with unavailable environments marked `SKIP`. In particular,
 runs made before the final positional-AAD and mandatory-AIT changes are not
 final release gates for the resulting candidate.
@@ -324,4 +355,4 @@ Email **zupt@riseup.net** with `[security]` in the subject. Include the version,
 platform, impact, and a minimal non-sensitive reproducer. Do not disclose the
 issue publicly until a coordinated timeline has been agreed.
 
-Document version: 5.2.7, 2026-08-31.
+Document version: 5.2.8, 2026-08-31.

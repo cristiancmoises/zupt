@@ -20,7 +20,7 @@
 # installed smoke test.
 
 Name:           zupt
-Version:        5.2.7
+Version:        5.2.8
 Release:        1%{?dist}
 Summary:        Backup compression with authenticated and post-quantum encryption
 
@@ -101,6 +101,15 @@ comments. Plain archives use non-cryptographic checksums.
 %endif
 
 %changelog
+* Mon Aug 31 2026 Cristian Cezar Moisés <sac@securityops.co> - 5.2.8-1
+- Close CodeQL High path-race findings in SDK key save, disk restore, and
+  benchmark cleanup; add the SDK gate, portable raw-C1 fixture handling, and
+  redirected Windows password-prompt rejection.
+- Preserve immutable, unpromoted v5.2.7 run 33445470664: 13 jobs succeeded,
+  macOS failed the raw-C1 fixture, and Windows was cancelled after the hosted
+  job stalled; a MinGW/Wine reproduction isolated redirected _getch entry.
+- Require fresh 5.2.8 gates.
+
 * Mon Aug 31 2026 Cristian Cezar Moisés <sac@securityops.co> - 5.2.7-1
 - Correct native test integration: scope SHA-NI helpers away from macOS arm64
   and preserve safe UTF-8 fixture bytes across the Windows argv boundary.

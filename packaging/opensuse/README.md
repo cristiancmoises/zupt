@@ -1,4 +1,4 @@
-# ZUPT 5.2.7 for openSUSE Build Service
+# ZUPT 5.2.8 for openSUSE Build Service
 
 This directory is the upstream, source-only OBS recipe for ZUPT. It is a
 handoff for the downstream maintainer; its presence does not mean that the
@@ -10,14 +10,14 @@ changes in this handoff. Alessandro de Oliveira Faria (Cabelo) is credited only
 as the openSUSE collaborator and downstream OBS package maintainer: he reviews
 the handoff, commits it through the portal/project he maintains, and may make
 the openSUSE-side adjustments he considers necessary. This role does not
-attribute upstream code or the 5.2.2/5.2.3/5.2.4/5.2.5/5.2.6/5.2.7 upstream changes to
-Cabelo.
+attribute upstream code or the
+5.2.2/5.2.3/5.2.4/5.2.5/5.2.6/5.2.7/5.2.8 upstream changes to Cabelo.
 
 ## Files and source policy
 
 | File | Purpose |
 |---|---|
-| `_service` | Fetch the immutable `v5.2.7` tag and create `Source0` at build time. |
+| `_service` | Fetch the immutable `v5.2.8` tag and create `Source0` at build time. |
 | `zupt.spec` | Build and test the CLI with optional external system integrations disabled. |
 | `zupt.changes` | openSUSE-format package history. |
 | `source-audit.sh` | Handoff wrapper for the repository scanner; run it from the complete handoff tree. |
@@ -30,11 +30,11 @@ https://github.com/cristiancmoises/zupt.git
 ```
 
 `obs_scm` stores an `.obscpio` plus `.obsinfo`. The `tar` and `recompress`
-services reconstruct `zupt-5.2.7.tar.gz` inside the build environment, which
+services reconstruct `zupt-5.2.8.tar.gz` inside the build environment, which
 matches `Source0` in the spec.
 
 This source policy does not prohibit separately built release-page packages.
-The upstream 5.2.7 gates may publish the CLI source tarball, DEB, binary RPM,
+The upstream 5.2.8 gates may publish the CLI source tarball, DEB, binary RPM,
 SRPM, notice-bearing Linux tar.xz, Windows ZIP, and macOS DMG, together with a
 GUI DEB, noarch RPM, GUI SRPM, and source-only portable GUI ZIP after each
 format-specific test succeeds. None of those files is an OBS `Source0` input
@@ -139,7 +139,7 @@ reconstructed by the build-time services. Neither `%build` nor `%check` may
 access the network.
 
 For a source RPM check outside OBS, place the service-produced
-`zupt-5.2.7.tar.gz` next to the spec and use a disposable RPM build tree:
+`zupt-5.2.8.tar.gz` next to the spec and use a disposable RPM build tree:
 
 ```sh
 rpm_top=$(mktemp -d)
@@ -167,7 +167,7 @@ unavailable rather than passing it. Earlier off-screen GUI smoke evidence is
 supporting evidence, not an exact-commit package result.
 
 Post-tag CI integration failures prevented 5.2.2 promotion. These historical
-local results do not establish 5.2.7, native Windows or macOS success, hosted
+local results do not establish 5.2.8, native Windows or macOS success, hosted
 GitHub CI/release promotion, authenticated OBS acceptance, or resolution of the
 automatic openSUSE `debugsource` rpmlint `no-binary` finding. The immutable
 5.2.3 candidate was not promoted because its source-policy test assumed LF for
@@ -194,7 +194,7 @@ This result establishes that the explicit tag revision works and isolates a
 release/test harness defect. It does not change the product, archive format,
 cryptography, codec, or SDK ABI; it does not make skipped native jobs pass or
 establish authenticated OBS/Factory acceptance. No v5.2.4 evidence transfers
-automatically to v5.2.7. The exact v5.2.7 candidate must repeat every applicable
+automatically to v5.2.8. The exact v5.2.8 candidate must repeat every applicable
 gate, and the automatic openSUSE `debugsource` rpmlint `no-binary` finding
 remains unresolved and unsuppressed.
 
@@ -216,8 +216,22 @@ macOS arm64 SHA-NI test build treated unused x86-only helper declarations as
 errors under `-Werror`; Windows argv transcoding aborted the safe printable
 UTF-8 fixture before its intended path assertions. The 5.2.7 changes correct
 those test-harness boundaries without an archive-format, cryptographic, codec,
-or SDK ABI change. They do not establish 5.2.7 hosted, native, OBS, or promotion
+or SDK ABI change. They do not establish 5.2.8 hosted, native, OBS, or promotion
 evidence.
+
+## Prior 5.2.7 exact-tag native-gate evidence
+
+The immutable v5.2.7 candidate was not promoted. Exact-tag GitHub Actions run
+`33445470664` concluded `cancelled` at `2026-08-31T23:11:19Z`, with 13
+successful jobs, one failed macOS job, and one cancelled Windows job. macOS
+rejected creation of the raw-C1 scanner fixture
+with `EILSEQ`; the hosted Windows job stalled in `make check`, and a MinGW/Wine
+reproduction isolated the cause to a redirected password prompt entering
+`_getch`. Version 5.2.8 makes those test
+boundaries fail or skip without hanging, addresses CodeQL High #5/#6/#7 in SDK
+key publication, disk restore, and benchmark cleanup, and adds `sdk-test` to
+release and hosted Linux gates. None of those changes establishes an exact
+5.2.8 OBS, native, hosted-CI, or promotion result.
 
 ## Prior openSUSE packaging validation
 
@@ -256,11 +270,11 @@ gate.
 ## Handoff procedure for Alessandro/Cabelo
 
 1. Upstream completes every applicable pre-tag source and local audit gate,
-   then creates and verifies the annotated `v5.2.7` tag. Exact-tag hosted,
+   then creates and verifies the annotated `v5.2.8` tag. Exact-tag hosted,
    native-platform, package, and promotion gates must pass before release or
    downstream handoff; the tag itself is never moved to repair a failure.
 2. With Git, `file`, bsdtar, tar, zip, unzip and SHA-256 tools installed, run
-   `scripts/export-opensuse-package.sh v5.2.7`. Verify the reported ZIP and
+   `scripts/export-opensuse-package.sh v5.2.8`. Verify the reported ZIP and
    SHA-256 outside the Git index. The handoff includes both
    `packaging/opensuse/source-audit.sh` and its required
    `scripts/check-source-only.sh`; keep that relative layout while auditing.
@@ -272,7 +286,7 @@ gate.
    ```
 
 4. From the extracted handoff root, run
-   `packaging/opensuse/source-audit.sh --archive /path/to/zupt-5.2.7.tar.gz`.
+   `packaging/opensuse/source-audit.sh --archive /path/to/zupt-5.2.8.tar.gz`.
    Then copy `_service`, `zupt.spec`, `zupt.changes` and `README.md`
    into the flat OBS package checkout. The audit wrapper is not an OBS build
    source and must not be copied without its companion `scripts/` directory.

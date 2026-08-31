@@ -4221,7 +4221,7 @@ static zupt_error_t open_archive(FILE *f, zupt_options_t *opts,
      * parser ignored block_type at this position and decoded whatever it
      * found — making the byte truly unauthenticated. Now it is structurally
      * validated (rejected at parse time on mismatch), which is the
-     * OPAQUE-class coverage promised by PROMPT.md §5. */
+     * OPAQUE-class structural coverage recorded in the audit history. */
     if (ib.block_type != ZUPT_BLOCK_INDEX) {
         free(ib.payload);
         return ZUPT_ERR_CORRUPT;

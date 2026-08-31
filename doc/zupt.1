@@ -1,6 +1,6 @@
 .\" SPDX-License-Identifier: AGPL-3.0-or-later
 .\" Copyright (c) 2025-2026 Cristian Cezar Moisés
-.TH ZUPT 1 "2026-08-31" "ZUPT 5.2.7" "User Commands"
+.TH ZUPT 1 "2026-08-31" "ZUPT 5.2.8" "User Commands"
 .
 .SH NAME
 zupt \- source-built backup compression and authenticated-encryption utility
@@ -89,7 +89,7 @@ Git and the upstream source tarball are source-only. Separately built CLI DEB,
 binary RPM, SRPM, notice-bearing Linux tar.xz, Windows ZIP, and macOS DMG assets
 may be published from the immutable tag only after their target-specific gates
 pass; they never enter Git or the source tarball. An AppImage is not promoted
-for 5.2.7; neither are AppDir/Flatpak bundles, GUI platform installers, or bare
+for 5.2.8; neither are AppDir/Flatpak bundles, GUI platform installers, or bare
 Linux/Windows executables. The Python/Qt frontend remains available as source;
 its gated architecture-independent DEB, noarch/source RPM, and source-only
 portable ZIP are included in the release claim. The portable ZIP contains no
@@ -477,7 +477,7 @@ then traverse below a pinned directory descriptor with no-follow operations.
 Windows builds use handle-relative traversal and
 no-replace publication for normal local Win32 destinations. Extended-length and
 device-namespace paths, raw UNC output roots, and mapped/network-drive output
-are not supported in 5.2.7. Cross-compilation and Wine results are not native
+are not supported in 5.2.8. Cross-compilation and Wine results are not native
 Windows evidence; the native Windows package gate, including its Unicode round
 trip, is separate and mandatory before publication.
 .
@@ -577,7 +577,7 @@ and the encrypted-dedup linear AAD sequence published through 5.2.1. The narrow
 compatibility fixture is an actual v5.2.1 password-encrypted
 DATA/DATA/REF/DATA disk archive stored as hexadecimal text with source and hash
 provenance. The candidate lists, tests, extracts, and restores that fixture
-byte-exact. The exact 5.2.7 candidate must repeat the gate. It does not imply
+byte-exact. The exact 5.2.8 candidate must repeat the gate. It does not imply
 that a 5.2.1 reader
 accepts every new 5.2.2 archive or that every historical encrypted mode was
 retested.

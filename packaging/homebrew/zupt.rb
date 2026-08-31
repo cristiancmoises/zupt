@@ -22,8 +22,8 @@
 class Zupt < Formula
   desc "Post-quantum backup compression utility (ML-KEM-768 + AES-256-CTR + HMAC-SHA256)"
   homepage "https://github.com/cristiancmoises/zupt"
-  url "https://github.com/cristiancmoises/zupt/releases/download/v5.2.7/zupt-5.2.7.tar.gz"
-  version "5.2.7"
+  url "https://github.com/cristiancmoises/zupt/releases/download/v5.2.8/zupt-5.2.8.tar.gz"
+  version "5.2.8"
   sha256 "4db1badbb9a62676176829326b6fd4bab5fe67be6631a7f6d341bdc6c7265c04"
   license all_of: ["AGPL-3.0-or-later", "GPL-3.0-or-later", "BSD-2-Clause", "BSD-3-Clause", "CC0-1.0"]
 

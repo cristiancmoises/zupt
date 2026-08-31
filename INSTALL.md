@@ -1,4 +1,4 @@
-# Installing ZUPT 5.2.7
+# Installing ZUPT 5.2.8
 
 This guide covers the ZUPT command-line program and the optional Python GUI.
 The canonical source repository is
@@ -30,16 +30,25 @@ archive format, cryptography, codec, and SDK ABI are unchanged. The immutable
 The immutable `v5.2.6` candidate was not promoted after run `33442264243`
 recorded 13 successful jobs and two native failures: unused x86 SHA-NI helper
 declarations on macOS arm64 under `-Werror`, and early Windows abortion while
-argv-transcoding a safe UTF-8 fixture. Version 5.2.7 corrects those test-harness
-boundaries, but still requires fresh gates. Do not treat any prior candidate's
-artifacts or evidence as 5.2.7 packages or validation.
+argv-transcoding a safe UTF-8 fixture. Version 5.2.7 corrected those boundaries
+but was not promoted after exact-tag run `33445470664`: 13 jobs succeeded,
+macOS failed because its filesystem rejected the raw-C1 filename fixture with
+`EILSEQ`, and Windows was cancelled after the hosted job stalled in `make
+check`; a MinGW/Wine reproduction isolated the cause to the non-console
+password-prompt test entering `_getch`. Version 5.2.8 makes both
+fixtures portable, hardens the three CodeQL High path-race boundaries described
+in the security documents, and adds `sdk-test` to release and hosted Linux
+gates. It still requires fresh exact-version validation. Do not treat any prior
+candidate's artifacts or evidence as 5.2.8 packages or validation.
 
-The 5.2.7 package set eligible for promotion after each target gate succeeds is:
+The 5.2.8 package set eligible for promotion after each target gate succeeds is
+exactly these 13 assets:
 
 | Component | Gated artifacts |
 |---|---|
-| CLI | `zupt-5.2.7.tar.gz`, `zupt_5.2.7_amd64.deb`, openSUSE x86_64 binary/source RPMs, `zupt-5.2.7-linux-x86_64.tar.xz`, `zupt-5.2.7-windows-x86_64.zip`, and `ZUPT-5.2.7-macOS-*.dmg` |
-| GUI | `zupt-gui_5.2.7_all.deb`, `zupt-gui-5.2.7-1.noarch.rpm`, `zupt-gui-5.2.7-1.src.rpm`, and `zupt-gui-5.2.7-portable.zip` |
+| Source and checksums | `zupt-5.2.8.tar.gz`, `zupt-5.2.8.tar.gz.sha256`, and `SHA256SUMS` |
+| CLI | `zupt_5.2.8_amd64.deb`, `zupt-5.2.8-0.x86_64.rpm`, `zupt-5.2.8-0.src.rpm`, `zupt-5.2.8-linux-x86_64.tar.xz`, `zupt-5.2.8-windows-x86_64.zip`, and exactly one `ZUPT-5.2.8-macOS-{x86_64\|arm64}.dmg` |
+| GUI | `zupt-gui_5.2.8_all.deb`, `zupt-gui-5.2.8-1.noarch.rpm`, `zupt-gui-5.2.8-1.src.rpm`, and `zupt-gui-5.2.8-portable.zip` |
 
 The GUI packages require the matching `zupt` CLI package and must pass exact
 payload/dependency checks plus an installed off-screen GUI/CLI integration
@@ -47,7 +56,7 @@ test. The source-only portable GUI ZIP bundles launchers, notices, and GUI
 source, but not Python, Qt, or the CLI. The Linux tar.xz carries the tested CLI
 beside the complete public license/notice payload. AppImage, AppDir, Flatpak
 bundles, GUI platform installers, and bare Linux/Windows executables are not
-promoted for 5.2.7. The Windows ZIP and macOS DMG contain the CLI only. Exact
+promoted for 5.2.8. The Windows ZIP and macOS DMG contain the CLI only. Exact
 target boundaries are listed in `README.md`.
 The release's `SHA256SUMS` and validation notes, not the mere presence of a
 download link, identify an artifact that completed its gate.
@@ -84,7 +93,7 @@ sudo pacman -S base-devel gzip
 ```
 
 Package names can differ by distribution release. These commands are examples,
-not a statement that 5.2.7 has been accepted into each distribution repository.
+not a statement that 5.2.8 has been accepted into each distribution repository.
 
 ## Build and test from source
 
@@ -104,7 +113,7 @@ From a release archive, run the scanner as follows before extraction or from a
 trusted checkout after download:
 
 ```sh
-scripts/check-source-only.sh --archive /path/to/zupt-5.2.7.tar.gz
+scripts/check-source-only.sh --archive /path/to/zupt-5.2.8.tar.gz
 ```
 
 The default build provides the native password, ML-KEM-768 + X25519 hybrid

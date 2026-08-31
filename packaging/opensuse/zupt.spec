@@ -18,7 +18,7 @@
 #
 
 Name:           zupt
-Version:        5.2.7
+Version:        5.2.8
 Release:        0
 Summary:        Backup compression with authenticated and post-quantum encryption
 License:        AGPL-3.0-or-later AND GPL-3.0-or-later AND BSD-2-Clause AND BSD-3-Clause AND CC0-1.0

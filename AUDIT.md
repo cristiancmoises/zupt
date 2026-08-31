@@ -1,12 +1,12 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-# ZUPT 5.2.7 audit guide and finding history
+# ZUPT 5.2.8 audit guide and finding history
 
 This document describes review surfaces and reproducible checks. It is an
 upstream self-review, not an independent audit, certification, or guarantee.
 `SECURITY.md` defines reporting policy and `THREAT_MODEL.md` defines the
 security boundary.
 
-## 5.2.7 scope
+## 5.2.8 scope
 
 The baseline scope is the source-only CLI and its bundled source codec:
 
@@ -28,7 +28,7 @@ output.
 
 ## Source-only review
 
-The 5.2.7 baseline retains the source-only boundary introduced in 5.2.2, which
+The 5.2.8 baseline retains the source-only boundary introduced in 5.2.2, which
 removed incomplete SDK/PQBOX header snapshots and local precompiled-library
 expectations. Git and new upstream source
 archives are intended to contain no compiled executable, object, shared/static
@@ -42,10 +42,10 @@ scripts/check-source-only.sh
 
 # committed Git tree or immutable tag
 scripts/check-source-only.sh --tag HEAD
-scripts/check-source-only.sh --tag v5.2.7
+scripts/check-source-only.sh --tag v5.2.8
 
 # generated source archive
-scripts/check-source-only.sh --archive /path/to/zupt-5.2.7.tar.gz
+scripts/check-source-only.sh --archive /path/to/zupt-5.2.8.tar.gz
 ```
 
 The scanner checks extensions and magic bytes, nested archives, symlink targets,
@@ -80,6 +80,7 @@ make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf 1)" \
   WITH_SDK=0 WITH_PQBOX=0 V=1
 make WITH_SDK=0 WITH_PQBOX=0 check
 make WITH_SDK=0 WITH_PQBOX=0 test-all
+make sdk-test
 ```
 
 Relevant review layers include:
@@ -92,6 +93,7 @@ Relevant review layers include:
 | Archive behavior | quick/regression, traversal, argument-order, block-swap, nonce, and exact-size tests | Exercises current parser, integrity, and round-trip properties |
 | Password sources | `tests/test_password_sources.sh` | Exercises password-file, inherited-descriptor and explicit-prompt rejection paths without logging password contents |
 | Key files | native key regressions | Exercises no-replace private-file creation, POSIX mode `0600`/Windows current-user-only DACL, failed-partial behavior, checksum, and exact ZKEY/ZPQK version/flags/reserved/size/role validation |
+| SDK key publication | `make sdk-test` | Exercises atomic descriptor/handle-backed key copies, POSIX private/public modes, and symlink/hardlink target preservation; this now runs in `release-check` and hosted GCC/Clang Linux CI |
 | Terminal output | archive-comment regression | Requires displayed untrusted comments to contain no raw terminal-control sequence |
 | Prompt cleanup | PTY signal regression | Requires handled POSIX interruption to restore the saved terminal state |
 | Sanitizers | `make test-asan-run` | Builds and executes separate ASan/UBSan/LSan evidence where supported; not a substitute for normal tests |
@@ -109,7 +111,7 @@ without evidence.
 The following upstream self-audit results apply only to the 5.2.2 candidate at
 commit `ff99770` on the recorded local Linux environments. The immutable 5.2.2
 tag was not promoted after post-tag CI integration failures. These results are
-not independent certification, a 5.2.7 result, or evidence that release assets
+not independent certification, a 5.2.8 result, or evidence that release assets
 were published.
 
 | Gate | Result | Recorded evidence |
@@ -141,7 +143,7 @@ A separate local openSUSE Tumbleweed reproduction resolved the explicit
 produced exactly one `zupt-5.2.4.tar.gz`, which passed the source-only scanner.
 This isolates a release/test harness defect; it is not evidence of a product,
 archive-format, cryptographic, codec, or SDK ABI change. It also does not turn
-the skipped native jobs into passes or transfer any result to 5.2.7.
+the skipped native jobs into passes or transfer any result to 5.2.8.
 
 ## Prior 5.2.5 exact-tag native-gate evidence
 
@@ -164,7 +166,7 @@ GNU Bash 3.2.57 in a clean clone. All four exercised modes completed: the
 repository audit reported 609 files and one archive; `--tree` reported 204/0;
 `--archive` reported 201/1; and `--root` plus `--tag v5.2.5` reported 810/2.
 This is targeted scanner compatibility evidence only, not exact-v5.2.6 or
-v5.2.7 hosted CI, package, native-platform, or promotion evidence.
+v5.2.8 hosted CI, package, native-platform, or promotion evidence.
 
 ## Prior 5.2.6 exact-tag native-gate evidence
 
@@ -178,10 +180,52 @@ archive and diagnostic assertions.
 The 5.2.7 changes scope those helper declarations to supported x86 builds and
 carry the safe UTF-8 fixture across the Windows argument boundary without
 locale-dependent byte conversion. These are test/release integration changes,
-not archive-format, cryptographic, codec, or SDK ABI changes. They are not proof
-that any v5.2.7 native or hosted gate has passed.
+not archive-format, cryptographic, codec, or SDK ABI changes.
 
-The exact 5.2.7 candidate must repeat the required suite. Native Windows and
+## Prior 5.2.7 exact-tag native-gate evidence
+
+The immutable `v5.2.7` candidate was not promoted. Exact-tag GitHub Actions run
+`33445470664` concluded `cancelled` at `2026-08-31T23:11:19Z`, with 13
+successful jobs, one failed macOS job, and one cancelled Windows job. The macOS
+runner filesystem rejected creation of the
+raw-C1 filename fixture with `EILSEQ`. The hosted Windows job stalled in `make
+check`; a MinGW/Wine reproduction isolated the cause to
+`test --password-prompt ... </dev/null` entering `_getch`, and the remaining
+native job was cancelled.
+
+The 5.2.8 fixture treats that creation refusal as an explicit `SKIP`; on a
+filesystem that accepts the byte, the scanner must still reject the compiled
+magic and render the path without emitting the raw C1 byte. No result from the
+immutable tag transfers automatically to 5.2.8. The Windows prompt correction
+rejects a redirected/non-console standard input before entering `_getch` and
+adds a native EOF regression; it also requires fresh exact-candidate evidence.
+
+## 5.2.8 CodeQL High path-race corrections
+
+CodeQL High #5 identified SDK key-copy publication that reopened the output
+path and then applied `chmod` to that mutable name. The copy now uses the core
+atomic publisher, sets POSIX mode on the open temporary descriptor, checks
+read/close/publication failures, and replaces only the destination directory
+entry. `sdk-test` covers symlink and hardlink sentinels and expected key modes.
+
+CodeQL High #6 identified the POSIX disk-restore `lstat`-then-`open` sequence.
+Restore now opens once with `O_NOFOLLOW` and without truncation, classifies that
+descriptor with `fstat`, and retains the same raw-device descriptor through
+capacity checks and writes. Regular-file destinations retain the existing
+atomic publisher.
+
+CodeQL High #7 identified benchmark cleanup's `lstat`-then-recursive-path
+sequence. POSIX cleanup now pins each component with `openat` and removes leaves
+with `unlinkat`; Windows pins ancestors/children, opens reparse points without
+following them, recurses only into a plain directory held against rename, and
+after emptying a directory reopens it relative to the pinned parent, verifies
+its volume and file index against the traversal handle, and marks only that
+identity-checked handle for deletion. The live-workspace
+regression injects a directory symlink and verifies that its external sentinel
+survives. These are reviewed fixes and regression coverage,
+not independent certification or proof that a 5.2.8 hosted gate passed.
+
+The exact 5.2.8 candidate must repeat the required suite. Native Windows and
 macOS gates, hosted GitHub CI and release promotion, authenticated OBS
 validation, and resolution of the openSUSE automatic `debugsource` rpmlint
 `no-binary` finding remain pending until recorded otherwise.
@@ -203,7 +247,7 @@ AES implementation has documented cache-timing risk on hostile shared hardware.
 
 The following entries are retained as release history. Their regression tests
 should be rerun, but the historical resolution does not itself constitute a
-5.2.7 test result.
+5.2.8 test result.
 
 | First corrected | Severity | Finding | Resolution recorded at the time |
 |---|---|---|---|
@@ -223,6 +267,9 @@ should be rerun, but the historical resolution does not itself constitute a
 | 5.2.2 | Medium | A signal during an interactive POSIX password prompt could leave terminal echo/state altered | Restore saved terminal settings on handled interruptions; cover the behavior with a PTY regression |
 | 5.2.2 | Test reliability | `tests/regression.sh` used Bash syntax without making the interpreter contract explicit | Execute the suite explicitly with Bash and keep syntax/interpreter checks in release gates |
 | 5.2.2 | Documentation/licensing | Current documentation incorrectly denied historical MIT grants visible in published Git history | Added a factual erratum: current source follows current SPDX notices, while earlier grants and immutable tags remain valid and unmodified |
+| 5.2.8 | High | CodeQL #5: SDK key copies changed permissions through a re-resolved destination path | Publish through the core atomic output object and apply permissions to its open descriptor; run link-target/mode regressions through `sdk-test` |
+| 5.2.8 | High | CodeQL #6: POSIX disk restore classified a pathname before reopening it destructively | Open without truncation or symlink following, classify with `fstat`, and retain the same device descriptor through write |
+| 5.2.8 | High | CodeQL #7: benchmark cleanup classified entries before recursively resolving their path | Traverse pinned descriptors/handles, refuse link/reparse traversal, remove entries relative to pinned parents, and verify Windows directory identity before handle deletion |
 
 See `CHANGELOG.md` for the complete per-release history and compatibility notes.
 Old tags remain immutable and may contain artifacts or build assumptions removed
@@ -244,12 +291,12 @@ include SHA-256 checksums. The gated GUI set adds the architecture-independent
 DEB, noarch/source RPM, and source-only portable GUI ZIP. Package gates include
 exact payload/dependency and installed off-screen integration checks; the
 portable ZIP additionally receives source scans, an exact safe-member allowlist,
-and an extracted launcher test. An AppImage is not promoted by the 5.2.7
+and an extracted launcher test. An AppImage is not promoted by the 5.2.8
 policy; AppDir and Flatpak bundles, GUI platform installers, and bare
 Linux/Windows executables are also excluded. Windows ZIP and macOS DMG outputs
 remain CLI-only.
 
-No Wine result is retained as release evidence for 5.2.7. Cross-compilation
+No Wine result is retained as release evidence for 5.2.8. Cross-compilation
 does not establish native-Windows behavior. Extended-length/device namespace
 paths, raw UNC output roots, and mapped/network-drive output are unsupported;
 the native Windows workflow remains a publication gate for the ZIP containing

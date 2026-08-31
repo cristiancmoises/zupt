@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
 #
-# Flake-stress harness — §3 of PROMPT.md.
+# Repeated-suite flake-stress harness.
 #
 # Runs every short test suite N times (default 50) and aborts on the
 # first non-deterministic outcome. Specifically targeted at the audit
@@ -21,7 +21,7 @@ set -u
 # F-02's repro needed 50 runs to be statistically convincing (~10%
 # baseline flake rate), but at 20 runs we still have ~88% chance of
 # catching a 10%-flake — fine for routine CI. For a hardened audit
-# pass, invoke with 50 or 100 (see PROMPT.md §3).
+# pass, invoke with 50 or 100 for a deeper audit run.
 N="${1:-20}"
 ZUPT_BIN="${ZUPT_BIN:-./zupt}"
 

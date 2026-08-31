@@ -1,5 +1,49 @@
 # ZUPT Changelog
 
+## [5.2.8] — 2026-08-31 — Path-race hardening and native-fixture correction
+
+Corrective successor to the immutable, unpromoted `v5.2.7` candidate.
+Exact-tag GitHub Actions run `33445470664` reached a macOS failure because the
+runner filesystem rejected creation of the raw-C1 filename fixture with
+`EILSEQ`. The workflow concluded `cancelled` at `2026-08-31T23:11:19Z`, with
+13 successful jobs, one failed macOS job, and one cancelled Windows job.
+The hosted Windows job stalled in `make check`; a MinGW/Wine reproduction
+isolated the cause to `test --password-prompt ... </dev/null` entering
+`_getch` despite redirected standard input. The tag and its evidence remain
+unchanged.
+
+- Close CodeQL High #5 in SDK key saving by copying into the core atomic
+  publisher's already-open private object, applying POSIX key permissions with
+  `fchmod` on that descriptor, checking read/close/publication failures, and
+  replacing only the requested directory entry. Symlink and hardlink target
+  sentinels and private/public key modes are covered by the SDK regression.
+- Close CodeQL High #6 in POSIX disk restore by opening the target once without
+  truncation or final-symlink following, classifying that descriptor with
+  `fstat`, and retaining the same device descriptor through capacity checks and
+  writes. Regular-file restores continue to use atomic publication.
+- Close CodeQL High #7 in benchmark cleanup by resolving POSIX components with
+  `openat(..., O_NOFOLLOW)`, deleting relative to pinned descriptors with
+  `unlinkat`, and using pinned, reparse-point-aware handles for Windows
+  traversal. The regression injects a directory symlink into a live workspace
+  and verifies that cleanup does not visit its target.
+- Treat inability to create the raw-C1 scanner filename as an explicit fixture
+  skip on filesystems that reject the byte; when creation succeeds, the unsafe
+  diagnostic-escaping assertions still run unchanged.
+- Reject redirected or otherwise non-console Windows password prompts before
+  entering `_getch`, handle console EOF as an error, and cover the native
+  redirected-input path so it cannot hang a release gate.
+- Run `sdk-test` from both `release-check` and the hosted GCC/Clang Linux job so
+  the atomic key-save regression cannot silently fall outside release gates.
+- Carry the v5.2.7 archive format, cryptography, bundled codec release, and SDK
+  ABI forward unchanged. These are implementation and test-integration
+  corrections, not a wire-format or API change.
+- Realign current code, package, workflow, artifact, and documentation
+  references to 5.2.8. AUR/Homebrew SHA-256 and Guix content pins remain
+  pending until the final reproducible archive is generated.
+- Require fresh exact-`v5.2.8` source, checksum, hosted CI, native-platform,
+  package, OBS, and promotion evidence. This entry does not claim those gates
+  passed, and no v5.2.7 result transfers automatically.
+
 ## [5.2.7] — 2026-08-31 — Native test-harness portability corrections
 
 Corrective successor to the immutable, unpromoted `v5.2.6` candidate. Exact-tag
@@ -2433,7 +2477,7 @@ bump and packaging-syntax test expansion; archive format unchanged.
 ### `.github/workflows/ci.yml` — 8-job CI matrix
 
 Replaces the prior 4-job CI with a comprehensive matrix that mirrors
-the project's local-verification protocol from `PROMPT.md §6`:
+the project's historical local-verification protocol:
 
 | Job | What it does |
 |---|---|
@@ -3156,7 +3200,7 @@ size to run. It needs to be a sprint-protocol step, not a one-off.
 
 ### What changed
 
-**`PROMPT.md` — Prompt v2.**
+**Historical sprint instructions — version 2.**
 
 - **NEW §3.5: The exhaustive byte-sweep mandate.** Every
   format-touching change runs the full byte sweep before claiming
@@ -3176,7 +3220,7 @@ size to run. It needs to be a sprint-protocol step, not a one-off.
   with the regression-test names that catch each one. The table is
   the canonical "things that have shipped and must never recur"
   reference; keeping it current is part of every sprint.
-- **Footer stamp**: Prompt v2, 2026-05-20.
+- **Footer stamp**: historical instruction revision 2, 2026-05-20.
 
 **`Makefile`.** The help-target banner version is now derived
 from `include/zupt.h` via a `grep | awk` substitution:
@@ -3187,7 +3231,7 @@ help:
         include/zupt.h | awk -F'"' '{print $$2}') build targets:"
 ```
 
-This closes a recurring bug noted in `PROMPT.md §6 step 9` —
+This closes a recurring bug noted in the historical sprint checklist —
 prior sprints (2.3.0, 2.3.1) left the banner stale even after the
 sprint protocol said to bump it. Making it auto-derived removes
 the drift opportunity entirely.
@@ -3218,7 +3262,6 @@ the drift opportunity entirely.
 ### Files touched
 
 ```
-PROMPT.md            (§3.5 NEW, §6 step renumber, §10 kickoff, §11 rows, v2 stamp)
 Makefile             (help banner auto-derives version from header)
 include/zupt.h       (version 2.3.1 → 2.4.0)
 CHANGELOG.md         (this entry)
@@ -3402,7 +3445,7 @@ the footer.
 
 - **Encrypted modes**: AIT = `HMAC-SHA256(mac_key, hdr[0..63] || footer[0..23])`
 - **Plaintext modes**: AIT = `XXH64(...)` in the first 8 bytes, zeros in
-  the rest. Best-effort (`OPAQUE`-class per PROMPT.md §5).
+  the rest. Best-effort (`OPAQUE` structural-integrity class).
 
 The MAC input deliberately excludes `footer[24..31]` = `"ZEND" || u32 version`.
 Both are structurally validated by the read path (`locate_footer_v15`
@@ -3592,7 +3635,7 @@ so flipping it (e.g. from `0x02 INDEX` to `0x03 ENC_HEADER`) did
 not cause auth failure; the downstream parser was tolerant.
 Severity: low. Fix at `src/zupt_format.c` adds the structural
 check immediately after `read_block`. This makes the byte
-`OPAQUE`-class per PROMPT.md §5 (tamper detected by parser, not by
+`OPAQUE` structural-integrity class (tamper detected by parser, not by
 MAC).
 
 **F-02b — RECLASSIFIED.** The 2.2.4 hypothesis that the archive
@@ -3629,7 +3672,7 @@ other v2.3.0 changes than as a standalone patch.
 ### Verification
 
 - `make` — clean on plain GCC and Clang.
-- `make` with strict GCC flags (full set from PROMPT.md §6) — clean.
+- `make` with the historical strict GCC warning set — clean.
 - `make` with strict Clang flags — clean.
 - `make test` — **61/61 passing**.
 - `make test-vectors` — **14/14 passing**.
@@ -3665,8 +3708,8 @@ SECURITY.md                            (integrity statement reaffirmed)
 
 Patch release. No format changes, no feature changes, no on-disk
 compatibility impact. Five findings closed against the v2.2.3 baseline
-under the methodology in the new top-level `PROMPT.md` (continuous
-improvement prompt) and tracked in `docs/FINDINGS-2.x.md` (durable
+under the methodology in the then-current audit instructions and tracked in
+`docs/FINDINGS-2.x.md` (durable
 numbered ledger that survives between work sessions).
 
 ### Findings closed
@@ -3738,9 +3781,9 @@ preserved.
 
 ### New process artefacts
 
-- **`PROMPT.md`** — top-level "god-tier" continuous-improvement prompt.
-  Designed to be pasted verbatim into a fresh chat alongside the latest
-  source tarball. Encodes the methodology that produced this release:
+- **Historical continuous-improvement instructions** — removed from the
+  current source tree after their durable material was consolidated into the
+  audit and security documents. They encoded the methodology that produced this release:
   three-line workflow (survey → fix-with-test → ship), explicit
   authentication-coverage invariant (every archive byte covered by
   per-block HMAC OR a separate index MAC OR a footer MAC — no third
@@ -3788,7 +3831,7 @@ preserved.
 ### Files touched
 
 ```
-PROMPT.md                              (new, top-level)
+[historical sprint-instruction file]   (removed from the current tree)
 docs/FINDINGS-2.x.md                   (new)
 tests/test_audit_flake.sh              (new)
 src/zupt_main.c                        (F-01)
@@ -3900,20 +3943,20 @@ Two `make test` runs back-to-back, both clean. Cumulative test count:
 
 ### Documentation cleanup
 
-Four design/audit-prompt documents that were sprint-internal scratch
+Four design/audit-instruction documents that were sprint-internal scratch
 have been removed from the source tree (consolidated into the
 remaining permanent docs):
 
 | Removed | Where the content lives now |
 |---|---|
-| `AUDIT_PROMPT.md` | superseded by `FORMAL_AUDIT_PROMPT.md` |
+| Two historical audit-instruction files | consolidated into the permanent audit and security documents |
 | `ROOT_CAUSE_ANALYSIS.md` | reproducible-bug postmortems are now per-release entries in `CHANGELOG.md` |
 | `COMPAT.md` | the table moved into `README.md` § "Architecture & platform support" |
 | `DONATIONS.md` | one-liner moved into `README.md` § "Supporting Zupt" |
 
 Surviving canonical docs: `README.md`, `CHANGELOG.md` (this file),
 `SECURITY.md`, `INSTALL.md`, `LICENSE`, `THIRD-PARTY-NOTICES.md`,
-`AUDIT.md`, `FORMAL_AUDIT_PROMPT.md`, `ROADMAP.md`.
+`AUDIT.md` and the then-current roadmap.
 
 
 ## [2.2.2-final2] — 2026-05-01 — CLI help, man pages, deb copyright
@@ -4091,7 +4134,7 @@ the github-old → github-new migration sprint) deleted as obsolete.
 
 ## [2.2.2] god-tier audit — bug #16 (block-swap attack) fix
 
-Independent formal cryptographic audit (per FORMAL_AUDIT_PROMPT.md two-pass
+Independent formal cryptographic audit (using the then-current two-pass
 methodology) discovered a critical authenticated-encryption flaw in the
 shipped 2.2.2 binary. Investigation, root-cause, fix, regression test, and
 final verification documented below.
@@ -4290,7 +4333,7 @@ Compile-tested with `-Wpedantic` under GCC. Win32 code paths verified via
 - `AUDIT.md`: 2026-04-27 formal audit entry with cumulative test table
 - `README.md`: Security section bumped with audit confirmation
 - `doc/zupt.1`: SECURITY section mentions path-traversal protection
-- `FORMAL_AUDIT_PROMPT.md`: methodology document at repo root for future audits
+- the then-current formal-audit methodology document
 
 ## [2.2.2] — 2026-04-27
 
