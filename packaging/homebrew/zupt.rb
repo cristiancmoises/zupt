@@ -24,7 +24,7 @@ class Zupt < Formula
   homepage "https://github.com/cristiancmoises/zupt"
   url "https://github.com/cristiancmoises/zupt/releases/download/v5.2.6/zupt-5.2.6.tar.gz"
   version "5.2.6"
-  sha256 "REPLACE_AFTER_FINAL_ARCHIVE_SHA256"
+  sha256 "e64bd92aac1b50018efd3c8b678c70771320a2069d47f32c03349c569100b27c"
   license all_of: ["AGPL-3.0-or-later", "GPL-3.0-or-later", "BSD-2-Clause", "BSD-3-Clause", "CC0-1.0"]
 
   depends_on "python@3.12" => :test  # only for test-suite tamper harness

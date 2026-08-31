@@ -72,7 +72,7 @@
           "/releases/download/v" %zupt-version
           "/zupt-" %zupt-version ".tar.gz"))
     (sha256
-     (base32 "REPLACE_AFTER_FINAL_ARCHIVE_GUIX_BASE32"))))
+     (base32 "0z5j028md71l0cng6iwx0si204vpf266g2rwzn702l0vmhmdjjz6"))))
 
 (define-public zupt
   (package
