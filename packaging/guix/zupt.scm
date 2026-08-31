@@ -72,7 +72,7 @@
           "/releases/download/v" %zupt-version
           "/zupt-" %zupt-version ".tar.gz"))
     (sha256
-     (base32 "1l8yk4rdbnk8syq15vsfxd3f8p2hr3i4r0g9gfvwqxxv8si17qh7"))))
+     (base32 "1b9r4m9n314rp4l5cnilvcpgybb1hwcmlvihc1xbk8q2iaa8fais"))))
 
 (define-public zupt
   (package
