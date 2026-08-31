@@ -540,6 +540,7 @@ test-all: check
 # Release-only gates need a committed Git checkout and packaging metadata.
 # Keep them out of downstream %check, which intentionally has no dist rebuild.
 release-check: test-all audit-licenses
+	$(Q)$(MAKE) sdk-test
 	$(Q)bash tests/test_static_analysis.sh
 	$(Q)bash tests/test_packaging_syntax.sh
 	$(Q)bash scripts/test-installed-zupt.sh ./$(TARGET)

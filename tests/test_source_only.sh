@@ -154,16 +154,19 @@ case "$(uname -s)" in
 
         tree=$(fresh_tree raw-c1-path)
         control_name=$'raw-\200.txt'
-        printf '\177ELF\002\001\001\000compiled' >"$tree/$control_name"
-        if "$SCANNER" --tree "$tree" >"$TEST_TMP/output" 2>&1; then
-            printf 'not ok - raw C1 path was not rejected\n'
-            exit 1
-        elif ! grep -Fq 'raw-\x80.txt' "$TEST_TMP/output" ||
-             LC_ALL=C grep -q $'\200' "$TEST_TMP/output"; then
-            printf 'not ok - raw C1 path was not rendered safely\n'
-            exit 1
+        if { printf '\177ELF\002\001\001\000compiled' >"$tree/$control_name"; } 2>/dev/null; then
+            if "$SCANNER" --tree "$tree" >"$TEST_TMP/output" 2>&1; then
+                printf 'not ok - raw C1 path was not rejected\n'
+                exit 1
+            elif ! grep -Fq 'raw-\x80.txt' "$TEST_TMP/output" ||
+                 LC_ALL=C grep -q $'\200' "$TEST_TMP/output"; then
+                printf 'not ok - raw C1 path was not rendered safely\n'
+                exit 1
+            else
+                pass 'scanner escapes invalid raw C1 bytes in reported paths'
+            fi
         else
-            pass 'scanner escapes invalid raw C1 bytes in reported paths'
+            skip 'raw C1 filenames are forbidden by this filesystem'
         fi
 
         tree=$(fresh_tree utf8-c1-path)

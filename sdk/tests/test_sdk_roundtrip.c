@@ -12,6 +12,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
 #include <unistd.h>
 
 static int g_pass = 0, g_fail = 0;
@@ -46,6 +49,79 @@ static const uint8_t TEST_DATA[] =
     "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod. "
     "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod. "
     "End of test data.\n";
+
+#ifndef _WIN32
+static int file_matches(const char *path, const void *expected,
+                        size_t expected_size) {
+    struct stat info;
+    char observed[128];
+    if (expected_size > sizeof(observed) || stat(path, &info) != 0 ||
+        info.st_size < 0 || (uint64_t)info.st_size != (uint64_t)expected_size)
+        return 0;
+    FILE *stream = fopen(path, "rb");
+    if (!stream) return 0;
+    size_t got = fread(observed, 1, expected_size, stream);
+    int read_error = ferror(stream);
+    int close_rc = fclose(stream);
+    return got == expected_size && !read_error && close_rc == 0 &&
+           memcmp(observed, expected, expected_size) == 0;
+}
+
+static int private_key_save_avoids_link_targets(const zuptsdk_keypair_t *kp) {
+    static const char sentinel[] = "do not replace through a symlink\n";
+    char workspace[] = "/tmp/zupt-sdk-link-save.XXXXXX";
+    char target[192];
+    char symlink_path[192];
+    char hardlink_path[192];
+    FILE *stream;
+    struct stat target_st;
+    struct stat output_st;
+    int ok = 0;
+
+    if (!mkdtemp(workspace)) return 0;
+    snprintf(target, sizeof(target), "%s/target", workspace);
+    snprintf(symlink_path, sizeof(symlink_path), "%s/symlink-output",
+             workspace);
+    snprintf(hardlink_path, sizeof(hardlink_path), "%s/hardlink-output",
+             workspace);
+
+    stream = fopen(target, "wb");
+    if (!stream) goto cleanup;
+    size_t written = fwrite(sentinel, 1, sizeof(sentinel) - 1, stream);
+    int close_rc = fclose(stream);
+    if (written != sizeof(sentinel) - 1 || close_rc != 0)
+        goto cleanup;
+
+    if (symlink(target, symlink_path) != 0 ||
+        zuptsdk_keypair_save_private(kp, symlink_path) != ZUPTSDK_OK ||
+        !file_matches(target, sentinel, sizeof(sentinel) - 1) ||
+        stat(target, &target_st) != 0 || lstat(symlink_path, &output_st) != 0 ||
+        (target_st.st_dev == output_st.st_dev &&
+         target_st.st_ino == output_st.st_ino) ||
+        !S_ISREG(output_st.st_mode) || output_st.st_size <= 0 ||
+        (output_st.st_mode & 0777) != 0600)
+        goto cleanup;
+
+    if (link(target, hardlink_path) != 0 ||
+        zuptsdk_keypair_save_private(kp, hardlink_path) != ZUPTSDK_OK ||
+        !file_matches(target, sentinel, sizeof(sentinel) - 1) ||
+        stat(target, &target_st) != 0 || stat(hardlink_path, &output_st) != 0 ||
+        (target_st.st_dev == output_st.st_dev &&
+         target_st.st_ino == output_st.st_ino) ||
+        !S_ISREG(output_st.st_mode) || output_st.st_size <= 0 ||
+        (output_st.st_mode & 0777) != 0600)
+        goto cleanup;
+
+    ok = 1;
+
+cleanup:
+    unlink(symlink_path);
+    unlink(hardlink_path);
+    unlink(target);
+    rmdir(workspace);
+    return ok;
+}
+#endif
 
 static void test_version(void) {
     TEST("version_string returns non-NULL");
@@ -250,6 +326,15 @@ cleanup:
 
 static void test_keypair_pq(void) {
     TEST("keypair_generate + compress_pq + extract_pq");
+    char saved_priv[160];
+    char saved_pub[160];
+    snprintf(saved_priv, sizeof(saved_priv), "/tmp/_zsdk_priv_%ld.key",
+             (long)getpid());
+    snprintf(saved_pub, sizeof(saved_pub), "/tmp/_zsdk_pub_%ld.key",
+             (long)getpid());
+    unlink(saved_priv);
+    unlink(saved_pub);
+
     zuptsdk_ctx_t *ctx = NULL;
     CHECK(zuptsdk_ctx_create(&ctx), "ctx");
 
@@ -257,17 +342,35 @@ static void test_keypair_pq(void) {
     int rc = zuptsdk_keypair_generate(ctx, &kp);
     if (rc != ZUPTSDK_OK) { FAIL("keygen"); zuptsdk_ctx_destroy(ctx); return; }
 
+#ifndef _WIN32
+    if (!private_key_save_avoids_link_targets(kp)) {
+        FAIL("private key save followed a symlink or hardlink target");
+        goto err;
+    }
+#endif
+
     /* Save and load to exercise that path too */
-    rc = zuptsdk_keypair_save_private(kp, "/tmp/_zsdk_priv.key");
+    rc = zuptsdk_keypair_save_private(kp, saved_priv);
     if (rc != ZUPTSDK_OK) { FAIL("save priv"); goto err; }
-    rc = zuptsdk_keypair_save_public(kp, "/tmp/_zsdk_pub.key");
+    rc = zuptsdk_keypair_save_public(kp, saved_pub);
     if (rc != ZUPTSDK_OK) { FAIL("save pub"); goto err; }
+#ifndef _WIN32
+    struct stat private_st;
+    struct stat public_st;
+    if (stat(saved_priv, &private_st) != 0 ||
+        stat(saved_pub, &public_st) != 0 ||
+        (private_st.st_mode & 0777) != 0600 ||
+        (public_st.st_mode & 0777) != 0644) {
+        FAIL("saved key permissions do not match the requested modes");
+        goto err;
+    }
+#endif
 
     zuptsdk_pubkey_t *pub = NULL;
     zuptsdk_privkey_t *priv = NULL;
-    rc = zuptsdk_pubkey_load("/tmp/_zsdk_pub.key", &pub);
+    rc = zuptsdk_pubkey_load(saved_pub, &pub);
     if (rc != ZUPTSDK_OK) { FAIL("load pub"); goto err; }
-    rc = zuptsdk_privkey_load("/tmp/_zsdk_priv.key", &priv);
+    rc = zuptsdk_privkey_load(saved_priv, &priv);
     if (rc != ZUPTSDK_OK) { FAIL("load priv"); zuptsdk_pubkey_destroy(pub); goto err; }
 
     zuptsdk_options_t *opts = NULL;
@@ -295,8 +398,8 @@ static void test_keypair_pq(void) {
     zuptsdk_privkey_destroy(priv);
     zuptsdk_options_destroy(opts);
 
-    unlink("/tmp/_zsdk_priv.key");
-    unlink("/tmp/_zsdk_pub.key");
+    unlink(saved_priv);
+    unlink(saved_pub);
 
     if (!ok) { FAIL("byte mismatch or rc != OK"); zuptsdk_keypair_destroy(kp); zuptsdk_ctx_destroy(ctx); return; }
     zuptsdk_keypair_destroy(kp);
@@ -305,6 +408,8 @@ static void test_keypair_pq(void) {
     return;
 
 err:
+    unlink(saved_priv);
+    unlink(saved_pub);
     zuptsdk_keypair_destroy(kp);
     zuptsdk_ctx_destroy(ctx);
 }

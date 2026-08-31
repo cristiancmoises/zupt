@@ -1220,23 +1220,35 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
 #else
     int tgt_fd = -1;
     int is_block_dev = 0;
-    struct stat target_st;
-
-    if (lstat(target_path, &target_st) == 0) {
-        if (S_ISLNK(target_st.st_mode)) {
-            fprintf(stderr, "Error: refusing a symbolic-link restore target.\n");
-            fclose(f);
-            return ZUPT_ERR_INVALID;
-        }
-        if (S_ISREG(target_st.st_mode)) {
-            if (target_st.st_dev == archive_identity.device &&
-                target_st.st_ino == archive_identity.inode) {
+    /* Resolve the target exactly once before making any type or identity
+     * decision.  The open is non-truncating, O_NOFOLLOW rejects a final
+     * symlink, and fstat classifies the kernel object that was actually
+     * opened.  Device restores retain this same descriptor through the final
+     * write, so a concurrent pathname exchange cannot redirect the restore. */
+    tgt_fd = open(target_path, O_WRONLY | O_NOFOLLOW | O_CLOEXEC |
+                               O_NONBLOCK | O_SYNC);
+    if (tgt_fd >= 0) {
+        struct stat opened_st;
+        if (fstat(tgt_fd, &opened_st) != 0) {
+            int saved_errno = errno;
+            close(tgt_fd);
+            tgt_fd = -1;
+            errno = saved_errno;
+        } else if (S_ISREG(opened_st.st_mode)) {
+            int close_result = close(tgt_fd);
+            tgt_fd = -1;
+            if (close_result != 0) {
+                fclose(f);
+                return ZUPT_ERR_IO;
+            }
+            if (opened_st.st_dev == archive_identity.device &&
+                opened_st.st_ino == archive_identity.inode) {
                 fprintf(stderr,
                         "Error: archive and restore target are the same file.\n");
                 fclose(f);
                 return ZUPT_ERR_INVALID;
             }
-            if (target_st.st_nlink != 1) {
+            if (opened_st.st_nlink != 1) {
                 fprintf(stderr,
                         "Error: refusing a multiply-linked restore target.\n");
                 fclose(f);
@@ -1244,59 +1256,46 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
             }
             target_atomic =
                 zupt_atomic_output_open(target_path, &target_stream);
-        } else if (S_ISBLK(target_st.st_mode) ||
-                   S_ISCHR(target_st.st_mode)) {
-            tgt_fd = open(target_path, O_WRONLY | O_NOFOLLOW | O_CLOEXEC |
-                                       O_NONBLOCK | O_SYNC);
-            if (tgt_fd >= 0) {
-                struct stat opened_st;
-                if (fstat(tgt_fd, &opened_st) != 0 ||
-                    opened_st.st_dev != target_st.st_dev ||
-                    opened_st.st_ino != target_st.st_ino ||
-                    !(S_ISBLK(opened_st.st_mode) ||
-                      S_ISCHR(opened_st.st_mode))) {
+        } else if (S_ISBLK(opened_st.st_mode) ||
+                   S_ISCHR(opened_st.st_mode)) {
+            int flags = fcntl(tgt_fd, F_GETFL);
+            if (flags < 0 ||
+                fcntl(tgt_fd, F_SETFL, flags & ~O_NONBLOCK) != 0) {
+                close(tgt_fd);
+                tgt_fd = -1;
+            } else {
+#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)
+                uint64_t target_capacity = 0;
+                if (!disk_restore_target_capacity(
+                        tgt_fd, &opened_st, &target_capacity)) {
+                    fprintf(stderr,
+                            "Error: cannot determine restore device "
+                            "capacity safely.\n");
                     close(tgt_fd);
                     tgt_fd = -1;
-                    errno = EAGAIN;
+                } else if (expected_size > target_capacity) {
+                    fprintf(stderr,
+                            "Error: disk image (%llu bytes) exceeds "
+                            "restore device capacity (%llu bytes).\n",
+                            (unsigned long long)expected_size,
+                            (unsigned long long)target_capacity);
+                    close(tgt_fd);
+                    tgt_fd = -1;
+                    errno = EFBIG;
                 } else {
-                    int flags = fcntl(tgt_fd, F_GETFL);
-                    if (flags < 0 ||
-                        fcntl(tgt_fd, F_SETFL, flags & ~O_NONBLOCK) != 0) {
-                        close(tgt_fd);
-                        tgt_fd = -1;
-                    } else {
-#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)
-                        uint64_t target_capacity = 0;
-                        if (!disk_restore_target_capacity(
-                                tgt_fd, &opened_st, &target_capacity)) {
-                            fprintf(stderr,
-                                    "Error: cannot determine restore device "
-                                    "capacity safely.\n");
-                            close(tgt_fd);
-                            tgt_fd = -1;
-                        } else if (expected_size > target_capacity) {
-                            fprintf(stderr,
-                                    "Error: disk image (%llu bytes) exceeds "
-                                    "restore device capacity (%llu bytes).\n",
-                                    (unsigned long long)expected_size,
-                                    (unsigned long long)target_capacity);
-                            close(tgt_fd);
-                            tgt_fd = -1;
-                            errno = EFBIG;
-                        } else {
-                            is_block_dev = 1;
-                        }
-#else
-                        fprintf(stderr,
-                                "Error: restore-device capacity queries are "
-                                "not supported on this platform.\n");
-                        close(tgt_fd);
-                        tgt_fd = -1;
-#endif
-                    }
+                    is_block_dev = 1;
                 }
+#else
+                fprintf(stderr,
+                        "Error: restore-device capacity queries are "
+                        "not supported on this platform.\n");
+                close(tgt_fd);
+                tgt_fd = -1;
+#endif
             }
         } else {
+            close(tgt_fd);
+            tgt_fd = -1;
             fprintf(stderr,
                     "Error: restore target is not a regular file or device.\n");
             fclose(f);
@@ -1304,8 +1303,12 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
         }
     } else if (errno == ENOENT) {
         target_atomic = zupt_atomic_output_open(target_path, &target_stream);
+    } else if (errno == ELOOP) {
+        fprintf(stderr, "Error: refusing a symbolic-link restore target.\n");
+        fclose(f);
+        return ZUPT_ERR_INVALID;
     } else {
-        fprintf(stderr, "Error: Cannot inspect target '%s': %s\n",
+        fprintf(stderr, "Error: Cannot open target '%s': %s\n",
                 target_path, strerror(errno));
         fclose(f);
         return ZUPT_ERR_IO;

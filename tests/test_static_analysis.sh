@@ -187,6 +187,31 @@ else
     F "ECHO bit-clear missing the explicit (tcflag_t) cast"
 fi
 
+# A restore to a device is irreversible.  Classify the already-open descriptor
+# rather than checking target_path and resolving that mutable name again.
+if grep -Fq 'lstat(target_path' src/zupt_disk.c; then
+    F "disk restore has a path-check/open TOCTOU pattern"
+elif grep -Fq 'tgt_fd = open(target_path' src/zupt_disk.c &&
+     grep -Fq 'fstat(tgt_fd, &opened_st)' src/zupt_disk.c; then
+    P "disk restore classifies the opened target descriptor"
+else
+    F "disk restore descriptor-first target guard is missing"
+fi
+
+# CodeQL #5 reported chmod(dst, mode) after reopening/resolving the SDK save
+# path.  Key copies must use the core's handle/descriptor-relative atomic
+# publisher and apply POSIX permissions to its already-open temporary stream.
+if grep -Fq 'chmod(dst, mode)' sdk/src/zuptsdk.c; then
+    F "SDK key save has a path-based chmod TOCTOU pattern"
+elif grep -Fq 'zupt_atomic_output_open(dst, &fo)' sdk/src/zuptsdk.c &&
+     grep -Fq 'fchmod(fileno(fo), mode)' sdk/src/zuptsdk.c &&
+     grep -Fq 'zupt_atomic_output_finish(output, rc == ZUPTSDK_OK)' \
+         sdk/src/zuptsdk.c; then
+    P "SDK key save uses descriptor-relative atomic publication"
+else
+    F "SDK key save atomic publication guard is missing"
+fi
+
 echo ""
 echo "  ───────────────────────────────────────"
 echo "  Static analysis: $PASS passed, $FAIL failed"

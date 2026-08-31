@@ -25,7 +25,9 @@
 #ifdef _WIN32
   #include <conio.h>
   #include <windows.h>
+  #include <winternl.h>
 #else
+  #include <fcntl.h>
   #include <signal.h>
   #include <termios.h>
 #endif
@@ -100,9 +102,11 @@ static int zupt_create_private_temp_directory(char *output, size_t capacity) {
     }
     return 0;
 #else
-    static const char pattern[] = "/tmp/zupt-bench-XXXXXX";
-    if (sizeof(pattern) > capacity) return 0;
-    memcpy(output, pattern, sizeof(pattern));
+    char temp_root[ZUPT_MAX_PATH];
+    if (!realpath("/tmp", temp_root)) return 0;
+    int written = snprintf(output, capacity, "%s/zupt-bench-XXXXXX",
+                           temp_root);
+    if (written < 0 || (size_t)written >= capacity) return 0;
     if (!mkdtemp(output)) return 0;
     if (chmod(output, 0700) != 0) {
         rmdir(output);
@@ -114,7 +118,97 @@ static int zupt_create_private_temp_directory(char *output, size_t capacity) {
 }
 
 #ifdef _WIN32
-static int zupt_remove_tree_wide(const wchar_t *directory) {
+static void zupt_win_set_cleanup_errno(NTSTATUS status) {
+    if (status == (NTSTATUS)0xC0000034L || /* STATUS_OBJECT_NAME_NOT_FOUND */
+        status == (NTSTATUS)0xC000003AL) { /* STATUS_OBJECT_PATH_NOT_FOUND */
+        errno = ENOENT;
+    } else {
+        errno = EACCES;
+    }
+}
+
+/* Open one entry relative to a pinned parent.  Omitting FILE_SHARE_DELETE
+ * keeps the name bound to this handle until cleanup finishes; opening the
+ * reparse point itself prevents a junction or symlink from redirecting the
+ * recursive walk. */
+static HANDLE zupt_win_open_cleanup_entry(HANDLE parent,
+                                           const wchar_t *name,
+                                           int directory_only,
+                                           int delete_access) {
+    size_t name_length = wcslen(name);
+    if (name_length == 0 ||
+        name_length > (size_t)USHRT_MAX / sizeof(wchar_t)) {
+        errno = ENAMETOOLONG;
+        return INVALID_HANDLE_VALUE;
+    }
+    UNICODE_STRING object_name;
+    object_name.Buffer = (PWSTR)name;
+    object_name.Length = (USHORT)(name_length * sizeof(wchar_t));
+    object_name.MaximumLength = object_name.Length + sizeof(wchar_t);
+    OBJECT_ATTRIBUTES attributes;
+    InitializeObjectAttributes(&attributes, &object_name,
+                               OBJ_CASE_INSENSITIVE, parent, NULL);
+    IO_STATUS_BLOCK status_block;
+    HANDLE handle = INVALID_HANDLE_VALUE;
+    ACCESS_MASK access = FILE_LIST_DIRECTORY | FILE_TRAVERSE |
+                         FILE_READ_ATTRIBUTES | SYNCHRONIZE;
+    if (delete_access) access |= DELETE;
+    ULONG share = FILE_SHARE_READ | FILE_SHARE_WRITE;
+    if (delete_access) share |= FILE_SHARE_DELETE;
+    ULONG options = FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT;
+    if (directory_only) options |= FILE_DIRECTORY_FILE;
+    NTSTATUS status = NtCreateFile(
+        &handle, access, &attributes, &status_block, NULL,
+        FILE_ATTRIBUTE_NORMAL, share, FILE_OPEN,
+        options, NULL, 0);
+    if (status < 0 || handle == INVALID_HANDLE_VALUE) {
+        zupt_win_set_cleanup_errno(status);
+        return INVALID_HANDLE_VALUE;
+    }
+    return handle;
+}
+
+/* Mark the exact object held by an identity-checked deletion handle. */
+static int zupt_win_delete_cleanup_handle(HANDLE handle) {
+    FILE_DISPOSITION_INFO disposition;
+    disposition.DeleteFile = TRUE;
+    if (SetFileInformationByHandle(handle, FileDispositionInfo,
+                                   &disposition, sizeof(disposition)))
+        return 1;
+    errno = EACCES;
+    return 0;
+}
+
+/* Reopen an emptied child only after closing its no-delete-sharing traversal
+ * handle.  Comparing the filesystem identity before marking the new handle
+ * for deletion makes a close/reopen name exchange fail safely. */
+static int zupt_win_delete_cleanup_entry(
+    HANDLE parent, const wchar_t *name,
+    const BY_HANDLE_FILE_INFORMATION *expected) {
+    HANDLE handle = zupt_win_open_cleanup_entry(parent, name, 1, 1);
+    if (handle == INVALID_HANDLE_VALUE) return 0;
+    BY_HANDLE_FILE_INFORMATION current;
+    int same = GetFileInformationByHandle(handle, &current) &&
+               (current.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 &&
+               (current.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0 &&
+               current.dwVolumeSerialNumber == expected->dwVolumeSerialNumber &&
+               current.nFileIndexHigh == expected->nFileIndexHigh &&
+               current.nFileIndexLow == expected->nFileIndexLow;
+    int deleted = same && zupt_win_delete_cleanup_handle(handle);
+    int closed = CloseHandle(handle) != 0;
+    if (!same) errno = EBUSY;
+    return deleted && closed;
+}
+
+static int zupt_win_plain_directory(HANDLE handle) {
+    BY_HANDLE_FILE_INFORMATION info;
+    return GetFileInformationByHandle(handle, &info) &&
+           (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 &&
+           (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0;
+}
+
+static int zupt_remove_tree_wide(HANDLE directory_handle,
+                                 const wchar_t *directory) {
     size_t directory_length = wcslen(directory);
     wchar_t *pattern = (wchar_t *)calloc(directory_length + 3u,
                                          sizeof(*pattern));
@@ -125,6 +219,8 @@ static int zupt_remove_tree_wide(const wchar_t *directory) {
 
     WIN32_FIND_DATAW data;
     HANDLE search = FindFirstFileW(pattern, &data);
+    DWORD search_error = search == INVALID_HANDLE_VALUE
+                             ? GetLastError() : ERROR_SUCCESS;
     free(pattern);
     int failed = 0;
     if (search != INVALID_HANDLE_VALUE) {
@@ -143,23 +239,217 @@ static int zupt_remove_tree_wide(const wchar_t *directory) {
             child[directory_length] = L'\\';
             memcpy(child + directory_length + 1u, data.cFileName,
                    (name_length + 1u) * sizeof(*child));
-            if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
-                if ((data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
-                    if (!RemoveDirectoryW(child)) failed = 1;
-                } else if (zupt_remove_tree_wide(child) != 0) {
-                    failed = 1;
-                }
-            } else {
-                SetFileAttributesW(child, FILE_ATTRIBUTE_NORMAL);
-                if (!DeleteFileW(child)) failed = 1;
+            if (DeleteFileW(child) || RemoveDirectoryW(child)) {
+                free(child);
+                continue;
             }
+            DWORD delete_error = GetLastError();
+            if (delete_error == ERROR_FILE_NOT_FOUND ||
+                delete_error == ERROR_PATH_NOT_FOUND) {
+                free(child);
+                continue;
+            }
+            HANDLE child_handle = zupt_win_open_cleanup_entry(
+                directory_handle, data.cFileName, 1, 0);
+            if (child_handle == INVALID_HANDLE_VALUE) {
+                if (errno != ENOENT) failed = 1;
+                free(child);
+                continue;
+            }
+            int child_failed = 0;
+            BY_HANDLE_FILE_INFORMATION child_identity;
+            if (!GetFileInformationByHandle(child_handle, &child_identity) ||
+                (child_identity.dwFileAttributes &
+                 FILE_ATTRIBUTE_DIRECTORY) == 0 ||
+                (child_identity.dwFileAttributes &
+                 FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+                zupt_remove_tree_wide(child_handle, child) != 0)
+                child_failed = 1;
+            if (!CloseHandle(child_handle)) child_failed = 1;
+            if (!child_failed && !zupt_win_delete_cleanup_entry(
+                    directory_handle, data.cFileName, &child_identity))
+                child_failed = 1;
+            if (child_failed) failed = 1;
             free(child);
         } while (FindNextFileW(search, &data));
+        if (GetLastError() != ERROR_NO_MORE_FILES) failed = 1;
         if (!FindClose(search)) failed = 1;
-    } else if (GetLastError() != ERROR_FILE_NOT_FOUND) {
+    } else if (search_error != ERROR_FILE_NOT_FOUND) {
         failed = 1;
     }
-    if (!RemoveDirectoryW(directory)) failed = 1;
+    return failed ? -1 : 0;
+}
+
+/* Resolve the absolute temporary path one component at a time and retain
+ * every ancestor handle.  This makes the pathname used for enumeration
+ * stable even if another process tries to exchange an ancestor directory. */
+static int zupt_win_open_cleanup_path(
+    const wchar_t *directory, wchar_t full[ZUPT_MAX_PATH + 256],
+    HANDLE **handles_out, size_t *handle_count_out) {
+    if (!_wfullpath(full, directory, ZUPT_MAX_PATH + 256)) {
+        errno = EINVAL;
+        return 0;
+    }
+    for (wchar_t *p = full; *p; p++) if (*p == L'/') *p = L'\\';
+    if ((full[0] == L'\\' && full[1] == L'\\') ||
+        !(full[0] && full[1] == L':' && full[2] == L'\\')) {
+        errno = EINVAL;
+        return 0;
+    }
+
+    size_t capacity = wcslen(full) + 1u;
+    HANDLE *handles = (HANDLE *)calloc(capacity, sizeof(*handles));
+    if (!handles) return 0;
+    wchar_t drive_root[4] = {full[0], L':', L'\\', L'\0'};
+    HANDLE current = CreateFileW(
+        drive_root,
+        FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES |
+            SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    if (current == INVALID_HANDLE_VALUE ||
+        !zupt_win_plain_directory(current)) {
+        DWORD open_error = current == INVALID_HANDLE_VALUE
+                               ? GetLastError() : ERROR_ACCESS_DENIED;
+        if (current != INVALID_HANDLE_VALUE) CloseHandle(current);
+        free(handles);
+        errno = open_error == ERROR_FILE_NOT_FOUND ||
+                        open_error == ERROR_PATH_NOT_FOUND
+                    ? ENOENT : EACCES;
+        return 0;
+    }
+    size_t count = 0;
+    handles[count++] = current;
+
+    wchar_t *scan = full + 3;
+    while (*scan) {
+        wchar_t *separator = wcschr(scan, L'\\');
+        if (separator) *separator = L'\0';
+        HANDLE next = zupt_win_open_cleanup_entry(
+            current, scan, 1, 0);
+        if (separator) *separator = L'\\';
+        if (next == INVALID_HANDLE_VALUE ||
+            !zupt_win_plain_directory(next)) {
+            if (next != INVALID_HANDLE_VALUE) CloseHandle(next);
+            while (count > 0) CloseHandle(handles[--count]);
+            free(handles);
+            if (next != INVALID_HANDLE_VALUE) errno = EACCES;
+            return 0;
+        }
+        handles[count++] = next;
+        current = next;
+        if (!separator) break;
+        scan = separator + 1;
+    }
+    *handles_out = handles;
+    *handle_count_out = count;
+    return 1;
+}
+#endif
+
+#ifndef _WIN32
+/* Resolve every component without following symlinks and return both the
+ * pinned target and its pinned parent.  The caller can therefore remove the
+ * final directory with unlinkat() instead of resolving its pathname again. */
+static int zupt_open_temp_tree(const char *path, int *parent_out,
+                               int *directory_out, char *leaf,
+                               size_t leaf_capacity) {
+    if (!path || !*path || !parent_out || !directory_out || !leaf ||
+        leaf_capacity == 0) {
+        errno = EINVAL;
+        return 0;
+    }
+    int current = open(path[0] == '/' ? "/" : ".",
+                       O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (current < 0) return 0;
+
+    const char *cursor = path;
+    while (*cursor == '/') cursor++;
+    while (*cursor) {
+        const char *start = cursor;
+        while (*cursor && *cursor != '/') cursor++;
+        size_t component_length = (size_t)(cursor - start);
+        while (*cursor == '/') cursor++;
+        int final_component = *cursor == '\0';
+        if ((component_length == 1u && start[0] == '.') ||
+            component_length == 0u) {
+            if (final_component) {
+                close(current);
+                errno = EINVAL;
+                return 0;
+            }
+            continue;
+        }
+        if (component_length == 2u && start[0] == '.' && start[1] == '.') {
+            close(current);
+            errno = EINVAL;
+            return 0;
+        }
+        if (component_length >= leaf_capacity) {
+            close(current);
+            errno = ENAMETOOLONG;
+            return 0;
+        }
+        memcpy(leaf, start, component_length);
+        leaf[component_length] = '\0';
+        int next = openat(current, leaf,
+                          O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (next < 0) {
+            int saved_errno = errno;
+            close(current);
+            errno = saved_errno;
+            return 0;
+        }
+        if (final_component) {
+            *parent_out = current;
+            *directory_out = next;
+            return 1;
+        }
+        close(current);
+        current = next;
+    }
+    close(current);
+    errno = EINVAL;
+    return 0;
+}
+
+/* Delete leaves before attempting to open them as directories.  unlinkat()
+ * never follows a symlink; a directory is recursively visited only through
+ * an O_NOFOLLOW descriptor returned by openat(). */
+static int zupt_remove_temp_tree_fd(int directory_fd) {
+    DIR *stream = fdopendir(directory_fd);
+    if (!stream) {
+        close(directory_fd);
+        return -1;
+    }
+    int failed = 0;
+    int parent_fd = dirfd(stream);
+    for (;;) {
+        errno = 0;
+        struct dirent *entry = readdir(stream);
+        if (!entry) {
+            if (errno != 0) failed = 1;
+            break;
+        }
+        if (strcmp(entry->d_name, ".") == 0 ||
+            strcmp(entry->d_name, "..") == 0)
+            continue;
+        if (unlinkat(parent_fd, entry->d_name, 0) == 0 || errno == ENOENT)
+            continue;
+
+        int child_fd = openat(parent_fd, entry->d_name,
+                              O_RDONLY | O_DIRECTORY | O_NOFOLLOW |
+                                  O_CLOEXEC);
+        if (child_fd < 0) {
+            if (errno != ENOENT) failed = 1;
+            continue;
+        }
+        if (zupt_remove_temp_tree_fd(child_fd) != 0) failed = 1;
+        if (unlinkat(parent_fd, entry->d_name, AT_REMOVEDIR) != 0 &&
+            errno != ENOENT)
+            failed = 1;
+    }
+    if (closedir(stream) != 0) failed = 1;
     return failed ? -1 : 0;
 }
 #endif
@@ -169,41 +459,43 @@ static int zupt_remove_temp_tree(const char *directory) {
 #ifdef _WIN32
     wchar_t *wide = zupt_win_utf8_to_wide_alloc(directory);
     if (!wide) return -1;
-    int result = zupt_remove_tree_wide(wide);
+    wchar_t full[ZUPT_MAX_PATH + 256];
+    HANDLE *handles = NULL;
+    size_t handle_count = 0;
+    if (!zupt_win_open_cleanup_path(wide, full, &handles, &handle_count)) {
+        int result = errno == ENOENT ? 0 : -1;
+        free(wide);
+        return result;
+    }
+    HANDLE root_handle = handles[handle_count - 1u];
+    int result = zupt_remove_tree_wide(root_handle, full);
+    BY_HANDLE_FILE_INFORMATION root_identity;
+    if (result == 0 && !GetFileInformationByHandle(root_handle,
+                                                    &root_identity))
+        result = -1;
+    const wchar_t *root_name = wcsrchr(full, L'\\');
+    if (!root_name || root_name[1] == L'\0') result = -1;
+    else root_name++;
+    if (!CloseHandle(handles[--handle_count])) result = -1;
+    if (result == 0 && !zupt_win_delete_cleanup_entry(
+            handles[handle_count - 1u], root_name, &root_identity))
+        result = -1;
+    while (handle_count > 0)
+        if (!CloseHandle(handles[--handle_count])) result = -1;
+    free(handles);
     free(wide);
     return result;
 #else
-    DIR *stream = opendir(directory);
-    if (!stream) return errno == ENOENT ? 0 : -1;
-    int failed = 0;
-    struct dirent *entry;
-    while ((entry = readdir(stream)) != NULL) {
-        if (strcmp(entry->d_name, ".") == 0 ||
-            strcmp(entry->d_name, "..") == 0)
-            continue;
-        size_t needed = strlen(directory) + strlen(entry->d_name) + 2u;
-        char *child = (char *)malloc(needed);
-        if (!child) {
-            failed = 1;
-            continue;
-        }
-        if (!zupt_join_temp_path(child, needed, directory, entry->d_name)) {
-            free(child);
-            failed = 1;
-            continue;
-        }
-        struct stat info;
-        if (lstat(child, &info) != 0) {
-            failed = 1;
-        } else if (S_ISDIR(info.st_mode)) {
-            if (zupt_remove_temp_tree(child) != 0) failed = 1;
-        } else if (unlink(child) != 0) {
-            failed = 1;
-        }
-        free(child);
-    }
-    if (closedir(stream) != 0) failed = 1;
-    if (rmdir(directory) != 0) failed = 1;
+    int parent_fd = -1;
+    int directory_fd = -1;
+    char leaf[ZUPT_MAX_PATH];
+    if (!zupt_open_temp_tree(directory, &parent_fd, &directory_fd,
+                             leaf, sizeof(leaf)))
+        return errno == ENOENT ? 0 : -1;
+    int failed = zupt_remove_temp_tree_fd(directory_fd) != 0;
+    if (unlinkat(parent_fd, leaf, AT_REMOVEDIR) != 0 && errno != ENOENT)
+        failed = 1;
+    if (close(parent_fd) != 0) failed = 1;
     return failed ? -1 : 0;
 #endif
 }
@@ -429,7 +721,11 @@ static int prompt_password(const char *prompt, char *buf, size_t cap) {
     if (!buf || cap < 2) return 0;
     buf[0] = '\0';
 #ifdef _WIN32
-    if (!_isatty(_fileno(stdin))) {
+    HANDLE input_handle = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD input_mode = 0;
+    if (input_handle == NULL || input_handle == INVALID_HANDLE_VALUE ||
+        GetFileType(input_handle) != FILE_TYPE_CHAR ||
+        !GetConsoleMode(input_handle, &input_mode)) {
         fprintf(stderr, "Error: password prompt requires a terminal.\n");
         return 0;
     }
@@ -445,6 +741,11 @@ static int prompt_password(const char *prompt, char *buf, size_t cap) {
     int too_long = 0;
     for (;;) {
         int c = _getch();
+        if (c == EOF) {
+            zupt_secure_wipe(buf, cap);
+            fprintf(stderr, "\nError: cannot read password prompt.\n");
+            return 0;
+        }
         if (c == '\r' || c == '\n') break;
         if (c == 0 || c == 0xe0) {
             (void)_getch();

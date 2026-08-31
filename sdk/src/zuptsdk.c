@@ -556,20 +556,46 @@ void zuptsdk_keypair_destroy(zuptsdk_keypair_t *kp) {
 static int zsdk_copy_file(const char *src, const char *dst, mode_t mode) {
     FILE *fi = fopen(src, "rb");
     if (!fi) return ZSDK_FAIL(ZUPTSDK_ERR_IO, "open %s", src);
-    FILE *fo = fopen(dst, "wb");
-    if (!fo) { fclose(fi); return ZSDK_FAIL(ZUPTSDK_ERR_IO, "create %s", dst); }
-    uint8_t buf[4096];
-    size_t n;
-    int rc = ZUPTSDK_OK;
-    while ((n = fread(buf, 1, sizeof(buf), fi)) > 0)
-        if (fwrite(buf, 1, n, fo) != n) { rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "write %s", dst); break; }
-    zuptsdk_secure_zero(buf, sizeof(buf));
-    fclose(fi); fclose(fo);
+    FILE *fo = NULL;
+    zupt_atomic_output_t *output = zupt_atomic_output_open(dst, &fo);
+    if (!output) {
+        int saved_errno = errno;
+        fclose(fi);
+        errno = saved_errno;
+        return ZSDK_FAIL(ZUPTSDK_ERR_IO, "create %s", dst);
+    }
+
 #ifndef _WIN32
-    if (rc == ZUPTSDK_OK) chmod(dst, mode);
+    /* Apply permissions to the private temporary object, never to a
+     * re-resolved destination path. */
+    if (fchmod(fileno(fo), mode) != 0) {
+        int saved_errno = errno;
+        fclose(fi);
+        (void)zupt_atomic_output_finish(output, 0);
+        errno = saved_errno;
+        return ZSDK_FAIL(ZUPTSDK_ERR_IO, "set permissions on %s", dst);
+    }
 #else
     (void)mode;
 #endif
+
+    uint8_t buf[4096];
+    size_t n;
+    int rc = ZUPTSDK_OK;
+    while ((n = fread(buf, 1, sizeof(buf), fi)) > 0) {
+        if (fwrite(buf, 1, n, fo) != n) {
+            rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "write %s", dst);
+            break;
+        }
+    }
+    if (rc == ZUPTSDK_OK && ferror(fi))
+        rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "read %s", src);
+    zuptsdk_secure_zero(buf, sizeof(buf));
+    if (fclose(fi) != 0 && rc == ZUPTSDK_OK)
+        rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "close %s", src);
+    if (zupt_atomic_output_finish(output, rc == ZUPTSDK_OK) != 0 &&
+        rc == ZUPTSDK_OK)
+        rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "publish %s", dst);
     return rc;
 }
 

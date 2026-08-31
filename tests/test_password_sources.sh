@@ -56,8 +56,29 @@ if "$binary" test --pass-fd not-a-number archive.zupt >/dev/null 2>&1; then
     exit 1
 fi
 
-if "$binary" test --password-prompt archive.zupt </dev/null >/dev/null 2>&1; then
+prompt_log=$test_root/non-interactive-prompt.log
+if command -v timeout >/dev/null 2>&1; then
+    set +e
+    timeout 10 "$binary" test --password-prompt archive.zupt \
+        </dev/null >"$prompt_log" 2>&1
+    prompt_status=$?
+    set -e
+else
+    set +e
+    "$binary" test --password-prompt archive.zupt \
+        </dev/null >"$prompt_log" 2>&1
+    prompt_status=$?
+    set -e
+fi
+if ((prompt_status == 124)); then
+    printf '%s\n' 'FAIL: non-interactive password prompt timed out' >&2
+    exit 1
+elif ((prompt_status == 0)); then
     printf '%s\n' 'FAIL: non-interactive password prompt unexpectedly succeeded' >&2
+    exit 1
+elif ! grep -Fq 'password prompt requires a terminal.' "$prompt_log"; then
+    printf 'FAIL: non-interactive password prompt returned status %d without a terminal rejection\n' \
+        "$prompt_status" >&2
     exit 1
 fi
 

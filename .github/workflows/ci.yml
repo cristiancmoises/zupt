@@ -121,6 +121,8 @@ jobs:
         run: make CC=${{ matrix.cc }} V=1 WITH_SDK=0 WITH_PQBOX=0 check
       - name: Extended upstream tests
         run: make CC=${{ matrix.cc }} V=1 WITH_SDK=0 WITH_PQBOX=0 test-all
+      - name: In-tree SDK atomic key-save regression
+        run: make CC=${{ matrix.cc }} V=1 sdk-test
       - name: Functional test of the built CLI
         run: bash scripts/test-installed-zupt.sh "$PWD/zupt"
 
