@@ -48,7 +48,7 @@ password read; do not reuse it as a multi-record protocol channel.
 On POSIX terminals, the explicit prompt saves terminal state and installs
 signal-aware cleanup so a handled interruption restores echo and other changed
 settings before termination. This behavior is covered by a PTY regression and
-must be rerun on the exact release candidate.
+passed in the full local Linux gate for commit `ff99770`.
 
 ## Native key files
 
@@ -225,7 +225,7 @@ gate was rerun on every platform:
   whole-image content hash. Its regression fixture is an actual v5.2.1
   password-encrypted DATA/DATA/REF/DATA disk archive stored as hexadecimal text with
   source and hash provenance. The candidate lists, tests, extracts, and restores it
-  byte-exact; the exact final candidate must repeat that gate. This does not
+  byte-exact; the full local Linux gate passed on commit `ff99770`. This does not
   claim that 5.2.1 readers accept the new flag-gated 5.2.2 records or that every
   historical encrypted+dedup combination was validated.
 
@@ -245,8 +245,8 @@ scripts/check-source-only.sh --archive /path/to/zupt-5.2.2.tar.gz
 
 Nested archive inspection is required to enforce bounded recursion, member
 count, per-entry expanded size, and total expanded size, and to fail closed on
-limit violations. The resource-limit regressions and all other late self-audit
-fixes remain pending until the exact candidate completes the final gate suite.
+limit violations. On commit `ff99770`, the source-only scanner suite passed
+39/39, including GNU thin archives, resource-limit cases, and safe diagnostics.
 
 DEB, binary RPM, SRPM, notice-bearing Linux tar.xz, source-only portable GUI
 ZIP, Windows ZIP, and macOS DMG release assets are separate outputs. An
@@ -285,16 +285,18 @@ make test-asan-run
 The first command builds the sanitizer configuration; the second executes its
 test suite. Neither substitutes for the normal optimized build and tests.
 
-Because the positional-AAD and mandatory-AIT behavior changed late in the
-candidate, earlier successful runs are intermediate evidence only. The exact
-release candidate must rerun the affected regressions and the complete required
-suite; unavailable environments remain `SKIP`, not `PASS`.
+The full local Linux `make release-check` passed on committed candidate
+`ff99770`. Its recorded evidence includes packaging `PASS=49 FAIL=0 SKIP=0`,
+the 39/39 source-only scanner suite, strict GCC and Clang builds, GCC
+`-fanalyzer`, 9/9 static analysis in a tool-enabled run, ASan/UBSan/LSan, and
+1,000 mutation-fuzz iterations without a sanitizer-detected crash. An earlier
+off-screen GUI smoke run is supporting evidence, not an exact-candidate package
+result.
 
-The same rule applies to private-key creation/parsing, terminal-safe comment
-display, POSIX prompt signal cleanup, explicit Bash regression execution, and
-source-scanner resource limits added during the final self-audit. This document
-records intended candidate behavior, not a final `PASS` for work still being
-integrated or rerun.
+These are upstream self-audit results, not independent certification. Native
+Windows and macOS, hosted GitHub CI/release promotion, authenticated OBS, and
+the openSUSE automatic `debugsource` rpmlint `no-binary` finding remain pending.
+An unavailable or unexecuted environment remains `SKIP`, never `PASS`.
 
 Run target-native static analyzers and package checks as additional evidence.
 Do not infer x86_64, aarch64, ppc64le, s390x, riscv64, macOS, Windows, Leap, or

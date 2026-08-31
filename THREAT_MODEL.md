@@ -240,9 +240,9 @@ LFS pointers.
 
 Nested inspection is itself an untrusted-input boundary. The release scanner
 must cap recursion depth, archive members, per-entry expansion, and total
-expanded bytes and fail closed when a cap is reached. Scanner bomb regressions
-and all other late self-audit fixes are pending until rerun on the exact
-candidate.
+expanded bytes and fail closed when a cap is reached. Commit `ff99770` passed
+all 39 source-only scanner cases, including GNU thin archives, scanner-bomb
+limits, and safe diagnostic cases.
 
 DEB, binary RPM, SRPM, notice-bearing Linux tar.xz, source-only portable GUI
 ZIP, Windows ZIP, and macOS DMG files can be published separately from the
@@ -258,6 +258,15 @@ portable ZIP contains no compiled runtime and crosses the release boundary only
 after source scans and an exact safe-member check. AppDir and Flatpak bundles
 and GUI platform installers remain excluded; Windows ZIP and macOS DMG outputs
 remain CLI-only.
+
+The committed Linux candidate `ff99770` passed the full local
+`make release-check`: packaging reported `PASS=49 FAIL=0 SKIP=0`; strict GCC,
+strict Clang, GCC `-fanalyzer`, the 9/9 tool-enabled static-analysis run,
+ASan/UBSan/LSan, and 1,000 mutation-fuzz iterations passed. Earlier off-screen
+GUI smoke evidence is retained separately. This upstream self-review is not an
+independent certification, and native Windows/macOS, hosted GitHub CI and
+release promotion, authenticated OBS, and the openSUSE automatic `debugsource`
+rpmlint `no-binary` finding remain pending.
 
 ## Historical compatibility notes
 
@@ -279,7 +288,7 @@ These are historical facts about earlier releases, retained to support recovery:
   v5.2.1 password-encrypted DATA/DATA/REF/DATA disk fixture is stored as hexadecimal
   text with source and hash provenance. The candidate lists, tests, extracts, and restores
   it byte-exact, with a warning that the legacy index has no whole-image hash;
-  the exact final candidate must repeat that gate. Older readers are not
+  the full local Linux gate passed on commit `ff99770`. Older readers are not
   claimed to accept new flag-gated 5.2.2 records, and untested historical mode
   combinations remain unclaimed.
 

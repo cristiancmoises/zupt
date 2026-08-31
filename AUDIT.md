@@ -56,8 +56,9 @@ and LFS pointers; textual assembly is a permitted source type.
 Archive inspection must also fail closed at bounded recursion depth, member
 count, individual expanded size, and total expanded size so a nested archive or
 decompression bomb cannot turn the release scanner into an unbounded resource
-consumer. This hardening and its adversarial fixtures are release-blocking and
-remain `PENDING` until rerun on the exact candidate.
+consumer. On committed Linux candidate `ff99770`, this hardening and its
+adversarial fixtures passed all 39 source-only scanner cases, including GNU
+thin-archive and safe-diagnostic-path cases.
 
 An unknown `.bin` fails by default. A necessary binary data fixture can be
 declared only through `--data-manifest`, with four tab-separated fields for
@@ -98,15 +99,32 @@ Relevant review layers include:
 | Source reproducibility | two `make dist` runs with identical committed input and epoch | Requires equal SHA-256 digests and clean archive scans |
 | Installed package | target-native package inspection and `scripts/test-installed-zupt.sh` | Applies only to the exact OS/release/architecture tested |
 
-This table identifies evidence, not results. The release validation report and
-`packaging/opensuse/README.md` record `PASS`, `FAIL`, or `SKIP` for each actual
-run. Missing tools, OBS access, other architectures, Leap, and SLE must not be
-reported as passing without evidence.
+This table identifies evidence layers rather than results. Missing tools, OBS
+access, other architectures, Leap, and SLE must not be reported as passing
+without evidence.
 
-The 5.2.2 key-file, terminal-comment, password-prompt, explicit-Bash regression,
-and scanner-resource-limit changes were added during the final self-audit. All
-affected checks and the complete required suite must be rerun after they land;
-no earlier result is a final-candidate `PASS`.
+## Committed-candidate local Linux evidence
+
+The following upstream self-audit results apply to commit `ff99770` on the
+recorded local Linux environments. They are not an independent certification,
+a result for later commits, or evidence that release assets have been published.
+
+| Gate | Result | Recorded evidence |
+|---|---|---|
+| Full project gate | PASS | `make release-check` completed successfully on `ff99770`, including the late key-file, terminal-comment, password-prompt, explicit-Bash, and scanner-limit regressions. |
+| Packaging policy/syntax | PASS | `PASS=49 FAIL=0 SKIP=0`. |
+| Source-only scanner adversarial suite | PASS | 39/39, including GNU thin archives, bounded archive expansion, and safe diagnostic cases. |
+| Strict compilers and compiler analyzer | PASS | GCC and Clang strict builds passed; GCC `-fanalyzer` passed. |
+| Static-analysis suite | PASS | 9/9 in the full tool-enabled run. A separate reduced-environment `release-check` run completed six available checks and reported `cppcheck` unavailable; unavailable tooling was not relabelled as a pass. |
+| Dynamic analysis | PASS | ASan, UBSan, and LSan runs passed. |
+| Mutation fuzzing | PASS | 1,000 mutation iterations completed without a sanitizer-detected crash. |
+
+An earlier off-screen GUI smoke run remains supporting evidence, but is not
+represented as an exact-`ff99770` GUI-package result. Native Windows and macOS
+gates, hosted GitHub CI and release promotion, authenticated OBS validation,
+and resolution of the openSUSE automatic `debugsource` rpmlint `no-binary`
+finding remain pending. The immutable tag and its final artifacts must not be
+described as released until those applicable gates complete.
 
 ## Cryptographic review boundary
 

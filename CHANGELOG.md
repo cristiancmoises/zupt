@@ -133,7 +133,7 @@ path; older readers are not claimed to accept every archive written by 5.2.2.
   stored as hexadecimal text with its source tag/commit, password, input hash,
   and archive hash. The 5.2.2 candidate lists, tests, extracts, and restores it byte-exact;
   the legacy index has no whole-image hash and produces an explicit warning.
-  The exact final candidate must repeat this gate, and no broader historical
+  The full local Linux gate passed on commit `ff99770`; no broader historical
   compatibility claim is made.
 - Serialize fixed-width archive/header, footer, index and PBKDF iteration
   fields explicitly in little-endian order. Varint readers now reject overlong
@@ -234,16 +234,20 @@ path; older readers are not claimed to accept every archive written by 5.2.2.
 - Updated the README, installation, distribution, security, audit, GUI, and
   manual-page documentation for the 5.2.2 source-only workflow.
 
-Validation results are recorded by the release process and the openSUSE
-packaging README. A missing tool or unexecuted platform remains `SKIP`; this
-entry does not claim successful OBS, architecture, Leap, or SLE builds without
-corresponding evidence. Runs made before the final positional-AAD and
-mandatory-AIT changes are intermediate diagnostic evidence, not final release
-gates. Private-key creation/parsing, terminal-safe comment rendering, prompt
-signal cleanup, explicit-Bash regression execution, and scanner bomb limits are
-also final self-audit release blockers. Their focused checks and the complete
-required suite remain `PENDING` until the exact candidate is rerun before
-tagging; this entry does not claim a final `PASS`.
+The committed Linux candidate `ff99770` passed the full local
+`make release-check`. Recorded results include packaging
+`PASS=49 FAIL=0 SKIP=0`; 39/39 source-only scanner cases, including GNU thin
+archives and safe diagnostics; strict GCC and Clang; GCC `-fanalyzer`; 9/9 in
+the full tool-enabled static-analysis run; ASan/UBSan/LSan; and 1,000
+mutation-fuzz iterations without a sanitizer-detected crash. An earlier
+off-screen GUI smoke run remains supporting rather than exact-candidate package
+evidence.
+
+These are upstream self-audit results, not independent certification or a
+published-release claim. Native Windows and macOS, hosted GitHub CI and release
+promotion, authenticated OBS, and the openSUSE automatic `debugsource` rpmlint
+`no-binary` finding remain pending. Missing or unexecuted gates remain `SKIP`,
+not `PASS`.
 
 
 ## [5.2.1] — 2026-07-12 — GUI Verify/Extract robustness; refreshed comparison + audit tables

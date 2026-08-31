@@ -164,8 +164,9 @@ allowed only with `--data-manifest FILE`; each tab-separated record must name
 its path, purpose, provenance, and SPDX license. This exception never permits
 compiled or executable magic, packages, AppImages, bytecode, or Git LFS
 pointers. Nested scans cap recursion, member count, individual expansion, and
-total expanded bytes and fail closed at a limit. The exact candidate must rerun
-the scanner-bomb fixtures before any release result is marked `PASS`.
+total expanded bytes and fail closed at a limit. On committed Linux candidate
+`ff99770`, all 39 source-only scanner cases passed, including GNU thin archives,
+scanner-bomb limits, and safe diagnostic cases.
 
 ## Build from source
 
@@ -282,16 +283,19 @@ devices are accepted only when their capacity can be determined and is large
 enough. The privileged undersized-loop-device regression is reported `SKIP`,
 not `PASS`, when the environment cannot create a loop device.
 
-The final release gate must also rerun the positional-AAD and mandatory-AIT
-regressions on the exact tagged candidate. Results obtained before those final
-integrity changes are useful diagnostic evidence, but are not promoted as final
-release results. The openSUSE matrix records unexecuted gates as `SKIP`.
+The committed Linux candidate `ff99770` passed the full local
+`make release-check`. Recorded results include packaging
+`PASS=49 FAIL=0 SKIP=0`, the 39/39 source-only scanner suite, strict GCC and
+Clang, GCC `-fanalyzer`, a 9/9 full tool-enabled static-analysis run,
+ASan/UBSan/LSan, and 1,000 mutation-fuzz iterations without a
+sanitizer-detected crash. An earlier off-screen GUI smoke run remains supporting
+evidence rather than an exact-candidate package result.
 
-Private-key creation/parsing, terminal-safe comment display, POSIX prompt signal
-cleanup, explicit-Bash regression execution, and scanner-resource-limit changes
-are final self-audit release blockers. Their focused regressions and the full
-required suite remain pending until rerun on the exact candidate; this README
-does not convert intermediate results into a final `PASS`.
+These are upstream local self-audit results, not independent certification or a
+published-release claim. Native Windows and macOS, hosted GitHub CI/release
+promotion, authenticated OBS, and resolution of the openSUSE automatic
+`debugsource` rpmlint `no-binary` finding remain pending. Unexecuted gates are
+`SKIP`, never `PASS`.
 
 On Windows, 5.2.2 scopes output handling to normal local Win32 paths. A MinGW
 cross-build or Wine run is not native-Windows evidence; the `windows-latest`
@@ -329,8 +333,8 @@ compatibility scope includes an actual v5.2.1 password-encrypted, deduplicated
 disk archive with a DATA/DATA/REF/DATA sequence using the fixed-width legacy index
 and the legacy linear AAD sequence. The repository stores that 718-byte archive
 as auditable hexadecimal text with its provenance and SHA-256; the candidate
-lists, tests, extracts, and restores it byte-exact. The exact final candidate must repeat
-the gate. This is not a claim that a 5.2.1 reader understands every new
+lists, tests, extracts, and restores it byte-exact. The full local Linux gate
+passed on commit `ff99770`. This is not a claim that a 5.2.1 reader understands every new
 flag-gated 5.2.2 encoding or that every historical combination was tested.
 
 The candidate commands and outcome fields for 5.2.2 are maintained in the

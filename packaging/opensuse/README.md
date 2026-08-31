@@ -97,8 +97,8 @@ immutable v5.2.1 tag is stored as hexadecimal text with its source and SHA-256
 provenance. The 5.2.2 reader reconstructs the legacy linear block-AAD sequence,
 lists, tests, extracts, and restores its input byte-exact through the
 fixed-width legacy disk-index parser. This does not cover every historical mode
-and must be rerun on the final candidate before it is promoted as a release
-gate.
+and passed in the full local Linux gate for commit `ff99770`; the target RPM
+`%check` must still exercise it before that package is promoted.
 
 Disk restore also snapshots the measured archive into a private scratch file
 before opening the destination, then validates and restores from that same
@@ -153,7 +153,23 @@ install it in a disposable openSUSE environment and execute
 `scripts/test-installed-zupt.sh`. Do not claim a repository or architecture
 as supported until its build and installed smoke test have actually passed.
 
-## Validation matrix for this handoff
+## Committed-candidate local Linux validation
+
+Commit `ff99770` passed the full local `make release-check`. Packaging policy
+and syntax reported `PASS=49 FAIL=0 SKIP=0`; source-only scanner testing passed
+39/39, including GNU thin archives and safe diagnostic cases; strict GCC,
+strict Clang, GCC `-fanalyzer`, the 9/9 full tool-enabled static-analysis run,
+ASan/UBSan/LSan, and 1,000 mutation-fuzz iterations passed. A reduced
+environment completed six available static checks and reported `cppcheck`
+unavailable rather than passing it. Earlier off-screen GUI smoke evidence is
+supporting evidence, not an exact-commit package result.
+
+These local upstream results do not establish native Windows or macOS success,
+hosted GitHub CI/release promotion, authenticated OBS acceptance, or resolution
+of the automatic openSUSE `debugsource` rpmlint `no-binary` finding. Those gates
+remain pending.
+
+## Prior openSUSE packaging validation
 
 The local results below were produced on 2026-08-24 from the 5.2.2 candidate
 snapshot captured for the packaging run, in a disposable openSUSE Tumbleweed
