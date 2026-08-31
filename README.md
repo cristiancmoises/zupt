@@ -10,9 +10,15 @@ publish atomically through an already-open private object, POSIX disk restore
 classifies and retains the descriptor it actually opened, and benchmark cleanup
 traverses only pinned descriptors or handles without following links or Windows
 reparse points. It also makes the raw-C1 scanner fixture explicitly skip a
-filesystem that rejects creation with `EILSEQ`, and brings `sdk-test` into the
+filesystem that rejects creation with `EILSEQ`, normalizes Bash 3.2 signed-byte
+diagnostics, and brings `sdk-test` into the
 release and hosted Linux gates. Windows password prompts now reject redirected
-input before entering `_getch` and treat console EOF as an error. These
+input before entering `_getch` and treat console EOF as an error; its key-file
+regression validates the protected current-user-only DACL rather than an MSYS
+POSIX-mode projection. The C/C++ default-branch scan of commit `69fc26b`
+closed #5, #6, and #7 and exposed test-only #8, #9, and #10 in the new SDK
+regression. Their follow-up uses no-follow descriptors plus `fstat`/descriptor
+reads and requires a fresh default-branch scan for closure. These
 corrections do not change archive format v1.6, cryptography, the bundled codec
 release, or the SDK ABI.
 
@@ -36,7 +42,8 @@ opens a POSIX target once before its type, identity, and device-capacity
 decisions, and benchmark cleanup is descriptor-relative on POSIX and
 handle/reparse-point aware on Windows. The live-workspace symlink regression,
 SDK link-target/mode regression, static path-race guards, portable raw-C1
-fixture, native redirected-prompt regression, and `sdk-test` CI step cover
+fixture with Bash 3.2 unsigned-byte normalization, native redirected-prompt
+and protected-DACL regressions, and `sdk-test` CI step cover
 these boundaries. All current release paths move to 5.2.8 and require fresh
 exact-tag hosted CI, package,
 native-platform, source-only, checksum, OBS, and promotion evidence.

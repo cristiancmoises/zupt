@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #ifndef _WIN32
+#include <fcntl.h>
 #include <sys/stat.h>
 #endif
 #include <unistd.h>
@@ -55,16 +56,33 @@ static int file_matches(const char *path, const void *expected,
                         size_t expected_size) {
     struct stat info;
     char observed[128];
-    if (expected_size > sizeof(observed) || stat(path, &info) != 0 ||
-        info.st_size < 0 || (uint64_t)info.st_size != (uint64_t)expected_size)
+    if (expected_size > sizeof(observed))
         return 0;
-    FILE *stream = fopen(path, "rb");
-    if (!stream) return 0;
-    size_t got = fread(observed, 1, expected_size, stream);
-    int read_error = ferror(stream);
-    int close_rc = fclose(stream);
-    return got == expected_size && !read_error && close_rc == 0 &&
+    int fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK);
+    if (fd < 0) return 0;
+    int ok = fstat(fd, &info) == 0 && S_ISREG(info.st_mode) &&
+             info.st_size >= 0 &&
+             (uint64_t)info.st_size == (uint64_t)expected_size;
+    size_t got = 0;
+    while (ok && got < expected_size) {
+        ssize_t count = read(fd, observed + got, expected_size - got);
+        if (count <= 0) {
+            ok = 0;
+            break;
+        }
+        got += (size_t)count;
+    }
+    if (close(fd) != 0) ok = 0;
+    return ok && got == expected_size &&
            memcmp(observed, expected, expected_size) == 0;
+}
+
+static int regular_file_info(const char *path, struct stat *info) {
+    int fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK);
+    if (fd < 0) return 0;
+    int ok = fstat(fd, info) == 0 && S_ISREG(info->st_mode);
+    if (close(fd) != 0) ok = 0;
+    return ok;
 }
 
 static int private_key_save_avoids_link_targets(const zuptsdk_keypair_t *kp) {
@@ -95,20 +113,22 @@ static int private_key_save_avoids_link_targets(const zuptsdk_keypair_t *kp) {
     if (symlink(target, symlink_path) != 0 ||
         zuptsdk_keypair_save_private(kp, symlink_path) != ZUPTSDK_OK ||
         !file_matches(target, sentinel, sizeof(sentinel) - 1) ||
-        stat(target, &target_st) != 0 || lstat(symlink_path, &output_st) != 0 ||
+        !regular_file_info(target, &target_st) ||
+        !regular_file_info(symlink_path, &output_st) ||
         (target_st.st_dev == output_st.st_dev &&
          target_st.st_ino == output_st.st_ino) ||
-        !S_ISREG(output_st.st_mode) || output_st.st_size <= 0 ||
+        output_st.st_size <= 0 ||
         (output_st.st_mode & 0777) != 0600)
         goto cleanup;
 
     if (link(target, hardlink_path) != 0 ||
         zuptsdk_keypair_save_private(kp, hardlink_path) != ZUPTSDK_OK ||
         !file_matches(target, sentinel, sizeof(sentinel) - 1) ||
-        stat(target, &target_st) != 0 || stat(hardlink_path, &output_st) != 0 ||
+        !regular_file_info(target, &target_st) ||
+        !regular_file_info(hardlink_path, &output_st) ||
         (target_st.st_dev == output_st.st_dev &&
          target_st.st_ino == output_st.st_ino) ||
-        !S_ISREG(output_st.st_mode) || output_st.st_size <= 0 ||
+        output_st.st_size <= 0 ||
         (output_st.st_mode & 0777) != 0600)
         goto cleanup;
 
@@ -328,12 +348,16 @@ static void test_keypair_pq(void) {
     TEST("keypair_generate + compress_pq + extract_pq");
     char saved_priv[160];
     char saved_pub[160];
+#ifdef _WIN32
     snprintf(saved_priv, sizeof(saved_priv), "/tmp/_zsdk_priv_%ld.key",
              (long)getpid());
     snprintf(saved_pub, sizeof(saved_pub), "/tmp/_zsdk_pub_%ld.key",
              (long)getpid());
     unlink(saved_priv);
     unlink(saved_pub);
+#else
+    char saved_workspace[] = "/tmp/zupt-sdk-roundtrip.XXXXXX";
+#endif
 
     zuptsdk_ctx_t *ctx = NULL;
     CHECK(zuptsdk_ctx_create(&ctx), "ctx");
@@ -343,6 +367,16 @@ static void test_keypair_pq(void) {
     if (rc != ZUPTSDK_OK) { FAIL("keygen"); zuptsdk_ctx_destroy(ctx); return; }
 
 #ifndef _WIN32
+    if (!mkdtemp(saved_workspace)) {
+        FAIL("private temporary workspace");
+        zuptsdk_keypair_destroy(kp);
+        zuptsdk_ctx_destroy(ctx);
+        return;
+    }
+    snprintf(saved_priv, sizeof(saved_priv), "%s/private.key",
+             saved_workspace);
+    snprintf(saved_pub, sizeof(saved_pub), "%s/public.key",
+             saved_workspace);
     if (!private_key_save_avoids_link_targets(kp)) {
         FAIL("private key save followed a symlink or hardlink target");
         goto err;
@@ -357,8 +391,8 @@ static void test_keypair_pq(void) {
 #ifndef _WIN32
     struct stat private_st;
     struct stat public_st;
-    if (stat(saved_priv, &private_st) != 0 ||
-        stat(saved_pub, &public_st) != 0 ||
+    if (!regular_file_info(saved_priv, &private_st) ||
+        !regular_file_info(saved_pub, &public_st) ||
         (private_st.st_mode & 0777) != 0600 ||
         (public_st.st_mode & 0777) != 0644) {
         FAIL("saved key permissions do not match the requested modes");
@@ -398,8 +432,10 @@ static void test_keypair_pq(void) {
     zuptsdk_privkey_destroy(priv);
     zuptsdk_options_destroy(opts);
 
-    unlink(saved_priv);
-    unlink(saved_pub);
+    if (unlink(saved_priv) != 0 || unlink(saved_pub) != 0) ok = 0;
+#ifndef _WIN32
+    if (rmdir(saved_workspace) != 0) ok = 0;
+#endif
 
     if (!ok) { FAIL("byte mismatch or rc != OK"); zuptsdk_keypair_destroy(kp); zuptsdk_ctx_destroy(ctx); return; }
     zuptsdk_keypair_destroy(kp);
@@ -410,6 +446,9 @@ static void test_keypair_pq(void) {
 err:
     unlink(saved_priv);
     unlink(saved_pub);
+#ifndef _WIN32
+    rmdir(saved_workspace);
+#endif
     zuptsdk_keypair_destroy(kp);
     zuptsdk_ctx_destroy(ctx);
 }

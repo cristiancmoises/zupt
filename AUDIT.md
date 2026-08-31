@@ -225,6 +225,14 @@ regression injects a directory symlink and verifies that its external sentinel
 survives. These are reviewed fixes and regression coverage,
 not independent certification or proof that a 5.2.8 hosted gate passed.
 
+The C/C++ default-branch analysis of commit `69fc26b` closed #5, #6, and #7,
+then reported High #8, #9, and #10 solely in the newly added SDK regression:
+its sentinel and mode checks used `stat`/`lstat` before later path operations.
+Each individual content or metadata check now opens without following links
+and uses `fstat` or reads through that already-open descriptor. A static guard
+rejects a return to path-level `stat`/`lstat` in this test. A fresh
+default-branch scan remains the authoritative closure evidence.
+
 The exact 5.2.8 candidate must repeat the required suite. Native Windows and
 macOS gates, hosted GitHub CI and release promotion, authenticated OBS
 validation, and resolution of the openSUSE automatic `debugsource` rpmlint
@@ -270,6 +278,7 @@ should be rerun, but the historical resolution does not itself constitute a
 | 5.2.8 | High | CodeQL #5: SDK key copies changed permissions through a re-resolved destination path | Publish through the core atomic output object and apply permissions to its open descriptor; run link-target/mode regressions through `sdk-test` |
 | 5.2.8 | High | CodeQL #6: POSIX disk restore classified a pathname before reopening it destructively | Open without truncation or symlink following, classify with `fstat`, and retain the same device descriptor through write |
 | 5.2.8 | High | CodeQL #7: benchmark cleanup classified entries before recursively resolving their path | Traverse pinned descriptors/handles, refuse link/reparse traversal, remove entries relative to pinned parents, and verify Windows directory identity before handle deletion |
+| 5.2.8 | High (test-only) | CodeQL #8/#9/#10: the new SDK regression inspected paths before later reads or cleanup | Open each fixture without following links, inspect/read through `fstat` and the same descriptor, and reject path-level `stat`/`lstat` in the static gate |
 
 See `CHANGELOG.md` for the complete per-release history and compatibility notes.
 Old tags remain immutable and may contain artifacts or build assumptions removed

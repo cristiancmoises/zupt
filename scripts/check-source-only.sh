@@ -165,6 +165,10 @@ safe_path_for_output() {
     for ((index = 0; index < length; index++)); do
         character=${path:index:1}
         printf -v byte '%d' "'$character"
+        # Bash 3.2 can sign-extend bytes >= 0x80 when converting a character
+        # with %d. Normalize to an unsigned octet before UTF-8 validation and
+        # diagnostic escaping.
+        byte=$((byte & 0xff))
 
         if ((byte < 0x20 || byte == 0x7f)); then
             printf -v escaped '\\x%02x' "$byte"
@@ -185,6 +189,7 @@ safe_path_for_output() {
         if ((byte >= 0xc2 && byte <= 0xdf && index + 1 < length)); then
             character=${path:index+1:1}
             printf -v byte2 '%d' "'$character"
+            byte2=$((byte2 & 0xff))
             if ((byte2 >= 0x80 && byte2 <= 0xbf)); then
                 codepoint=$(((byte & 0x1f) << 6 | (byte2 & 0x3f)))
                 sequence=${path:index:2}
@@ -192,8 +197,10 @@ safe_path_for_output() {
         elif ((byte >= 0xe0 && byte <= 0xef && index + 2 < length)); then
             character=${path:index+1:1}
             printf -v byte2 '%d' "'$character"
+            byte2=$((byte2 & 0xff))
             character=${path:index+2:1}
             printf -v byte3 '%d' "'$character"
+            byte3=$((byte3 & 0xff))
             if ((byte3 >= 0x80 && byte3 <= 0xbf &&
                 ((byte == 0xe0 && byte2 >= 0xa0 && byte2 <= 0xbf) ||
                  (byte >= 0xe1 && byte <= 0xec && byte2 >= 0x80 && byte2 <= 0xbf) ||
@@ -206,10 +213,13 @@ safe_path_for_output() {
         elif ((byte >= 0xf0 && byte <= 0xf4 && index + 3 < length)); then
             character=${path:index+1:1}
             printf -v byte2 '%d' "'$character"
+            byte2=$((byte2 & 0xff))
             character=${path:index+2:1}
             printf -v byte3 '%d' "'$character"
+            byte3=$((byte3 & 0xff))
             character=${path:index+3:1}
             printf -v byte4 '%d' "'$character"
+            byte4=$((byte4 & 0xff))
             if ((byte3 >= 0x80 && byte3 <= 0xbf &&
                 byte4 >= 0x80 && byte4 <= 0xbf &&
                 ((byte == 0xf0 && byte2 >= 0x90 && byte2 <= 0xbf) ||

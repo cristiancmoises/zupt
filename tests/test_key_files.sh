@@ -41,17 +41,76 @@ file_mode() {
     fi
 }
 
+windows_private_acl() {
+    local output=$1 windows_path
+    command -v cygpath >/dev/null 2>&1 || return 1
+    command -v powershell.exe >/dev/null 2>&1 || return 1
+    windows_path=$(cygpath -aw -- "$output") || return 1
+    # PowerShell variables must remain literal until powershell.exe evaluates
+    # this single-quoted Bash argument.
+    # shellcheck disable=SC2016
+    ZUPT_KEY_ACL_PATH=$windows_path powershell.exe -NoLogo -NoProfile \
+        -NonInteractive -Command '
+            $ErrorActionPreference = "Stop"
+            $acl = Get-Acl -LiteralPath $env:ZUPT_KEY_ACL_PATH
+            $sidType = [System.Security.Principal.SecurityIdentifier]
+            $rules = @($acl.GetAccessRules($true, $true, $sidType))
+            $currentSid =
+                [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+            if (-not $acl.AreAccessRulesProtected) {
+                throw "private-key DACL permits inheritance"
+            }
+            if ($rules.Count -ne 1) {
+                throw "private-key DACL does not contain exactly one ACE"
+            }
+            $rule = $rules[0]
+            if ($rule.IsInherited) {
+                throw "private-key ACE is inherited"
+            }
+            if ($rule.AccessControlType -ne
+                    [System.Security.AccessControl.AccessControlType]::Allow) {
+                throw "private-key ACE is not an allow rule"
+            }
+            if ($rule.IdentityReference.Value -ne $currentSid) {
+                throw "private-key ACE is not restricted to the current user"
+            }
+            if ($rule.InheritanceFlags -ne
+                    [System.Security.AccessControl.InheritanceFlags]::None -or
+                $rule.PropagationFlags -ne
+                    [System.Security.AccessControl.PropagationFlags]::None) {
+                throw "private-key ACE unexpectedly propagates"
+            }
+            $fullControl = [int64](
+                [System.Security.AccessControl.FileSystemRights]::FullControl)
+            $actualRights = [int64]($rule.FileSystemRights)
+            if (($actualRights -band $fullControl) -ne $fullControl) {
+                throw "private-key ACE does not grant current-user full control"
+            }
+        ' </dev/null >/dev/null
+}
+
 generate_with_mode() {
     local label=$1 mask=$2 output=$3
     shift 3
     if (umask "$mask"; "$zupt_bin" keygen "$@" -o "$output" >/dev/null 2>&1); then
-        local mode
-        mode=$(file_mode "$output")
-        if [[ $mode == 600 ]]; then
-            pass "$label is mode 0600 under umask $mask"
-        else
-            fail "$label mode under umask $mask is $mode, expected 600"
-        fi
+        case $(uname -s 2>/dev/null || printf unknown) in
+            MINGW*|MSYS*|CYGWIN*)
+                if windows_private_acl "$output"; then
+                    pass "$label has a protected current-user-only DACL under umask $mask"
+                else
+                    fail "$label lacks a protected current-user-only DACL under umask $mask"
+                fi
+                ;;
+            *)
+                local mode
+                mode=$(file_mode "$output")
+                if [[ $mode == 600 ]]; then
+                    pass "$label is mode 0600 under umask $mask"
+                else
+                    fail "$label mode under umask $mask is $mode, expected 600"
+                fi
+                ;;
+        esac
     else
         fail "$label generation failed under umask $mask"
     fi

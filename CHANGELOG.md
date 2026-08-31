@@ -26,12 +26,23 @@ unchanged.
   `unlinkat`, and using pinned, reparse-point-aware handles for Windows
   traversal. The regression injects a directory symlink into a live workspace
   and verifies that cleanup does not visit its target.
+- The first default-branch rescan closed #5, #6, and #7 and then identified
+  test-only path checks as High #8, #9, and #10 in the new SDK regression.
+  Replace every test-side `stat`/`lstat` sequence with one no-follow `open`
+  followed by `fstat` and descriptor reads, and retain that boundary in the
+  static regression gate.
 - Treat inability to create the raw-C1 scanner filename as an explicit fixture
   skip on filesystems that reject the byte; when creation succeeds, the unsafe
-  diagnostic-escaping assertions still run unchanged.
+  diagnostic-escaping assertions still run unchanged. Normalize Bash 3.2's
+  sign-extended `%d` character conversion to an unsigned octet so raw and
+  UTF-8 C1 diagnostics retain their canonical `\\xNN`/`\\uNNNN` form.
 - Reject redirected or otherwise non-console Windows password prompts before
   entering `_getch`, handle console EOF as an error, and cover the native
   redirected-input path so it cannot hang a release gate.
+- On Windows, validate private-key confinement as the protected,
+  current-user-only DACL that the implementation creates; do not treat MSYS's
+  synthetic `stat` mode as a POSIX `0600` result. POSIX continues to require
+  the real descriptor mode `0600` under multiple umasks.
 - Run `sdk-test` from both `release-check` and the hosted GCC/Clang Linux job so
   the atomic key-save regression cannot silently fall outside release gates.
 - Carry the v5.2.7 archive format, cryptography, bundled codec release, and SDK

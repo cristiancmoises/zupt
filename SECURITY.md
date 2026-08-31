@@ -228,6 +228,13 @@ publication, #6 at POSIX disk-target classification/use, and #7 at benchmark
 workspace cleanup. The regressions and source review are project evidence, not
 an independent certification or a claim that exact-v5.2.8 CI has passed.
 
+The C/C++ default-branch analysis of commit `69fc26b` closed #5, #6, and #7,
+then opened test-only High #8, #9, and #10 because the new SDK regression used
+path-level `stat`/`lstat` before later reads or cleanup. Each individual test
+check now uses a no-follow descriptor with `fstat` or descriptor reads; the
+static gate rejects reintroduction of path-level metadata checks there. A
+subsequent default-branch scan is required as closure evidence.
+
 The Windows handle-relative implementation is scoped to normal local Win32
 paths. Win32 extended-length and device-namespace paths, raw UNC output roots,
 and mapped/network-drive output are not supported in 5.2.8. Cross-build and

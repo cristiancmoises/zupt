@@ -74,6 +74,7 @@ jobs:
             tests/test_block_type_confusion.sh \
             tests/test_disk_device_capacity.sh \
             tests/test_f09_preface.sh \
+            tests/test_key_files.sh \
             tests/test_legacy_disk_5_2_1.sh \
             tests/test_path_traversal.sh \
             tests/test_pqbox.sh \

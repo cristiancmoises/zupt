@@ -212,6 +212,19 @@ else
     F "SDK key save atomic publication guard is missing"
 fi
 
+# The SDK regression must not recreate the same check/use pattern while
+# inspecting its sentinels and key modes. Open once, then classify/read via
+# that descriptor; this also keeps CodeQL evidence free of test-only races.
+if grep -Eq '(^|[^[:alnum:]_])(stat|lstat)[[:space:]]*\(' \
+        sdk/tests/test_sdk_roundtrip.c; then
+    F "SDK regression uses path-level stat/lstat before later path operations"
+elif grep -Fq 'fstat(fd, &info)' sdk/tests/test_sdk_roundtrip.c &&
+     grep -Fq 'fstat(fd, info)' sdk/tests/test_sdk_roundtrip.c; then
+    P "SDK regression inspects already-open file descriptors"
+else
+    F "SDK regression descriptor-based inspection guard is missing"
+fi
+
 echo ""
 echo "  ───────────────────────────────────────"
 echo "  Static analysis: $PASS passed, $FAIL failed"
