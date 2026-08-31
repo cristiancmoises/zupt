@@ -23,7 +23,7 @@ checkdepends=('python')
 
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/cristiancmoises/zupt/releases/download/v${pkgver}/${pkgname}-${pkgver}.tar.gz")
 # Byte-reproducible upstream v5.2.5 source archive.
-sha256sums=('REPLACE_AFTER_FINAL_ARCHIVE_SHA256')
+sha256sums=('7b86d34a418a2bce24396610bd7c23705f58d27873e610728083bd57ebb69ba4')
 
 build() {
     cd "${pkgname}-${pkgver}"
