@@ -41,14 +41,15 @@
  *
  * Implementation strategy:
  *   - Prefer `explicit_bzero` (BSD/glibc 2.25+, guaranteed-secure)
- *   - Fall back to `memset_explicit` (C23)
- *   - Last resort: volatile-pointer memset (compiler cannot
+ *   - Otherwise use a volatile-pointer loop (compiler cannot
  *     prove the writes are dead)
  * ═══════════════════════════════════════════════════════════════ */
 
 #if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 25))
 #  define VV_HAS_EXPLICIT_BZERO 1
-#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+/* Darwin intentionally uses the volatile fallback: current deployment targets
+ * do not guarantee an explicit_bzero symbol in libSystem. */
+#elif defined(__FreeBSD__) || defined(__OpenBSD__)
 #  define VV_HAS_EXPLICIT_BZERO 1
 #else
 #  define VV_HAS_EXPLICIT_BZERO 0

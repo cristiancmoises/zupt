@@ -1,9 +1,9 @@
 Package: zupt-gui
-Version: 5.2.5
+Version: 5.2.6
 Section: utils
 Priority: optional
 Architecture: all
-Depends: python3 (>= 3.9), python3-pyqt6 | python3-pyside6.qtwidgets, zupt (= 5.2.5)
+Depends: python3 (>= 3.9), python3-pyqt6 | python3-pyside6.qtwidgets, zupt (= 5.2.6)
 Maintainer: Cristian Cezar Moisés <sac@securityops.co>
 Homepage: https://github.com/cristiancmoises/zupt
 Description: Qt graphical interface for the ZUPT backup utility

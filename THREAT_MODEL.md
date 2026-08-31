@@ -1,4 +1,4 @@
-# ZUPT 5.2.5 threat model
+# ZUPT 5.2.6 threat model
 
 This document defines the security boundary of the ZUPT archive tool. It is
 not a certification, a guarantee against every hostile input, or a substitute
@@ -17,7 +17,7 @@ plausibly deniable.
 
 ## Baseline considered here
 
-The upstream baseline is built from the 5.2.5 source with:
+The upstream baseline is built from the 5.2.6 source with:
 
 ```sh
 make WITH_SDK=0 WITH_PQBOX=0
@@ -175,7 +175,7 @@ temporary through its descriptor or handle. These controls reduce traversal,
 link, race, and partial-output risks, but do not establish that no parser or
 filesystem bug can exist.
 
-The Windows handle-relative boundary in 5.2.5 covers normal local Win32 paths.
+The Windows handle-relative boundary in 5.2.6 covers normal local Win32 paths.
 Win32 extended-length and device-namespace paths, raw UNC output roots, and
 mapped/network-drive output are not supported. Cross-build and Wine results are
 not a substitute for the required native `windows-latest` Unicode package
@@ -250,9 +250,9 @@ tagged source. Each artifact extends the trust boundary to its builder,
 toolchain, runner image, and packaging scripts. Treat it as validated only when
 the exact target has a recorded build, content/package inspection, extracted or
 installed smoke test, and applicable archive round trip. An AppImage is not
-promoted for 5.2.5; bare Linux and Windows executables are also excluded.
+promoted for 5.2.6; bare Linux and Windows executables are also excluded.
 
-For 5.2.5, that gated artifact scope covers the CLI files plus the exact GUI
+For 5.2.6, that gated artifact scope covers the CLI files plus the exact GUI
 DEB, noarch/source RPM, and source-only portable ZIP named in the README. The
 portable ZIP contains no compiled runtime and crosses the release boundary only
 after source scans and an exact safe-member check. AppDir and Flatpak bundles
@@ -265,7 +265,7 @@ strict Clang, GCC `-fanalyzer`, the 9/9 tool-enabled static-analysis run,
 ASan/UBSan/LSan, and 1,000 mutation-fuzz iterations passed. Earlier off-screen
 GUI smoke evidence is retained separately. Post-tag CI integration failures
 prevented 5.2.2 promotion. This upstream self-review is not an independent
-certification and is not 5.2.5 evidence. The immutable 5.2.3 candidate was not
+certification and is not 5.2.6 evidence. The immutable 5.2.3 candidate was not
 promoted because its source-policy test assumed LF for a Windows `.bat` checkout
 that correctly used CRLF. The immutable v5.2.4 candidate was not promoted after
 exact-tag GitHub Actions run `33431386002`: 12 jobs succeeded, the sole openSUSE
@@ -275,9 +275,13 @@ Tumbleweed reproduction established that the explicit `refs/tags/v5.2.4`
 revision works and that `os.chdir(service_dir)` completes the source-service
 chain. This narrows the failure to release/test integration; it changes no
 product, archive, cryptographic, codec, or SDK ABI boundary and supplies no
-automatic 5.2.5 evidence. Hosted GitHub CI and release promotion, native
+automatic 5.2.6 evidence. The immutable v5.2.5 candidate was not promoted after
+exact-tag GitHub Actions run `33434986357`: 13 jobs succeeded, but native
+Windows and macOS failed on fixture-byte preservation and Darwin/Bash 3.2
+portability respectively. The corresponding 5.2.6 corrections do not establish
+their own test result. Hosted GitHub CI and release promotion, native
 Windows/macOS, authenticated OBS, and the openSUSE automatic `debugsource`
-rpmlint `no-binary` finding remain pending until an exact 5.2.5 candidate
+rpmlint `no-binary` finding remain pending until an exact 5.2.6 candidate
 records them.
 
 ## Historical compatibility notes
@@ -305,7 +309,7 @@ These are historical facts about earlier releases, retained to support recovery:
   combinations remain unclaimed.
 
 Historical test counts in the changelog describe those releases. They do not
-automatically become 5.2.5 results; current outcomes belong in the release
+automatically become 5.2.6 results; current outcomes belong in the release
 validation record, with unavailable environments marked `SKIP`. In particular,
 runs made before the final positional-AAD and mandatory-AIT changes are not
 final release gates for the resulting candidate.
@@ -316,4 +320,4 @@ Email **zupt@riseup.net** with `[security]` in the subject. Include the version,
 platform, impact, and a minimal non-sensitive reproducer. Do not disclose the
 issue publicly until a coordinated timeline has been agreed.
 
-Document version: 5.2.5, 2026-08-31.
+Document version: 5.2.6, 2026-08-31.

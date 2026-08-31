@@ -22,9 +22,9 @@
 class Zupt < Formula
   desc "Post-quantum backup compression utility (ML-KEM-768 + AES-256-CTR + HMAC-SHA256)"
   homepage "https://github.com/cristiancmoises/zupt"
-  url "https://github.com/cristiancmoises/zupt/releases/download/v5.2.5/zupt-5.2.5.tar.gz"
-  version "5.2.5"
-  sha256 "7b86d34a418a2bce24396610bd7c23705f58d27873e610728083bd57ebb69ba4"
+  url "https://github.com/cristiancmoises/zupt/releases/download/v5.2.6/zupt-5.2.6.tar.gz"
+  version "5.2.6"
+  sha256 "REPLACE_AFTER_FINAL_ARCHIVE_SHA256"
   license all_of: ["AGPL-3.0-or-later", "GPL-3.0-or-later", "BSD-2-Clause", "BSD-3-Clause", "CC0-1.0"]
 
   depends_on "python@3.12" => :test  # only for test-suite tamper harness

@@ -1,12 +1,12 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-# ZUPT 5.2.5 audit guide and finding history
+# ZUPT 5.2.6 audit guide and finding history
 
 This document describes review surfaces and reproducible checks. It is an
 upstream self-review, not an independent audit, certification, or guarantee.
 `SECURITY.md` defines reporting policy and `THREAT_MODEL.md` defines the
 security boundary.
 
-## 5.2.5 scope
+## 5.2.6 scope
 
 The baseline scope is the source-only CLI and its bundled source codec:
 
@@ -28,7 +28,7 @@ output.
 
 ## Source-only review
 
-The 5.2.5 baseline retains the source-only boundary introduced in 5.2.2, which
+The 5.2.6 baseline retains the source-only boundary introduced in 5.2.2, which
 removed incomplete SDK/PQBOX header snapshots and local precompiled-library
 expectations. Git and new upstream source
 archives are intended to contain no compiled executable, object, shared/static
@@ -42,10 +42,10 @@ scripts/check-source-only.sh
 
 # committed Git tree or immutable tag
 scripts/check-source-only.sh --tag HEAD
-scripts/check-source-only.sh --tag v5.2.5
+scripts/check-source-only.sh --tag v5.2.6
 
 # generated source archive
-scripts/check-source-only.sh --archive /path/to/zupt-5.2.5.tar.gz
+scripts/check-source-only.sh --archive /path/to/zupt-5.2.6.tar.gz
 ```
 
 The scanner checks extensions and magic bytes, nested archives, symlink targets,
@@ -109,7 +109,7 @@ without evidence.
 The following upstream self-audit results apply only to the 5.2.2 candidate at
 commit `ff99770` on the recorded local Linux environments. The immutable 5.2.2
 tag was not promoted after post-tag CI integration failures. These results are
-not independent certification, a 5.2.5 result, or evidence that release assets
+not independent certification, a 5.2.6 result, or evidence that release assets
 were published.
 
 | Gate | Result | Recorded evidence |
@@ -141,9 +141,33 @@ A separate local openSUSE Tumbleweed reproduction resolved the explicit
 produced exactly one `zupt-5.2.4.tar.gz`, which passed the source-only scanner.
 This isolates a release/test harness defect; it is not evidence of a product,
 archive-format, cryptographic, codec, or SDK ABI change. It also does not turn
-the skipped native jobs into passes or transfer any result to 5.2.5.
+the skipped native jobs into passes or transfer any result to 5.2.6.
 
-The exact 5.2.5 candidate must repeat the required suite. Native Windows and
+## Prior 5.2.5 exact-tag native-gate evidence
+
+The immutable `v5.2.5` candidate was not promoted. Exact-tag GitHub Actions run
+`33434986357` completed 13 jobs successfully, while its native Windows and
+macOS jobs failed. The Windows regression did not preserve every requested
+hostile path byte across its command-line boundary. The macOS gate exposed both
+an unavailable `explicit_bzero` assumption and Bash 3.2 empty-array behavior in
+the source scanner exercised by `make check`.
+
+The 5.2.6 corrections select the existing compiler-resistant volatile wipe on
+Darwin and NetBSD, guard every relevant scanner array, and make the Windows
+fixture accept explicit hexadecimal bytes, verify the full requested path in
+the archive, and reject each dangerous raw byte fragment anywhere in diagnostic
+output. These changes do not alter the archive format, cryptography, bundled
+codec, or SDK ABI. They are proposed corrections, not proof that any 5.2.6
+native or hosted gate has passed.
+
+A separate local compatibility run executed the corrected scanner with genuine
+GNU Bash 3.2.57 in a clean clone. All four exercised modes completed: the
+repository audit reported 609 files and one archive; `--tree` reported 204/0;
+`--archive` reported 201/1; and `--root` plus `--tag v5.2.5` reported 810/2.
+This is targeted scanner compatibility evidence only, not exact-v5.2.6 hosted
+CI, package, native-platform, or promotion evidence.
+
+The exact 5.2.6 candidate must repeat the required suite. Native Windows and
 macOS gates, hosted GitHub CI and release promotion, authenticated OBS
 validation, and resolution of the openSUSE automatic `debugsource` rpmlint
 `no-binary` finding remain pending until recorded otherwise.
@@ -165,7 +189,7 @@ AES implementation has documented cache-timing risk on hostile shared hardware.
 
 The following entries are retained as release history. Their regression tests
 should be rerun, but the historical resolution does not itself constitute a
-5.2.5 test result.
+5.2.6 test result.
 
 | First corrected | Severity | Finding | Resolution recorded at the time |
 |---|---|---|---|
@@ -206,12 +230,12 @@ include SHA-256 checksums. The gated GUI set adds the architecture-independent
 DEB, noarch/source RPM, and source-only portable GUI ZIP. Package gates include
 exact payload/dependency and installed off-screen integration checks; the
 portable ZIP additionally receives source scans, an exact safe-member allowlist,
-and an extracted launcher test. An AppImage is not promoted by the 5.2.5
+and an extracted launcher test. An AppImage is not promoted by the 5.2.6
 policy; AppDir and Flatpak bundles, GUI platform installers, and bare
 Linux/Windows executables are also excluded. Windows ZIP and macOS DMG outputs
 remain CLI-only.
 
-No Wine result is retained as release evidence for 5.2.5. Cross-compilation
+No Wine result is retained as release evidence for 5.2.6. Cross-compilation
 does not establish native-Windows behavior. Extended-length/device namespace
 paths, raw UNC output roots, and mapped/network-drive output are unsupported;
 the native Windows workflow remains a publication gate for the ZIP containing

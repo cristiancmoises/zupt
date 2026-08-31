@@ -20,7 +20,7 @@
 # installed smoke test.
 
 Name:           zupt
-Version:        5.2.5
+Version:        5.2.6
 Release:        1%{?dist}
 Summary:        Backup compression with authenticated and post-quantum encryption
 
@@ -101,6 +101,12 @@ comments. Plain archives use non-cryptographic checksums.
 %endif
 
 %changelog
+* Mon Aug 31 2026 Cristian Cezar Moisés <sac@securityops.co> - 5.2.6-1
+- Correct native release gates: use the secure volatile wipe fallback on
+  macOS and NetBSD, support Bash 3.2 empty arrays in the source scanner, and
+  preserve hostile archive-path fixture bytes exactly on Windows.
+- Preserve immutable, unpromoted 5.2.5 history and require fresh 5.2.6 gates.
+
 * Mon Aug 31 2026 Cristian Cezar Moisés <sac@securityops.co> - 5.2.5-1
 - Run the standalone OBS source-service chain from its isolated working
   directory and add a packaging-policy regression for that contract.

@@ -104,33 +104,62 @@ else
     fail 'control-byte archive path is rejected without terminal injection'
 fi
 
-expect_display_unsafe_path_rejected() {
-    local label=$1 name=$2 entry=$3
+file_contains_hex_bytes() {
+    python3 - "$1" "$2" <<'PY'
+import pathlib
+import sys
+
+data = pathlib.Path(sys.argv[1]).read_bytes()
+needle = bytes.fromhex(sys.argv[2])
+raise SystemExit(0 if needle in data else 1)
+PY
+}
+
+expect_display_unsafe_hex_path_rejected() {
+    local label=$1 name=$2 entry_hex=$3 forbidden_hex=$4
     local archive=$TEST_ROOT/$name.zupt log=$TEST_ROOT/$name.log status
-    MSYS2_ARG_CONV_EXCL='--entry=' "$FIXTURE" "$archive" "--entry=$entry"
+    MSYS2_ARG_CONV_EXCL='--entry-hex=' \
+        "$FIXTURE" "$archive" "--entry-hex=$entry_hex"
+    if ! file_contains_hex_bytes "$archive" "$entry_hex"; then
+        printf '  fixture did not preserve the requested path bytes: %s\n' \
+            "$entry_hex" >&2
+        fail "$label"
+        return
+    fi
     set +e
     "$ZUPT_BIN" list "$archive" > "$log" 2>&1
     status=$?
     set -e
-    if ((status != 0)) && ! LC_ALL=C grep -Fq -- "$entry" "$log"; then
+    if ((status != 0)) && ! file_contains_hex_bytes "$log" "$forbidden_hex"; then
         pass "$label"
     else
         fail "$label"
     fi
 }
 
-expect_display_unsafe_path_rejected \
+if MSYS2_ARG_CONV_EXCL='--entry-hex=' \
+       "$FIXTURE" "$TEST_ROOT/invalid-hex.zupt" '--entry-hex=0' \
+       >/dev/null 2>&1 ||
+   MSYS2_ARG_CONV_EXCL='--entry-hex=' \
+       "$FIXTURE" "$TEST_ROOT/invalid-hex.zupt" '--entry-hex=GG' \
+       >/dev/null 2>&1; then
+    fail 'archive path fixture rejects malformed hex input'
+else
+    pass 'archive path fixture rejects malformed hex input'
+fi
+
+expect_display_unsafe_hex_path_rejected \
     'raw C1 archive path is rejected without terminal injection' \
-    raw-c1 $'safe\23331m.txt'
-expect_display_unsafe_path_rejected \
+    raw-c1 736166659b33316d2e747874 9b
+expect_display_unsafe_hex_path_rejected \
     'UTF-8 C1 archive path is rejected without terminal injection' \
-    utf8-c1 $'safe\302\23331m.txt'
-expect_display_unsafe_path_rejected \
+    utf8-c1 73616665c29b33316d2e747874 c29b
+expect_display_unsafe_hex_path_rejected \
     'Unicode bidi-control archive path is rejected without display spoofing' \
-    bidi $'safe\342\200\256exe.txt'
-expect_display_unsafe_path_rejected \
+    bidi 73616665e280ae6578652e747874 e280ae
+expect_display_unsafe_hex_path_rejected \
     'invalid UTF-8 archive path is rejected without raw display' \
-    invalid-utf8 $'safe\300\257.txt'
+    invalid-utf8 73616665c0af2e747874 c0af
 
 make_fixture "$TEST_ROOT/leaf.zupt" 'innocent.txt'
 printf '%s\n' DO_NOT_OVERWRITE > "$TEST_ROOT/sentinel"

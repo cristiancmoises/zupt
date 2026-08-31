@@ -13,6 +13,9 @@ HAVE_EXTERNAL_TARGET=0
 declare -a TAGS=()
 declare -a ARCHIVES=()
 declare -a TREES=()
+TAG_COUNT=0
+ARCHIVE_COUNT=0
+TREE_COUNT=0
 
 FAILURES=0
 SCANNED=0
@@ -92,17 +95,20 @@ while (($#)); do
         --tag)
             (($# >= 2)) || { printf 'ERROR: --tag requires a revision\n' >&2; exit 2; }
             TAGS+=("$2")
+            TAG_COUNT=$((TAG_COUNT + 1))
             shift 2
             ;;
         --archive)
             (($# >= 2)) || { printf 'ERROR: --archive requires a file\n' >&2; exit 2; }
             ARCHIVES+=("$2")
+            ARCHIVE_COUNT=$((ARCHIVE_COUNT + 1))
             HAVE_EXTERNAL_TARGET=1
             shift 2
             ;;
         --tree)
             (($# >= 2)) || { printf 'ERROR: --tree requires a directory\n' >&2; exit 2; }
             TREES+=("$2")
+            TREE_COUNT=$((TREE_COUNT + 1))
             HAVE_EXTERNAL_TARGET=1
             shift 2
             ;;
@@ -127,7 +133,7 @@ while (($#)); do
     esac
 done
 
-if ((HAVE_EXTERNAL_TARGET)) && ((ROOT_REQUESTED == 0)) && ((${#TAGS[@]} == 0)); then
+if ((HAVE_EXTERNAL_TARGET)) && ((ROOT_REQUESTED == 0)) && ((TAG_COUNT == 0)); then
     REPOSITORY_AUDIT=0
 fi
 
@@ -268,7 +274,9 @@ path_stays_below_root() {
     [[ $candidate != /* && $candidate != //* ]] || return 1
     [[ ! $candidate =~ ^[[:alpha:]]: ]] || return 1
     read -r -a components <<< "$candidate"
-    for component in "${components[@]}"; do
+    # Bash 3.2 treats an empty array expansion as unset under `set -u`.
+    # The + guard expands to no words for an empty path component list.
+    for component in ${components[@]+"${components[@]}"}; do
         case $component in
             ''|.) ;;
             ..)
@@ -821,38 +829,44 @@ if ((REPOSITORY_AUDIT)); then
     else
         fail_path git-archive-HEAD HEAD 'repository has no commit'
     fi
-    for target in "${TAGS[@]}"; do
-        if git -C "$ROOT" rev-parse --verify -q "$target^{commit}" >/dev/null; then
-            scan_git_archive "$ROOT" "$target" "git-archive-$target"
+    if ((TAG_COUNT)); then
+        for target in "${TAGS[@]}"; do
+            if git -C "$ROOT" rev-parse --verify -q "$target^{commit}" >/dev/null; then
+                scan_git_archive "$ROOT" "$target" "git-archive-$target"
+            else
+                fail_path git-tag "$target" 'revision does not resolve to a commit'
+            fi
+        done
+    fi
+fi
+
+if ((TREE_COUNT)); then
+    for target in "${TREES[@]}"; do
+        if [[ -d $target ]]; then
+            target=$(canonicalize_allow_missing "$target") || {
+                fail_path standalone-tree "$target" 'cannot canonicalize tree'
+                continue
+            }
+            scan_tree "$target" standalone-tree 0
         else
-            fail_path git-tag "$target" 'revision does not resolve to a commit'
+            fail_path standalone-tree "$target" 'tree does not exist'
         fi
     done
 fi
 
-for target in "${TREES[@]}"; do
-    if [[ -d $target ]]; then
-        target=$(canonicalize_allow_missing "$target") || {
-            fail_path standalone-tree "$target" 'cannot canonicalize tree'
-            continue
-        }
-        scan_tree "$target" standalone-tree 0
-    else
-        fail_path standalone-tree "$target" 'tree does not exist'
-    fi
-done
-
-for target in "${ARCHIVES[@]}"; do
-    if [[ -f $target ]]; then
-        target=$(canonicalize_allow_missing "$target") || {
-            fail_path standalone-archive "$target" 'cannot canonicalize archive'
-            continue
-        }
-        scan_archive "$target" "${target##*/}" standalone-archive 0
-    else
-        fail_path standalone-archive "$target" 'archive does not exist'
-    fi
-done
+if ((ARCHIVE_COUNT)); then
+    for target in "${ARCHIVES[@]}"; do
+        if [[ -f $target ]]; then
+            target=$(canonicalize_allow_missing "$target") || {
+                fail_path standalone-archive "$target" 'cannot canonicalize archive'
+                continue
+            }
+            scan_archive "$target" "${target##*/}" standalone-archive 0
+        else
+            fail_path standalone-archive "$target" 'archive does not exist'
+        fi
+    done
+fi
 
 if ((FAILURES == 0)); then
     printf 'PASS source-only: %d files, %d archives\n' "$SCANNED" "$ARCHIVES_SCANNED"

@@ -42,6 +42,31 @@ static size_t put_varint(uint8_t *out, uint64_t value) {
     return count;
 }
 
+static int hex_nibble(unsigned char value) {
+    if (value >= '0' && value <= '9') return (int)(value - '0');
+    if (value >= 'a' && value <= 'f') return (int)(value - 'a') + 10;
+    if (value >= 'A' && value <= 'F') return (int)(value - 'A') + 10;
+    return -1;
+}
+
+static int decode_hex_entry(const char *hex, uint8_t *out, size_t capacity,
+                            size_t *out_size) {
+    size_t hex_size = strlen(hex);
+    if (hex_size == 0 || (hex_size & 1u) != 0 ||
+        hex_size / 2u >= capacity)
+        return -1;
+
+    size_t decoded_size = hex_size / 2u;
+    for (size_t i = 0; i < decoded_size; i++) {
+        int high = hex_nibble((unsigned char)hex[i * 2u]);
+        int low = hex_nibble((unsigned char)hex[i * 2u + 1u]);
+        if (high < 0 || low < 0) return -1;
+        out[i] = (uint8_t)((high << 4) | low);
+    }
+    *out_size = decoded_size;
+    return 0;
+}
+
 static int write_block(FILE *stream, uint8_t type, const uint8_t *payload,
                        size_t payload_size, uint64_t unpacked_size,
                        uint64_t checksum) {
@@ -66,11 +91,24 @@ static int write_block(FILE *stream, uint8_t type, const uint8_t *payload,
 
 int main(int argc, char **argv) {
     static const uint8_t content[] = "fixture content\n";
-    const char *entry = argc == 3 && strncmp(argv[2], "--entry=", 8) == 0
-        ? argv[2] + 8 : NULL;
-    if (!entry || argv[1][0] == '\0' || entry[0] == '\0' ||
-        strlen(entry) >= ZUPT_MAX_PATH) {
-        fprintf(stderr, "usage: %s ARCHIVE --entry=ENTRY_PATH\n", argv[0]);
+    uint8_t decoded_entry[ZUPT_MAX_PATH];
+    const uint8_t *entry = NULL;
+    size_t path_size = 0;
+
+    if (argc == 3 && strncmp(argv[2], "--entry=", 8) == 0) {
+        entry = (const uint8_t *)argv[2] + 8;
+        path_size = strlen(argv[2] + 8);
+    } else if (argc == 3 &&
+               strncmp(argv[2], "--entry-hex=", 12) == 0 &&
+               decode_hex_entry(argv[2] + 12, decoded_entry,
+                                sizeof(decoded_entry), &path_size) == 0) {
+        entry = decoded_entry;
+    }
+    if (!entry || argv[1][0] == '\0' || path_size == 0 ||
+        path_size >= ZUPT_MAX_PATH) {
+        fprintf(stderr,
+                "usage: %s ARCHIVE --entry=ENTRY_PATH|--entry-hex=HEX_BYTES\n",
+                argv[0]);
         return 2;
     }
 
@@ -106,7 +144,6 @@ int main(int argc, char **argv) {
 
     uint8_t index[ZUPT_MAX_PATH + 128];
     size_t index_size = 0;
-    size_t path_size = strlen(entry);
     index_size += put_varint(index + index_size, 1);
     index_size += put_varint(index + index_size, path_size);
     memcpy(index + index_size, entry, path_size);

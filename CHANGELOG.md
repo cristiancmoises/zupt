@@ -1,5 +1,31 @@
 # ZUPT Changelog
 
+## [5.2.6] — 2026-08-31 — Native release-gate portability corrections
+
+Corrective successor to the immutable, unpromoted `v5.2.5` candidate. Exact-tag
+GitHub Actions run `33434986357` completed 13 jobs successfully, but the native
+Windows and macOS jobs failed, so no 5.2.5 assets were promoted. The tag and its
+recorded evidence remain unchanged.
+
+- Use the compiler-resistant volatile wipe fallback on macOS and NetBSD instead
+  of assuming that their C libraries export `explicit_bzero`; supported glibc,
+  FreeBSD, and OpenBSD paths retain their existing selection.
+- Make the source-only scanner's empty-array handling compatible with the
+  system Bash 3.2 shipped by macOS, including repository, tag, standalone-tree,
+  standalone-archive, and path-component traversal paths.
+- Make hostile archive-path fixtures accept explicit hexadecimal bytes, verify
+  the requested path bytes in the generated archive, and reject the dangerous
+  raw byte fragment anywhere in diagnostic output, so the Windows regression
+  does not depend on command-line conversion or benign path prefixes.
+- Carry the 5.2.5 source-only and security baseline forward without changing
+  the archive format, cryptography, bundled codec release, or SDK ABI.
+- Realign current package, workflow, artifact, and tag references to 5.2.6;
+  leave release-archive checksums explicitly pending until the final source
+  archive is generated.
+- Require fresh exact-`v5.2.6` source, checksum, hosted CI, native-platform,
+  package, OBS, and promotion evidence. No prior candidate result transfers
+  automatically, and this changelog entry does not claim those gates passed.
+
 ## [5.2.5] — 2026-08-31 — OBS service working-directory correction
 
 Corrective successor to the immutable `v5.2.4` candidate. GitHub Actions run
