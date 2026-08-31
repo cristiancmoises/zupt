@@ -86,6 +86,16 @@ else
     F "GUI is missing the anchored version regex (_VERSION_RE)"
 fi
 
+# Package and promotion gates consume this as a machine-readable identity.
+# Keep binding and discovered-CLI diagnostics in the UI rather than appending
+# them to the stable --version line.
+if [ "$(grep -Fc 'print(f"zupt-gui {ZUPT_VER_NUMBER}' "$GUI")" -eq 1 ] &&
+   grep -Fqx '        print(f"zupt-gui {ZUPT_VER_NUMBER}")' "$GUI"; then
+    P "GUI --version emits the stable exact product/version line"
+else
+    F "GUI --version output is not the stable exact product/version line"
+fi
+
 # ─── Brand-string check ───
 # Release 5.2.2 restores the original ZUPT identity in every current panel.
 if grep -q 'QLabel("ZUPT")' "$GUI" &&

@@ -1,5 +1,33 @@
 # ZUPT Changelog
 
+## [5.2.3] — 2026-08-31 — Corrective release integration
+
+Corrective successor to the immutable `v5.2.2` candidate. Post-tag CI
+integration failures prevented 5.2.2 asset promotion; the tag and its historical
+record remain unchanged.
+
+- Carry the 5.2.2 source-only, security, naming, format, and compatibility work
+  forward without a new archive-format version, codec release, or SDK ABI.
+- Realign current source, package, workflow, documentation, artifact, and tag
+  version references to 5.2.3. Release binaries remain outside Git and source
+  archives.
+- Make `zupt-gui --version` emit the stable machine-readable line
+  `zupt-gui 5.2.3`, and cover that contract in GUI/package regressions.
+- Derive Debian and Fedora GUI integration paths, package metadata checks, and
+  CLI dependency checks from the authoritative version header instead of a
+  prior-release literal.
+- Repair native RPM container gates: persist the exact checked-out workspace as
+  a Git safe directory, and remove Tumbleweed's conflicting `busybox-gawk`
+  before installing the native `gawk`/RPM toolchain.
+- Require a new exact-`v5.2.3` source archive and checksum set plus fresh hosted
+  CI, native Windows/macOS, package, and promotion evidence. Prior local 5.2.2
+  results do not transfer automatically.
+- Keep authenticated OBS/Factory validation pending. The automatic openSUSE
+  `debugsource` rpmlint `no-binary` finding remains unresolved and unsuppressed.
+- Continue to exclude AppImage/AppDir/Flatpak, GUI platform installers, and bare
+  executables from the promoted set; retain the notice-bearing CLI archives and
+  source-only portable GUI ZIP policy.
+
 
 ## [5.2.2] — 2026-08-31 — ZUPT identity, source-only upstream tree, and openSUSE packaging
 

@@ -20,7 +20,7 @@
 # installed smoke test.
 
 Name:           zupt
-Version:        5.2.2
+Version:        5.2.3
 Release:        1%{?dist}
 Summary:        Backup compression with authenticated and post-quantum encryption
 
@@ -101,6 +101,11 @@ comments. Plain archives use non-cryptographic checksums.
 %endif
 
 %changelog
+* Mon Aug 31 2026 Cristian Cezar Moisés <sac@securityops.co> - 5.2.3-1
+- Correct the release-package CI version checks and portable GUI version
+  contract, and make the openSUSE container replace busybox-gawk before
+  installing the native RPM toolchain.
+
 * Mon Aug 31 2026 Cristian Cezar Moisés <sac@securityops.co> - 5.2.2-1
 - Source-only release; optional SDK/PQBOX integrations use system development
   packages only and are disabled for this package.

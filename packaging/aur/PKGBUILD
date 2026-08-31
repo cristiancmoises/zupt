@@ -11,7 +11,7 @@
 # Test locally with `makepkg -s` after the release archive is published.
 
 pkgname=zupt
-pkgver=5.2.2
+pkgver=5.2.3
 pkgrel=1
 pkgdesc='Pure-C11 post-quantum backup compression utility (AES-256-CTR + HMAC-SHA256 + ML-KEM-768 + X25519)'
 arch=('x86_64')
@@ -22,8 +22,8 @@ makedepends=('gcc' 'git' 'make')
 checkdepends=('python')
 
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/cristiancmoises/zupt/releases/download/v${pkgver}/${pkgname}-${pkgver}.tar.gz")
-# Updated from the byte-reproducible upstream release archive before publishing.
-sha256sums=('ee28e7be2b8725189b88ea13e0951c535d3516b44b47d05d5f1fce245d64c553')
+# Replace only after generating the byte-reproducible final release archive.
+sha256sums=('REPLACE_AFTER_FINAL_ARCHIVE_SHA256')
 
 build() {
     cd "${pkgname}-${pkgver}"

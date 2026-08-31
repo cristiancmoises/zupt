@@ -1,3 +1,11 @@
+zupt (5.2.3-1) UNRELEASED; urgency=medium
+
+  * Derive package checks from the upstream version header and stabilize the
+    GUI version output consumed by package gates.
+  * Replace busybox-gawk before installing the native openSUSE RPM toolchain.
+
+ -- Cristian Cezar Moisés <sac@securityops.co>  Mon, 31 Aug 2026 18:15:00 +0000
+
 zupt (5.2.2-1) UNRELEASED; urgency=medium
 
   * Prepare a source-only upstream release and remove incomplete vendored SDK

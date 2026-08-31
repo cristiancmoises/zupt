@@ -286,21 +286,25 @@ jobs:
           DIST_DIR="$RUNNER_TEMP/release-deb" RUN_CHECKS=1 bash packaging/build-deb.sh
       - name: Build and content-test the GUI DEB
         run: |
+          version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+          test -n "$version"
           mkdir -p "$RUNNER_TEMP/release-gui-deb"
           DIST_DIR="$RUNNER_TEMP/release-gui-deb" bash packaging/build-gui-deb.sh
-          gui_deb="$RUNNER_TEMP/release-gui-deb/zupt-gui_5.2.2_all.deb"
+          gui_deb="$RUNNER_TEMP/release-gui-deb/zupt-gui_${version}_all.deb"
           test -s "$gui_deb"
           test "$(dpkg-deb -f "$gui_deb" Package)" = zupt-gui
-          test "$(dpkg-deb -f "$gui_deb" Version)" = 5.2.2
+          test "$(dpkg-deb -f "$gui_deb" Version)" = "$version"
           test "$(dpkg-deb -f "$gui_deb" Architecture)" = all
       - name: Install, functionally test and uninstall the DEBs
         run: |
+          version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+          test -n "$version"
           deb=$(find "$RUNNER_TEMP/release-deb" -maxdepth 1 -type f -name '*.deb' -print -quit)
-          gui_deb="$RUNNER_TEMP/release-gui-deb/zupt-gui_5.2.2_all.deb"
+          gui_deb="$RUNNER_TEMP/release-gui-deb/zupt-gui_${version}_all.deb"
           test -n "$deb" && test -s "$gui_deb"
           sudo apt-get install -y "$deb" "$gui_deb"
           bash scripts/test-installed-zupt.sh /usr/bin/zupt
-          QT_QPA_PLATFORM=offscreen zupt-gui --version | grep -Fx "zupt-gui 5.2.2"
+          QT_QPA_PLATFORM=offscreen zupt-gui --version | grep -Fx "zupt-gui $version"
           test ! -e /usr/bin/vaptvupt
           sudo apt-get purge -y zupt-gui zupt
           test ! -e /usr/bin/zupt-gui
@@ -338,8 +342,13 @@ jobs:
           fetch-depth: 0
           lfs: false
           submodules: false
+      - name: Trust the exact checked-out workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Install native openSUSE tooling
         run: |
+          if rpm -q busybox-gawk >/dev/null 2>&1; then
+            zypper --non-interactive remove busybox-gawk
+          fi
           zypper --non-interactive install --no-recommends \
             bash binutils cpio coreutils diffutils file findutils gawk gcc git-core grep gzip \
             libxml2-tools make osc obs-service-obs_scm obs-service-recompress \
@@ -433,6 +442,8 @@ jobs:
           fetch-depth: 0
           lfs: false
           submodules: false
+      - name: Trust the exact checked-out workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Install native build, package, audit and GUI runtime tools
         run: |
           dnf install -y \
@@ -440,16 +451,19 @@ jobs:
             python3 python3-pyside6 rpm-build rpmdevtools tar unzip
       - name: Build and content-test the GUI RPM and source RPM
         run: |
+          version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+          test -n "$version"
           mkdir -p "$RUNNER_TEMP/release-gui-rpm"
           DIST_DIR="$RUNNER_TEMP/release-gui-rpm" bash packaging/build-gui-rpm.sh
-          test -s "$RUNNER_TEMP/release-gui-rpm/zupt-gui-5.2.2-1.noarch.rpm"
-          test -s "$RUNNER_TEMP/release-gui-rpm/zupt-gui-5.2.2-1.src.rpm"
-          test "$(rpm -qp --qf '%{NAME}' "$RUNNER_TEMP/release-gui-rpm/zupt-gui-5.2.2-1.noarch.rpm")" = zupt-gui
-          test "$(rpm -qp --qf '%{VERSION}-%{RELEASE}' "$RUNNER_TEMP/release-gui-rpm/zupt-gui-5.2.2-1.noarch.rpm")" = 5.2.2-1
-          test "$(rpm -qp --qf '%{ARCH}' "$RUNNER_TEMP/release-gui-rpm/zupt-gui-5.2.2-1.noarch.rpm")" = noarch
-          rpm -qp --requires "$RUNNER_TEMP/release-gui-rpm/zupt-gui-5.2.2-1.noarch.rpm" | \
-            grep -Fx 'zupt >= 5.2.2'
-          test "$(rpm -qp --qf '%{NAME}' "$RUNNER_TEMP/release-gui-rpm/zupt-gui-5.2.2-1.src.rpm")" = zupt-gui
+          gui_rpm="$RUNNER_TEMP/release-gui-rpm/zupt-gui-$version-1.noarch.rpm"
+          gui_srpm="$RUNNER_TEMP/release-gui-rpm/zupt-gui-$version-1.src.rpm"
+          test -s "$gui_rpm"
+          test -s "$gui_srpm"
+          test "$(rpm -qp --qf '%{NAME}' "$gui_rpm")" = zupt-gui
+          test "$(rpm -qp --qf '%{VERSION}-%{RELEASE}' "$gui_rpm")" = "$version-1"
+          test "$(rpm -qp --qf '%{ARCH}' "$gui_rpm")" = noarch
+          rpm -qp --requires "$gui_rpm" | grep -Fx "zupt >= $version"
+          test "$(rpm -qp --qf '%{NAME}' "$gui_srpm")" = zupt-gui
       - name: Build the matching Fedora CLI RPM
         run: |
           version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
@@ -459,14 +473,16 @@ jobs:
           rpmbuild --define "_topdir $core_top" -ba packaging/rpm/zupt.spec
       - name: Install and functionally test the GUI with the packaged CLI
         run: |
+          version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
+          test -n "$version"
           core_rpm=$(find "$RUNNER_TEMP/core-rpmbuild/RPMS" -type f \
-            -name 'zupt-5.2.2-1.*.rpm' ! -name '*-debuginfo-*' \
+            -name "zupt-$version-1.*.rpm" ! -name '*-debuginfo-*' \
             ! -name '*-debugsource-*' -print -quit)
-          gui_rpm="$RUNNER_TEMP/release-gui-rpm/zupt-gui-5.2.2-1.noarch.rpm"
+          gui_rpm="$RUNNER_TEMP/release-gui-rpm/zupt-gui-$version-1.noarch.rpm"
           test -n "$core_rpm" && test -s "$gui_rpm"
           dnf install -y "$core_rpm" "$gui_rpm"
           bash scripts/test-installed-zupt.sh /usr/bin/zupt
-          QT_QPA_PLATFORM=offscreen zupt-gui --version | grep -Fx 'zupt-gui 5.2.2'
+          QT_QPA_PLATFORM=offscreen zupt-gui --version | grep -Fx "zupt-gui $version"
           test ! -e /usr/bin/vaptvupt
           dnf remove -y zupt-gui zupt
           test ! -e /usr/bin/zupt-gui

@@ -1097,7 +1097,7 @@ def main():
     # loop once, then exits 0 — the reliable way to confirm the GUI stack launches
     # on a machine where the window itself is hard to see (tiling WM, remote, CI).
     if args and args[0] in ("--version", "-V", "version"):
-        print(f"zupt-gui {ZUPT_VER_NUMBER} ({QT_BINDING})  |  CLI: {ZUPT_CLI}")
+        print(f"zupt-gui {ZUPT_VER_NUMBER}")
         return 0
     if args and args[0] in ("--help", "-h", "help"):
         print("usage: zupt-gui [ARCHIVE.zupt | --extract ARCHIVE.zupt |\n"

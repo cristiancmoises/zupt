@@ -1,4 +1,13 @@
 -------------------------------------------------------------------
+Mon Aug 31 18:15:00 UTC 2026 - Cristian Cezar Moisés <sac@securityops.co>
+
+- Update to 5.2.3:
+  * Derive package checks from the upstream version header and stabilize the
+    GUI version output consumed by package gates.
+  * Replace busybox-gawk before installing the native Tumbleweed RPM tooling.
+  * Pin the OBS source service to the immutable v5.2.3 tag.
+
+-------------------------------------------------------------------
 Mon Aug 31 00:00:00 UTC 2026 - Cristian Cezar Moisés <sac@securityops.co>
 
 - Update to 5.2.2:

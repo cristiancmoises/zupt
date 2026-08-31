@@ -58,6 +58,18 @@ check_recipe_version Guix \
     "$(sed -n 's/^(define %zupt-version "\([^"]*\)")/\1/p' packaging/guix/zupt.scm)"
 check_recipe_version openSUSE \
     "$(awk '/^Version:/{print $2; exit}' packaging/opensuse/zupt.spec)"
+check_recipe_version GUI-Deb-Control \
+    "$(awk '/^Version:/{print $2; exit}' gui/packaging/deb/control)"
+
+if grep -Fqx "VERSION=\${VERSION:-$version}" install.sh && \
+   grep -Fqx "if not defined VERSION set \"VERSION=$version\"" \
+       gui/packaging/windows/build-windows.bat && \
+   grep -Fqx "Depends: python3 (>= 3.9), python3-pyqt6 | python3-pyside6.qtwidgets, zupt (= $version)" \
+       gui/packaging/deb/control; then
+    pass 'installer and static GUI package defaults match the upstream version'
+else
+    fail 'installer or static GUI package defaults do not match the upstream version'
+fi
 
 if grep -En 'REPLACE_AFTER|REPLACE_WITH|sha256sums=\(.SKIP.|base32 .REPLACE' \
     packaging/aur/PKGBUILD packaging/homebrew/zupt.rb packaging/guix/zupt.scm; then
@@ -167,6 +179,25 @@ else
     fail 'source scanner archive resource bounds or regressions are incomplete'
 fi
 
+tumbleweed_job=$(sed -n '/^  tumbleweed-rpm:/,/^  gui-rpm-package:/p' \
+    .github/workflows/ci.yml)
+fedora_gui_job=$(sed -n '/^  gui-rpm-package:/,/^  linux-portable:/p' \
+    .github/workflows/ci.yml)
+# These matches intentionally assert the literal Actions variable in YAML.
+# shellcheck disable=SC2016
+if grep -Fq 'git config --global --add safe.directory "$GITHUB_WORKSPACE"' \
+        <<<"$tumbleweed_job" && \
+   grep -Fq 'if rpm -q busybox-gawk >/dev/null 2>&1; then' \
+        <<<"$tumbleweed_job" && \
+   grep -Fq 'zypper --non-interactive remove busybox-gawk' \
+        <<<"$tumbleweed_job" && \
+   grep -Fq 'git config --global --add safe.directory "$GITHUB_WORKSPACE"' \
+        <<<"$fedora_gui_job"; then
+    pass 'RPM container jobs trust the exact workspace and replace busybox-gawk'
+else
+    fail 'RPM container workspace trust or busybox-gawk replacement is incomplete'
+fi
+
 # These are literal shell expressions required inside the promotion workflow.
 # shellcheck disable=SC2016
 if grep -Fq 'zupt-gui_${VERSION}_all.deb' .github/workflows/promote-release.yml && \
@@ -217,9 +248,9 @@ if grep -Eiq 'AppImage.*(not|excluded|outside)' SECURITY.md && \
    grep -Eiq 'AppImage.*(not|excluded|outside)' THREAT_MODEL.md && \
    grep -Eiq 'AppImage.*(not|excluded|outside)' AUDIT.md && \
    grep -Eiq 'AppImage.*(not|excluded|outside)' doc/zupt.1; then
-    pass 'current security and user documentation records the 5.2.2 exclusions'
+    pass 'current security and user documentation records release exclusions'
 else
-    fail 'current documentation still permits a 5.2.2 AppImage or bare EXE claim'
+    fail 'current documentation still permits an AppImage or bare EXE claim'
 fi
 
 handoff_legal_ok=1

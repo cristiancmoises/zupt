@@ -159,8 +159,8 @@ grant attached to their unchanged Git blobs, are recorded in
 
 ## AppImage type-2 runtime
 
-No AppImage is a promised or promoted 5.2.2 release asset. The upstream
-type-2 runtime inspected for this release statically linked musl, libfuse,
+No AppImage is a promised or promoted 5.2.3 release asset. The upstream
+type-2 runtime inspected during the 5.2.2 review statically linked musl, libfuse,
 squashfuse, zstd, zlib, and mimalloc, but its own license notice did not list
 mimalloc and the available release inputs did not provide a complete
 LGPL-compatible source/relink handoff. ZUPT therefore does not
@@ -171,7 +171,7 @@ no network input and requires the operator to supply both a locally verified
 runtime and `APPIMAGE_RUNTIME_COMPLIANCE_FILE`, containing the license notices,
 source correspondence or offer, and relink information applicable to those
 exact runtime bytes. An artifact produced independently with that helper is
-not covered by the 5.2.2 upstream release gates.
+not covered by the 5.2.3 upstream release gates.
 
 ## Reporting attribution issues
 
