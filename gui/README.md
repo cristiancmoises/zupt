@@ -1,6 +1,6 @@
 # ZUPT GUI
 
-The ZUPT GUI is a Python/Qt front end for the ZUPT 5.2.3 command-line
+The ZUPT GUI is a Python/Qt front end for the ZUPT 5.2.4 command-line
 program. It starts the CLI as a subprocess; compression, archive parsing, and
 cryptography remain in the C program.
 
@@ -83,10 +83,10 @@ operating systems and must be tested on the target system.
 Release pages provide only these GUI artifacts after their separate package and
 installed off-screen GUI/CLI integration gates pass:
 
-- `zupt-gui_5.2.3_all.deb`;
-- `zupt-gui-5.2.3-1.noarch.rpm`;
-- `zupt-gui-5.2.3-1.src.rpm`;
-- `zupt-gui-5.2.3-portable.zip`.
+- `zupt-gui_5.2.4_all.deb`;
+- `zupt-gui-5.2.4-1.noarch.rpm`;
+- `zupt-gui-5.2.4-1.src.rpm`;
+- `zupt-gui-5.2.4-portable.zip`.
 
 The DEB/RPM packages install the Python/Qt source and depend on the matching
 `zupt` CLI package. The portable ZIP contains source, launchers, icons, licenses,
@@ -97,7 +97,7 @@ An absent artifact did not pass its gate and must not be inferred from another
 format's result.
 
 GUI AppImage, AppDir and Flatpak bundles, and Windows/macOS GUI installers are
-not promoted by the upstream 5.2.3 release gates.
+not promoted by the upstream 5.2.4 release gates.
 `packaging/build-gui-appimage.sh` is a downstream-only helper and fails unless
 its operator supplies the exact verified runtime plus a complete
 license/source-relink notice through `APPIMAGE_RUNTIME_COMPLIANCE_FILE`; that
@@ -110,7 +110,7 @@ notices. It fails unless the directory also has non-empty
 `PYTHON-NOTICE.txt`, `PYINSTALLER-NOTICE.txt`, `QT-NOTICE.txt`, and either
 `PYSIDE6-NOTICE.txt` or `PYQT6-NOTICE.txt`. The installer includes that
 directory together with every ZUPT license and notice. This requirement does
-not make the untested GUI installer a 5.2.3 release asset. The promoted Windows
+not make the untested GUI installer a 5.2.4 release asset. The promoted Windows
 ZIP and macOS DMG are CLI-only.
 
 Packaging recipes and scripts under `gui/packaging/` and `packaging/` are build

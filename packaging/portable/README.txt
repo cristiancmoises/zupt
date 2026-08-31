@@ -27,7 +27,7 @@ Requirements
 ------------
   1. Python 3.9 or newer.
   2. PySide6 6.5 or newer, or a compatible PyQt6 package.
-  3. ZUPT 5.2.3, installed as `zupt` on PATH or placed beside the launcher
+  3. ZUPT 5.2.4, installed as `zupt` on PATH or placed beside the launcher
      (`zupt.exe` on Windows). A local command must have been built
      and tested independently; this bundle never downloads one.
 
@@ -46,7 +46,7 @@ Troubleshooting
 ---------------
   * "requires PySide6 or PyQt6": install one Qt binding through your operating
     system package manager or another trusted, preconfigured Python source.
-  * "zupt not found": install ZUPT 5.2.3 or place its command beside
+  * "zupt not found": install ZUPT 5.2.4 or place its command beside
     the launcher.
   * Set ZUPT_DEBUG=1 to print command-discovery diagnostics to stderr.
 

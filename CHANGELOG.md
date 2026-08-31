@@ -1,5 +1,24 @@
 # ZUPT Changelog
 
+## [5.2.4] — 2026-08-31 — Source-policy line-ending correction
+
+Corrective successor to the immutable `v5.2.3` candidate. That candidate was
+not promoted because its source-policy test assumed LF bytes for a Windows
+`.bat` file that Git correctly materializes as CRLF according to
+`.gitattributes`; the tag and its historical record remain unchanged.
+
+- Correct the release/source-policy integration so the required CRLF checkout
+  form is validated without treating it as source drift.
+- Carry the 5.2.3 release-integration work and the 5.2.2 security/source-only
+  baseline forward without an archive-format, cryptographic, codec, or SDK ABI
+  change.
+- Realign current documentation, package, workflow, artifact, and tag references
+  to 5.2.4 while keeping generated binaries outside Git and source archives.
+- Require fresh exact-`v5.2.4` source, checksum, hosted CI, native-platform,
+  package, and promotion evidence; no 5.2.3 result transfers automatically.
+- Keep authenticated OBS/Factory validation pending and retain the unresolved,
+  unsuppressed openSUSE automatic `debugsource` rpmlint `no-binary` finding.
+
 ## [5.2.3] — 2026-08-31 — Corrective release integration
 
 Corrective successor to the immutable `v5.2.2` candidate. Post-tag CI

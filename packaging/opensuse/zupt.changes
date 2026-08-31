@@ -1,4 +1,13 @@
 -------------------------------------------------------------------
+Mon Aug 31 18:55:00 UTC 2026 - Cristian Cezar Moisés <sac@securityops.co>
+
+- Update to 5.2.4:
+  * Make the static Windows GUI package-version check robust to canonical
+    CRLF checkouts.
+  * Advance source-only package metadata and prepare final archive hashes.
+  * Pin the OBS source service to the immutable v5.2.4 tag.
+
+-------------------------------------------------------------------
 Mon Aug 31 18:15:00 UTC 2026 - Cristian Cezar Moisés <sac@securityops.co>
 
 - Update to 5.2.3:

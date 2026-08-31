@@ -1,4 +1,4 @@
-# Security Policy — ZUPT 5.2.3
+# Security Policy — ZUPT 5.2.4
 
 ## Reporting vulnerabilities
 
@@ -66,7 +66,7 @@ partially accepted.
 
 ### Optional integrations
 
-The 5.2.3 default is `WITH_SDK=0 WITH_PQBOX=0`:
+The 5.2.4 default is `WITH_SDK=0 WITH_PQBOX=0`:
 
 - `WITH_SDK=1` enables libvuptsdk-backed features, including the SDK PQ mode
   and Argon2id support, using a separately installed system development package.
@@ -133,7 +133,7 @@ can compromise archives encrypted to it.
 
 ## Constant-time and side-channel scope
 
-Portable C is the 5.2.3 default. Sensitive comparisons and selections use
+Portable C is the 5.2.4 default. Sensitive comparisons and selections use
 branchless helpers, but generated machine-code behavior remains dependent on
 the compiler and platform. This is not a formal whole-program constant-time
 claim. The C AES implementation uses table lookups and is unsuitable for a
@@ -197,7 +197,7 @@ media before proceeding.
 
 The Windows handle-relative implementation is scoped to normal local Win32
 paths. Win32 extended-length and device-namespace paths, raw UNC output roots,
-and mapped/network-drive output are not supported in 5.2.3. Cross-build and
+and mapped/network-drive output are not supported in 5.2.4. Cross-build and
 Wine results are not native-Windows evidence; the `windows-latest` package gate
 must pass its Unicode round trip before Windows assets are published. Restore
 to a normal local directory first and move verified output to network storage
@@ -240,7 +240,7 @@ shared/static library, or distribution package. Audit them with:
 
 ```sh
 scripts/check-source-only.sh
-scripts/check-source-only.sh --archive /path/to/zupt-5.2.3.tar.gz
+scripts/check-source-only.sh --archive /path/to/zupt-5.2.4.tar.gz
 ```
 
 Nested archive inspection is required to enforce bounded recursion, member
@@ -250,13 +250,13 @@ limit violations. On commit `ff99770`, the source-only scanner suite passed
 
 DEB, binary RPM, SRPM, notice-bearing Linux tar.xz, source-only portable GUI
 ZIP, Windows ZIP, and macOS DMG release assets are separate outputs. An
-AppImage is not promoted for 5.2.3. A bare Linux or Windows executable is also
+AppImage is not promoted for 5.2.4. A bare Linux or Windows executable is also
 excluded; executables are distributed only inside their notice-bearing
 archives. Trust an artifact only when its exact format has a recorded build,
 content/metadata inspection, extracted or installed smoke test, and applicable
 archive round trip. Never treat an unexecuted platform as passing.
 
-The gated 5.2.3 set is the CLI package/archive set plus the exact GUI DEB,
+The gated 5.2.4 set is the CLI package/archive set plus the exact GUI DEB,
 noarch/source RPM, and source-only portable ZIP documented in the README. The
 portable GUI ZIP contains no compiled runtime and is scanned as source before
 and after extraction. Other GUI packages, AppImage, AppDir and Flatpak bundles,
@@ -296,7 +296,9 @@ result.
 
 Post-tag CI integration failures prevented 5.2.2 promotion. Those upstream
 self-audit results are not independent certification and do not transfer to
-5.2.3. The exact 5.2.3 candidate must repeat the required suite. Native Windows
+5.2.4. The immutable 5.2.3 candidate was not promoted because its source-policy
+test assumed LF for a Windows `.bat` file checked out as CRLF. The exact 5.2.4
+candidate must repeat the required suite. Native Windows
 and macOS, hosted GitHub CI/release promotion, authenticated OBS, and the
 openSUSE automatic `debugsource` rpmlint `no-binary` finding remain pending
 until recorded otherwise. An unavailable or unexecuted environment remains

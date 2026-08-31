@@ -1,12 +1,12 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-# ZUPT 5.2.3 audit guide and finding history
+# ZUPT 5.2.4 audit guide and finding history
 
 This document describes review surfaces and reproducible checks. It is an
 upstream self-review, not an independent audit, certification, or guarantee.
 `SECURITY.md` defines reporting policy and `THREAT_MODEL.md` defines the
 security boundary.
 
-## 5.2.3 scope
+## 5.2.4 scope
 
 The baseline scope is the source-only CLI and its bundled source codec:
 
@@ -28,7 +28,7 @@ output.
 
 ## Source-only review
 
-The 5.2.3 baseline retains the source-only boundary introduced in 5.2.2, which
+The 5.2.4 baseline retains the source-only boundary introduced in 5.2.2, which
 removed incomplete SDK/PQBOX header snapshots and local precompiled-library
 expectations. Git and new upstream source
 archives are intended to contain no compiled executable, object, shared/static
@@ -42,10 +42,10 @@ scripts/check-source-only.sh
 
 # committed Git tree or immutable tag
 scripts/check-source-only.sh --tag HEAD
-scripts/check-source-only.sh --tag v5.2.3
+scripts/check-source-only.sh --tag v5.2.4
 
 # generated source archive
-scripts/check-source-only.sh --archive /path/to/zupt-5.2.3.tar.gz
+scripts/check-source-only.sh --archive /path/to/zupt-5.2.4.tar.gz
 ```
 
 The scanner checks extensions and magic bytes, nested archives, symlink targets,
@@ -109,7 +109,7 @@ without evidence.
 The following upstream self-audit results apply only to the 5.2.2 candidate at
 commit `ff99770` on the recorded local Linux environments. The immutable 5.2.2
 tag was not promoted after post-tag CI integration failures. These results are
-not independent certification, a 5.2.3 result, or evidence that release assets
+not independent certification, a 5.2.4 result, or evidence that release assets
 were published.
 
 | Gate | Result | Recorded evidence |
@@ -123,8 +123,10 @@ were published.
 | Mutation fuzzing | PASS | 1,000 mutation iterations completed without a sanitizer-detected crash. |
 
 An earlier off-screen GUI smoke run remains supporting evidence, but is not
-represented as an exact-`ff99770` GUI-package result. The exact 5.2.3 candidate
-must repeat the required suite. Native Windows and macOS gates, hosted GitHub CI
+represented as an exact-`ff99770` GUI-package result. The immutable 5.2.3
+candidate was not promoted because its source-policy test assumed LF for a
+Windows `.bat` checkout that correctly used CRLF. The exact 5.2.4 candidate must
+repeat the required suite. Native Windows and macOS gates, hosted GitHub CI
 and release promotion, authenticated OBS validation, and resolution of the
 openSUSE automatic `debugsource` rpmlint `no-binary` finding remain pending
 until recorded otherwise.
@@ -146,7 +148,7 @@ AES implementation has documented cache-timing risk on hostile shared hardware.
 
 The following entries are retained as release history. Their regression tests
 should be rerun, but the historical resolution does not itself constitute a
-5.2.3 test result.
+5.2.4 test result.
 
 | First corrected | Severity | Finding | Resolution recorded at the time |
 |---|---|---|---|
@@ -187,12 +189,12 @@ include SHA-256 checksums. The gated GUI set adds the architecture-independent
 DEB, noarch/source RPM, and source-only portable GUI ZIP. Package gates include
 exact payload/dependency and installed off-screen integration checks; the
 portable ZIP additionally receives source scans, an exact safe-member allowlist,
-and an extracted launcher test. An AppImage is not promoted by the 5.2.3
+and an extracted launcher test. An AppImage is not promoted by the 5.2.4
 policy; AppDir and Flatpak bundles, GUI platform installers, and bare
 Linux/Windows executables are also excluded. Windows ZIP and macOS DMG outputs
 remain CLI-only.
 
-No Wine result is retained as release evidence for 5.2.3. Cross-compilation
+No Wine result is retained as release evidence for 5.2.4. Cross-compilation
 does not establish native-Windows behavior. Extended-length/device namespace
 paths, raw UNC output roots, and mapped/network-drive output are unsupported;
 the native Windows workflow remains a publication gate for the ZIP containing

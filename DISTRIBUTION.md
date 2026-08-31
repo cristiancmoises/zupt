@@ -1,4 +1,4 @@
-# Distributing ZUPT 5.2.3
+# Distributing ZUPT 5.2.4
 
 This document describes the packaging material maintained in the ZUPT
 source repository. A recipe in `packaging/` is not evidence that a package has
@@ -14,9 +14,10 @@ https://github.com/cristiancmoises/zupt
 GitHub is the canonical source and release host. Packaging must never fetch
 `zupt-web` or substitute an asset from another project.
 
-The `v5.2.2` tag is immutable but remained a non-promoted candidate after
-post-tag CI integration failures. Corrective packages and release assets must
-use `v5.2.3`; never move or overwrite the 5.2.2 tag or its checksums.
+The `v5.2.2` and `v5.2.3` tags are immutable non-promoted candidates. The latter
+was not promoted because its source-policy test assumed LF for a Windows `.bat`
+file that Git correctly checks out as CRLF. Corrective packages and release
+assets must use `v5.2.4`; never move or overwrite an earlier tag or checksum.
 
 ## Source-only boundary
 
@@ -46,7 +47,7 @@ Audit the current tree or a generated archive with:
 
 ```sh
 scripts/check-source-only.sh
-scripts/check-source-only.sh --archive /path/to/zupt-5.2.3.tar.gz
+scripts/check-source-only.sh --archive /path/to/zupt-5.2.4.tar.gz
 ```
 
 The scanner reports paths, not file contents, and exits nonzero on a violation.
@@ -60,8 +61,8 @@ the commit omits Git's commit-ID PAX header:
 
 ```sh
 SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" \
-  make DIST_TARBALL=/tmp/zupt-5.2.3.tar.gz dist
-sha256sum /tmp/zupt-5.2.3.tar.gz
+  make DIST_TARBALL=/tmp/zupt-5.2.4.tar.gz dist
+sha256sum /tmp/zupt-5.2.4.tar.gz
 ```
 
 With identical committed input and `SOURCE_DATE_EPOCH`, repeated exports must
@@ -107,12 +108,12 @@ private-library RPATH.
 | openSUSE / OBS | `packaging/opensuse/` | source and binary RPM through OBS |
 | Debian / Ubuntu | `packaging/debian/`, `packaging/build-deb.sh` | Debian metadata and binary DEB after the target gate |
 | RPM release artifact | `packaging/opensuse/zupt.spec`, `packaging/build-rpm.sh` | source and binary RPM after the target gate |
-| GUI DEB | `packaging/build-gui-deb.sh` | `zupt-gui_5.2.3_all.deb` after payload/dependency and installed integration gates |
-| GUI RPM | `packaging/build-gui-rpm.sh` | `zupt-gui-5.2.3-1.noarch.rpm` and matching `.src.rpm` after package and installed integration gates |
-| Linux CLI archive | `.github/workflows/ci.yml` | `zupt-5.2.3-linux-x86_64.tar.xz` with notices after dependency, member, and extracted functional gates |
-| Portable GUI source | `packaging/portable/`, `.github/workflows/ci.yml` | `zupt-gui-5.2.3-portable.zip` after source scan, member allowlist, and extracted off-screen integration gate |
+| GUI DEB | `packaging/build-gui-deb.sh` | `zupt-gui_5.2.4_all.deb` after payload/dependency and installed integration gates |
+| GUI RPM | `packaging/build-gui-rpm.sh` | `zupt-gui-5.2.4-1.noarch.rpm` and matching `.src.rpm` after package and installed integration gates |
+| Linux CLI archive | `.github/workflows/ci.yml` | `zupt-5.2.4-linux-x86_64.tar.xz` with notices after dependency, member, and extracted functional gates |
+| Portable GUI source | `packaging/portable/`, `.github/workflows/ci.yml` | `zupt-gui-5.2.4-portable.zip` after source scan, member allowlist, and extracted off-screen integration gate |
 | Fedora / RPM-based systems | `packaging/rpm/zupt.spec` | downstream RPM starting point |
-| AppImage helper | `packaging/build-appimage.sh` | downstream-only helper; no 5.2.3 AppImage is promoted |
+| AppImage helper | `packaging/build-appimage.sh` | downstream-only helper; no 5.2.4 AppImage is promoted |
 | Windows | `.github/workflows/cross-platform.yml` | native ZIP (executable plus notices) after the required native gate |
 | macOS | `packaging/build-dmg.sh` | native-architecture DMG after the native gate |
 | Arch Linux | `packaging/aur/PKGBUILD` | AUR package recipe |
@@ -188,17 +189,17 @@ expectations, then test the installed launcher off-screen against the matching
 ### Portable and native release artifacts
 
 The Linux x86_64 gate packages the tested `zupt` executable as
-`zupt-5.2.3-linux-x86_64.tar.xz` beside README, changelog, security guidance,
+`zupt-5.2.4-linux-x86_64.tar.xz` beside README, changelog, security guidance,
 and every applicable public license and notice. Its dynamic-library allowlist,
 archive member allowlist, and extracted CLI functional suite must pass.
 
-The `zupt-gui-5.2.3-portable.zip` artifact is source-only: it contains the GUI
+The `zupt-gui-5.2.4-portable.zip` artifact is source-only: it contains the GUI
 Python source, shell/macOS/Windows launchers, icons, provenance, changelog, and
 licenses, but no Python, Qt, CLI, or compiled runtime. The gate scans both the
 assembled and extracted trees, verifies an exact safe member allowlist, and
 runs the extracted launcher off-screen against the tested CLI.
 
-AppImage creation is deliberately offline and is not a 5.2.3 release gate.
+AppImage creation is deliberately offline and is not a 5.2.4 release gate.
 Supply a locally verified `appimagetool`, type-2 runtime, and the complete
 license/source-relink compliance notice for those exact runtime bytes; the
 helper never downloads any input:
@@ -214,7 +215,7 @@ APPIMAGE_RUNTIME_COMPLIANCE_FILE=/verified/path/runtime-compliance.txt \
 The runtime inspected while preparing 5.2.2 omitted a linked component from
 its notice and did not provide the complete LGPL source/relink handoff required
 by this release policy. No AppImage produced by this helper is promoted by the
-upstream 5.2.3 workflow. AppDir and Flatpak bundles and GUI platform installers
+upstream 5.2.4 workflow. AppDir and Flatpak bundles and GUI platform installers
 are also excluded. Bare Linux and Windows executables are not promoted; their
 CLI programs appear only inside notice-bearing archives. The Windows ZIP and
 macOS DMG remain CLI-only.
@@ -229,8 +230,8 @@ DIST_DIR="$release_dir" RUN_CHECKS=1 packaging/build-dmg.sh
 The Windows ZIP (including its executable and notices) must be built and tested
 by the Windows job in `.github/workflows/cross-platform.yml`; it is not a
 cross-compiled release claim from a Linux build. No Wine result is retained as
-5.2.3 release evidence. Extended-length/device namespace paths, raw UNC output
-roots, and mapped/network-drive output are not supported in 5.2.3. Publish the
+5.2.4 release evidence. Extended-length/device namespace paths, raw UNC output
+roots, and mapped/network-drive output are not supported in 5.2.4. Publish the
 exact architecture recorded by the native job.
 These helpers create binary distribution artifacts for the release page, not
 content to be committed to Git or included in the source archive.
@@ -238,7 +239,7 @@ content to be committed to Git or included in the source archive.
 ### AUR, Homebrew, Guix, and Nix
 
 After calculating the final reproducible source archive, but before creating or
-publishing the immutable tag, update each recipe to version 5.2.3 and to the
+publishing the immutable tag, update each recipe to version 5.2.4 and to the
 exact digest or content hash expected by its package manager. These recipe
 directories are excluded from the source archive, so this does not create a
 checksum cycle. Commit the pinned recipes in the tagged tree, then build and
@@ -257,7 +258,7 @@ build.
 
 For every published artifact:
 
-1. start from the immutable `v5.2.3` tag;
+1. start from the immutable `v5.2.4` tag;
 2. keep `WITH_SDK=0 WITH_PQBOX=0` unless system dependencies are declared;
 3. record the exact OS, distribution release, architecture, and toolchain;
 4. run format validation plus installed `--version`, `--help`, and archive
@@ -275,7 +276,7 @@ than redirecting consumers to an unverified file.
 
 ## Downstream checklist
 
-- [ ] The source URL resolves to the immutable `v5.2.3` tag.
+- [ ] The source URL resolves to the immutable `v5.2.4` tag.
 - [ ] The source archive passes `scripts/check-source-only.sh --archive`.
 - [ ] The recipe checksum matches the downloaded source exactly.
 - [ ] `WITH_SDK=0 WITH_PQBOX=0` is explicit, or system dependencies are complete.

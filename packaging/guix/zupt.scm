@@ -62,7 +62,7 @@
         xcb-util-renderutil xcb-util-wm xcb-util-cursor
         libinput-minimal mtdev libevdev eudev))
 
-(define %zupt-version "5.2.3")
+(define %zupt-version "5.2.4")
 
 (define %zupt-source
   (origin
@@ -72,7 +72,7 @@
           "/releases/download/v" %zupt-version
           "/zupt-" %zupt-version ".tar.gz"))
     (sha256
-    (base32 "1m29nijk627my8ba025wp564nw36h2wjda6qibc3ncx4a63h0bq6"))))
+     (base32 "REPLACE_AFTER_FINAL_ARCHIVE_GUIX_BASE32"))))
 
 (define-public zupt
   (package

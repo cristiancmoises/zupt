@@ -15,6 +15,17 @@ pass() { pass_count=$((pass_count + 1)); printf 'PASS: %s\n' "$*"; }
 fail() { fail_count=$((fail_count + 1)); printf 'FAIL: %s\n' "$*" >&2; }
 skip() { skip_count=$((skip_count + 1)); printf 'SKIP: %s\n' "$*"; }
 
+has_exact_line_crlf_safe() {
+    local expected=$1 path=$2 line
+    while IFS= read -r line || [[ -n $line ]]; do
+        line=${line%$'\r'}
+        if [[ $line == "$expected" ]]; then
+            return 0
+        fi
+    done < "$path"
+    return 1
+}
+
 version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
 [[ -n $version ]] || { printf 'FAIL: cannot determine upstream version\n' >&2; exit 1; }
 
@@ -62,7 +73,8 @@ check_recipe_version GUI-Deb-Control \
     "$(awk '/^Version:/{print $2; exit}' gui/packaging/deb/control)"
 
 if grep -Fqx "VERSION=\${VERSION:-$version}" install.sh && \
-   grep -Fqx "if not defined VERSION set \"VERSION=$version\"" \
+   has_exact_line_crlf_safe \
+       "if not defined VERSION set \"VERSION=$version\"" \
        gui/packaging/windows/build-windows.bat && \
    grep -Fqx "Depends: python3 (>= 3.9), python3-pyqt6 | python3-pyside6.qtwidgets, zupt (= $version)" \
        gui/packaging/deb/control; then
