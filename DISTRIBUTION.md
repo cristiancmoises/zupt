@@ -31,7 +31,12 @@ UTF-8 fixture argv transcoding. Version 5.2.7 corrected those failures, but
 exact-tag run `33445470664` ended with 13 successful jobs, a macOS raw-C1
 fixture failure with `EILSEQ`, and a cancelled Windows job after the hosted job
 stalled in `make check`; a MinGW/Wine reproduction isolated a non-console
-password-prompt hang in `_getch`.
+password-prompt hang in `_getch`. Manual 5.2.8 pre-tag run `33452602634`
+subsequently passed 14 of 15 jobs, including native macOS and the complete
+Windows distribution checks, before an old MSYS `grep` non-BMP pattern failed
+in the later smoke. ZUPT's redirected listing was byte-correct; the corrected
+gate uses byte-exact, locale-independent checks and requires extraction plus a
+full tree diff. The failed run is diagnostic evidence only.
 Corrective packages and release assets must use `v5.2.8`; never move or
 overwrite an earlier tag or checksum, and never transfer prior evidence
 automatically. Version 5.2.8 corrects those native test boundaries, hardens

@@ -232,8 +232,10 @@ The C/C++ default-branch analysis of commit `69fc26b` closed #5, #6, and #7,
 then opened test-only High #8, #9, and #10 because the new SDK regression used
 path-level `stat`/`lstat` before later reads or cleanup. Each individual test
 check now uses a no-follow descriptor with `fstat` or descriptor reads; the
-static gate rejects reintroduction of path-level metadata checks there. A
-subsequent default-branch scan is required as closure evidence.
+static gate rejects reintroduction of path-level metadata checks there. The
+subsequent C/C++ default-branch scan run `33452563116` completed successfully at
+commit `7a8e5c5`; alerts #5 through #10 are fixed, and the authenticated
+code-scanning API reported zero open alerts.
 
 The Windows handle-relative implementation is scoped to normal local Win32
 paths. Win32 extended-length and device-namespace paths, raw UNC output roots,
@@ -364,12 +366,18 @@ promoted: exact-tag run `33445470664` concluded `cancelled` at
 `2026-08-31T23:11:19Z`, with 13 successful jobs, one failed macOS job after
 raw-C1 fixture creation returned `EILSEQ`, and one cancelled Windows job after
 the hosted job stalled in `make check`; a MinGW/Wine reproduction isolated the
-cause to a redirected password prompt entering `_getch`. Version 5.2.8 makes both test boundaries fail
-or skip without hanging, but this is not exact-candidate evidence. Native
-Windows and macOS, hosted GitHub CI/release
-promotion, authenticated OBS, and the openSUSE automatic `debugsource` rpmlint
-`no-binary` finding remain pending until recorded otherwise. An unavailable or
-unexecuted environment remains `SKIP`, never `PASS`.
+cause to a redirected password prompt entering `_getch`. Version 5.2.8 makes
+both test boundaries fail or skip without hanging. Manual pre-tag run
+`33452602634` subsequently passed 14 of 15 jobs, including the native macOS
+DMG and the Windows source audit, build, and full distribution checks. The
+remaining Windows smoke failure was an old MSYS `grep` non-BMP pattern boundary
+after ZUPT had compressed and verified all inputs; MinGW/Wine confirmed ZUPT's
+byte-exact UTF-8 listing. The corrected gate validates Latin-1, BMP, and
+non-BMP listing bytes without locale-sensitive matching, then requires
+extraction and a full tree diff. The failed run is not exact-candidate
+evidence. Exact-tag native gates, hosted CI, authenticated OBS service
+execution, and release promotion remain pending. An unavailable or unexecuted
+environment remains `SKIP`, never `PASS`.
 
 Run target-native static analyzers and package checks as additional evidence.
 Do not infer x86_64, aarch64, ppc64le, s390x, riscv64, macOS, Windows, Leap, or

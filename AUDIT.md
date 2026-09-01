@@ -222,21 +222,38 @@ after emptying a directory reopens it relative to the pinned parent, verifies
 its volume and file index against the traversal handle, and marks only that
 identity-checked handle for deletion. The live-workspace
 regression injects a directory symlink and verifies that its external sentinel
-survives. These are reviewed fixes and regression coverage,
-not independent certification or proof that a 5.2.8 hosted gate passed.
+survives. These are reviewed fixes and regression coverage, not independent
+certification or proof that an exact-tag 5.2.8 gate passed.
 
 The C/C++ default-branch analysis of commit `69fc26b` closed #5, #6, and #7,
 then reported High #8, #9, and #10 solely in the newly added SDK regression:
 its sentinel and mode checks used `stat`/`lstat` before later path operations.
 Each individual content or metadata check now opens without following links
 and uses `fstat` or reads through that already-open descriptor. A static guard
-rejects a return to path-level `stat`/`lstat` in this test. A fresh
-default-branch scan remains the authoritative closure evidence.
+rejects a return to path-level `stat`/`lstat` in this test. The subsequent
+C/C++ default-branch scan run `33452563116` completed successfully at commit
+`7a8e5c5`; alerts #5 through #10 are fixed, and the authenticated
+code-scanning API reported zero open alerts.
 
-The exact 5.2.8 candidate must repeat the required suite. Native Windows and
-macOS gates, hosted GitHub CI and release promotion, authenticated OBS
-validation, and resolution of the openSUSE automatic `debugsource` rpmlint
-`no-binary` finding remain pending until recorded otherwise.
+Manual pre-tag CI run `33452602634` at the same functional commit completed 14
+of 15 jobs successfully. Linux compilers, analyzers, sanitizers, source policy,
+reproducibility, DEB, RPM/SRPM, portable bundles, and the native macOS DMG gate
+passed. On Windows, source audit, build, and `make check` passed; the subsequent
+smoke failed only when the old MSYS `grep` tried to match a literal non-BMP
+filename after ZUPT had compressed and verified all five inputs. Independent
+MinGW/Wine reproduction confirmed that the redirected ZUPT listing contained
+the exact UTF-8 bytes. The gate now creates the non-BMP name through byte
+escapes, verifies Latin-1/BMP/non-BMP listing bytes without locale-sensitive
+matching, and requires extraction plus a full tree diff. The path-confinement
+regression independently constructs the BMP/non-BMP archive name from ASCII
+hex and requires byte-exact listing and extraction.
+
+Because that pre-tag run failed, it is diagnostic evidence rather than release
+approval. The exact 5.2.8 candidate must repeat the required suite. Exact-tag
+native Windows/macOS, hosted CI, authenticated OBS service execution, and
+release promotion remain pending until recorded otherwise. The pre-tag
+openSUSE Tumbleweed job did build source and binary RPMs, pass `rpmlint` without
+suppressions, and pass install/round-trip/uninstall checks.
 
 ## Cryptographic review boundary
 

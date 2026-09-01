@@ -30,7 +30,8 @@ unchanged.
   test-only path checks as High #8, #9, and #10 in the new SDK regression.
   Replace every test-side `stat`/`lstat` sequence with one no-follow `open`
   followed by `fstat` and descriptor reads, and retain that boundary in the
-  static regression gate.
+  static regression gate. Default-branch run `33452563116` completed
+  successfully with #5 through #10 fixed and zero open code-scanning alerts.
 - Treat inability to create the raw-C1 scanner filename as an explicit fixture
   skip on filesystems that reject the byte; when creation succeeds, the unsafe
   diagnostic-escaping assertions still run unchanged. Normalize Bash 3.2's
@@ -43,6 +44,11 @@ unchanged.
   current-user-only DACL that the implementation creates; do not treat MSYS's
   synthetic `stat` mode as a POSIX `0600` result. POSIX continues to require
   the real descriptor mode `0600` under multiple umasks.
+- Replace the old MSYS `grep` non-BMP boundary exposed after 14 successful jobs
+  in pre-tag run `33452602634` with byte-exact Python checks for Latin-1, BMP,
+  and non-BMP UTF-8 listing output. Construct the emoji fixture from ASCII byte
+  escapes and require list, extract, and full-tree equality; the independent
+  path regression also creates its BMP/non-BMP name from ASCII hex.
 - Run `sdk-test` from both `release-check` and the hosted GCC/Clang Linux job so
   the atomic key-save regression cannot silently fall outside release gates.
 - Carry the v5.2.7 archive format, cryptography, bundled codec release, and SDK

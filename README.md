@@ -15,12 +15,12 @@ diagnostics, and brings `sdk-test` into the
 release and hosted Linux gates. Windows password prompts now reject redirected
 input before entering `_getch` and treat console EOF as an error; its key-file
 regression validates the protected current-user-only DACL rather than an MSYS
-POSIX-mode projection. The C/C++ default-branch scan of commit `69fc26b`
-closed #5, #6, and #7 and exposed test-only #8, #9, and #10 in the new SDK
-regression. Their follow-up uses no-follow descriptors plus `fstat`/descriptor
-reads and requires a fresh default-branch scan for closure. These
-corrections do not change archive format v1.6, cryptography, the bundled codec
-release, or the SDK ABI.
+POSIX-mode projection. The C/C++ default-branch scan run `33452563116` of
+commit `7a8e5c5` completed successfully after the follow-up changed the new SDK
+regression to no-follow descriptors plus `fstat` and descriptor reads. Alerts
+#5 through #10 are fixed, and the authenticated code-scanning API reported zero
+open alerts. These corrections do not change archive format v1.6,
+cryptography, the bundled codec release, or the SDK ABI.
 
 The predecessor `v5.2.7` tag is immutable and was not promoted. Exact-tag run
 `33445470664` concluded `cancelled` at `2026-08-31T23:11:19Z`, with 13
@@ -28,6 +28,16 @@ successful jobs, a macOS raw-C1/EILSEQ fixture failure, and a cancelled Windows
 job. The hosted Windows job stalled in `make check`; a MinGW/Wine reproduction
 attributed the stall to a non-console password prompt entering `_getch`. No
 v5.2.7 evidence transfers automatically to v5.2.8.
+
+Manual pre-tag run `33452602634` then completed 14 of 15 jobs successfully at
+`7a8e5c5`, including the native macOS DMG gate and the Windows build and full
+distribution checks. Its Windows smoke test failed only when the old MSYS
+`grep` matched a literal non-BMP filename after the product had already
+compressed and verified all five files. MinGW/Wine reproduction confirmed the
+exact `F0 9F 98 80` UTF-8 bytes in ZUPT's redirected listing. The corrected
+gate creates that name from byte escapes, validates Latin-1, BMP, and non-BMP
+listing bytes with Python, and requires extraction plus a full tree diff. The
+failed run is diagnostic evidence, not release-candidate approval.
 
 Version 5.2.2 restored the original ZUPT product name and the `zupt` command.
 The `.zupt` archive extension, format v1.6, magic bytes, codec identifiers, and
@@ -43,9 +53,9 @@ decisions, and benchmark cleanup is descriptor-relative on POSIX and
 handle/reparse-point aware on Windows. The live-workspace symlink regression,
 SDK link-target/mode regression, static path-race guards, portable raw-C1
 fixture with Bash 3.2 unsigned-byte normalization, native redirected-prompt
-and protected-DACL regressions, and `sdk-test` CI step cover
-these boundaries. All current release paths move to 5.2.8 and require fresh
-exact-tag hosted CI, package,
+and protected-DACL regressions, byte-exact BMP/non-BMP Windows list and extract
+checks, and `sdk-test` CI step cover these boundaries. All current release
+paths move to 5.2.8 and require fresh exact-tag hosted CI, package,
 native-platform, source-only, checksum, OBS, and promotion evidence.
 
 ## Corrective changes introduced in 5.2.7
