@@ -248,12 +248,16 @@ else
     fail 'backslash separators are normalized within the extraction root'
 fi
 
-legitimate_entry_hex=73616665206469722f61c3a7c3a36f2e747874
+legitimate_entry_hex=73616665206469722f61c3a7c3a36f2df09f98802e747874
 MSYS2_ARG_CONV_EXCL='--entry-hex=' \
     "$FIXTURE" "$TEST_ROOT/legitimate.zupt" \
     "--entry-hex=$legitimate_entry_hex"
 mkdir "$TEST_ROOT/legitimate-out"
 if file_contains_hex_bytes "$TEST_ROOT/legitimate.zupt" \
+        "$legitimate_entry_hex" &&
+   "$ZUPT_BIN" list "$TEST_ROOT/legitimate.zupt" \
+        > "$TEST_ROOT/legitimate-list.log" 2>&1 &&
+   file_contains_hex_bytes "$TEST_ROOT/legitimate-list.log" \
         "$legitimate_entry_hex" &&
    "$ZUPT_BIN" extract -o "$TEST_ROOT/legitimate-out" \
         "$TEST_ROOT/legitimate.zupt" > "$TEST_ROOT/legitimate.log" 2>&1 &&
@@ -268,9 +272,9 @@ extracted = pathlib.Path(sys.argv[1]).joinpath(*relative_path.split("/"))
 raise SystemExit(0 if extracted.read_bytes() == b"fixture content\n" else 1)
 PY
 then
-    pass 'safe nested UTF-8 path extracts normally'
+    pass 'safe nested BMP and non-BMP UTF-8 path lists and extracts normally'
 else
-    fail 'safe nested UTF-8 path extracts normally'
+    fail 'safe nested BMP and non-BMP UTF-8 path lists and extracts normally'
 fi
 
 mkdir -p "$TEST_ROOT/relative-root/work"

@@ -86,20 +86,33 @@ jobs:
           trap 'chmod -R u+rwX "$test_root" 2>/dev/null || true; rm -rf -- "$test_root"' EXIT
           output_dir="$test_root/saída-安全"
           archive="$test_root/cópia-安全.zupt"
+          emoji_name=$'emoji-\xF0\x9F\x98\x80.bin'
           mkdir -p "$test_root/input/subdir" "$output_dir"
           printf 'Windows release smoke test\n' > "$test_root/input/café.txt"
           printf 'UTF-8: café-安全\n' > "$test_root/input/subdir/ação-安全.txt"
-          printf 'emoji filename\n' > "$test_root/input/subdir/emoji-😀.bin"
+          printf 'emoji filename\n' > "$test_root/input/subdir/$emoji_name"
           : > "$test_root/input/empty"
           dd if=/dev/urandom of="$test_root/input/subdir/random.bin" bs=4096 count=4 2>/dev/null
           (cd "$test_root" && "$exe" compress "$archive" input)
           "$exe" test "$archive"
           "$exe" list "$archive" > "$test_root/list.txt" 2>&1
-          grep -F 'café.txt' "$test_root/list.txt"
-          grep -F 'ação-安全.txt' "$test_root/list.txt"
-          grep -F 'emoji-😀.bin' "$test_root/list.txt"
           "$exe" extract -o "$output_dir" "$archive"
           diff -r "$test_root/input" "$output_dir/input"
+          python3 - "$test_root/list.txt" <<'PY'
+          import pathlib
+          import sys
+
+          listing = pathlib.Path(sys.argv[1]).read_bytes()
+          expected = {
+              "Latin-1": bytes.fromhex("636166c3a92e747874"),
+              "BMP": bytes.fromhex("61c3a7c3a36f2de5ae89e585a82e747874"),
+              "non-BMP": bytes.fromhex("656d6f6a692df09f98802e62696e"),
+          }
+          missing = [label for label, name in expected.items() if name not in listing]
+          if missing:
+              raise SystemExit("list output is missing exact UTF-8 names: " +
+                               ", ".join(missing))
+          PY
           objdump -p "$exe" > "$test_root/imports.txt"
           if grep -Eqi '(vendor[/\\]|libvuptsdk|libpqvaptvupt|libgcc_s|libstdc\+\+|libwinpthread|msys-2[.]0|cygwin1)[^[:space:]]*[.]dll' \
               "$test_root/imports.txt"; then
