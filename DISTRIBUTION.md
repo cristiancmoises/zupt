@@ -37,7 +37,13 @@ Windows distribution checks, before an old MSYS `grep` non-BMP pattern failed
 in the later smoke. ZUPT's redirected listing was byte-correct; the corrected
 gate uses byte-exact, locale-independent checks and requires extraction plus a
 full tree diff. The failed run is diagnostic evidence only.
-Corrective packages and release assets must use `v5.2.8`; never move or
+Exact-tag run `33456209269` subsequently passed all 15 jobs at
+`ebb9ab3aa1d42c50030ca02883f6162dc4771fe1`, including the pinned local OBS
+source-service chain, native
+Windows/macOS, and every package gate. Promotion run `33457868306` published
+the exact tested 13-file set; the source archive SHA-256 is
+`378b9506211545b9594cf0d38ac8955d9b1cac34eb6b379ae0ec26b84edb65f7`.
+Corrective packages and release assets use `v5.2.8`; never move or
 overwrite an earlier tag or checksum, and never transfer prior evidence
 automatically. Version 5.2.8 corrects those native test boundaries, hardens
 three path-race boundaries, and adds the SDK regression to release/hosted Linux
@@ -295,9 +301,10 @@ For every published artifact:
 Do not infer multi-architecture compatibility from portable source. Do not add
 precompiled optional libraries to make a package build.
 
-Publish release assets at the canonical GitHub release. If an expected asset is
-absent or has a different checksum, report that target as unpublished rather
-than redirecting consumers to an unverified file.
+The 13 gated assets are published at the
+[canonical GitHub release](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.8).
+If an expected asset is absent or has a different checksum, report that target
+as unpublished rather than redirecting consumers to an unverified file.
 
 ## Downstream checklist
 

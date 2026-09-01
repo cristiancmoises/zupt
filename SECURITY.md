@@ -226,7 +226,8 @@ media before proceeding.
 These changes address the three 5.2.8 CodeQL High reports: #5 at SDK key
 publication, #6 at POSIX disk-target classification/use, and #7 at benchmark
 workspace cleanup. The regressions and source review are project evidence, not
-an independent certification or a claim that exact-v5.2.8 CI has passed.
+an independent certification. Exact-tag run `33456209269` subsequently passed
+all 15 jobs at `ebb9ab3aa1d42c50030ca02883f6162dc4771fe1`.
 
 The C/C++ default-branch analysis of commit `69fc26b` closed #5, #6, and #7,
 then opened test-only High #8, #9, and #10 because the new SDK regression used
@@ -236,6 +237,9 @@ static gate rejects reintroduction of path-level metadata checks there. The
 subsequent C/C++ default-branch scan run `33452563116` completed successfully at
 commit `7a8e5c5`; alerts #5 through #10 are fixed, and the authenticated
 code-scanning API reported zero open alerts.
+The final release-commit CodeQL run `33456049125` also completed successfully;
+the authenticated API again reported zero open alerts, with #5 through #10
+recorded as fixed rather than dismissed.
 
 The Windows handle-relative implementation is scoped to normal local Win32
 paths. Win32 extended-length and device-namespace paths, raw UNC output roots,
@@ -360,8 +364,8 @@ then completed 13 jobs successfully but failed native macOS because x86 SHA-NI
 test helpers were unused on arm64 under `-Werror`, and failed native Windows
 when argv transcoding aborted the safe UTF-8 fixture. Those are test-harness
 integration defects, not product, archive, cryptographic, codec, or SDK ABI
-changes; v5.2.6 remained unpromoted. The exact 5.2.8 candidate must
-repeat the required suite. The immutable v5.2.7 candidate was likewise not
+changes; v5.2.6 remained unpromoted, so its results did not transfer to the
+required 5.2.8 suite. The immutable v5.2.7 candidate was likewise not
 promoted: exact-tag run `33445470664` concluded `cancelled` at
 `2026-08-31T23:11:19Z`, with 13 successful jobs, one failed macOS job after
 raw-C1 fixture creation returned `EILSEQ`, and one cancelled Windows job after
@@ -375,9 +379,13 @@ after ZUPT had compressed and verified all inputs; MinGW/Wine confirmed ZUPT's
 byte-exact UTF-8 listing. The corrected gate validates Latin-1, BMP, and
 non-BMP listing bytes without locale-sensitive matching, then requires
 extraction and a full tree diff. The failed run is not exact-candidate
-evidence. Exact-tag native gates, hosted CI, authenticated OBS service
-execution, and release promotion remain pending. An unavailable or unexecuted
-environment remains `SKIP`, never `PASS`.
+evidence. Exact-tag run `33456209269` then completed 15/15 jobs successfully,
+including native Windows/macOS, the pinned local OBS service chain, package
+installation/round trips, source-only checks, analyzers, and sanitizers.
+Promotion run `33457868306` published the exact 13-file allowlist after
+format, metadata, payload, and checksum validation. An unavailable or
+unexecuted environment remains `SKIP`, never `PASS`; successful project CI is
+still not independent security certification.
 
 Run target-native static analyzers and package checks as additional evidence.
 Do not infer x86_64, aarch64, ppc64le, s390x, riscv64, macOS, Windows, Leap, or

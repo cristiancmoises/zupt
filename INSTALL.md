@@ -38,11 +38,11 @@ check`; a MinGW/Wine reproduction isolated the cause to the non-console
 password-prompt test entering `_getch`. Version 5.2.8 makes both
 fixtures portable, hardens the three CodeQL High path-race boundaries described
 in the security documents, and adds `sdk-test` to release and hosted Linux
-gates. It still requires fresh exact-version validation. Do not treat any prior
-candidate's artifacts or evidence as 5.2.8 packages or validation.
+gates. Exact-tag run `33456209269` passed all 15 jobs, and promotion run
+`33457868306` published the exact tested set. Do not treat any prior candidate's
+artifacts or evidence as 5.2.8 packages or validation.
 
-The 5.2.8 package set eligible for promotion after each target gate succeeds is
-exactly these 13 assets:
+The published 5.2.8 package set is exactly these 13 gated assets:
 
 | Component | Gated artifacts |
 |---|---|

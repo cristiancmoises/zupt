@@ -193,10 +193,10 @@ source scanner reported `PASS source-only: 204 files, 1 archives`.
 This result establishes that the explicit tag revision works and isolates a
 release/test harness defect. It does not change the product, archive format,
 cryptography, codec, or SDK ABI; it does not make skipped native jobs pass or
-establish authenticated OBS/Factory acceptance. No v5.2.4 evidence transfers
-automatically to v5.2.8. The exact v5.2.8 candidate must repeat every applicable
-gate, and the automatic openSUSE `debugsource` rpmlint `no-binary` finding
-remains unresolved and unsuppressed.
+establish authenticated OBS/Factory acceptance. No v5.2.4 evidence transferred
+automatically to v5.2.8; the exact candidate later repeated every applicable
+upstream gate in run `33456209269`, as recorded below. The automatic openSUSE
+`debugsource` rpmlint `no-binary` finding remains unresolved and unsuppressed.
 
 ## Prior 5.2.5 exact-tag native-gate evidence
 
@@ -232,6 +232,28 @@ boundaries fail or skip without hanging, addresses CodeQL High #5/#6/#7 in SDK
 key publication, disk restore, and benchmark cleanup, and adds `sdk-test` to
 release and hosted Linux gates. None of those changes establishes an exact
 5.2.8 OBS, native, hosted-CI, or promotion result.
+
+## 5.2.8 exact-tag upstream package evidence
+
+Manually dispatched exact-tag GitHub Actions run `33456209269` passed all 15
+jobs at `ebb9ab3aa1d42c50030ca02883f6162dc4771fe1`. Its openSUSE Tumbleweed
+x86_64 job parsed and normalized the spec, executed the pinned standalone OBS
+source-service chain, source-scanned the resulting archive, built the binary
+RPM and genuine SRPM, ran `rpmlint` without suppressions, and completed the
+install/round-trip/uninstall test. The canonical source archive is 798296 bytes
+with SHA-256
+`378b9506211545b9594cf0d38ac8955d9b1cac34eb6b379ae0ec26b84edb65f7`.
+
+Promotion run `33457868306` published the exact tested binary RPM and SRPM with
+the other gated assets. The source package is identified by
+`%{SOURCEPACKAGE}=1` and an absent `%{SOURCERPM}`; its `%{ARCH}` legitimately
+reflects the spec's build architecture and is not the SRPM discriminator.
+Repository, Git archive, and upstream source tarball scans remain binary-free.
+
+This is upstream local-service and package evidence, not a claim that the
+package was submitted to or accepted by openSUSE Factory, nor a result for the
+full set of automatically generated OBS debug packages or any untested
+architecture.
 
 ## Prior openSUSE packaging validation
 

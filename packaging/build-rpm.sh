@@ -84,6 +84,8 @@ source_rpm=${source_rpms[0]}
     die 'binary RPM name metadata is not zupt'
 [[ $(rpm -qp --qf '%{VERSION}' "$main_rpm") == "$version" ]] || \
     die 'binary RPM version metadata does not match the release'
+[[ $(rpm -qp --qf '%{RELEASE}' "$main_rpm") == 0 ]] || \
+    die 'binary RPM release metadata is not 0'
 [[ $(rpm -qp --qf '%{SOURCEPACKAGE}' "$main_rpm") == '(none)' ]] || \
     die 'binary RPM is marked as a source package'
 [[ $(rpm -qp --qf '%{SOURCERPM}' "$main_rpm") == "$(basename -- "$source_rpm")" ]] || \
@@ -92,6 +94,8 @@ source_rpm=${source_rpms[0]}
     die 'source RPM name metadata is not zupt'
 [[ $(rpm -qp --qf '%{VERSION}' "$source_rpm") == "$version" ]] || \
     die 'source RPM version metadata does not match the release'
+[[ $(rpm -qp --qf '%{RELEASE}' "$source_rpm") == 0 ]] || \
+    die 'source RPM release metadata is not 0'
 [[ $(rpm -qp --qf '%{SOURCEPACKAGE}' "$source_rpm") == 1 ]] || \
     die 'source RPM is not marked as a source package'
 [[ $(rpm -qp --qf '%{SOURCERPM}' "$source_rpm") == '(none)' ]] || \

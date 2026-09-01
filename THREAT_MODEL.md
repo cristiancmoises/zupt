@@ -213,8 +213,10 @@ large device, power loss, or hardware failure.
 
 The SDK publication, POSIX disk-target, and benchmark-cleanup changes address
 CodeQL High #5, #6, and #7 respectively. Their source review and regressions
-are project evidence, not independent certification or proof that the exact
-5.2.8 hosted/native gates passed.
+alone are project evidence, not independent certification. Exact-tag run
+`33456209269` subsequently passed all 15 hosted jobs at
+`ebb9ab3aa1d42c50030ca02883f6162dc4771fe1`; final release-commit CodeQL run
+`33456049125` completed successfully with zero open alerts.
 
 For an untrusted archive:
 
@@ -312,12 +314,14 @@ successful jobs, one failed macOS job after raw-C1 filename creation returned
 `EILSEQ`, and one cancelled Windows job after the hosted job stalled in `make
 check`; a MinGW/Wine reproduction isolated the cause to a redirected password
 prompt entering `_getch`.
-The corresponding 5.2.8 fixture and prompt corrections do not establish their
-own test result. CI now exercises `sdk-test`, but its inclusion is not a pass.
-Hosted GitHub CI and release promotion, native
-Windows/macOS, authenticated OBS, and the openSUSE automatic `debugsource`
-rpmlint `no-binary` finding remain pending until an exact 5.2.8 candidate
-records them.
+The corresponding 5.2.8 fixture and prompt corrections alone did not establish
+a result. Exact-tag run `33456209269` then passed 15/15 jobs, including
+`sdk-test`, native Windows/macOS, the pinned local OBS source-service chain,
+and the package/source gates. Promotion run `33457868306` published the exact
+13 tested assets. Official authenticated OBS/Factory acceptance, the full
+automatic debug-package result, and untested architectures remain unclaimed;
+the earlier `debugsource` rpmlint `no-binary` finding remains unresolved and
+unsuppressed.
 
 ## Historical compatibility notes
 

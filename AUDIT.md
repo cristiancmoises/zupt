@@ -223,7 +223,7 @@ its volume and file index against the traversal handle, and marks only that
 identity-checked handle for deletion. The live-workspace
 regression injects a directory symlink and verifies that its external sentinel
 survives. These are reviewed fixes and regression coverage, not independent
-certification or proof that an exact-tag 5.2.8 gate passed.
+certification by themselves; the exact-tag evidence is recorded below.
 
 The C/C++ default-branch analysis of commit `69fc26b` closed #5, #6, and #7,
 then reported High #8, #9, and #10 solely in the newly added SDK regression:
@@ -248,12 +248,24 @@ matching, and requires extraction plus a full tree diff. The path-confinement
 regression independently constructs the BMP/non-BMP archive name from ASCII
 hex and requires byte-exact listing and extraction.
 
-Because that pre-tag run failed, it is diagnostic evidence rather than release
-approval. The exact 5.2.8 candidate must repeat the required suite. Exact-tag
-native Windows/macOS, hosted CI, authenticated OBS service execution, and
-release promotion remain pending until recorded otherwise. The pre-tag
-openSUSE Tumbleweed job did build source and binary RPMs, pass `rpmlint` without
-suppressions, and pass install/round-trip/uninstall checks.
+Because that pre-tag run failed, it remains diagnostic evidence rather than
+release approval. The immutable `v5.2.8` tag at
+`ebb9ab3aa1d42c50030ca02883f6162dc4771fe1` repeated the complete suite in
+manually dispatched run `33456209269`: all 15 jobs passed, including native
+Windows/macOS, the pinned local OBS service chain, source reproducibility,
+DEB/RPM/SRPM, installed-package, sanitizer, analyzer, and source-only gates.
+The canonical source archive was reproduced at 798296 bytes with SHA-256
+`378b9506211545b9594cf0d38ac8955d9b1cac34eb6b379ae0ec26b84edb65f7`.
+
+Initial promotion run `33457344882` stopped before release creation because
+its validator incorrectly assumed that an SRPM's `%{ARCH}` must be `src`.
+Both artifacts were genuine source packages: `%{SOURCEPACKAGE}` was `1`,
+`%{SOURCERPM}` was absent, each payload was exactly its Source0 plus spec, and
+each binary RPM referenced the matching SRPM. Commit `33eb904` changed the
+gate to those canonical metadata and payload checks. Corrected promotion run
+`33457868306` then validated the same tag-bound artifacts and published exactly
+13 assets. No asset was rebuilt to pass promotion. These are reproducible
+project records, not independent certification.
 
 ## Cryptographic review boundary
 

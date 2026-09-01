@@ -57,9 +57,13 @@ unchanged.
 - Realign current code, package, workflow, artifact, and documentation
   references to 5.2.8, and pin the AUR/Homebrew SHA-256 and Guix content hash
   to the final reproducible source archive before tagging.
-- Require fresh exact-`v5.2.8` source, checksum, hosted CI, native-platform,
-  package, OBS, and promotion evidence. This entry does not claim those gates
-  passed, and no v5.2.7 result transfers automatically.
+- Exact-tag run `33456209269` passed all 15 source, package, analyzer,
+  sanitizer, OBS, Windows, and macOS jobs at `ebb9ab3`. Promotion initially
+  stopped before publication because its validator treated `%{ARCH}` as the
+  SRPM discriminator; the genuine SRPMs instead correctly carry
+  `%{SOURCEPACKAGE}=1`. Commit `33eb904` corrected and strengthened that gate,
+  and run `33457868306` published the exact 13 tested assets without rebuilding
+  them. No v5.2.7 result transfers to this evidence.
 
 ## [5.2.7] — 2026-08-31 — Native test-harness portability corrections
 

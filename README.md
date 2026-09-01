@@ -19,7 +19,9 @@ POSIX-mode projection. The C/C++ default-branch scan run `33452563116` of
 commit `7a8e5c5` completed successfully after the follow-up changed the new SDK
 regression to no-follow descriptors plus `fstat` and descriptor reads. Alerts
 #5 through #10 are fixed, and the authenticated code-scanning API reported zero
-open alerts. These corrections do not change archive format v1.6,
+open alerts. Final release-commit CodeQL run `33456049125` also completed
+successfully, with the API still reporting zero open alerts. These corrections
+do not change archive format v1.6,
 cryptography, the bundled codec release, or the SDK ABI.
 
 The predecessor `v5.2.7` tag is immutable and was not promoted. Exact-tag run
@@ -39,6 +41,16 @@ gate creates that name from byte escapes, validates Latin-1, BMP, and non-BMP
 listing bytes with Python, and requires extraction plus a full tree diff. The
 failed run is diagnostic evidence, not release-candidate approval.
 
+The immutable `v5.2.8` candidate at commit
+`ebb9ab3aa1d42c50030ca02883f6162dc4771fe1` subsequently passed all 15 jobs in
+manually dispatched exact-tag run `33456209269`. That run includes the pinned
+local OBS source-service chain, reproducible source checks, GCC/Clang, analyzers,
+sanitizers, DEB/RPM/SRPM and portable-package gates, the native Windows ZIP
+round trip, and the mounted macOS arm64 DMG test. Corrected promotion run
+`33457868306` validated and published exactly 13 assets. The canonical source
+archive is 798296 bytes with SHA-256
+`378b9506211545b9594cf0d38ac8955d9b1cac34eb6b379ae0ec26b84edb65f7`.
+
 Version 5.2.2 restored the original ZUPT product name and the `zupt` command.
 The `.zupt` archive extension, format v1.6, magic bytes, codec identifiers, and
 SDK ABI remain unchanged. An optional `vaptvupt` command alias may be provided
@@ -55,8 +67,9 @@ SDK link-target/mode regression, static path-race guards, portable raw-C1
 fixture with Bash 3.2 unsigned-byte normalization, native redirected-prompt
 and protected-DACL regressions, byte-exact BMP/non-BMP Windows list and extract
 checks, and `sdk-test` CI step cover these boundaries. All current release
-paths move to 5.2.8 and require fresh exact-tag hosted CI, package,
-native-platform, source-only, checksum, OBS, and promotion evidence.
+paths moved to 5.2.8 and received fresh exact-tag hosted CI, package,
+native-platform, source-only, checksum, OBS, and promotion evidence in runs
+`33456209269` and `33457868306`.
 
 ## Corrective changes introduced in 5.2.7
 
@@ -177,8 +190,12 @@ See [CHANGELOG.md](CHANGELOG.md) for the release record.
 ## Canonical source
 
 - Canonical: https://github.com/cristiancmoises/zupt
+- Codeberg mirror: https://codeberg.org/berkeley/zupt
+- SecurityOps Brazil mirror: https://git.securityops.com.br/cristiancmoises/zupt
+- SecurityOps global mirror: https://git.securityops.co/cristiancmoises/zupt
 
-Release tags and source archives are published from this repository.
+GitHub remains canonical. The `v5.2.8` tag and its 13 release assets are also
+published byte-for-byte on the three mirrors above.
 
 ## Source-only policy
 
@@ -194,8 +211,8 @@ built and tested is not presented as supported.
 
 ## 5.2.8 release artifacts
 
-The 5.2.8 release workflow is defined to produce exactly the following 13 files only after
-the corresponding target gate succeeds. `SHA256SUMS` records the exact promoted
+The published 5.2.8 release contains exactly the following 13 files after
+every corresponding target gate succeeded. `SHA256SUMS` records the exact promoted
 filenames and digests. The release notes identify the tested commit and the
 manually dispatched CI run; that run's job definitions and logs are the runtime
 evidence for runner image, architecture, toolchain, results, and explicit
@@ -238,9 +255,10 @@ software already installed on the target. Other historical GUI packages and
 platform installers are not carried forward implicitly.
 
 The canonical source repository is
-<https://github.com/cristiancmoises/zupt>. Release assets referenced by the AUR,
-Homebrew, Guix, or generic RPM recipes must exist in the canonical GitHub
-release at their recorded URL before those recipes are published.
+<https://github.com/cristiancmoises/zupt>. The canonical release is
+<https://github.com/cristiancmoises/zupt/releases/tag/v5.2.8>. Assets referenced
+by the AUR, Homebrew, Guix, or generic RPM recipes must exist there at their
+recorded URL before those recipes are published.
 
 Audit the current checkout and its Git archive with:
 
@@ -410,11 +428,12 @@ not promoted. The immutable v5.2.7 tag was also not promoted: exact-tag run
 recorded 13 successful jobs, and cancelled Windows after the hosted job stalled
 in `make check`; a MinGW/Wine reproduction isolated the stall to
 `test --password-prompt ... </dev/null` entering `_getch`. The
-exact 5.2.8 candidate must repeat all required gates. Native Windows and macOS,
-hosted GitHub CI/release promotion, authenticated OBS, and resolution of the
-openSUSE automatic `debugsource` rpmlint `no-binary`
-finding remain pending until recorded otherwise. Unexecuted gates are `SKIP`,
-never `PASS`.
+exact 5.2.8 candidate then repeated all required gates: exact-tag run
+`33456209269` completed 15/15 jobs successfully, including native Windows and
+macOS, the pinned local OBS service chain, source/package gates, and the
+openSUSE RPM checks. Promotion run `33457868306` published the exact tested
+asset allowlist. Unexecuted environments remain `SKIP`, never `PASS`; these
+project-run results are not independent certification.
 
 On Windows, 5.2.8 scopes output handling to normal local Win32 paths. A MinGW
 cross-build or Wine run is not native-Windows evidence; the `windows-latest`
@@ -456,10 +475,9 @@ lists, tests, extracts, and restores it byte-exact. The full local Linux gate
 passed on commit `ff99770`. This is not a claim that a 5.2.1 reader understands every new
 flag-gated 5.2.2 encoding or that every historical combination was tested.
 
-The candidate commands and outcome fields for 5.2.8 are maintained in the
-release handoff and
-[packaging/opensuse/README.md](packaging/opensuse/README.md). They must be
-updated from the final release candidate before tagging. No architecture or
+The build/audit commands and recorded 5.2.8 outcomes are maintained in the
+release evidence and
+[packaging/opensuse/README.md](packaging/opensuse/README.md). No architecture or
 distribution is claimed merely because the code has a fallback path.
 
 ## Source archive
@@ -480,12 +498,12 @@ the same SHA-256. The AUR, Homebrew and Guix recipes are `export-ignore` so
 their checksum fields do not make the archive self-referential. `make dist`
 archives the verified `HEAD` tree object rather than embedding the commit ID,
 so a commit changing only those ignored recipes leaves the fixed-epoch archive
-byte-identical. The recipes remain versioned in Git and must be filled with the
-final digest before the tag is published.
+byte-identical. The recipes remain versioned in Git and pin the final tagged
+digest `378b9506211545b9594cf0d38ac8955d9b1cac34eb6b379ae0ec26b84edb65f7`.
 
 ## openSUSE and OBS
 
-The maintained upstream recipe is in packaging/opensuse. It is prepared for an
+The maintained upstream recipe is in packaging/opensuse. It targets the
 immutable v5.2.8 tag, disables submodules and Git LFS, builds with
 WITH_SDK=0 WITH_PQBOX=0, runs real checks, and installs without the renamed-era
 `vaptvupt` alias.
