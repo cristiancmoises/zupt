@@ -469,6 +469,12 @@ jobs:
           test "$(rpm -qp --qf '%{ARCH}' "$gui_rpm")" = noarch
           rpm -qp --requires "$gui_rpm" | grep -Fx "zupt >= $version"
           test "$(rpm -qp --qf '%{NAME}' "$gui_srpm")" = zupt-gui
+          test "$(rpm -qp --qf '%{VERSION}-%{RELEASE}' "$gui_srpm")" = "$version-1"
+          test "$(rpm -qp --qf '%{SOURCEPACKAGE}' "$gui_srpm")" = 1
+          test "$(rpm -qp --qf '%{SOURCERPM}' "$gui_srpm")" = '(none)'
+          test "$(rpm -qpl "$gui_srpm" | wc -l)" -eq 2
+          rpm -qpl "$gui_srpm" | grep -Fx "zupt-gui-$version.tar.gz"
+          rpm -qpl "$gui_srpm" | grep -Fx zupt-gui.spec
       - name: Build the matching Fedora CLI RPM
         run: |
           version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)

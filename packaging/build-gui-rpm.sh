@@ -124,20 +124,45 @@ mapfile -t source_rpms < <(find "$top/SRPMS" -type f -name "zupt-gui-$version-*.
 [[ ${#main_rpms[@]} -eq 1 ]] || die "expected one GUI RPM, found ${#main_rpms[@]}"
 [[ ${#source_rpms[@]} -eq 1 ]] || die "expected one GUI source RPM, found ${#source_rpms[@]}"
 
-rpm -qpl "${main_rpms[0]}" >"$work/contents.txt"
+main_rpm=${main_rpms[0]}
+source_rpm=${source_rpms[0]}
+[[ $(rpm -qp --qf '%{NAME}' "$main_rpm") == zupt-gui ]] || \
+    die 'GUI binary RPM name metadata is not zupt-gui'
+[[ $(rpm -qp --qf '%{VERSION}' "$main_rpm") == "$version" ]] || \
+    die 'GUI binary RPM version metadata does not match the release'
+[[ $(rpm -qp --qf '%{SOURCEPACKAGE}' "$main_rpm") == '(none)' ]] || \
+    die 'GUI binary RPM is marked as a source package'
+[[ $(rpm -qp --qf '%{SOURCERPM}' "$main_rpm") == "$(basename -- "$source_rpm")" ]] || \
+    die 'GUI binary RPM does not reference the matching source RPM'
+[[ $(rpm -qp --qf '%{NAME}' "$source_rpm") == zupt-gui ]] || \
+    die 'GUI source RPM name metadata is not zupt-gui'
+[[ $(rpm -qp --qf '%{VERSION}' "$source_rpm") == "$version" ]] || \
+    die 'GUI source RPM version metadata does not match the release'
+[[ $(rpm -qp --qf '%{SOURCEPACKAGE}' "$source_rpm") == 1 ]] || \
+    die 'GUI source RPM is not marked as a source package'
+[[ $(rpm -qp --qf '%{SOURCERPM}' "$source_rpm") == '(none)' ]] || \
+    die 'GUI source RPM unexpectedly references another source RPM'
+mapfile -t source_members < <(rpm -qpl "$source_rpm" | sort)
+expected_source_members=("zupt-gui-${version}.tar.gz" zupt-gui.spec)
+mapfile -t expected_source_members < <(printf '%s\n' "${expected_source_members[@]}" | sort)
+[[ ${#source_members[@]} -eq 2 && \
+    ${source_members[*]} == "${expected_source_members[*]}" ]] || \
+    die 'GUI source RPM payload is not the exact Source0/spec pair'
+
+rpm -qpl "$main_rpm" >"$work/contents.txt"
 grep -q '^/usr/bin/zupt-gui$' "$work/contents.txt" || die 'GUI launcher missing from RPM'
 if grep -Eq '(^/usr/bin/vaptvupt-gui$|\.(o|obj|a|so|so\.[^/]+|dll|dylib|exe)$)' "$work/contents.txt"; then
     cat "$work/contents.txt" >&2
     die 'forbidden compatibility alias or compiled artifact in GUI RPM'
 fi
-(cd -- "$extract" && rpm2cpio "${main_rpms[0]}" | cpio -idm --quiet)
+(cd -- "$extract" && rpm2cpio "$main_rpm" | cpio -idm --quiet)
 PYTHONDONTWRITEBYTECODE=1 python3 - <<PY
 from pathlib import Path
 p = Path("$extract/usr/share/zupt-gui/zupt_gui.py")
 compile(p.read_text(encoding="utf-8"), str(p), "exec")
 PY
 
-for artifact in "${main_rpms[0]}" "${source_rpms[0]}"; do
+for artifact in "$main_rpm" "$source_rpm"; do
     destination=$dist_dir/$(basename -- "$artifact")
     [[ ! -e $destination ]] || die "refusing to overwrite existing output: $destination"
     cp -- "$artifact" "$destination"

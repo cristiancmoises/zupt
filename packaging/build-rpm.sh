@@ -80,6 +80,29 @@ mapfile -t source_rpms < <(find "$top/SRPMS" -type f -name "zupt-${version}-*.sr
 [[ ${#source_rpms[@]} -eq 1 ]] || die "expected one source RPM, found ${#source_rpms[@]}"
 source_rpm=${source_rpms[0]}
 
+[[ $(rpm -qp --qf '%{NAME}' "$main_rpm") == zupt ]] || \
+    die 'binary RPM name metadata is not zupt'
+[[ $(rpm -qp --qf '%{VERSION}' "$main_rpm") == "$version" ]] || \
+    die 'binary RPM version metadata does not match the release'
+[[ $(rpm -qp --qf '%{SOURCEPACKAGE}' "$main_rpm") == '(none)' ]] || \
+    die 'binary RPM is marked as a source package'
+[[ $(rpm -qp --qf '%{SOURCERPM}' "$main_rpm") == "$(basename -- "$source_rpm")" ]] || \
+    die 'binary RPM does not reference the matching source RPM'
+[[ $(rpm -qp --qf '%{NAME}' "$source_rpm") == zupt ]] || \
+    die 'source RPM name metadata is not zupt'
+[[ $(rpm -qp --qf '%{VERSION}' "$source_rpm") == "$version" ]] || \
+    die 'source RPM version metadata does not match the release'
+[[ $(rpm -qp --qf '%{SOURCEPACKAGE}' "$source_rpm") == 1 ]] || \
+    die 'source RPM is not marked as a source package'
+[[ $(rpm -qp --qf '%{SOURCERPM}' "$source_rpm") == '(none)' ]] || \
+    die 'source RPM unexpectedly references another source RPM'
+mapfile -t source_members < <(rpm -qpl "$source_rpm" | sort)
+expected_source_members=("zupt-${version}.tar.gz" zupt.spec)
+mapfile -t expected_source_members < <(printf '%s\n' "${expected_source_members[@]}" | sort)
+[[ ${#source_members[@]} -eq 2 && \
+    ${source_members[*]} == "${expected_source_members[*]}" ]] || \
+    die 'source RPM payload is not the exact Source0/spec pair'
+
 rpm -qpi "$main_rpm" >/dev/null
 rpm -qpl "$main_rpm" > "$work/contents.txt"
 if grep -Eq '(^/usr/bin/vaptvupt$|\.(o|obj|a|so|so\.[^/]+|dll|dylib)$)' "$work/contents.txt"; then

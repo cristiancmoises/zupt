@@ -389,11 +389,17 @@ jobs:
           [[ $(rpm -qp --qf '%{VERSION}' "$rpm_file") == "$VERSION" ]]
           [[ $(rpm -qp --qf '%{RELEASE}' "$rpm_file") == 0 ]]
           [[ $(rpm -qp --qf '%{ARCH}' "$rpm_file") == x86_64 ]]
+          [[ $(rpm -qp --qf '%{SOURCEPACKAGE}' "$rpm_file") == '(none)' ]]
+          [[ $(rpm -qp --qf '%{SOURCERPM}' "$rpm_file") == "$srpm_name" ]]
           srpm=$asset_dir/$srpm_name
           [[ $(rpm -qp --qf '%{NAME}' "$srpm") == zupt ]]
           [[ $(rpm -qp --qf '%{VERSION}' "$srpm") == "$VERSION" ]]
           [[ $(rpm -qp --qf '%{RELEASE}' "$srpm") == 0 ]]
-          [[ $(rpm -qp --qf '%{ARCH}' "$srpm") == src ]]
+          [[ $(rpm -qp --qf '%{SOURCEPACKAGE}' "$srpm") == 1 ]]
+          [[ $(rpm -qp --qf '%{SOURCERPM}' "$srpm") == '(none)' ]]
+          [[ $(rpm -qpl "$srpm" | wc -l) -eq 2 ]]
+          rpm -qpl "$srpm" | grep -Fx "zupt-$VERSION.tar.gz"
+          rpm -qpl "$srpm" | grep -Fx zupt.spec
 
           gui_deb=$asset_dir/$gui_deb_name
           dpkg-deb --info "$gui_deb" >/dev/null
@@ -406,12 +412,18 @@ jobs:
           [[ $(rpm -qp --qf '%{VERSION}' "$gui_rpm") == "$VERSION" ]]
           [[ $(rpm -qp --qf '%{RELEASE}' "$gui_rpm") == 1 ]]
           [[ $(rpm -qp --qf '%{ARCH}' "$gui_rpm") == noarch ]]
+          [[ $(rpm -qp --qf '%{SOURCEPACKAGE}' "$gui_rpm") == '(none)' ]]
+          [[ $(rpm -qp --qf '%{SOURCERPM}' "$gui_rpm") == "$gui_srpm_name" ]]
           rpm -qp --requires "$gui_rpm" | grep -Fx "zupt >= $VERSION"
           gui_srpm=$asset_dir/$gui_srpm_name
           [[ $(rpm -qp --qf '%{NAME}' "$gui_srpm") == zupt-gui ]]
           [[ $(rpm -qp --qf '%{VERSION}' "$gui_srpm") == "$VERSION" ]]
           [[ $(rpm -qp --qf '%{RELEASE}' "$gui_srpm") == 1 ]]
-          [[ $(rpm -qp --qf '%{ARCH}' "$gui_srpm") == src ]]
+          [[ $(rpm -qp --qf '%{SOURCEPACKAGE}' "$gui_srpm") == 1 ]]
+          [[ $(rpm -qp --qf '%{SOURCERPM}' "$gui_srpm") == '(none)' ]]
+          [[ $(rpm -qpl "$gui_srpm" | wc -l) -eq 2 ]]
+          rpm -qpl "$gui_srpm" | grep -Fx "zupt-gui-$VERSION.tar.gz"
+          rpm -qpl "$gui_srpm" | grep -Fx zupt-gui.spec
 
           linux_tar=$asset_dir/$linux_tar_name
           python3 - "$linux_tar" "zupt-$VERSION-linux-x86_64" <<'PY'
