@@ -84,14 +84,15 @@ the result before moving it to its destination. Exporting the tree rather than
 the commit omits Git's commit-ID PAX header:
 
 ```sh
-SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" \
-  make DIST_TARBALL=/tmp/zupt-5.2.8.tar.gz dist
+make DIST_TARBALL=/tmp/zupt-5.2.8.tar.gz dist
 sha256sum /tmp/zupt-5.2.8.tar.gz
 ```
 
-With identical committed input and `SOURCE_DATE_EPOCH`, repeated exports must
-have the same SHA-256 digest. Do not generate a release tarball from uncommitted
-working-tree files.
+The canonical release uses the tracked `.source-date-epoch`; an explicit
+`SOURCE_DATE_EPOCH` override intentionally creates a different archive. With
+identical committed input and epoch, repeated exports must have the same
+SHA-256 digest. Do not generate a release tarball from uncommitted working-tree
+files.
 
 The AUR, Homebrew, and Guix recipes pin the checksum of this tarball. They are
 marked `export-ignore` in `.gitattributes` so their own checksum fields do not
