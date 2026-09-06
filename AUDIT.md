@@ -1,19 +1,20 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-# ZUPT 5.2.8 audit guide and finding history
+# ZUPT 5.2.9 audit guide and finding history
 
 This document describes review surfaces and reproducible checks. It is an
 upstream self-review, not an independent audit, certification, or guarantee.
 `SECURITY.md` defines reporting policy and `THREAT_MODEL.md` defines the
 security boundary.
 
-## 5.2.8 scope
+## 5.2.9 scope
 
 The baseline scope is the source-only CLI and its bundled source codec:
 
 - first-party C and headers under `src/` and `include/`;
 - textual architecture-specific source under `jasmin/`, distinguishing
   compiler-generated output from separately identified hand-written assembly;
-- VaptVupt codec source at release 2.65.3, with provenance and licensing in
+- VaptVupt codec source at release 2.65.11, commit
+  `1cc78bce90619dbf97e0ed1ad449c3c4f6329041`, with provenance and licensing in
   `THIRD-PARTY-NOTICES.md`;
 - CLI tests, source scanner, build system, CI, and packaging recipes;
 - the Python GUI source as a caller of the CLI.
@@ -28,7 +29,7 @@ output.
 
 ## Source-only review
 
-The 5.2.8 baseline retains the source-only boundary introduced in 5.2.2, which
+The 5.2.9 baseline retains the source-only boundary introduced in 5.2.2, which
 removed incomplete SDK/PQBOX header snapshots and local precompiled-library
 expectations. Git and new upstream source
 archives are intended to contain no compiled executable, object, shared/static
@@ -42,10 +43,10 @@ scripts/check-source-only.sh
 
 # committed Git tree or immutable tag
 scripts/check-source-only.sh --tag HEAD
-scripts/check-source-only.sh --tag v5.2.8
+scripts/check-source-only.sh --tag v5.2.9
 
 # generated source archive
-scripts/check-source-only.sh --archive /path/to/zupt-5.2.8.tar.gz
+scripts/check-source-only.sh --archive /path/to/zupt-5.2.9.tar.gz
 ```
 
 The scanner checks extensions and magic bytes, nested archives, symlink targets,
@@ -329,12 +330,12 @@ include SHA-256 checksums. The gated GUI set adds the architecture-independent
 DEB, noarch/source RPM, and source-only portable GUI ZIP. Package gates include
 exact payload/dependency and installed off-screen integration checks; the
 portable ZIP additionally receives source scans, an exact safe-member allowlist,
-and an extracted launcher test. An AppImage is not promoted by the 5.2.8
+and an extracted launcher test. An AppImage is not promoted by the 5.2.9
 policy; AppDir and Flatpak bundles, GUI platform installers, and bare
 Linux/Windows executables are also excluded. Windows ZIP and macOS DMG outputs
 remain CLI-only.
 
-No Wine result is retained as release evidence for 5.2.8. Cross-compilation
+No Wine result is retained as release evidence for 5.2.9. Cross-compilation
 does not establish native-Windows behavior. Extended-length/device namespace
 paths, raw UNC output roots, and mapped/network-drive output are unsupported;
 the native Windows workflow remains a publication gate for the ZIP containing

@@ -58,6 +58,8 @@ Source: "..\..\gui\LICENSE-GUI"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\gui\assets\README.md"; DestDir: "{app}"; DestName: "GUI-ASSET-PROVENANCE.md"; Flags: ignoreversion
 Source: "{#RuntimeNoticesDir}\*"; DestDir: "{app}\third-party-runtime-notices"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
+Source: "..\..\README.pt-BR.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\DOCUMENTACAO.pt-BR.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

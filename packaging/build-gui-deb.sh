@@ -60,6 +60,8 @@ bash gui/install.sh --destdir "$stage" --prefix /usr
 
 install -d -- "$stage/usr/share/doc/zupt-gui" "$stage/DEBIAN"
 install -m 0644 -- gui/README.md "$stage/usr/share/doc/zupt-gui/README.md"
+install -m 0644 -- README.pt-BR.md DOCUMENTACAO.pt-BR.md \
+    "$stage/usr/share/doc/zupt-gui/"
 gzip -9n -c CHANGELOG.md >"$stage/usr/share/doc/zupt-gui/changelog.gz"
 install -m 0644 -- LICENSE-AGPL-3.0 "$stage/usr/share/doc/zupt-gui/copyright"
 gzip -9n -- "$stage/usr/share/man/man1/zupt-gui.1"

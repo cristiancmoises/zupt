@@ -1,4 +1,4 @@
-# ZUPT 5.2.8 for openSUSE Build Service
+# ZUPT 5.2.9 for openSUSE Build Service
 
 This directory is the upstream, source-only OBS recipe for ZUPT. It is a
 handoff for the downstream maintainer; its presence does not mean that the
@@ -11,13 +11,13 @@ as the openSUSE collaborator and downstream OBS package maintainer: he reviews
 the handoff, commits it through the portal/project he maintains, and may make
 the openSUSE-side adjustments he considers necessary. This role does not
 attribute upstream code or the
-5.2.2/5.2.3/5.2.4/5.2.5/5.2.6/5.2.7/5.2.8 upstream changes to Cabelo.
+5.2.2/5.2.3/5.2.4/5.2.5/5.2.6/5.2.7/5.2.8/5.2.9 upstream changes to Cabelo.
 
 ## Files and source policy
 
 | File | Purpose |
 |---|---|
-| `_service` | Fetch the immutable `v5.2.8` tag and create `Source0` at build time. |
+| `_service` | Fetch the immutable `v5.2.9` tag and create `Source0` at build time. |
 | `zupt.spec` | Build and test the CLI with optional external system integrations disabled. |
 | `zupt.changes` | openSUSE-format package history. |
 | `source-audit.sh` | Handoff wrapper for the repository scanner; run it from the complete handoff tree. |
@@ -30,11 +30,11 @@ https://github.com/cristiancmoises/zupt.git
 ```
 
 `obs_scm` stores an `.obscpio` plus `.obsinfo`. The `tar` and `recompress`
-services reconstruct `zupt-5.2.8.tar.gz` inside the build environment, which
+services reconstruct `zupt-5.2.9.tar.gz` inside the build environment, which
 matches `Source0` in the spec.
 
 This source policy does not prohibit separately built release-page packages.
-The upstream 5.2.8 gates may publish the CLI source tarball, DEB, binary RPM,
+The upstream 5.2.9 gates may publish the CLI source tarball, DEB, binary RPM,
 SRPM, notice-bearing Linux tar.xz, Windows ZIP, and macOS DMG, together with a
 GUI DEB, noarch RPM, GUI SRPM, and source-only portable GUI ZIP after each
 format-specific test succeeds. None of those files is an OBS `Source0` input
@@ -53,12 +53,12 @@ curve25519-donna-derived X25519 portions, so the RPM uses:
 AGPL-3.0-or-later AND GPL-3.0-or-later AND BSD-2-Clause AND BSD-3-Clause AND CC0-1.0
 ```
 
-The bundled codec is VaptVupt codec tag `v2.65.3`. It was integrated into this
-repository by commit `59f9ebc59ea13c6edf1d199ca795cdbf00e62226` and is declared
-as `bundled(vaptvupt-codec) = 2.65.3`. That integration commit records the local
-ANS safe-zone reserve patch applied on top of the upstream tag. The package
-retains all license and notice files, including Yann Collet's xxHash notice;
-it does not claim that the codec is unbundled.
+The bundled codec is VaptVupt codec tag `v2.65.11` at commit
+`1cc78bce90619dbf97e0ed1ad449c3c4f6329041` and is declared as
+`bundled(vaptvupt-codec) = 2.65.11`. The refresh preserves ZUPT's wrapper
+defaults and the downstream ANS reserve, platform wipe, BCJ attribution, and
+XXH64 notice changes recorded in `THIRD-PARTY-NOTICES.md`. The package retains
+all license and notice files and does not claim that the codec is unbundled.
 
 ## Optional SDK and PQBOX integrations
 
@@ -139,7 +139,7 @@ reconstructed by the build-time services. Neither `%build` nor `%check` may
 access the network.
 
 For a source RPM check outside OBS, place the service-produced
-`zupt-5.2.8.tar.gz` next to the spec and use a disposable RPM build tree:
+`zupt-5.2.9.tar.gz` next to the spec and use a disposable RPM build tree:
 
 ```sh
 rpm_top=$(mktemp -d)
@@ -289,14 +289,14 @@ final commit; the validation tarball checksum below is not a release checksum.
 `SKIP` is not success. Factory/Tumbleweed x86_64 remains the primary downstream
 gate.
 
-## Handoff procedure for Alessandro/Cabelo
+## ZUPT 5.2.9 handoff procedure for Alessandro/Cabelo
 
 1. Upstream completes every applicable pre-tag source and local audit gate,
-   then creates and verifies the annotated `v5.2.8` tag. Exact-tag hosted,
+   then creates and verifies the annotated `v5.2.9` tag. Exact-tag hosted,
    native-platform, package, and promotion gates must pass before release or
    downstream handoff; the tag itself is never moved to repair a failure.
 2. With Git, `file`, bsdtar, tar, zip, unzip and SHA-256 tools installed, run
-   `scripts/export-opensuse-package.sh v5.2.8`. Verify the reported ZIP and
+   `scripts/export-opensuse-package.sh v5.2.9`. Verify the reported ZIP and
    SHA-256 outside the Git index. The handoff includes both
    `packaging/opensuse/source-audit.sh` and its required
    `scripts/check-source-only.sh`; keep that relative layout while auditing.
@@ -308,7 +308,7 @@ gate.
    ```
 
 4. From the extracted handoff root, run
-   `packaging/opensuse/source-audit.sh --archive /path/to/zupt-5.2.8.tar.gz`.
+   `packaging/opensuse/source-audit.sh --archive /path/to/zupt-5.2.9.tar.gz`.
    Then copy `_service`, `zupt.spec`, `zupt.changes` and `README.md`
    into the flat OBS package checkout. The audit wrapper is not an OBS build
    source and must not be copied without its companion `scripts/` directory.

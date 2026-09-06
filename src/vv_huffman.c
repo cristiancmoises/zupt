@@ -39,10 +39,12 @@ typedef struct {
     uint8_t *dst;
     size_t   pos;
     size_t   cap;
+    int      overflow;
 } bw_t;
 
 static inline void bw_init(bw_t *w, uint8_t *dst, size_t cap) {
     w->bits = 0; w->nbits = 0; w->dst = dst; w->pos = 0; w->cap = cap;
+    w->overflow = 0;
 }
 
 /* Add up to 16 bits. Flushes full bytes automatically. */
@@ -50,7 +52,16 @@ static inline void bw_add(bw_t *w, uint32_t val, int n) {
     w->bits |= (uint64_t)(val & ((1u << n) - 1)) << w->nbits;
     w->nbits += n;
     /* Flush complete bytes */
-    while (w->nbits >= 8 && w->pos < w->cap) {
+    while (w->nbits >= 8) {
+        if (w->pos == w->cap) {
+            /* Keep the accumulator bounded after capacity exhaustion;
+             * later symbols must never shift by 64 or more. Flush
+             * reports the sticky error to the encoder. */
+            w->overflow = 1;
+            w->bits = 0;
+            w->nbits = 0;
+            return;
+        }
         w->dst[w->pos++] = (uint8_t)(w->bits);
         w->bits >>= 8;
         w->nbits -= 8;
@@ -58,12 +69,13 @@ static inline void bw_add(bw_t *w, uint32_t val, int n) {
 }
 
 static inline size_t bw_flush(bw_t *w) {
+    if (w->overflow) return SIZE_MAX;
     while (w->nbits > 0 && w->pos < w->cap) {
         w->dst[w->pos++] = (uint8_t)(w->bits);
         w->bits >>= 8;
         w->nbits -= 8;
     }
-    return w->pos;
+    return w->nbits > 0 ? SIZE_MAX : w->pos;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -465,6 +477,7 @@ vvh_error_t vvh_encode(const uint8_t *src, size_t src_len,
     }
 
     size_t bs_sz = bw_flush(&w);
+    if (bs_sz == SIZE_MAX) return VVH_ERR_OVERFLOW;
     size_t total = hdr_sz + bs_sz;
 
     /* Incompressible guard: if not smaller, signal failure */
@@ -555,6 +568,7 @@ vvh_error_t vvh_encode4(const uint8_t *src, size_t src_len,
         }
 
         size_t sz = bw_flush(&w);
+        if (sz == SIZE_MAX) return VVH_ERR_OVERFLOW;
         stream_sizes[s] = sz;
         cur_off += sz;
     }
@@ -598,9 +612,14 @@ vvh_error_t vvh_encode4(const uint8_t *src, size_t src_len,
  *   Linear scan of slow_code/slow_len/slow_sym arrays.
  * ═══════════════════════════════════════════════════════════════ */
 
-vvh_error_t vvh_decode(const uint8_t *src, size_t src_len,
+static void release_decode_table(vvh_dec_table_t *dec, const void *workspace) {
+    if (!workspace) free(dec);
+}
+
+static vvh_error_t vvh_decode_impl(const uint8_t *src, size_t src_len,
                        uint8_t *dst, size_t dst_cap,
-                       size_t num_literals, size_t *src_consumed) {
+                       size_t num_literals, size_t *src_consumed,
+                       vvh_dec_table_t *workspace) {
     if (num_literals == 0) {
         *src_consumed = 0;
         return VVH_OK;
@@ -618,8 +637,9 @@ vvh_error_t vvh_decode(const uint8_t *src, size_t src_len,
         if (lengths[i] > 0) { has_sym = 1; break; }
     if (!has_sym) return VVH_ERR_CORRUPT;
 
-    /* Build decode table (heap-allocated: 16 KB) */
-    vvh_dec_table_t *dec = (vvh_dec_table_t *)malloc(sizeof(vvh_dec_table_t));
+    /* Caller-owned table storage avoids a per-block allocation. */
+    vvh_dec_table_t *dec = workspace ? workspace :
+        (vvh_dec_table_t *)malloc(sizeof(vvh_dec_table_t));
     if (!dec) return VVH_ERR_NOMEM;
     build_dec_table(lengths, dec);
 
@@ -641,6 +661,7 @@ vvh_error_t vvh_decode(const uint8_t *src, size_t src_len,
 
         if (VV_LIKELY(len > 0)) {
             /* Fast path: code ≤ 12 bits */
+            if (r.nbits < len) { release_decode_table(dec, workspace); return VVH_ERR_CORRUPT; }
             br_consume(&r, len);
             dst[i] = (uint8_t)sym;
         } else {
@@ -649,7 +670,8 @@ vvh_error_t vvh_decode(const uint8_t *src, size_t src_len,
             for (int s = 0; s < dec->slow_count; s++) {
                 int slen = dec->slow_len[s];
                 uint32_t mask = (1u << slen) - 1;
-                if ((br_peek(&r, slen) & mask) == dec->slow_code[s]) {
+                if (r.nbits >= slen &&
+                    (br_peek(&r, slen) & mask) == dec->slow_code[s]) {
                     br_consume(&r, slen);
                     dst[i] = dec->slow_sym[s];
                     found = 1;
@@ -657,7 +679,7 @@ vvh_error_t vvh_decode(const uint8_t *src, size_t src_len,
                 }
             }
             if (!found) {
-                free(dec);
+                release_decode_table(dec, workspace);
                 return VVH_ERR_CORRUPT;
             }
         }
@@ -673,7 +695,7 @@ vvh_error_t vvh_decode(const uint8_t *src, size_t src_len,
             *src_consumed -= over;
     }
 
-    free(dec);
+    release_decode_table(dec, workspace);
     return VVH_OK;
 }
 
@@ -694,9 +716,10 @@ vvh_error_t vvh_decode(const uint8_t *src, size_t src_len,
  * table built from the code-length header.
  * ═══════════════════════════════════════════════════════════════ */
 
-vvh_error_t vvh_decode4(const uint8_t *src, size_t src_len,
+static vvh_error_t vvh_decode4_impl(const uint8_t *src, size_t src_len,
                         uint8_t *dst, size_t dst_cap,
-                        size_t num_literals, size_t *src_consumed) {
+                        size_t num_literals, size_t *src_consumed,
+                        vvh_dec_table_t *workspace) {
     if (num_literals == 0) {
         *src_consumed = 0;
         return VVH_OK;
@@ -736,7 +759,8 @@ vvh_error_t vvh_decode4(const uint8_t *src, size_t src_len,
     }
 
     /* ─── 4. Build decode table (shared across all 4 streams) ─── */
-    vvh_dec_table_t *dec = (vvh_dec_table_t *)malloc(sizeof(vvh_dec_table_t));
+    vvh_dec_table_t *dec = workspace ? workspace :
+        (vvh_dec_table_t *)malloc(sizeof(vvh_dec_table_t));
     if (!dec) return VVH_ERR_NOMEM;
     build_dec_table(lengths, dec);
 
@@ -764,6 +788,7 @@ vvh_error_t vvh_decode4(const uint8_t *src, size_t src_len,
         int sym = (int)(entry & 0xFF); \
         int len = (int)((entry >> 8) & 0xF); \
         if (VV_LIKELY(len > 0)) { \
+            if ((R).nbits < len) { release_decode_table(dec, workspace); return VVH_ERR_CORRUPT; } \
             br_consume(&(R), len); \
             (OUT) = (uint8_t)sym; \
         } else { \
@@ -771,14 +796,15 @@ vvh_error_t vvh_decode4(const uint8_t *src, size_t src_len,
             for (int s = 0; s < dec->slow_count; s++) { \
                 int slen = dec->slow_len[s]; \
                 uint32_t mask = (1u << slen) - 1; \
-                if ((br_peek(&(R), slen) & mask) == dec->slow_code[s]) { \
+                if ((R).nbits >= slen && \
+                    (br_peek(&(R), slen) & mask) == dec->slow_code[s]) { \
                     br_consume(&(R), slen); \
                     (OUT) = dec->slow_sym[s]; \
                     found = 1; \
                     break; \
                 } \
             } \
-            if (!found) { free(dec); return VVH_ERR_CORRUPT; } \
+            if (!found) { release_decode_table(dec, workspace); return VVH_ERR_CORRUPT; } \
         } \
     } while (0)
 
@@ -804,7 +830,7 @@ vvh_error_t vvh_decode4(const uint8_t *src, size_t src_len,
                     break; \
                 } \
             } \
-            if (!found) { free(dec); return VVH_ERR_CORRUPT; } \
+            if (!found) { release_decode_table(dec, workspace); return VVH_ERR_CORRUPT; } \
         } \
     } while (0)
 
@@ -869,6 +895,63 @@ vvh_error_t vvh_decode4(const uint8_t *src, size_t src_len,
     /* Total bytes consumed: header + stream-size header + all 4 streams */
     *src_consumed = streams_off + s0 + s1 + s2 + s3;
 
-    free(dec);
+    release_decode_table(dec, workspace);
     return VVH_OK;
+}
+
+size_t vvh_decode_workspace_size(void) {
+    return sizeof(vvh_dec_table_t);
+}
+
+size_t vvh_decode_workspace_alignment(void) {
+    return _Alignof(vvh_dec_table_t);
+}
+
+static vvh_error_t check_decode_workspace(void *workspace, size_t cap) {
+    if (!workspace || (uintptr_t)workspace % _Alignof(vvh_dec_table_t))
+        return VVH_ERR_PARAM;
+    if (cap < sizeof(vvh_dec_table_t)) return VVH_ERR_OVERFLOW;
+    return VVH_OK;
+}
+
+vvh_error_t vvh_decode(const uint8_t *src, size_t src_len,
+                       uint8_t *dst, size_t dst_cap,
+                       size_t num_literals, size_t *src_consumed) {
+    return vvh_decode_impl(src, src_len, dst, dst_cap, num_literals,
+                           src_consumed, NULL);
+}
+
+vvh_error_t vvh_decode4(const uint8_t *src, size_t src_len,
+                        uint8_t *dst, size_t dst_cap,
+                        size_t num_literals, size_t *src_consumed) {
+    return vvh_decode4_impl(src, src_len, dst, dst_cap, num_literals,
+                            src_consumed, NULL);
+}
+
+vvh_error_t vvh_decode_with_workspace(const uint8_t *src, size_t src_len,
+                                      uint8_t *dst, size_t dst_cap,
+                                      size_t num_literals, size_t *src_consumed,
+                                      void *workspace, size_t workspace_cap) {
+    if (!src_consumed || (!src && src_len) || (!dst && dst_cap)) return VVH_ERR_PARAM;
+    if (!num_literals) { *src_consumed = 0; return VVH_OK; }
+    if (!src || !dst) return VVH_ERR_PARAM;
+    if (num_literals > dst_cap) return VVH_ERR_OVERFLOW;
+    vvh_error_t err = check_decode_workspace(workspace, workspace_cap);
+    if (err != VVH_OK) return err;
+    return vvh_decode_impl(src, src_len, dst, dst_cap, num_literals,
+                           src_consumed, (vvh_dec_table_t *)workspace);
+}
+
+vvh_error_t vvh_decode4_with_workspace(const uint8_t *src, size_t src_len,
+                                       uint8_t *dst, size_t dst_cap,
+                                       size_t num_literals, size_t *src_consumed,
+                                       void *workspace, size_t workspace_cap) {
+    if (!src_consumed || (!src && src_len) || (!dst && dst_cap)) return VVH_ERR_PARAM;
+    if (!num_literals) { *src_consumed = 0; return VVH_OK; }
+    if (!src || !dst) return VVH_ERR_PARAM;
+    if (num_literals > dst_cap) return VVH_ERR_OVERFLOW;
+    vvh_error_t err = check_decode_workspace(workspace, workspace_cap);
+    if (err != VVH_OK) return err;
+    return vvh_decode4_impl(src, src_len, dst, dst_cap, num_literals,
+                            src_consumed, (vvh_dec_table_t *)workspace);
 }

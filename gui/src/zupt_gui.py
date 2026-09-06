@@ -974,7 +974,7 @@ class AboutTab(QWidget):
             ("XXH64          (non-crypto) Per-block checksum (inside AEAD)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("", ""),
             ("COMPRESSION CODEC", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
-            ("VaptVupt LZ + ANS  2.65.3  LZ77 + tabled ANS entropy", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            ("VaptVupt LZ + ANS  2.65.11  LZ77 + tabled ANS entropy", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("AVX2 / NEON SIMD acceleration; portable scalar fallbacks", "color:#5a7a88;font-size:12px;font-family:monospace;"),
             ("", ""),
             ("CREDITS", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),

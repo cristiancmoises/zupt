@@ -1,4 +1,4 @@
-# Installing ZUPT 5.2.8
+# Installing ZUPT 5.2.9
 
 This guide covers the ZUPT command-line program and the optional Python GUI.
 The canonical source repository is
@@ -40,15 +40,18 @@ fixtures portable, hardens the three CodeQL High path-race boundaries described
 in the security documents, and adds `sdk-test` to release and hosted Linux
 gates. Exact-tag run `33456209269` passed all 15 jobs, and promotion run
 `33457868306` published the exact tested set. Do not treat any prior candidate's
-artifacts or evidence as 5.2.8 packages or validation.
+artifacts or evidence as 5.2.8 packages or validation. Version 5.2.9 adds the
+VaptVupt 2.65.11 compatibility refresh and requires an independent, fresh
+exact-tag validation record before any new package is published.
 
-The published 5.2.8 package set is exactly these 13 gated assets:
+The 5.2.9 release contract permits exactly these 13 gated assets after their
+target-specific checks pass:
 
 | Component | Gated artifacts |
 |---|---|
-| Source and checksums | `zupt-5.2.8.tar.gz`, `zupt-5.2.8.tar.gz.sha256`, and `SHA256SUMS` |
-| CLI | `zupt_5.2.8_amd64.deb`, `zupt-5.2.8-0.x86_64.rpm`, `zupt-5.2.8-0.src.rpm`, `zupt-5.2.8-linux-x86_64.tar.xz`, `zupt-5.2.8-windows-x86_64.zip`, and exactly one `ZUPT-5.2.8-macOS-{x86_64\|arm64}.dmg` |
-| GUI | `zupt-gui_5.2.8_all.deb`, `zupt-gui-5.2.8-1.noarch.rpm`, `zupt-gui-5.2.8-1.src.rpm`, and `zupt-gui-5.2.8-portable.zip` |
+| Source and checksums | `zupt-5.2.9.tar.gz`, `zupt-5.2.9.tar.gz.sha256`, and `SHA256SUMS` |
+| CLI | `zupt_5.2.9_amd64.deb`, `zupt-5.2.9-0.x86_64.rpm`, `zupt-5.2.9-0.src.rpm`, `zupt-5.2.9-linux-x86_64.tar.xz`, `zupt-5.2.9-windows-x86_64.zip`, and exactly one `ZUPT-5.2.9-macOS-{x86_64\|arm64}.dmg` |
+| GUI | `zupt-gui_5.2.9_all.deb`, `zupt-gui-5.2.9-1.noarch.rpm`, `zupt-gui-5.2.9-1.src.rpm`, and `zupt-gui-5.2.9-portable.zip` |
 
 The GUI packages require the matching `zupt` CLI package and must pass exact
 payload/dependency checks plus an installed off-screen GUI/CLI integration
@@ -56,7 +59,7 @@ test. The source-only portable GUI ZIP bundles launchers, notices, and GUI
 source, but not Python, Qt, or the CLI. The Linux tar.xz carries the tested CLI
 beside the complete public license/notice payload. AppImage, AppDir, Flatpak
 bundles, GUI platform installers, and bare Linux/Windows executables are not
-promoted for 5.2.8. The Windows ZIP and macOS DMG contain the CLI only. Exact
+promoted for 5.2.9. The Windows ZIP and macOS DMG contain the CLI only. Exact
 target boundaries are listed in `README.md`.
 The release's `SHA256SUMS` and validation notes, not the mere presence of a
 download link, identify an artifact that completed its gate.
@@ -93,7 +96,7 @@ sudo pacman -S base-devel gzip
 ```
 
 Package names can differ by distribution release. These commands are examples,
-not a statement that 5.2.8 has been accepted into each distribution repository.
+not a statement that 5.2.9 has been accepted into each distribution repository.
 
 ## Build and test from source
 
@@ -113,7 +116,7 @@ From a release archive, run the scanner as follows before extraction or from a
 trusted checkout after download:
 
 ```sh
-scripts/check-source-only.sh --archive /path/to/zupt-5.2.8.tar.gz
+scripts/check-source-only.sh --archive /path/to/zupt-5.2.9.tar.gz
 ```
 
 The default build provides the native password, ML-KEM-768 + X25519 hybrid

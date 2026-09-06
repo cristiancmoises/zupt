@@ -551,7 +551,8 @@ jobs:
           output="$RUNNER_TEMP/release-linux-x86_64/zupt-$version-linux-x86_64.tar.xz"
           mkdir -p "$root" "$(dirname "$output")"
           install -m 0755 zupt "$root/zupt"
-          install -m 0644 README.md CHANGELOG.md SECURITY.md THREAT_MODEL.md \
+          install -m 0644 README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md \
+            CHANGELOG.md SECURITY.md THREAT_MODEL.md \
             LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause \
             LICENSE-BSD-3-Clause LICENSE-CC0-1.0 NOTICE \
             THIRD-PARTY-NOTICES.md "$root/"
@@ -561,7 +562,7 @@ jobs:
           tar -xJf "$output" -C "$extract"
           bash scripts/test-installed-zupt.sh \
             "$extract/$(basename "$root")/zupt"
-          test "$(find "$extract/$(basename "$root")" -maxdepth 1 -type f | wc -l)" -eq 13
+          test "$(find "$extract/$(basename "$root")" -maxdepth 1 -type f | wc -l)" -eq 15
           sha256sum "$output"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -598,7 +599,8 @@ jobs:
           install -m 0644 packaging/portable/zupt-gui.bat "$root/"
           install -m 0644 packaging/portable/README.txt "$root/README.txt"
           install -m 0644 gui/assets/zupt-icon.png gui/assets/zupt.ico "$root/assets/"
-          install -m 0644 LICENSE-AGPL-3.0 gui/LICENSE-GUI CHANGELOG.md "$root/"
+          install -m 0644 README.pt-BR.md DOCUMENTACAO.pt-BR.md \
+            LICENSE-AGPL-3.0 gui/LICENSE-GUI CHANGELOG.md "$root/"
           install -m 0644 gui/assets/README.md "$root/ASSET-PROVENANCE.md"
           bash scripts/check-source-only.sh --tree "$root"
           QT_QPA_PLATFORM=offscreen PATH="$PWD:$PATH" \

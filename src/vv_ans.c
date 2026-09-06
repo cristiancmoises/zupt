@@ -232,6 +232,74 @@ static void build_dec(const uint16_t norm[NSYM], const uint8_t sp[ANS_L],
     }
 }
 
+/* Decode-only table builder.  Sequence decoding does not need the spread
+ * array after the decode table has been built, so place the spread symbols
+ * directly in dec[].symbol and fill the remaining fields in a second pass.
+ * The second pass remains state-ordered, preserving the exact occurrence
+ * rank (and therefore baseline/nbits) used by build_dec(). */
+static void build_dec_direct(const uint16_t norm[NSYM],
+                             vva_dec_entry_t dec[ANS_L]) {
+    const uint32_t step = (ANS_L >> 1) + (ANS_L >> 3) + 3;
+    uint32_t pos = 0;
+    int8_t nbmax_tab[NSYM];
+    int16_t lowcnt_tab[NSYM];
+    for (int s = 0; s < NSYM; s++) {
+        uint16_t f = norm[s];
+        if (f == 0 || f == (uint16_t)ANS_L) {
+            nbmax_tab[s] = 0;
+            lowcnt_tab[s] = 0;
+        } else {
+            int flg = ilog2(f);
+            int nb = ANS_LOG - flg;
+            nbmax_tab[s] = (int8_t)nb;
+            lowcnt_tab[s] = (int16_t)((1 << (flg + 1)) - (int)f);
+        }
+        for (int i = 0; i < f; i++) {
+            dec[pos].symbol = (uint8_t)s;
+            pos = (pos + step) & (ANS_L - 1);
+        }
+    }
+
+    uint16_t occ[NSYM];
+    memset(occ, 0, sizeof(occ));
+    for (int x = 0; x < ANS_L; x++) {
+        uint8_t s = dec[x].symbol;
+        int k = occ[s]++;
+        int nb_max = nbmax_tab[s];
+        vva_dec_entry_t entry;
+        entry.symbol = s;
+        if (nb_max == 0) {
+            entry.nbits = 0;
+            entry.baseline = 0;
+            dec[x] = entry;
+            continue;
+        }
+        int low_count = lowcnt_tab[s];
+        if (k < low_count) {
+            entry.nbits = (uint8_t)nb_max;
+            entry.baseline = (uint16_t)((uint32_t)k << nb_max);
+        } else {
+            int sh = nb_max - 1;
+            entry.nbits = (uint8_t)sh;
+            entry.baseline = (uint16_t)(((uint32_t)low_count << nb_max)
+                              + ((uint32_t)(k - low_count) << sh));
+        }
+        dec[x] = entry;
+    }
+}
+
+#ifdef VV_ANS_TEST_HOOKS
+int vva_test_build_dec_direct_equivalence(const uint16_t norm[NSYM]) {
+    uint8_t spread[ANS_L];
+    vva_dec_entry_t reference[ANS_L];
+    vva_dec_entry_t direct[ANS_L];
+    spread_symbols(norm, spread);
+    build_dec(norm, spread, reference);
+    build_dec_direct(norm, direct);
+    return memcmp(reference, direct, sizeof(reference)) == 0;
+}
+#endif
+
 /* ═══════════════════════════════════════════════════════════════
  * ENCODE CONTEXT
  * ═══════════════════════════════════════════════════════════════ */
@@ -424,6 +492,19 @@ static size_t read_hdr_v2(const uint8_t *s, size_t len, uint16_t norm[NSYM]) {
     return 0;
 }
 
+/* Every decode-table slot must be initialized before it can be indexed.
+ * Wire frequencies are untrusted: an underfull table leaves spread slots
+ * uninitialized, and an overfull table destroys the ANS state mapping. */
+static int validated_symbol_count(const uint16_t norm[NSYM], int *single) {
+    uint32_t total = 0;
+    int count = 0;
+    for (int i = 0; i < NSYM; i++) {
+        total += norm[i];
+        if (norm[i]) { count++; *single = i; }
+    }
+    return total == ANS_L ? count : 0;
+}
+
 /* ═══════════════════════════════════════════════════════════════
  * BITPAIR STACK (for LIFO encode)
  * ═══════════════════════════════════════════════════════════════ */
@@ -543,9 +624,14 @@ vva_error_t vva_encode(const uint8_t *src, size_t src_len,
  * SINGLE-STREAM DECODE (tag 'A', backward compat)
  * ═══════════════════════════════════════════════════════════════ */
 
-vva_error_t vva_decode(const uint8_t *src, size_t src_len,
+static void release_literal_table(vva_dec_entry_t *dec, const void *workspace) {
+    if (!workspace) free(dec);
+}
+
+static vva_error_t vva_decode_impl(const uint8_t *src, size_t src_len,
                        uint8_t *dst, size_t dst_cap,
-                       size_t num_literals, size_t *src_consumed) {
+                       size_t num_literals, size_t *src_consumed,
+                       vva_dec_entry_t *workspace) {
     if (!num_literals) { *src_consumed = 0; return VVA_OK; }
     if (num_literals > dst_cap) return VVA_ERR_OVERFLOW;
 
@@ -553,9 +639,8 @@ vva_error_t vva_decode(const uint8_t *src, size_t src_len,
     size_t hdr = read_hdr_v2(src, src_len, norm);
     if (!hdr) return VVA_ERR_CORRUPT;
 
-    int np = 0, single = -1;
-    for (int i = 0; i < NSYM; i++)
-        if (norm[i]) { np++; single = i; }
+    int single = -1;
+    int np = validated_symbol_count(norm, &single);
     if (!np) return VVA_ERR_CORRUPT;
     if (np == 1) {
         memset(dst, single, num_literals);
@@ -563,15 +648,14 @@ vva_error_t vva_decode(const uint8_t *src, size_t src_len,
         return VVA_OK;
     }
 
-    uint8_t sp[ANS_L];  /* PERF: scratch for build_dec; stack, not per-block malloc */
-    vva_dec_entry_t *dec = (vva_dec_entry_t *)malloc(ANS_L * sizeof(*dec));
+    vva_dec_entry_t *dec = workspace ? workspace :
+        (vva_dec_entry_t *)malloc(ANS_L * sizeof(*dec));
     if (!dec) { return VVA_ERR_NOMEM; }
-    spread_symbols(norm, sp);
-    build_dec(norm, sp, dec);
+    build_dec_direct(norm, dec);
 
-    if (hdr + 2 > src_len) { free(dec); return VVA_ERR_CORRUPT; }
+    if (hdr + 2 > src_len) { release_literal_table(dec, workspace); return VVA_ERR_CORRUPT; }
     uint32_t state = (uint32_t)src[hdr] | ((uint32_t)src[hdr + 1] << 8);
-    if (state >= (uint32_t)ANS_L) { free(dec); return VVA_ERR_CORRUPT; }
+    if (state >= (uint32_t)ANS_L) { release_literal_table(dec, workspace); return VVA_ERR_CORRUPT; }
 
     ans_br_t r;
     ans_br_init(&r, src + hdr + 2, src_len - hdr - 2);
@@ -590,7 +674,7 @@ vva_error_t vva_decode(const uint8_t *src, size_t src_len,
         r.a >>= nb;
         r.n -= nb;
         state = (uint32_t)e.baseline + bits;
-        if (state >= (uint32_t)ANS_L) { free(dec); return VVA_ERR_CORRUPT; }
+        if (state >= (uint32_t)ANS_L) { release_literal_table(dec, workspace); return VVA_ERR_CORRUPT; }
     }
 
     *src_consumed = hdr + 2 + r.p;
@@ -599,7 +683,7 @@ vva_error_t vva_decode(const uint8_t *src, size_t src_len,
         if (*src_consumed >= ov) *src_consumed -= ov;
     }
 
-    free(dec);
+    release_literal_table(dec, workspace);
     return VVA_OK;
 }
 
@@ -738,9 +822,10 @@ vva_error_t vva_encode4(const uint8_t *src, size_t src_len,
  * Output is interleaved: dst[0]=lane0, dst[1]=lane1, dst[2]=lane2, dst[3]=lane3
  * ═══════════════════════════════════════════════════════════════ */
 
-vva_error_t vva_decode4(const uint8_t *src, size_t src_len,
+static vva_error_t vva_decode4_impl(const uint8_t *src, size_t src_len,
                         uint8_t *dst, size_t dst_cap,
-                        size_t num_literals, size_t *src_consumed) {
+                        size_t num_literals, size_t *src_consumed,
+                        vva_dec_entry_t *workspace) {
     if (!num_literals) { *src_consumed = 0; return VVA_OK; }
     if (num_literals > dst_cap) return VVA_ERR_OVERFLOW;
 
@@ -748,9 +833,8 @@ vva_error_t vva_decode4(const uint8_t *src, size_t src_len,
     size_t hdr = read_hdr_v2(src, src_len, norm);
     if (!hdr) return VVA_ERR_CORRUPT;
 
-    int np = 0, single = -1;
-    for (int i = 0; i < NSYM; i++)
-        if (norm[i]) { np++; single = i; }
+    int single = -1;
+    int np = validated_symbol_count(norm, &single);
     if (!np) return VVA_ERR_CORRUPT;
     if (np == 1) {
         memset(dst, single, num_literals);
@@ -759,22 +843,21 @@ vva_error_t vva_decode4(const uint8_t *src, size_t src_len,
     }
 
     /* Build shared decode table */
-    uint8_t sp[ANS_L];  /* PERF: scratch for build_dec; stack, not per-block malloc */
-    vva_dec_entry_t *dec = (vva_dec_entry_t *)malloc(ANS_L * sizeof(*dec));
+    vva_dec_entry_t *dec = workspace ? workspace :
+        (vva_dec_entry_t *)malloc(ANS_L * sizeof(*dec));
     if (!dec) { return VVA_ERR_NOMEM; }
-    spread_symbols(norm, sp);
-    build_dec(norm, sp, dec);
+    build_dec_direct(norm, dec);
 
     /* Read 4 states (2B) + 4 bitstream sizes (4B) */
     const uint8_t *p = src + hdr;
-    if (p + 8 + 16 > src + src_len) { free(dec); return VVA_ERR_CORRUPT; }
+    if (p + 8 + 16 > src + src_len) { release_literal_table(dec, workspace); return VVA_ERR_CORRUPT; }
 
     uint32_t s[4];
     size_t bsz[4];
     for (int i = 0; i < 4; i++) {
         s[i] = (uint32_t)p[0] | ((uint32_t)p[1] << 8);
         p += 2;
-        if (s[i] >= (uint32_t)ANS_L) { free(dec); return VVA_ERR_CORRUPT; }
+        if (s[i] >= (uint32_t)ANS_L) { release_literal_table(dec, workspace); return VVA_ERR_CORRUPT; }
     }
     for (int i = 0; i < 4; i++) {
         bsz[i] = (size_t)p[0] | ((size_t)p[1] << 8)
@@ -786,7 +869,7 @@ vva_error_t vva_decode4(const uint8_t *src, size_t src_len,
     ans_br_t r[4];
     const uint8_t *bp = p;
     for (int i = 0; i < 4; i++) {
-        if (bp + bsz[i] > src + src_len) { free(dec); return VVA_ERR_CORRUPT; }
+        if (bp + bsz[i] > src + src_len) { release_literal_table(dec, workspace); return VVA_ERR_CORRUPT; }
         ans_br_init(&r[i], bp, bsz[i]);
         ans_br_fill(&r[i]);
         bp += bsz[i];
@@ -837,14 +920,14 @@ vva_error_t vva_decode4(const uint8_t *src, size_t src_len,
         { int nb=e3.nbits; uint32_t b=(uint32_t)(r[3].a & (((uint64_t)1<<nb)-1)); r[3].a>>=nb; r[3].n-=nb; s[3]=(uint32_t)e3.baseline+b; }
 
         if (VV_UNLIKELY((s[0] | s[1] | s[2] | s[3]) >= (uint32_t)ANS_L)) {
-            free(dec); return VVA_ERR_CORRUPT;
+            release_literal_table(dec, workspace); return VVA_ERR_CORRUPT;
         }
     }
 
     /* Scalar tail for remaining 0-3 symbols */
     for (size_t i = full_quads * 4; i < num_literals; i++) {
         int lane = (int)(i & 3);
-        if (VV_UNLIKELY(s[lane] >= (uint32_t)ANS_L)) { free(dec); return VVA_ERR_CORRUPT; }
+        if (VV_UNLIKELY(s[lane] >= (uint32_t)ANS_L)) { release_literal_table(dec, workspace); return VVA_ERR_CORRUPT; }
         if (r[lane].n < ANS_LOG) ans_br_fill(&r[lane]);
         vva_dec_entry_t e = dec[s[lane]];
         dst[i] = e.symbol;
@@ -852,8 +935,65 @@ vva_error_t vva_decode4(const uint8_t *src, size_t src_len,
     }
 
     *src_consumed = (size_t)(bp - src);
-    free(dec);
+    release_literal_table(dec, workspace);
     return VVA_OK;
+}
+
+size_t vva_decode_workspace_size(void) {
+    return ANS_L * sizeof(vva_dec_entry_t);
+}
+
+size_t vva_decode_workspace_alignment(void) {
+    return _Alignof(vva_dec_entry_t);
+}
+
+static vva_error_t check_literal_workspace(void *workspace, size_t cap) {
+    if (!workspace || (uintptr_t)workspace % _Alignof(vva_dec_entry_t))
+        return VVA_ERR_PARAM;
+    if (cap < ANS_L * sizeof(vva_dec_entry_t)) return VVA_ERR_OVERFLOW;
+    return VVA_OK;
+}
+
+vva_error_t vva_decode(const uint8_t *src, size_t src_len,
+                       uint8_t *dst, size_t dst_cap,
+                       size_t num_literals, size_t *src_consumed) {
+    return vva_decode_impl(src, src_len, dst, dst_cap, num_literals,
+                           src_consumed, NULL);
+}
+
+vva_error_t vva_decode4(const uint8_t *src, size_t src_len,
+                        uint8_t *dst, size_t dst_cap,
+                        size_t num_literals, size_t *src_consumed) {
+    return vva_decode4_impl(src, src_len, dst, dst_cap, num_literals,
+                            src_consumed, NULL);
+}
+
+vva_error_t vva_decode_with_workspace(const uint8_t *src, size_t src_len,
+                                      uint8_t *dst, size_t dst_cap,
+                                      size_t num_literals, size_t *src_consumed,
+                                      void *workspace, size_t workspace_cap) {
+    if (!src_consumed || (!src && src_len) || (!dst && dst_cap)) return VVA_ERR_PARAM;
+    if (!num_literals) { *src_consumed = 0; return VVA_OK; }
+    if (!src || !dst) return VVA_ERR_PARAM;
+    if (num_literals > dst_cap) return VVA_ERR_OVERFLOW;
+    vva_error_t err = check_literal_workspace(workspace, workspace_cap);
+    if (err != VVA_OK) return err;
+    return vva_decode_impl(src, src_len, dst, dst_cap, num_literals,
+                           src_consumed, (vva_dec_entry_t *)workspace);
+}
+
+vva_error_t vva_decode4_with_workspace(const uint8_t *src, size_t src_len,
+                                       uint8_t *dst, size_t dst_cap,
+                                       size_t num_literals, size_t *src_consumed,
+                                       void *workspace, size_t workspace_cap) {
+    if (!src_consumed || (!src && src_len) || (!dst && dst_cap)) return VVA_ERR_PARAM;
+    if (!num_literals) { *src_consumed = 0; return VVA_OK; }
+    if (!src || !dst) return VVA_ERR_PARAM;
+    if (num_literals > dst_cap) return VVA_ERR_OVERFLOW;
+    vva_error_t err = check_literal_workspace(workspace, workspace_cap);
+    if (err != VVA_OK) return err;
+    return vva_decode4_impl(src, src_len, dst, dst_cap, num_literals,
+                            src_consumed, (vva_dec_entry_t *)workspace);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1120,9 +1260,9 @@ vva_error_t vva_decode_ctx(const uint8_t *src, size_t src_len,
     p += global_sz;
 
     /* Check for single-symbol global */
-    int global_np = 0, global_single = -1;
-    for (int i = 0; i < NSYM; i++)
-        if (global_norm[i]) { global_np++; global_single = i; }
+    int global_single = -1;
+    int global_np = validated_symbol_count(global_norm, &global_single);
+    if (!global_np) return VVA_ERR_CORRUPT;
 
     /* Read inherited bitmap */
     if (p + 32 > end) return VVA_ERR_CORRUPT;
@@ -1172,11 +1312,12 @@ vva_error_t vva_decode_ctx(const uint8_t *src, size_t src_len,
         if (!chdr) goto ctx_dec_fail;
         p += tsz;
 
+        int csingle = -1;
+        int cnp = validated_symbol_count(cnorm, &csingle);
+        if (!cnp) goto ctx_dec_fail;
+
         vva_dec_entry_t *cdec = (vva_dec_entry_t *)malloc(ANS_L * sizeof(vva_dec_entry_t));
         if (!cdec) goto ctx_dec_fail;
-
-        int cnp = 0, csingle = -1;
-        for (int i = 0; i < NSYM; i++) if (cnorm[i]) { cnp++; csingle = i; }
 
         if (cnp > 1) {
             spread_symbols(cnorm, sp);
@@ -1467,15 +1608,14 @@ static size_t parse_sequences(const uint8_t *tokens, size_t tok_len,
      * of extra, and silently loses the upper bits. Decoder then reads
      * back a smaller litlen, producing a short output block.
      *
-     * Fix: if a parsed token's ll exceeds LL_MAX, split into multiple
-     * seq entries: as many (LL_MAX, matchlen=0) zero-match sequences
-     * as needed to absorb the overflow, followed by the final sequence
-     * carrying the remaining (ll' ≤ LL_MAX) and the original match.
-     *
-     * Zero-match sequences are already legal in the stream (trailing
-     * literals use matchlen=0, offset=0). Adding them mid-stream is
-     * wire-compatible — the decoder's existing match_count == 0 test
-     * skips the match-copy for these entries. */
+     * A zero-match sequence is representable only after every real match:
+     * the wire stores a global match_count, not a per-sequence has-match
+     * bit, so the decoder assigns matches to the first match_count LL
+     * entries.  Splitting a long literal run before a real match would move
+     * that match onto the first split entry and silently corrupt output.
+     * Reject that SEQ candidate so emit_block falls back to a plain token or
+     * RAW block.  A terminal literal-only run can still be split safely into
+     * trailing zero-match entries. */
     enum { LL_MAX = 65535 };
 
     while (tp < tp_end && nseq < seq_cap) {
@@ -1498,7 +1638,12 @@ static size_t parse_sequences(const uint8_t *tokens, size_t tok_len,
         memcpy(lit_buf + nlits, tp, ll);
         tp += ll;
 
-        /* SPRINT 63: split oversize literal runs */
+        /* No wire marker exists for a zero-match entry in the middle of the
+         * sequence list.  Fail closed instead of emitting an ambiguous SEQ
+         * payload; the caller has lossless fallback block formats. */
+        if (ll > LL_MAX && tp < tp_end) return 0;
+
+        /* Split an oversize final literal-only run into trailing entries. */
         while (ll > LL_MAX) {
             if (nseq >= seq_cap) return 0;
             seqs[nseq].litlen = (uint32_t)LL_MAX;
@@ -2345,7 +2490,8 @@ static VV_NO_SANITIZE_INTEGER
 vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
                                               uint8_t *dst, size_t dst_cap, size_t *dst_len,
                                               const uint8_t *dst_base,
-                                              const uint32_t *ml_base_tab) {
+                                              const uint32_t *ml_base_tab,
+                                              uint32_t max_offset) {
     const uint8_t *p = src, *end = src + src_len;
 
     /* Read literal section: [4B lit_count] [1B lit_fmt] [4B lit_enc_len] */
@@ -2374,13 +2520,18 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
     /* Decode literals based on format byte */
     /* SPRINT 126: one allocation for the literal buffer AND the decode
      * tables (previously 2 mallocs; the table section was itself fused
-     * from 4 in Sprint 125). The table space (52 KB) is reserved
+     * from 4 in Sprint 125). The table space (48 KB) is reserved
      * unconditionally up front so the whole block scratch is a single
      * malloc/free — its exact use is decided at table-build below. */
     size_t lit_sec = (total_lits + 16 + 7) & ~(size_t)7;
-    size_t tab_sec = ANS_L + 3 * (ANS_L * sizeof(vva_dec_entry_t));
+    size_t tab_sec = 3 * (ANS_L * sizeof(vva_dec_entry_t));
     uint8_t *lit_buf = (uint8_t *)malloc(lit_sec + tab_sec);
     if (!lit_buf) return VVA_ERR_NOMEM;
+    /* The sequence tables are built only after literal decoding returns.
+     * Reuse that region for the literal table first: the 48 KiB section
+     * accommodates both the ANS and Huffman workspaces, avoiding a nested
+     * allocation while keeping the literal bytes in their own section. */
+    void *literal_workspace = lit_buf + lit_sec;
 
     if (total_lits > 0 && lit_enc_len > 0) {
         vva_error_t lerr = VVA_ERR_CORRUPT;
@@ -2388,25 +2539,25 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
 
         if (lit_fmt == 1) {
             /* ANS 4-way interleaved */
-            lerr = vva_decode4(p, lit_enc_len, lit_buf, total_lits,
-                                total_lits, &lit_consumed);
+            lerr = vva_decode4_with_workspace(p, lit_enc_len, lit_buf, total_lits,
+                                total_lits, &lit_consumed, literal_workspace, tab_sec);
         } else if (lit_fmt == 2) {
             /* ANS single-stream */
-            lerr = vva_decode(p, lit_enc_len, lit_buf, total_lits,
-                               total_lits, &lit_consumed);
+            lerr = vva_decode_with_workspace(p, lit_enc_len, lit_buf, total_lits,
+                               total_lits, &lit_consumed, literal_workspace, tab_sec);
         } else if (lit_fmt == 3) {
             /* SPRINT 71 (v2.46): Huffman-coded literals within SEQ. */
-            vvh_error_t herr = vvh_decode(p, lit_enc_len, lit_buf,
+            vvh_error_t herr = vvh_decode_with_workspace(p, lit_enc_len, lit_buf,
                                            total_lits, total_lits,
-                                           &lit_consumed);
+                                           &lit_consumed, literal_workspace, tab_sec);
             lerr = (herr == VVH_OK) ? VVA_OK : VVA_ERR_CORRUPT;
         } else if (lit_fmt == 4) {
             /* SPRINT 104 (v2.47): 4-stream interleaved Huffman literals.
              * Faster decode (1.8-2.2× via ILP across 4 independent
              * streams). Same ratio as lit_fmt=3 modulo +10B header. */
-            vvh_error_t herr = vvh_decode4(p, lit_enc_len, lit_buf,
+            vvh_error_t herr = vvh_decode4_with_workspace(p, lit_enc_len, lit_buf,
                                             total_lits, total_lits,
-                                            &lit_consumed);
+                                            &lit_consumed, literal_workspace, tab_sec);
             lerr = (herr == VVH_OK) ? VVA_OK : VVA_ERR_CORRUPT;
         } else {
             /* Raw literals (lit_fmt == 0) */
@@ -2470,8 +2621,8 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
      *
      *   (1) No out-of-range symbol has nonzero frequency — bounds every
      *       spread-table entry's symbol.
-     *   (2) Frequencies sum to exactly ANS_L — guarantees spread_symbols
-     *       fills ALL 4096 slots. Without this, a corrupt underfull
+     *   (2) Frequencies sum to exactly ANS_L — guarantees the decode-table
+     *       builder fills ALL 4096 slots. Without this, a corrupt underfull
      *       header leaves stale scratch bytes in unfilled slots, whose
      *       "symbols" bypass check (1) entirely (caught by UBSan as an
      *       OOB index into ll_extra[36] during validation of this very
@@ -2522,8 +2673,8 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
      * NULL-deref's dec_of and dec_ml. Found by libFuzzer + ASan.
      * Fix: always allocate all 3 tables. The decode-loop dereferences
      * are safe because state masks bound the index to ANS_L. */
-    /* SPRINT 125: one allocation for the spread scratch + decode tables
-     * (previously 4 separate mallocs — measurable on small blocks).
+    /* SPRINT 125: one allocation for the decode tables (previously 4
+     * separate mallocs — measurable on small blocks).
      * When match_count == 0, the ML/OF tables are never consulted for
      * real decode work (the loop `continue`s before the OF/ML reads),
      * but the ILP eager-loads at the loop top still index them — alias
@@ -2533,17 +2684,14 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
     {
         size_t dec_sz = ANS_L * sizeof(vva_dec_entry_t);
         uint8_t *seq_tables = lit_buf + lit_sec;  /* reserved above */
-        uint8_t *sp_tmp = seq_tables;
-        dec_ll = (vva_dec_entry_t *)(seq_tables + ANS_L);
-        spread_symbols(norm_ll, sp_tmp);
-        build_dec(norm_ll, sp_tmp, dec_ll);
+        dec_ll = (vva_dec_entry_t *)seq_tables;
+        if (total_lits > 0 || match_count > 0)
+            build_dec_direct(norm_ll, dec_ll);
         if (match_count > 0) {
-            dec_ml = (vva_dec_entry_t *)(seq_tables + ANS_L + dec_sz);
-            dec_of = (vva_dec_entry_t *)(seq_tables + ANS_L + 2 * dec_sz);
-            spread_symbols(norm_ml, sp_tmp);
-            build_dec(norm_ml, sp_tmp, dec_ml);
-            spread_symbols(norm_of, sp_tmp);
-            build_dec(norm_of, sp_tmp, dec_of);
+            dec_ml = (vva_dec_entry_t *)(seq_tables + dec_sz);
+            dec_of = (vva_dec_entry_t *)(seq_tables + 2 * dec_sz);
+            build_dec_direct(norm_ml, dec_ml);
+            build_dec_direct(norm_of, dec_of);
         } else {
             dec_ml = dec_ll;
             dec_of = dec_ll;
@@ -2588,40 +2736,37 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
      * invalid offset or overlong matchlen still triggers the checks
      * near the boundaries. We maintain §4 invariants 3 and 5.
      *
-     * SAFEZONE_MAX_OFFSET covers the legal offset range (1 << wlog_max).
-     * SAFEZONE_MAX_RUN bounds EACH of litlen and matchlen (both ≤65535 by
-     * the wire format: LL ll_base[35]=61440 + up to 4095 extra = 65535;
-     * ML ml_base[35]=32768 + up to 32767 extra = 65535). A single sequence
-     * writes litlen literals THEN a matchlen match copy — up to TWO max
-     * runs — and in_safe_zone is computed once (pre-literal) yet gates BOTH
-     * the literal and the match op_end checks. So the reserve must cover
-     * the full worst-case sequence: op_safe_end = op_end - 2*SAFEZONE_MAX_RUN
-     * guarantees litlen+matchlen fit without per-iter overflow checking.
-     * (Reserving only ONE run let a crafted final sequence write up to
-     * 65535 bytes past op_end — a heap overflow; the +64 caller slack was
-     * far too small to absorb it. ZUPT AUDIT FIX, carried across codec
-     * re-vendors until upstreamed.)
+     * max_offset covers the legal offset range declared by the frame header.
+     * SAFEZONE_MAX_RUN covers both max litlen and max matchlen (both are
+     * bounded by the wire format at ≤65535: LL encoding ll_base[35]=61440
+     * + up to 4095 extra bits = 65535; ML encoding likewise). So
+     * op_safe_end = op_end - 65535 guarantees any single sequence's
+     * total writes (literals + match) fit without per-iteration overflow
+     * checking.  A sequence may carry one maximum literal run AND one
+     * maximum match, so its entry margin is twice SAFEZONE_MAX_RUN.
      *
-     * SPRINT 46: raised from 1<<20 to 1<<24. The 3-byte offset wire
-     * encoding (off_bytes==3 for wlog>16) represents offsets up to
-     * exactly 2^24, so that is the true maximum legal offset and the
-     * correct absolute-cap DoS guard. The previous 1<<20 cap assumed
-     * extreme mode never exceeded a 1 MB window; the Sprint 46
-     * large-window scaling emits legitimate offsets up to 16 MB on
-     * multi-block files, which the old cap wrongly rejected as corrupt.
-     * Consequence: for outputs smaller than 16 MB the safe-zone floor
-     * is never reached, so the explicit (offset > op - dst_base) check
-     * runs every iteration — correct, just not the fast path. The
-     * fast-path optimization re-engages only past 16 MB of output.
-     * An offset > 2^24 remains genuinely corrupt (unrepresentable in
-     * 3 bytes) and is still rejected, preserving the DoS guard. */
-    enum { SAFEZONE_MAX_OFFSET = 1u << 24 };  /* 3-byte offset wire max */
-    enum { SAFEZONE_MAX_RUN    = 65535 };     /* max litlen OR matchlen */
-    /* Reserve for a full worst-case sequence (litlen + matchlen). */
-    enum { SAFEZONE_RESERVE    = 2 * SAFEZONE_MAX_RUN };
-    uint8_t *op_safe_end = (dst_cap > SAFEZONE_RESERVE)
-                           ? op_end - SAFEZONE_RESERVE : dst;
-    const uint8_t *offset_check_floor = dst_base + SAFEZONE_MAX_OFFSET;
+     * The decoder receives max_offset from the frame header. This preserves
+     * the 24-bit ceiling needed by wlog-24 streams while allowing ordinary
+     * wlog-16 streams to enter the safe zone after their real 64 KiB history
+     * requirement, not after 16 MiB. */
+    enum { SAFEZONE_MAX_RUN    = 65535 };     /* litlen or matchlen */
+    enum { SAFEZONE_MAX_SEQ_WRITE = 2 * SAFEZONE_MAX_RUN };
+    if (max_offset == 0 || max_offset > (1u << 24)) return VVA_ERR_CORRUPT;
+    int has_output_safe_zone = dst_cap >= SAFEZONE_MAX_SEQ_WRITE;
+    uint8_t *op_safe_end = has_output_safe_zone
+                           ? op_end - SAFEZONE_MAX_SEQ_WRITE : dst;
+
+    /* Do not form dst_base + max_offset unless it is known to lie inside
+     * this frame's output object.  That pointer arithmetic itself would be
+     * undefined for a short destination, even when the fast path is never
+     * entered. */
+    const uint8_t *offset_check_floor = NULL;
+    size_t history_at_block_start = (size_t)(dst - dst_base);
+    if (history_at_block_start >= max_offset) {
+        offset_check_floor = dst;
+    } else if ((size_t)max_offset - history_at_block_start <= dst_cap) {
+        offset_check_floor = dst + ((size_t)max_offset - history_at_block_start);
+    }
 
     /* SPRINT 90 SECURITY FIX (DoS hardening):
      *
@@ -2670,7 +2815,8 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
 
         /* Fast path: in safe zone (past warmup, before final max_match
          * bytes). Both bounds checks are tautological and skipped. */
-        int in_safe_zone = (op >= offset_check_floor) & (op <= op_safe_end);
+        int in_safe_zone = has_output_safe_zone && offset_check_floor &&
+                           (op >= offset_check_floor) && (op <= op_safe_end);
 
         /* PERF: state validation via mask-on-access rather than
          * explicit branches. Since ANS_L is a power of 2, masking
@@ -2700,11 +2846,11 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
         uint32_t ll_extra_val = ans_br_read(&r, ll_extra[ll_code]);
         size_t litlen = ll_decode(ll_code, ll_extra_val);
 
-        if (VV_UNLIKELY(lit_pos + litlen > total_lits)) {
+        if (VV_UNLIKELY(litlen > total_lits - lit_pos)) {
             free(lit_buf);
             return VVA_ERR_CORRUPT;
         }
-        if (VV_UNLIKELY(!in_safe_zone && op + litlen > op_end)) {
+        if (VV_UNLIKELY(!in_safe_zone && litlen > (size_t)(op_end - op))) {
             free(lit_buf);
             return VVA_ERR_OVERFLOW;
         }
@@ -2777,20 +2923,19 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
          * offsets beyond any legal window. In-safe-zone skip only
          * removes the position-dependent check (offset > op - dst_base),
          * which is guaranteed tautological when both
-         *    offset ≤ SAFEZONE_MAX_OFFSET   (absolute cap, checked)
-         *    op ≥ dst_base + SAFEZONE_MAX_OFFSET  (safe-zone floor)
-         * The matchlen-overshoot check is similarly safe because
-         * op_safe_end = op_end - SAFEZONE_MAX_MATCH, and matchlen is
-         * always ≤ SAFEZONE_MAX_MATCH by wire format. */
-        if (VV_UNLIKELY(offset == 0 || offset > SAFEZONE_MAX_OFFSET)) {
+         *    offset ≤ max_offset             (absolute cap, checked)
+         *    op has at least max_offset bytes of prior frame history
+         * The matchlen-overshoot check is similarly safe because the
+         * combined literal+match margin remains before op_end. */
+        if (VV_UNLIKELY(offset == 0 || offset > max_offset)) {
             free(lit_buf);
             return VVA_ERR_CORRUPT;
         }
-        if (VV_UNLIKELY(!in_safe_zone && offset > (uint32_t)(op - dst_base))) {
+        if (VV_UNLIKELY(!in_safe_zone && (size_t)offset > (size_t)(op - dst_base))) {
             free(lit_buf);
             return VVA_ERR_CORRUPT;
         }
-        if (VV_UNLIKELY(!in_safe_zone && op + matchlen > op_end)) {
+        if (VV_UNLIKELY(!in_safe_zone && (size_t)matchlen > (size_t)(op_end - op))) {
             free(lit_buf);
             return VVA_ERR_OVERFLOW;
         }
@@ -2887,7 +3032,7 @@ vva_error_t vva_decode_sequences(const uint8_t *src, size_t src_len,
                                   uint8_t *dst, size_t dst_cap, size_t *dst_len,
                                   const uint8_t *dst_base) {
     return vva_decode_sequences_impl(src, src_len, dst, dst_cap, dst_len,
-                                      dst_base, ml_base);
+                                     dst_base, ml_base, 1u << 24);
 }
 
 /* Public entry for 'T' tag (VV_ENTROPY_SEQ_V2, min_match=3).
@@ -2897,5 +3042,19 @@ vva_error_t vva_decode_sequences_v2(const uint8_t *src, size_t src_len,
                                      uint8_t *dst, size_t dst_cap, size_t *dst_len,
                                      const uint8_t *dst_base) {
     return vva_decode_sequences_impl(src, src_len, dst, dst_cap, dst_len,
-                                      dst_base, ml_base_v2);
+                                     dst_base, ml_base_v2, 1u << 24);
+}
+
+vva_error_t vva_decode_sequences_limited(const uint8_t *src, size_t src_len,
+                                          uint8_t *dst, size_t dst_cap, size_t *dst_len,
+                                          const uint8_t *dst_base, uint32_t max_offset) {
+    return vva_decode_sequences_impl(src, src_len, dst, dst_cap, dst_len,
+                                     dst_base, ml_base, max_offset);
+}
+
+vva_error_t vva_decode_sequences_v2_limited(const uint8_t *src, size_t src_len,
+                                             uint8_t *dst, size_t dst_cap, size_t *dst_len,
+                                             const uint8_t *dst_base, uint32_t max_offset) {
+    return vva_decode_sequences_impl(src, src_len, dst, dst_cap, dst_len,
+                                     dst_base, ml_base_v2, max_offset);
 }

@@ -1,5 +1,25 @@
 # ZUPT Changelog
 
+## [5.2.9] — 2026-09-06 — VaptVupt 2.65.11 compatibility refresh
+
+- Update the bundled VaptVupt codec from 2.65.3 to tag `v2.65.11` at
+  `1cc78bce90619dbf97e0ed1ad449c3c4f6329041` while preserving Zupt's
+  wrapper defaults, read-back verification, parser guards, secure-wipe
+  fallback, and third-party notices.
+- Carry the codec's decoder span validation, truncated-bitstream rejection,
+  output-capacity and frame-metadata checks, allocation reuse, scalar-build
+  switch, and XXH64 zero-length and tail-bound corrections into the in-tree
+  consumer.
+- Keep archive format 1.6, codec identifier `0x0010`, command behavior, and SDK
+  ABI unchanged. Zupt continues to use independent frames through its existing
+  one-shot wrapper; it does not require a kernel module or the new FAST context.
+- Add concise Brazilian Portuguese project and operational documentation and
+  include it in source, Linux, Windows, macOS, DEB, RPM, AUR, Homebrew, Nix,
+  Guix, and openSUSE documentation payloads.
+- Require a fresh exact-tag GCC/Clang, sanitizer, analyzer, source, package,
+  Windows, and macOS matrix. Earlier 5.2.8 results remain historical evidence
+  and are not 5.2.9 release approval.
+
 ## [5.2.8] — 2026-08-31 — Path-race hardening and native-fixture correction
 
 Corrective successor to the immutable, unpromoted `v5.2.7` candidate.

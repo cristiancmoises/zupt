@@ -9,7 +9,7 @@
 #   nix flake check                     # lint the flake
 #
 # To consume from another flake:
-#   inputs.zupt.url = "github:cristiancmoises/zupt/v5.2.8";
+#   inputs.zupt.url = "github:cristiancmoises/zupt/v5.2.9";
 #   ...packages.x86_64-linux.default = inputs.zupt.packages.x86_64-linux.zupt;
 #
 # `make dist` has its own reproducibility gate. This development flake has no
@@ -30,7 +30,7 @@
 
         zupt = pkgs.stdenv.mkDerivation {
           pname = "zupt";
-          version = "5.2.8";
+          version = "5.2.9";
 
           # When publishing, replace this with `fetchurl` against the
           # release tarball. For local development the flake assumes it
@@ -74,7 +74,8 @@
 
             # Docs
             mkdir -p $out/share/doc/zupt
-            cp README.md SECURITY.md CHANGELOG.md $out/share/doc/zupt/
+            cp README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md \
+              SECURITY.md CHANGELOG.md $out/share/doc/zupt/
             test -f $out/share/licenses/zupt/LICENSE-BSD-3-Clause
             test -f $out/share/licenses/zupt/LICENSE-CC0-1.0
             runHook postInstall

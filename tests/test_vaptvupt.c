@@ -1,5 +1,5 @@
 /*
- * ZUPT v2.0.0 — VaptVupt Codec Unit Tests
+ * ZUPT — VaptVupt Codec Unit Tests
  *
  * Tests VaptVupt roundtrip in all 3 modes, incompressible fallback,
  * and validates integration with ZUPT's XXH64 alias.
@@ -315,10 +315,52 @@ static void test_window_log_20(void) {
     PASS();
 }
 
+/* ─── Test 10: Frame metadata rejects impossible filter/window fields ─── */
+
+static void test_frame_info_validation(void) {
+    TEST("VV frame metadata validation");
+
+    vv_frame_header_t fh;
+    vv_frame_info_t info;
+    memset(&fh, 0, sizeof(fh));
+    fh.magic = VV_MAGIC;
+    fh.version = 1;
+    fh.window_log = 10;
+
+    if (vv_get_frame_info((const uint8_t *)&fh, sizeof(fh), &info) != VV_OK) {
+        FAIL("valid header rejected");
+        return;
+    }
+
+    fh.flags = 0x0Cu;
+    if (vv_get_frame_info((const uint8_t *)&fh, sizeof(fh), &info) !=
+        VV_ERR_CORRUPT) {
+        FAIL("mutually exclusive BCJ flags accepted");
+        return;
+    }
+
+    fh.flags = 0;
+    fh.window_log = 9;
+    if (vv_get_frame_info((const uint8_t *)&fh, sizeof(fh), &info) !=
+        VV_ERR_CORRUPT) {
+        FAIL("window_log below 10 accepted");
+        return;
+    }
+
+    fh.window_log = 25;
+    if (vv_get_frame_info((const uint8_t *)&fh, sizeof(fh), &info) !=
+        VV_ERR_CORRUPT) {
+        FAIL("window_log above 24 accepted");
+        return;
+    }
+
+    PASS();
+}
+
 /* ═══════════════════════════════════════════════════════════════ */
 
 int main(void) {
-    fprintf(stderr, "\n  ZUPT v2.0.0 — VaptVupt Codec Unit Tests\n");
+    fprintf(stderr, "\n  ZUPT — VaptVupt Codec Unit Tests\n");
     fprintf(stderr, "  ═══════════════════════════════════════════════\n\n");
 
     test_roundtrip_all_modes();    /* Tests 1a, 1b, 1c */
@@ -330,6 +372,7 @@ int main(void) {
     test_large_multiblock();       /* Test 7 */
     test_rle();                    /* Test 8 */
     test_window_log_20();          /* Test 9 */
+    test_frame_info_validation();  /* Test 10 */
 
     fprintf(stderr, "\n  ═══════════════════════════════════════════════\n");
     fprintf(stderr, "  Results: %d passed, %d failed (%d total)\n\n",

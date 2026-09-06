@@ -163,7 +163,7 @@ fi
 test_macos_binary "$repo_root/zupt"
 
 install -m 0755 zupt "$contents/MacOS/zupt"
-for document in README.md CHANGELOG.md LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 NOTICE THIRD-PARTY-NOTICES.md; do
+for document in README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md CHANGELOG.md LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 NOTICE THIRD-PARTY-NOTICES.md; do
     [[ ! -f $document ]] || install -m 0644 "$document" "$contents/Resources/"
 done
 
@@ -215,7 +215,7 @@ printf 'Installed %s\n' "$target_dir/zupt"
 "$target_dir/zupt" --version
 EOF
 chmod 0755 "$dmg_root/Install ZUPT.command"
-for document in README.md CHANGELOG.md LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 NOTICE THIRD-PARTY-NOTICES.md; do
+for document in README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md CHANGELOG.md LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 NOTICE THIRD-PARTY-NOTICES.md; do
     [[ ! -f $document ]] || install -m 0644 "$document" "$dmg_root/"
 done
 

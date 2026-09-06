@@ -21,10 +21,10 @@ extern "C" {
  * VERSION & CONSTANTS
  * ═══════════════════════════════════════════════════════════════ */
 
-#define VV_VERSION_MAJOR  0
-#define VV_VERSION_MINOR  1
-#define VV_VERSION_PATCH  0
-#define VV_VERSION_STRING "0.1.0"
+#define VV_VERSION_MAJOR  2
+#define VV_VERSION_MINOR  65
+#define VV_VERSION_PATCH  11
+#define VV_VERSION_STRING "2.65.11"
 
 #define VV_MAGIC          0x56560100u  /* "VV\x01\x00" */
 #define VV_MAX_BLOCK_SIZE (1u << 20)   /* 1 MB per block */
@@ -92,9 +92,9 @@ static inline uint32_t vv_bh_pack(vv_block_type_t t, int last, uint32_t sz) {
 /* ═══════════════════════════════════════════════════════════════
  * TOKEN TYPES (in the sequence stream)
  *
- * Each token is: [type:2][litlen:6] [optional litlen ext]
+ * Each plain token is: [litlen:4][matchlen:4] [optional litlen ext]
  *                [literal bytes]
- *                [matchlen ext] [offset bytes]
+ *                [offset bytes] [optional matchlen ext]
  *
  * The decoder reads a compact token byte, copies literals,
  * then copies a match. This is LZ4-like for speed.
@@ -107,7 +107,7 @@ static inline uint32_t vv_bh_pack(vv_block_type_t t, int last, uint32_t sz) {
  * Followed by:
  *   [extended literal length varint, if litlen==15]
  *   [literal bytes]
- *   [offset: 2 bytes LE (or 3 bytes if high bit set)]
+ *   [offset: 2 bytes LE for window_log <= 16, otherwise 3 bytes LE]
  *   [extended match length varint, if matchlen==15]
  */
 
@@ -121,7 +121,7 @@ static inline uint32_t vv_bh_pack(vv_block_type_t t, int last, uint32_t sz) {
 typedef struct {
     uint32_t magic;           /* VV_MAGIC */
     uint8_t  version;         /* Format version (1) */
-    uint8_t  flags;           /* bit0: has_checksum, bit1: has_dict,
+    uint8_t  flags;           /* bit0: has_checksum, bit1: reserved,
                                *  bit2: x86 BCJ filter applied,
                                *  bit3: ARM64 BCJ filter applied */
     uint8_t  mode_hint;       /* Compression mode used (informational) */
@@ -185,12 +185,14 @@ typedef struct {
 
 typedef struct {
     vv_mode_t mode;
-    uint8_t   window_log;    /* 0 = auto (20 for balanced, 24 for extreme) */
+    uint8_t   window_log;    /* 0 = auto; explicit values are 10..24 */
     int       checksum;      /* 1 = compute XXH64 */
     int       verbose;
-    int       format_v2;     /* 1 = produce 'T' tag blocks (min_match=3) for
-                              *     better real-binary ratio. Requires decoder
-                              *     v2.33.0+. Default 0 for back-compat. */
+    int       format_v2;     /* 1 = allow 'T' tag blocks (min_match=3) in
+                              *     balanced/extreme for better binary ratio.
+                              *     FAST keeps v1 tokens; a stream retains this
+                              *     request for later mode changes via reset.
+                              *     Requires decoder v2.33.0+. Default 0. */
     int       compat_v246_5_decoder;
                              /* 1 = suppress lit_fmt=4 (4-stream Huffman) in
                               *     SEQ block encode race. Required when
@@ -202,7 +204,9 @@ typedef struct {
                               *     bit2). Improves x86/x86-64 machine-code
                               *     ratio (~+3–7% measured); the decoder
                               *     inverts it automatically. Requires a
-                              *     v2.53.4+ decoder. Opt-in; default 0. */
+                              *     v2.53.4+ decoder. One-shot compression
+                              *     only; vv_cstream_* rejects BCJ options.
+                              *     Opt-in; default 0. */
     int       filter_arm64;  /* 1 = apply the reversible AArch64 (ARM64) BCJ
                               *     branch filter (BL + ADRP) before
                               *     compression (header flag bit3). Improves
@@ -231,8 +235,9 @@ typedef struct {
                               *     valid stream any decoder reads; default
                               *     output (0) is byte-identical to prior
                               *     releases. Opt-in; default 0. */
-    uint32_t  accel;         /* 0 = off (default; byte-identical). >0 enables
-                              *     lz4-style position-skip acceleration: after
+    uint32_t  accel;         /* 0 = automatic (fast=2, balanced/extreme=1).
+                              *     A value >0 selects an explicit lz4-style
+                              *     position-skip factor: after
                               *     a run of f consecutive no-match positions
                               *     the parser advances by 1 + ((f*accel)>>6)
                               *     instead of 1, skipping hash/insert work on
@@ -240,11 +245,10 @@ typedef struct {
                               *     encode on incompressible / already-
                               *     compressed data (measured ~8-9x on
                               *     random/gzip input) for a small ratio cost
-                              *     on compressible data (~-0.2% on dickens),
-                              *     which is why it is opt-in. Clamped to
-                              *     [0, 64]; higher = more aggressive skipping.
-                              *     Primarily useful with -m fast. Output stays
-                              *     decodable by any decoder. */
+                              *     on compressible data (~-0.2% on dickens).
+                              *     Values above 64 are clamped; higher is more
+                              *     aggressive. Output stays decodable by any
+                              *     decoder. */
     int       no_rep;        /* 1 = disable rep-match probing in the greedy/
                               *     lazy parser. Measured net-positive on ratio
                               *     in fast mode (which has no entropy stage, so
@@ -310,6 +314,46 @@ int64_t vv_decompress_flags(const uint8_t *src, size_t src_len,
 
 /* Compute upper bound on compressed size for src_len input bytes. */
 size_t vv_compress_bound(size_t src_len);
+
+/* Caller-owned FAST contexts for independent inputs up to 64 KiB.
+ * These additive APIs do not change the defaults of vv_compress(). */
+typedef struct vv_fast_context_s vv_fast_context_t;
+
+/* Storage includes context metadata, a 512 KiB primary hash map,
+ * an input-sized chain and token scratch. Size returns zero unless
+ * max_input is in 1..65536. Use the queried alignment, not a fixed ABI
+ * assumption. No allocation is performed by these APIs. */
+size_t vv_fast_context_size(size_t max_input);
+size_t vv_fast_context_alignment(void);
+
+/* Initialize aligned caller storage and return its context through out_ctx.
+ * opts is required, copied by value, and must select VV_MODE_ULTRA_FAST.
+ * Windows 0 (auto=16) and 10..24 are accepted; all BCJ/auto-filter options
+ * must be zero. Other options retain their existing FAST semantics.
+ * Invalid arguments/alignment return PARAM; insufficient storage returns
+ * OVERFLOW. On failure, *out_ctx is NULL when out_ctx is non-NULL, and the
+ * supplied storage is unchanged. Storage must not overlap opts/out_ctx.
+ *
+ * The caller owns storage for the context's entire lifetime. Moving or
+ * modifying it invalidates the context. No destroy/free call is required.
+ * An uninitialized, corrupted or invalidated context must not be used. */
+int vv_fast_context_init(void *storage, size_t storage_cap, size_t max_input,
+                         const vv_options_t *opts, vv_fast_context_t **out_ctx);
+
+/* Compress one independent frame with no allocation or heap fallback.
+ * src_len must be <= the initialized max_input (otherwise PARAM); src may
+ * be NULL only for zero length. dst is required and dst_cap must be at
+ * least vv_compress_bound(src_len), otherwise OVERFLOW before output writes.
+ * src, dst and context storage must not overlap. The context is exclusive
+ * to one call at a time; separate contexts have independent matcher state.
+ * Every frame starts with reset dictionary/repeat history, including when
+ * the context is reused after errors.
+ * Token scratch is cleared after parsing. Caller storage remains reusable
+ * after any return, but output is not guaranteed to be atomic on errors.
+ * Returns the frame byte count, or a negative error code. */
+int64_t vv_fast_context_compress(vv_fast_context_t *ctx,
+                                const uint8_t *src, size_t src_len,
+                                uint8_t *dst, size_t dst_cap);
 
 /* ═══════════════════════════════════════════════════════════════
  * MULTI-THREADED COMPRESSION
@@ -392,8 +436,11 @@ typedef struct vv_cstream_s vv_cstream_t;
 typedef struct vv_dstream_s vv_dstream_t;
 
 /* Create a new compression stream context.
- * Returns NULL on allocation failure.
+ * Returns NULL on allocation failure or invalid options.
  * If opts is NULL, uses default options (balanced mode, checksum=1).
+ * Whole-frame BCJ filtering is not available in the streaming encoder;
+ * filter_x86, filter_arm64, and filter_auto must all be zero. Use
+ * vv_compress() when a BCJ filter is required.
  * The context holds the matcher state; cross-block rep-match history
  * and hash tables are preserved across chunks for optimal ratio. */
 vv_cstream_t *vv_cstream_create(const vv_options_t *opts);
@@ -407,7 +454,8 @@ vv_cstream_t *vv_cstream_create(const vv_options_t *opts);
  *
  * If opts is NULL, reuses the options from the last create/reset.
  * If opts is non-NULL, applies new options but window_log cannot
- * change (would require re-allocating matcher tables). */
+ * change (would require re-allocating matcher tables). Invalid modes,
+ * window values, or BCJ filter requests return VV_ERR_PARAM. */
 int vv_cstream_reset(vv_cstream_t *ctx, const vv_options_t *opts);
 
 /* Compress one chunk of source into dst. chunk_len must be ≤

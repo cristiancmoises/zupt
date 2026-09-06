@@ -34,7 +34,7 @@ Description: Post-quantum backup compression utility
   * Post-quantum hybrid encryption (ML-KEM-768 + X25519, FIPS 203)
   * AES-256-CTR + HMAC-SHA256 authenticated encryption (Encrypt-then-MAC)
   * PBKDF2-SHA256 password key derivation (Argon2id in WITH_SDK=1 builds)
-  * Multi-threaded compression with the VaptVupt LZ + ANS codec 2.65.3
+  * Multi-threaded compression with the VaptVupt LZ + ANS codec 2.65.11
   * Full-disk backup and restore with sparse-region detection
   * Authenticated encrypted-archive metadata and per-block integrity checks
   * Portable C implementations with optional source-built assembly paths

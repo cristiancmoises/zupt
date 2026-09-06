@@ -53,6 +53,7 @@ install -m 0644 gui/assets/zupt-icon.png "$tree/assets/"
 install -m 0644 gui/packaging/zupt-gui.desktop "$tree/"
 install -m 0644 doc/zupt-gui.1 "$tree/doc/"
 install -m 0644 gui/README.md "$tree/README.md"
+install -m 0644 README.pt-BR.md DOCUMENTACAO.pt-BR.md "$tree/"
 install -m 0644 LICENSE LICENSE-AGPL-3.0 "$tree/"
 install -m 0644 gui/LICENSE-GUI "$tree/LICENSE-GUI"
 install -m 0644 gui/assets/README.md "$tree/ASSET-PROVENANCE.md"
@@ -104,7 +105,7 @@ chmod 0755 %{buildroot}%{_bindir}/zupt-gui
 
 %files
 %license LICENSE LICENSE-AGPL-3.0 LICENSE-GUI
-%doc README.md ASSET-PROVENANCE.md
+%doc README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md ASSET-PROVENANCE.md
 %{_bindir}/zupt-gui
 %{_datadir}/zupt-gui/zupt_gui.py
 %{_datadir}/applications/zupt-gui.desktop

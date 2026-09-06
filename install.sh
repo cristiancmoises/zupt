@@ -6,7 +6,7 @@
 set -Eeuo pipefail
 umask 077
 
-VERSION=${VERSION:-5.2.8}
+VERSION=${VERSION:-5.2.9}
 PREFIX=${PREFIX:-/usr/local}
 
 echo "🔧 Installing ZUPT..."

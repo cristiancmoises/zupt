@@ -13,6 +13,12 @@
 #include <string.h>
 #include <stdint.h>
 
+/* Disable explicit SIMD and runtime dispatch for scalar-only integrations.
+ * Compiler auto-vectorization is controlled separately by the build flags. */
+#ifndef VV_DISABLE_SIMD
+#define VV_DISABLE_SIMD 0
+#endif
+
 /* ─── Branch prediction hints ─── */
 #if defined(__GNUC__) || defined(__clang__)
   #define VV_LIKELY(x)    __builtin_expect(!!(x), 1)
@@ -23,7 +29,10 @@
 #endif
 
 /* ─── Prefetch hint ─── */
-#if defined(__GNUC__) || defined(__clang__)
+#if VV_DISABLE_SIMD
+  #define VV_PREFETCH(p)       ((void)0)
+  #define VV_PREFETCH_RW(p)    ((void)0)
+#elif defined(__GNUC__) || defined(__clang__)
   #define VV_PREFETCH(p)       __builtin_prefetch((p), 0, 1)
   #define VV_PREFETCH_RW(p)    __builtin_prefetch((p), 1, 1)
 #elif defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
@@ -96,19 +105,19 @@ static inline void vv_store64(void *p, uint64_t v) { memcpy(p, &v, 8); }
 #endif
 
 /* ─── SIMD capability detection macros ─── */
-#if defined(__AVX2__)
+#if !VV_DISABLE_SIMD && defined(__AVX2__)
   #define VV_HAS_AVX2 1
 #else
   #define VV_HAS_AVX2 0
 #endif
 
-#if defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#if !VV_DISABLE_SIMD && (defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2))
   #define VV_HAS_SSE2 1
 #else
   #define VV_HAS_SSE2 0
 #endif
 
-#if defined(__aarch64__) && defined(__ARM_NEON)
+#if !VV_DISABLE_SIMD && defined(__aarch64__) && defined(__ARM_NEON)
   #define VV_HAS_NEON 1
 #else
   #define VV_HAS_NEON 0

@@ -10,20 +10,22 @@ The compression codec in src/vv_*.c, src/vaptvupt_api.c,
 include/vaptvupt*.h, and include/vv_*.h is bundled as source and licensed
 GPL-3.0-or-later.
 
-- Recorded codec release: 2.65.3
-- Recorded upstream tag: v2.65.3
+- Recorded codec release: 2.65.11
+- Recorded upstream source commit:
+  1cc78bce90619dbf97e0ed1ad449c3c4f6329041
+- Upstream tag: v2.65.11, resolving to the recorded source commit
 - Standalone upstream: https://git.securityops.co/cristiancmoises/vaptvupt-codec
-- Integration commit in this repository:
-  59f9ebc59ea13c6edf1d199ca795cdbf00e62226
 
-The integration commit records an in-tree ANS safe-zone reserve applied on top
-of that tag. Earlier integration commit a2350dd also records wrapper-default
-changes used by the CLI. This repository did not retain the standalone tag
-object hash, so the tag name and the immutable integration commits are the
-provenance evidence available here; no unverified external hash is asserted.
+The previous 2.65.3 integration commit
+`59f9ebc59ea13c6edf1d199ca795cdbf00e62226` records the in-tree ANS safe-zone
+reserve; earlier commit `a2350dd` records the wrapper defaults. The 2.65.11
+refresh preserves those downstream changes, the Darwin/NetBSD secure-wipe
+fallback, the BCJ attribution below, and Zupt's XXH64 BSD-2-Clause notice.
+The exact standalone source commit above is the provenance anchor for the
+prepared source.
 
 The openSUSE package truthfully declares
-bundled(vaptvupt-codec) = 2.65.3. No compiled codec object or library is
+`bundled(vaptvupt-codec) = 2.65.11`. No compiled codec object or library is
 distributed in the source tree or source archive.
 
 ## Jasmin and textual assembly
@@ -159,7 +161,7 @@ grant attached to their unchanged Git blobs, are recorded in
 
 ## AppImage type-2 runtime
 
-No AppImage is a promised or promoted 5.2.8 release asset. The upstream
+No AppImage is a promised or promoted 5.2.9 release asset. The upstream
 type-2 runtime inspected during the 5.2.2 review statically linked musl, libfuse,
 squashfuse, zstd, zlib, and mimalloc, but its own license notice did not list
 mimalloc and the available release inputs did not provide a complete
@@ -171,7 +173,7 @@ no network input and requires the operator to supply both a locally verified
 runtime and `APPIMAGE_RUNTIME_COMPLIANCE_FILE`, containing the license notices,
 source correspondence or offer, and relink information applicable to those
 exact runtime bytes. An artifact produced independently with that helper is
-not covered by the 5.2.8 upstream release gates.
+not covered by the 5.2.9 upstream release gates.
 
 ## Reporting attribution issues
 
