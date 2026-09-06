@@ -11,7 +11,7 @@
 # Test locally with `makepkg -s` after the release archive is published.
 
 pkgname=zupt
-pkgver=5.2.8
+pkgver=5.2.9
 pkgrel=1
 pkgdesc='Pure-C11 post-quantum backup compression utility (AES-256-CTR + HMAC-SHA256 + ML-KEM-768 + X25519)'
 arch=('x86_64')
@@ -22,8 +22,8 @@ makedepends=('gcc' 'git' 'make')
 checkdepends=('python')
 
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/cristiancmoises/zupt/releases/download/v${pkgver}/${pkgname}-${pkgver}.tar.gz")
-# Byte-reproducible upstream v5.2.8 source archive.
-sha256sums=('378b9506211545b9594cf0d38ac8955d9b1cac34eb6b379ae0ec26b84edb65f7')
+# Pin this after the final committed source tree produces the release archive.
+sha256sums=('24e1e3251c0bbcab049d3a7c3f1451e1b824fbb95ef454ca7c03077c8a470171')
 
 build() {
     cd "${pkgname}-${pkgver}"
@@ -46,8 +46,10 @@ package() {
         INSTALL_LEGACY_ALIAS=0 install
 
     # Docs that aren't part of `make install`
-    install -Dm644 README.md    "${pkgdir}/usr/share/doc/${pkgname}/README.md"
-    install -Dm644 SECURITY.md  "${pkgdir}/usr/share/doc/${pkgname}/SECURITY.md"
+    install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+    install -Dm644 README.pt-BR.md "${pkgdir}/usr/share/doc/${pkgname}/README.pt-BR.md"
+    install -Dm644 DOCUMENTACAO.pt-BR.md "${pkgdir}/usr/share/doc/${pkgname}/DOCUMENTACAO.pt-BR.md"
+    install -Dm644 SECURITY.md "${pkgdir}/usr/share/doc/${pkgname}/SECURITY.md"
     install -Dm644 CHANGELOG.md "${pkgdir}/usr/share/doc/${pkgname}/CHANGELOG.md"
     install -Dm644 LICENSE-AGPL-3.0 "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE-AGPL-3.0"
     install -Dm644 LICENSE-GPL-3.0  "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE-GPL-3.0"

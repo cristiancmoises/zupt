@@ -22,7 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(__x86_64__) && defined(__AVX2__)
+#if VV_HAS_AVX2
 #include <immintrin.h>
 #define VV_ENC_AVX2 1
 #else
@@ -73,6 +73,37 @@ static inline void vv_secure_zero(void *buf, size_t len) {
     volatile unsigned char *p = (volatile unsigned char *)buf;
     while (len--) *p++ = 0;
 #endif
+}
+
+/* accel=0 is the documented automatic setting.  Keep its resolution in one
+ * place so one-shot and streaming encoders cannot silently choose different
+ * parsers for the same options. */
+static inline uint32_t effective_accel(const vv_options_t *opts) {
+    uint32_t accel = opts->accel;
+    if (accel == 0)
+        accel = (opts->mode >= VV_MODE_BALANCED) ? 1u : 2u;
+    return accel > 64 ? 64 : accel;
+}
+
+/* Only entropy-capable modes emit T-tagged blocks. FAST writes plain token
+ * blocks, whose wire match-length bias is always four. Keep the requested
+ * option in stream contexts so a later mode reset can enable format v2. */
+static inline int effective_format_v2(const vv_options_t *opts) {
+    return opts->format_v2 && opts->mode >= VV_MODE_BALANCED;
+}
+
+static inline int valid_mode(vv_mode_t mode) {
+    return mode == VV_MODE_ULTRA_FAST ||
+           mode == VV_MODE_BALANCED ||
+           mode == VV_MODE_EXTREME;
+}
+
+/* Streaming compression emits blocks as input arrives and therefore cannot
+ * apply a whole-frame BCJ transform. Reject filter requests instead of
+ * silently producing an unfiltered frame. */
+static inline int valid_cstream_options(const vv_options_t *opts) {
+    return valid_mode(opts->mode) &&
+           !opts->filter_x86 && !opts->filter_arm64 && !opts->filter_auto;
 }
 
 /* Sprint 117: VV_NO_SANITIZE_INTEGER is provided by include/vv_platform.h. */
@@ -220,6 +251,8 @@ static inline VV_NO_SANITIZE_INTEGER uint32_t hash3_short(const uint8_t *p) {
 typedef struct {
     int32_t *table;        /* Primary hash5: VV_HC_SIZE entries */
     int32_t *chain;        /* Primary chain: window_size entries */
+    uint16_t *table16;     /* Borrowed roots for independent FAST pages only */
+    uint16_t *chain16;     /* 0xffff is empty; input positions end at 65532 */
     int32_t *table4;       /* Secondary hash4: VV_HC4_SIZE entries */
     int32_t *hash4_chain;  /* Secondary chain (SEPARATE from primary) */
     int32_t *table3;       /* Tertiary hash3 (v2 only): VV_HC3_SIZE entries, NULL on v1 */
@@ -244,7 +277,7 @@ typedef struct {
     uint32_t max_match;    /* Max representable matchlen (65535 for v1,
                             * 65534 for v2: ml_base_v2[35]=32767 with 15
                             * extra bits only reaches 65534). */
-    uint32_t accel;        /* Position-skip acceleration factor (0 = off).
+    uint32_t accel;        /* Effective position-skip acceleration factor.
                             * When >0, after a run of `f` consecutive
                             * positions with no match, compress_block
                             * advances by 1 + ((f*accel) >> 6) instead of 1,
@@ -252,11 +285,11 @@ typedef struct {
                             * unmatchable regions. Massively speeds up
                             * encode on incompressible / already-compressed
                             * input (measured ~8-9x on random/gzip data),
-                            * with a small ratio cost on compressible data
-                            * (so it is opt-in; default 0 keeps output
-                            * byte-identical). Skipped positions become
-                            * literals; output stays decodable by any
-                            * decoder. */
+                            * with a small ratio cost on compressible data.
+                            * The public zero/automatic setting is resolved
+                            * to a positive mode-dependent value before the
+                            * matcher runs. Skipped positions become literals;
+                            * output stays decodable by any decoder. */
     uint8_t  no_rep;       /* 1 = skip rep-match probing in compress_block.
                             * Measured net-positive on ratio in FAST mode
                             * (no entropy stage, so rep's short-offset code
@@ -265,6 +298,38 @@ typedef struct {
                             * (--no-rep); default 0 keeps rep enabled and
                             * output byte-identical. */
 } matcher_t;
+
+/* Initialize borrowed or allocated matcher tables identically. Chain entries
+ * are reachable only through initialized map roots, so need no clearing. */
+static void matcher_prepare(matcher_t *m, uint32_t window_log, uint32_t wsz,
+                            uint32_t depth, int use_hash4,
+                            const uint8_t *small_src, size_t small_len) {
+    if (m->table16) {
+        if (small_src) {
+            for (size_t pos = 0; pos + 4 <= small_len; pos++)
+                m->table16[hash_safe(small_src + pos, (int32_t)(small_len - pos))] = UINT16_MAX;
+        } else {
+            memset(m->table16, 0xFF, VV_HC_SIZE * sizeof(uint16_t));
+        }
+    } else if (small_src) {
+        /* Include the final four-byte hash variant as well as hash5. */
+        for (size_t pos = 0; pos + 4 <= small_len; pos++)
+            m->table[hash_safe(small_src + pos, (int32_t)(small_len - pos))] = -1;
+    } else {
+        memset(m->table, 0xFF, VV_HC_SIZE * sizeof(int32_t));
+    }
+    if (m->table4) memset(m->table4, 0xFF, VV_HC4_SIZE * sizeof(int32_t));
+    m->chain_mask = wsz - 1;
+    m->chain_depth = depth;
+    m->rep[0] = m->rep[1] = m->rep[2] = 0;
+    m->wlog = (uint8_t)window_log;
+    m->use_hash4 = use_hash4 ? 1 : 0;
+    m->use_hash3 = 0;
+    m->single_probe = 0;
+    m->accel = 0;
+    m->no_rep = 0;
+    m->max_match = VV_MAX_MATCH;
+}
 
 /* SPRINT 93 audit: returns 1 on success, 0 on allocation failure.
  * Callers MUST check the return value — on failure m is left in a
@@ -276,12 +341,24 @@ typedef struct {
  * the NULL pointer would crash. Sprint 92 audit identified this as a
  * real defect. The fix tolerates allocator failure cleanly. */
 static void matcher_free(matcher_t *m); /* fwd decl for cleanup-on-failure */
-static int matcher_init(matcher_t *m, uint32_t window_log, uint32_t depth) {
+static int matcher_init_for_input(matcher_t *m, uint32_t window_log,
+                                  uint32_t depth, int use_hash4,
+                                  const uint8_t *small_src, size_t small_len) {
+    if (window_log < 10 || window_log > 24) return 0;
     uint32_t wsz = 1u << window_log;
+    /* A one-shot page cannot reference positions outside its own input.
+     * Keep the advertised window and matching rules, but avoid allocating
+     * chain slots that no position can address. This path is never used
+     * by streaming matchers, whose future input length is unknown. */
+    if (small_src) {
+        while (wsz > 1 && (wsz >> 1) >= small_len) wsz >>= 1;
+    }
     /* Initialize ALL pointers to NULL first so matcher_free is safe to
      * call on partial-failure paths. */
     m->table = NULL;
     m->chain = NULL;
+    m->table16 = NULL;
+    m->chain16 = NULL;
     m->table4 = NULL;
     m->hash4_chain = NULL;
     m->table3 = NULL;
@@ -289,33 +366,29 @@ static int matcher_init(matcher_t *m, uint32_t window_log, uint32_t depth) {
 
     m->table = (int32_t *)malloc(VV_HC_SIZE * sizeof(int32_t));
     m->chain = (int32_t *)malloc(wsz * sizeof(int32_t));
-    m->table4 = (int32_t *)malloc(VV_HC4_SIZE * sizeof(int32_t));
-    m->hash4_chain = (int32_t *)malloc(wsz * sizeof(int32_t));
-    if (!m->table || !m->chain || !m->table4 || !m->hash4_chain) {
+    /* Only adaptive binary encoding uses the secondary matcher. Fast
+     * encoding, window trials, text and streaming otherwise pay for an
+     * unused 256 KiB table and a window-sized chain on every creation. */
+    if (use_hash4) {
+        m->table4 = (int32_t *)malloc(VV_HC4_SIZE * sizeof(int32_t));
+        m->hash4_chain = (int32_t *)malloc(wsz * sizeof(int32_t));
+    }
+    if (!m->table || !m->chain ||
+        (use_hash4 && (!m->table4 || !m->hash4_chain))) {
         matcher_free(m);
         /* Re-NULL after free so caller's matcher_free is also safe */
         m->table = m->chain = m->table4 = m->hash4_chain = NULL;
         m->table3 = m->hash3_chain = NULL;
         return 0;
     }
-    /* hash3 tables allocated lazily only when use_hash3 is enabled.
-     * On v1 path (the default), they stay NULL and cost nothing. */
-    /* PERF: only the table arrays need to be cleared. chain/hash4_chain
-     * are only read via table entries (which are now -1), so stale
-     * data in them is unreachable. See matcher_reset for rationale. */
-    memset(m->table, 0xFF, VV_HC_SIZE * sizeof(int32_t));
-    memset(m->table4, 0xFF, VV_HC4_SIZE * sizeof(int32_t));
-    m->chain_mask = wsz - 1;
-    m->chain_depth = depth;
-    m->rep[0] = m->rep[1] = m->rep[2] = 0;
-    m->wlog = (uint8_t)window_log;
-    m->use_hash4 = 0;  /* Disabled by default — enabled adaptively for binary */
-    m->use_hash3 = 0;  /* Disabled by default — enabled for format v2 */
-    m->single_probe = 0; /* Disabled by default — set only for ULTRA_FAST encode */
-    m->accel = 0;        /* Position-skip acceleration off by default (opt-in --accel) */
-    m->no_rep = 0;       /* rep-match probing on by default (opt-in --no-rep) */
-    m->max_match = VV_MAX_MATCH;  /* v1 default, see matcher_set_format_v2 */
+    /* hash3 tables remain NULL until enabled separately. */
+    matcher_prepare(m, window_log, wsz, depth, use_hash4, small_src, small_len);
     return 1;
+}
+
+static int matcher_init(matcher_t *m, uint32_t window_log, uint32_t depth,
+                        int use_hash4) {
+    return matcher_init_for_input(m, window_log, depth, use_hash4, NULL, 0);
 }
 
 /* Apply format v2 matcher constraints. Must be called whenever the
@@ -361,15 +434,15 @@ static void matcher_free(matcher_t *m) {
 /* Reset matcher state without reallocating tables. Used by
  * vv_cstream_reset() for fast per-file reuse.
  *
- * PERF: We only need to clear the `table` and `table4` arrays (the
- * hash → position maps). The `chain` arrays store (pos → earlier
+ * PERF: We only need to clear the allocated hash → position maps.
+ * The `chain` arrays store (pos → earlier
  * pos) links, but those links are only FOLLOWED from table entries.
  * After resetting the tables, any stale chain entries become
- * unreachable. This cuts reset cost from ~1.6 MB of memset to
- * ~1.25 MB (table=1MB + table4=256KB), a ~25% speedup. */
+ * unreachable. Streaming does not allocate the unused hash4 map,
+ * leaving only the 1 MiB primary map and optional 64 KiB hash3 map. */
 static void matcher_reset(matcher_t *m) {
     memset(m->table, 0xFF, VV_HC_SIZE * sizeof(int32_t));
-    memset(m->table4, 0xFF, VV_HC4_SIZE * sizeof(int32_t));
+    if (m->table4) memset(m->table4, 0xFF, VV_HC4_SIZE * sizeof(int32_t));
     if (m->table3) memset(m->table3, 0xFF, VV_HC3_SIZE * sizeof(int32_t));
     m->rep[0] = m->rep[1] = m->rep[2] = 0;
     m->use_hash4 = 0;
@@ -393,6 +466,11 @@ static void matcher_reset(matcher_t *m) {
 static inline void matcher_insert_fast(matcher_t *m, const uint8_t *data,
                                         int32_t pos) {
     uint32_t h = hash5(data + pos);
+    if (m->table16) {
+        m->chain16[pos & m->chain_mask] = m->table16[h];
+        m->table16[h] = (uint16_t)pos;
+        return;
+    }
     m->chain[pos & m->chain_mask] = m->table[h];
     m->table[h] = pos;
     if (m->use_hash4) {
@@ -411,6 +489,11 @@ static inline void matcher_insert(matcher_t *m, const uint8_t *data,
                                    int32_t pos, int32_t end) {
     if (pos + 4 > end) return;
     uint32_t h = hash_safe(data + pos, end - pos);
+    if (m->table16) {
+        m->chain16[pos & m->chain_mask] = m->table16[h];
+        m->table16[h] = (uint16_t)pos;
+        return;
+    }
     m->chain[pos & m->chain_mask] = m->table[h];
     m->table[h] = pos;
     /* PERF: only maintain hash4 table when it's actually being used.
@@ -779,7 +862,9 @@ single_probe_match(const matcher_t *m, const uint8_t *data,
     if (limit < 0) limit = 0;
 
     uint32_t h = hash_safe(data + pos, end - pos);
-    int32_t ref = m->table[h];
+    int compact = m->table16 != NULL;
+    int32_t ref = compact ? m->table16[h] : m->table[h];
+    if (compact && ref == UINT16_MAX) ref = -1;
 
     uint32_t pos4;
     memcpy(&pos4, data + pos, 4);
@@ -791,7 +876,9 @@ single_probe_match(const matcher_t *m, const uint8_t *data,
     int32_t mm = (int32_t)m->max_match;
 
     while (ref >= limit && ref < pos && depth-- > 0) {
-        int32_t next_ref = chain_arr[ref & chain_mask];
+        int32_t next_ref = compact ? m->chain16[ref & chain_mask]
+                                   : chain_arr[ref & chain_mask];
+        if (compact && next_ref == UINT16_MAX) next_ref = -1;
         uint32_t b;
         memcpy(&b, data + ref, 4);
         if (pos4 == b) {
@@ -1123,7 +1210,9 @@ static int opt_collect(const matcher_t *m, const uint8_t *data,
     return n;
 }
 
-static size_t compress_block_optimal(const uint8_t *src, size_t start_pos,
+/* Keep the optimal parser's price/histogram arrays out of emit_block's
+ * shared stack frame: FAST callers never execute this parser. */
+static VV_NOINLINE size_t compress_block_optimal(const uint8_t *src, size_t start_pos,
                                      size_t block_len, uint8_t *dst,
                                      size_t dst_cap, matcher_t *m, int min_match) {
     if (min_match < 1 || block_len > (size_t)INT32_MAX ||
@@ -1178,13 +1267,13 @@ static size_t compress_block_optimal(const uint8_t *src, size_t start_pos,
          * non-aliasing across a <= 2^20-wide position span — so the
          * prepass finds the identical match set and emits the identical
          * tokens/histogram/prices as it would at the real encode's wlog.
-         * Capping here avoids allocating and zeroing the full extreme
-         * window (up to 2 x 2^24 x 4 = 128 MB of chain arrays per block
-         * at wlog=24) when 2 x 2^20 x 4 = 8 MB suffices. off_bytes is
+         * Capping here avoids allocating the full extreme window
+         * (up to 2^24 x 4 = 64 MiB of chain entries per block at wlog=24)
+         * when 2^20 x 4 = 4 MiB suffices. off_bytes is
          * unaffected: both >16 wlogs emit 3-byte offsets. Output-
          * identical — verified by the ratio gate at +-0. */
         uint32_t pp_wlog = (m->wlog < 20) ? m->wlog : 20;
-        if (matcher_init(&mp, pp_wlog, 4)) {
+        if (matcher_init(&mp, pp_wlog, 4, 0)) {
             mp.accel = 2;
             mp.max_match = m->max_match;
             size_t pcap = block_len + block_len / 255 + 1024;
@@ -1564,10 +1653,10 @@ static size_t compress_block(const uint8_t *src, size_t start_pos, size_t block_
             nmatch++;
         } else {
             if (!pos_inserted) matcher_insert(m, src, pos, end);
-            /* Accel: skip ahead over unmatchable regions. accel==0 keeps
-             * the byte-identical old default (advance 1). The skipped
-             * positions are not hashed/inserted and simply become
-             * literals. SPRINT 124: balanced/extreme cap the stride at 8
+            /* Accel: skip ahead over unmatchable regions. The effective
+             * factor is already resolved from the public automatic/explicit
+             * setting. Skipped positions are not hashed/inserted and simply
+             * become literals. SPRINT 124: balanced/extreme cap the stride at 8
              * — on sparse-match data (struct-of-floats) an unbounded
              * ramp skips over match starts and costs double-digit ratio;
              * fast mode keeps the full lz4-style ramp. */
@@ -1898,6 +1987,126 @@ size_t vv_compress_bound(size_t src_len) {
          + sizeof(vv_frame_header_t) + sizeof(vv_frame_footer_t);
 }
 
+/* Caller storage contains this metadata followed by map, chain and scratch.
+ * The independent 64 KiB input limit leaves 0xffff available as an empty
+ * 16-bit root/link: an inserted position needs at least four input bytes.
+ * Keep all hash bits and chain links so parser choices remain unchanged.
+ * Pointer-bearing metadata determines the public alignment query. */
+struct vv_fast_context_s {
+    matcher_t m;
+    vv_options_t opts;
+    size_t max_input;
+    size_t tmp_cap;
+    uint8_t *tmp;
+    uint32_t chain_slots;
+};
+
+static uint32_t fast_chain_slots(size_t max_input) {
+    uint32_t slots = 1;
+    while (slots < max_input) slots <<= 1;
+    return slots;
+}
+
+size_t vv_fast_context_size(size_t max_input) {
+    if (max_input == 0 || max_input > 65536) return 0;
+    return sizeof(vv_fast_context_t)
+         + VV_HC_SIZE * sizeof(uint16_t)
+         + fast_chain_slots(max_input) * sizeof(uint16_t)
+         + max_input + max_input / 255 + 1024;
+}
+
+size_t vv_fast_context_alignment(void) {
+    return _Alignof(vv_fast_context_t);
+}
+
+int vv_fast_context_init(void *storage, size_t storage_cap, size_t max_input,
+                         const vv_options_t *opts, vv_fast_context_t **out_ctx) {
+    if (!out_ctx) return VV_ERR_PARAM;
+    *out_ctx = NULL;
+    size_t required = vv_fast_context_size(max_input);
+    if (!required || !storage || !opts ||
+        opts->mode != VV_MODE_ULTRA_FAST ||
+        (opts->window_log && (opts->window_log < 10 || opts->window_log > 24)) ||
+        opts->filter_x86 || opts->filter_arm64 || opts->filter_auto ||
+        (uintptr_t)storage % vv_fast_context_alignment()) return VV_ERR_PARAM;
+    if (storage_cap < required) return VV_ERR_OVERFLOW;
+
+    vv_fast_context_t *ctx = (vv_fast_context_t *)storage;
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->opts = *opts;
+    ctx->max_input = max_input;
+    ctx->chain_slots = fast_chain_slots(max_input);
+    ctx->tmp_cap = max_input + max_input / 255 + 1024;
+    ctx->m.table16 = (uint16_t *)(ctx + 1);
+    ctx->m.chain16 = ctx->m.table16 + VV_HC_SIZE;
+    ctx->tmp = (uint8_t *)(ctx->m.chain16 + ctx->chain_slots);
+    *out_ctx = ctx;
+    return VV_OK;
+}
+
+int64_t vv_fast_context_compress(vv_fast_context_t *ctx,
+                                const uint8_t *src, size_t src_len,
+                                uint8_t *dst, size_t dst_cap) {
+    if (!ctx || !dst || (!src && src_len) || src_len > ctx->max_input)
+        return VV_ERR_PARAM;
+    /* Bounded input makes this addition safe. Reserve the footer before
+     * block emission even though the required bound already has slack. */
+    if (dst_cap < vv_compress_bound(src_len)) return VV_ERR_OVERFLOW;
+    const vv_options_t *opts = &ctx->opts;
+    uint32_t wlog = opts->window_log ? opts->window_log : 16;
+    uint32_t slots = 1u << wlog;
+    if (slots > ctx->chain_slots) slots = ctx->chain_slots;
+    uint32_t depth = opts->depth_override ? opts->depth_override : 4;
+    if (depth > 4096) depth = 4096;
+    /* Avoid NULL pointer arithmetic in hashing an empty input. */
+    const uint8_t empty = 0;
+    const uint8_t *input = src ? src : &empty;
+    /* With the compact roots, clearing the map is faster for a full 4 KiB
+     * page. Keep sparse reset for smaller inputs, where it avoids that cost. */
+    matcher_prepare(&ctx->m, wlog, slots, depth, 0,
+                    src_len < 4096 ? input : NULL, src_len);
+    ctx->m.single_probe = 1;
+    ctx->m.accel = effective_accel(opts);
+    ctx->m.no_rep = opts->no_rep ? 1 : 0;
+
+    vv_frame_header_t fh;
+    memset(&fh, 0, sizeof(fh));
+    fh.magic = VV_MAGIC;
+    fh.version = 1;
+    fh.flags = opts->checksum ? 1 : 0;
+    fh.mode_hint = VV_MODE_ULTRA_FAST;
+    fh.window_log = (uint8_t)wlog;
+    fh.content_size = src_len;
+    memcpy(dst, &fh, sizeof(fh));
+    size_t written = sizeof(fh);
+    size_t footer = opts->checksum ? sizeof(vv_frame_footer_t) : 0;
+    if (src_len) {
+        size_t block_size = emit_block(input, 0, src_len, 1, &ctx->m,
+                                      VV_MODE_ULTRA_FAST, (uint8_t)wlog,
+                                      ctx->tmp, ctx->tmp_cap, NULL, 0,
+                                      NULL, NULL, 0, dst + written,
+                                      dst_cap - written - footer,
+                                      VV_MIN_MATCH, opts->compat_v246_5_decoder, NULL);
+        /* A failed parse may have written scratch before returning zero.
+         * Clear the whole bounded section, not only a success watermark. */
+        vv_secure_zero(ctx->tmp, ctx->tmp_cap);
+        if (!block_size) return VV_ERR_OVERFLOW;
+        written += block_size;
+    } else {
+        uint32_t bh = vv_bh_pack(VV_BLOCK_RAW, 1, 0);
+        memcpy(dst + written, &bh, sizeof(bh));
+        written += sizeof(bh);
+    }
+    if (opts->checksum) {
+        vv_frame_footer_t ff;
+        ff.checksum = vv_xxh64(input, src_len, 0);
+        ff.footer_magic = 0x56564E44u;
+        memcpy(dst + written, &ff, sizeof(ff));
+        written += sizeof(ff);
+    }
+    return (int64_t)written;
+}
+
 /* Public vv_compress: select and apply a reversible BCJ branch filter, then
  * compress. A filter may be requested explicitly (filter_x86 / filter_arm64)
  * or chosen automatically (filter_auto: sniff the executable header). The
@@ -1913,6 +2122,22 @@ int64_t vv_compress_inner(const uint8_t *src, size_t src_len,
 int64_t vv_compress(const uint8_t *src, size_t src_len,
                     uint8_t *dst, size_t dst_cap,
                     const vv_options_t *opts) {
+    /* Reject invalid public options before the BCJ copy/allocation path.
+     * Equality checks are intentional: vv_mode_t may be signed, and only
+     * the three declared values are part of the API. Applying both BCJ
+     * filters is nonsensical and previously wrote both header bits after
+     * transforming with x86 only, so a successful decode could alter data. */
+    if (opts && !valid_mode(opts->mode)) {
+        return VV_ERR_PARAM;
+    }
+    if (opts && opts->window_log != 0 &&
+        (opts->window_log < 10 || opts->window_log > 24)) {
+        return VV_ERR_PARAM;
+    }
+    if (opts && opts->filter_x86 && opts->filter_arm64) {
+        return VV_ERR_PARAM;
+    }
+
     int auto_on = opts && opts->filter_auto &&
                   !opts->filter_x86 && !opts->filter_arm64;
 
@@ -1934,6 +2159,9 @@ int64_t vv_compress(const uint8_t *src, size_t src_len,
             else
                 vv_bcj_arm64(copy, src_len, 0, 1);   /* AArch64 BL + ADRP */
             int64_t r = vv_compress_inner(copy, src_len, dst, dst_cap, &eff);
+            /* The private BCJ buffer contains a full plaintext copy. Keep it
+             * under the same memory-hygiene contract as the encoder arenas. */
+            vv_secure_zero(copy, src_len);
             free(copy);
             return r;
         }
@@ -1961,6 +2189,7 @@ int64_t vv_compress_inner(const uint8_t *src, size_t src_len,
     }
 
     uint8_t wlog = opts->window_log;
+    if (wlog != 0 && (wlog < 10 || wlog > 24)) return VV_ERR_PARAM;
     uint32_t depth;
     if (wlog == 0) {
         switch (opts->mode) {
@@ -2003,14 +2232,14 @@ int64_t vv_compress_inner(const uint8_t *src, size_t src_len,
              * inputs no longer pay two full 128 KB parses just to
              * decide "store raw". Both trials use the same accel, so
              * the 16-vs-20 comparison stays apples-to-apples. */
-            if (matcher_init(&m16, 16, 4)) {
+            if (matcher_init(&m16, 16, 4, 0)) {
                 m16.accel = 2;
                 sz16 = compress_block(src, 0, trial_len, trial_buf, trial_cap, &m16, VV_MODE_ULTRA_FAST, VV_MIN_MATCH);
                 matcher_free(&m16);
             }
 
             matcher_t m20;
-            if (matcher_init(&m20, 20, 4)) {
+            if (matcher_init(&m20, 20, 4, 0)) {
                 m20.accel = 2;
                 sz20 = compress_block(src, 0, trial_len, trial_buf, trial_cap, &m20, VV_MODE_ULTRA_FAST, VV_MIN_MATCH);
                 matcher_free(&m20);
@@ -2033,8 +2262,8 @@ int64_t vv_compress_inner(const uint8_t *src, size_t src_len,
      * ratio and decode speed (more, shorter sequences). Auto-enable
      * exactly where it wins: binary-detected inputs. Suppressed by
      * the compat flag because 'T' blocks require a v2.33.0+ decoder.
-     * Explicit opts->format_v2 still forces it for any input. */
-    int use_v2_fmt = opts->format_v2 ||
+     * Explicit opts->format_v2 forces it in balanced/extreme for any input. */
+    int use_v2_fmt = effective_format_v2(opts) ||
                      (enable_hash4 && opts->mode >= VV_MODE_BALANCED &&
                       !opts->compat_v246_5_decoder);
 
@@ -2069,8 +2298,8 @@ int64_t vv_compress_inner(const uint8_t *src, size_t src_len,
      * fix this scaling breaks roundtrip on multi-block files (the bug
      * diagnosed and reverted in Sprint 45).
      *
-     * Memory at wlog=24: chain[wsz]+hash4_chain[wsz] = 2*4*16M = 128 MB
-     * matcher. Acceptable for extreme ("max ratio, will wait"). */
+     * Memory at wlog=24: primary chain = 4*16M = 64 MB. The optional
+     * hash4 chain is only allocated for adaptive binary encoding. */
     if (opts->window_log == 0 && opts->mode >= VV_MODE_EXTREME &&
         !use_v2_fmt && src_len > (1u << 20)) {
         /* SPRINT 124: v2-routed (binary) extreme input uses the greedy
@@ -2101,10 +2330,12 @@ int64_t vv_compress_inner(const uint8_t *src, size_t src_len,
     /* Matcher */
     matcher_t m;
     /* SPRINT 93 audit: handle allocation failure cleanly */
-    if (!matcher_init(&m, wlog, depth)) {
+    const uint8_t *small_src =
+        opts->mode == VV_MODE_ULTRA_FAST && src_len <= 4096 ? src : NULL;
+    if (!matcher_init_for_input(&m, wlog, depth, enable_hash4,
+                                small_src, src_len)) {
         return VV_ERR_NOMEM;
     }
-    m.use_hash4 = (uint8_t)enable_hash4; /* From fused adaptive-window trial */
     /* SPRINT 58: enable the single-probe match finder for ULTRA_FAST.
      * Set here (not in matcher_init) so the depth-4 chain matchers used
      * by the balanced/extreme window-selection trial above stay at
@@ -2116,12 +2347,7 @@ int64_t vv_compress_inner(const uint8_t *src, size_t src_len,
      * at 8 inside compress_block). This is what turns 1 MB of random
      * bytes from a 24 ns/byte full-parse crawl into a near-memcpy RAW
      * store. Explicit --accel values are honored unchanged. */
-    {
-        uint32_t eff_accel = opts->accel;
-        if (eff_accel == 0)
-            eff_accel = (opts->mode >= VV_MODE_BALANCED) ? 1 : 2;
-        m.accel = eff_accel > 64 ? 64 : eff_accel;
-    }
+    m.accel = effective_accel(opts);
     m.no_rep = opts->no_rep ? 1 : 0;
     /* Format v2 cap applies to EVERY match emitted from this matcher,
      * not just those produced via hash3. Set unconditionally when
@@ -2228,6 +2454,11 @@ int64_t vv_compress_inner(const uint8_t *src, size_t src_len,
 
     if (opts->checksum) {
         vv_frame_footer_t ff;
+        /* A block may fit while leaving too little room for the footer. */
+        if (sizeof(ff) > dst_cap - (size_t)(op - dst)) {
+            matcher_free(&m);
+            return VV_ERR_OVERFLOW;
+        }
         ff.checksum = vv_xxh64(src, src_len, 0);
         ff.footer_magic = 0x56564E44u;
         memcpy(op, &ff, sizeof(ff)); op += sizeof(ff);
@@ -2283,6 +2514,8 @@ struct vv_cstream_s {
 };
 
 vv_cstream_t *vv_cstream_create(const vv_options_t *opts) {
+    if (opts && !valid_cstream_options(opts)) return NULL;
+
     vv_cstream_t *ctx = (vv_cstream_t *)calloc(1, sizeof(vv_cstream_t));
     if (!ctx) return NULL;
 
@@ -2292,6 +2525,7 @@ vv_cstream_t *vv_cstream_create(const vv_options_t *opts) {
     /* Resolve window log (fixed for streams — no adaptive probe) */
     uint8_t wlog = ctx->opts.window_log;
     if (wlog == 0) wlog = 16;
+    if (wlog < 10 || wlog > 24) { free(ctx); return NULL; }
     ctx->wlog = wlog;
 
     uint32_t depth;
@@ -2308,29 +2542,29 @@ vv_cstream_t *vv_cstream_create(const vv_options_t *opts) {
 
     /* SPRINT 93 audit: matcher_init can fail; cstream returns NULL
      * on any allocation error per public API contract. */
-    if (!matcher_init(&ctx->m, wlog, depth)) {
+    if (!matcher_init(&ctx->m, wlog, depth, 0)) {
         free(ctx);
         return NULL;
     }
     /* SPRINT 58: single-probe finder for ULTRA_FAST streaming, matching
      * the one-shot fast path. balanced/extreme keep single_probe==0. */
     ctx->m.single_probe = (ctx->opts.mode == VV_MODE_ULTRA_FAST) ? 1 : 0;
-    ctx->m.accel = ctx->opts.accel > 64 ? 64 : ctx->opts.accel;
+    ctx->m.accel = effective_accel(&ctx->opts);
     ctx->m.no_rep = ctx->opts.no_rep ? 1 : 0;
-    /* Format v2 matchlen cap applies to every match — set whenever
-     * streaming opts has format_v2 on, not just when hash3 fires.
+    /* Format v2 matchlen cap applies to every match in an entropy-capable
+     * mode with format_v2 on, not just when hash3 fires.
      *
      * Sprint 89 audit: read from ctx->opts (populated above with either
      * the caller's opts or default values) rather than the raw opts
      * pointer, which can be NULL when caller wants defaults. The prior
      * code dereferenced NULL when called as vv_cstream_create(NULL). */
-    if (ctx->opts.format_v2) {
+    if (effective_format_v2(&ctx->opts)) {
         matcher_set_format_v2(&ctx->m);
     }
     /* SPRINT 45: enable hash3 for format v2 streaming. Must free
      * ctx before returning NULL — callers use NULL-check semantics
      * here, not error codes. */
-    if (ctx->opts.format_v2) {
+    if (effective_format_v2(&ctx->opts)) {
         if (!matcher_enable_hash3(&ctx->m)) {
             matcher_free(&ctx->m);
             free(ctx);
@@ -2393,11 +2627,25 @@ int vv_cstream_reset(vv_cstream_t *ctx, const vv_options_t *opts) {
     /* Apply new options if provided. window_log cannot change without
      * reallocating the matcher tables — reject the change. */
     if (opts) {
+        if (!valid_cstream_options(opts)) return VV_ERR_PARAM;
         uint8_t new_wlog = opts->window_log;
+        if (new_wlog != 0 && (new_wlog < 10 || new_wlog > 24)) return VV_ERR_PARAM;
         if (new_wlog == 0) new_wlog = 16;
         if (new_wlog != ctx->wlog) return VV_ERR_PARAM;
-        ctx->opts = *opts;
     }
+
+    /* A format switch changes both the emitted sequence tables and the
+     * matcher's representable lengths. Allocate before accepting options,
+     * so an allocation failure leaves the current stream configuration
+     * usable. Retain hash3 storage when switching back to v1 for reuse. */
+    const vv_options_t *next_opts = opts ? opts : &ctx->opts;
+    int use_v2 = effective_format_v2(next_opts);
+    if (use_v2 && !ctx->m.table3 &&
+        !matcher_enable_hash3(&ctx->m)) return VV_ERR_NOMEM;
+    if (opts) ctx->opts = *opts;
+    ctx->m.use_hash3 = (uint8_t)use_v2;
+    ctx->m.max_match = VV_MAX_MATCH;
+    if (use_v2) matcher_set_format_v2(&ctx->m);
 
     /* Update chain_depth in case the mode changed */
     uint32_t depth;
@@ -2415,7 +2663,7 @@ int vv_cstream_reset(vv_cstream_t *ctx, const vv_options_t *opts) {
     /* SPRINT 58: keep the single-probe flag in sync if the mode changed
      * across reset (e.g. balanced stream reset to fast). */
     ctx->m.single_probe = (ctx->opts.mode == VV_MODE_ULTRA_FAST) ? 1 : 0;
-    ctx->m.accel = ctx->opts.accel > 64 ? 64 : ctx->opts.accel;
+    ctx->m.accel = effective_accel(&ctx->opts);
     ctx->m.no_rep = ctx->opts.no_rep ? 1 : 0;
 
     matcher_reset(&ctx->m);
@@ -2437,6 +2685,7 @@ int vv_cstream_compress_chunk(vv_cstream_t *ctx,
                               uint8_t *dst, size_t dst_cap,
                               size_t *written, int is_last) {
     if (!ctx || !dst || !written) return VV_ERR_PARAM;
+    if (chunk_len > 0 && !chunk) return VV_ERR_PARAM;
     if (chunk_len > VV_MAX_BLOCK_SIZE) return VV_ERR_PARAM;
     *written = 0;
 
@@ -2486,7 +2735,7 @@ int vv_cstream_compress_chunk(vv_cstream_t *ctx,
                         ctx->m.table[i] -= (int32_t)drop;
                     else ctx->m.table[i] = -1;
                 }
-                for (uint32_t i = 0; i < VV_HC4_SIZE; i++) {
+                for (uint32_t i = 0; ctx->m.table4 && i < VV_HC4_SIZE; i++) {
                     if (ctx->m.table4[i] >= (int32_t)drop)
                         ctx->m.table4[i] -= (int32_t)drop;
                     else ctx->m.table4[i] = -1;
@@ -2501,9 +2750,11 @@ int vv_cstream_compress_chunk(vv_cstream_t *ctx,
                     if (ctx->m.chain[i] >= (int32_t)drop)
                         ctx->m.chain[i] -= (int32_t)drop;
                     else ctx->m.chain[i] = -1;
-                    if (ctx->m.hash4_chain[i] >= (int32_t)drop)
-                        ctx->m.hash4_chain[i] -= (int32_t)drop;
-                    else ctx->m.hash4_chain[i] = -1;
+                    if (ctx->m.hash4_chain) {
+                        if (ctx->m.hash4_chain[i] >= (int32_t)drop)
+                            ctx->m.hash4_chain[i] -= (int32_t)drop;
+                        else ctx->m.hash4_chain[i] = -1;
+                    }
                 }
             }
         }
@@ -2523,7 +2774,7 @@ int vv_cstream_compress_chunk(vv_cstream_t *ctx,
         memcpy(op, &bh, 4); op += 4; cap_left -= 4;
     } else if (chunk_len > 0) {
         size_t block_start = ctx->src_len - chunk_len;
-        int stream_min_match = ctx->opts.format_v2 ? 3 : (int)VV_MIN_MATCH;
+        int stream_min_match = effective_format_v2(&ctx->opts) ? 3 : (int)VV_MIN_MATCH;
         size_t block_sz = emit_block(ctx->src_buf, block_start, chunk_len, is_last,
                                      &ctx->m, ctx->opts.mode, ctx->wlog,
                                      ctx->tmp, ctx->tcap,

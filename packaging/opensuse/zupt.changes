@@ -1,4 +1,13 @@
 -------------------------------------------------------------------
+Sun Sep  6 16:30:00 UTC 2026 - Cristian Cezar Moisés <sac@securityops.co>
+
+- Update to 5.2.9:
+  * Update the bundled VaptVupt codec to 2.65.11 while retaining Zupt's
+    wrapper policy, read-back check, wire compatibility, and notices.
+  * Add Brazilian Portuguese project and operational documentation.
+  * Pin the OBS source service to v5.2.9 and require fresh exact-tag gates.
+
+-------------------------------------------------------------------
 Mon Aug 31 23:30:00 UTC 2026 - Cristian Cezar Moisés <sac@securityops.co>
 
 - Update to 5.2.8:

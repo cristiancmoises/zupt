@@ -62,7 +62,7 @@
         xcb-util-renderutil xcb-util-wm xcb-util-cursor
         libinput-minimal mtdev libevdev eudev))
 
-(define %zupt-version "5.2.8")
+(define %zupt-version "5.2.9")
 
 (define %zupt-source
   (origin
@@ -72,7 +72,7 @@
           "/releases/download/v" %zupt-version
           "/zupt-" %zupt-version ".tar.gz"))
     (sha256
-     (base32 "1xv5vd7bh9pcw2d3fszb6jn1r6sxjp48mlzh9icvji8m4439b2rp"))))
+     (base32 "0w818y57q1q3gk559x2yp7xj9f71a4a3yz1skl2apg0b3hjy7q94"))))
 
 (define-public zupt
   (package
@@ -98,7 +98,15 @@
                 (invoke "make" "WITH_SDK=0" "WITH_PQBOX=0"
                         (string-append "CC=" #$(cc-for-target))
                         "test-vectors")
-                (invoke "./test_vectors")))))))
+                (invoke "./test_vectors"))))
+          (add-after 'install 'install-documentation
+            (lambda _
+              (let ((doc (string-append #$output "/share/doc/zupt")))
+                (mkdir-p doc)
+                (for-each (lambda (file) (install-file file doc))
+                          '("README.md" "README.pt-BR.md"
+                            "DOCUMENTACAO.pt-BR.md" "SECURITY.md"
+                            "CHANGELOG.md"))))))))
     (home-page "https://github.com/cristiancmoises/zupt")
     (synopsis "Post-quantum backup compression utility")
     (description
@@ -108,7 +116,7 @@ ML-KEM-768 with X25519 (recommended), and
 @code{--pq-only} uses ML-KEM-768 alone for @dfn{PQ-only} compliance postures.
 Payload protection is AES-256-CTR + HMAC-SHA256 Encrypt-then-MAC with a fresh
 random per-block nonce; AES-NI/SHA-NI dispatch at runtime; the bundled
-VaptVupt 2.65.3 LZ+ANS codec has portable fallbacks.  Password mode uses
+VaptVupt 2.65.11 LZ+ANS codec has portable fallbacks.  Password mode uses
 PBKDF2-SHA256.  The tool is
 AGPL-3.0-or-later; the embedded codec is GPL-3.0-or-later; the two
 xxHash-derived XXH64 units additionally carry BSD-2-Clause; and portions of
@@ -132,6 +140,8 @@ the full provenance record.")
           ("gui/assets/zupt-icon.png"
            "share/icons/hicolor/256x256/apps/zupt-gui.png")
           ("gui/README.md" "share/doc/zupt-gui/")
+          ("README.pt-BR.md" "share/doc/zupt-gui/")
+          ("DOCUMENTACAO.pt-BR.md" "share/doc/zupt-gui/")
           ("LICENSE-AGPL-3.0"
            "share/licenses/zupt-gui/LICENSE-AGPL-3.0")
           ("gui/LICENSE-GUI"

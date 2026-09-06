@@ -4,10 +4,12 @@
  * Copyright 2026 Cristian.
  *
  * EMBED-COMPAT: This is the API that a host application calls. It wraps the internal
- * VaptVupt API with sensible defaults for backup workloads:
- *   - Checksum always enabled (data integrity is critical for backups)
- *   - Adaptive window selection (auto-detect optimal wlog per file)
- *   - Level maps to mode: 1=fast, 5=balanced, 9=extreme
+ * VaptVupt API with the ZUPT backup policy:
+ *   - Internal XXH64 disabled; ZUPT records its own per-block XXH64, and
+ *     encrypted modes additionally authenticate ciphertext and metadata
+ *   - Adaptive window selection and automatic executable filtering
+ *   - Levels 1-2 FAST, 3-7 balanced, and 8-9 extreme
+ *   - Every encoded block is decoded and compared before it is accepted
  *
  * Usage:
  *   size_t bound = vvz_compress_bound(src_len);

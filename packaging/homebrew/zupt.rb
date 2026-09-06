@@ -22,9 +22,9 @@
 class Zupt < Formula
   desc "Post-quantum backup compression utility (ML-KEM-768 + AES-256-CTR + HMAC-SHA256)"
   homepage "https://github.com/cristiancmoises/zupt"
-  url "https://github.com/cristiancmoises/zupt/releases/download/v5.2.8/zupt-5.2.8.tar.gz"
-  version "5.2.8"
-  sha256 "378b9506211545b9594cf0d38ac8955d9b1cac34eb6b379ae0ec26b84edb65f7"
+  url "https://github.com/cristiancmoises/zupt/releases/download/v5.2.9/zupt-5.2.9.tar.gz"
+  version "5.2.9"
+  sha256 "24e1e3251c0bbcab049d3a7c3f1451e1b824fbb95ef454ca7c03077c8a470171"
   license all_of: ["AGPL-3.0-or-later", "GPL-3.0-or-later", "BSD-2-Clause", "BSD-3-Clause", "CC0-1.0"]
 
   depends_on "python@3.12" => :test  # only for test-suite tamper harness
@@ -41,7 +41,8 @@ class Zupt < Formula
 
     # Docs (no vendored .so/.dylib in the source-only build). `make install`
     # also installs the complete project license/notice set.
-    doc.install "README.md", "SECURITY.md", "CHANGELOG.md"
+    doc.install "README.md", "README.pt-BR.md", "DOCUMENTACAO.pt-BR.md",
+                "SECURITY.md", "CHANGELOG.md"
     %w[LICENSE-BSD-3-Clause LICENSE-CC0-1.0].each do |notice|
       odie "missing installed license #{notice}" unless \
         (share/"licenses/zupt"/notice).exist?

@@ -104,7 +104,8 @@ mkdir -p -- "$appdir/usr/share/applications" \
     "$appdir/usr/share/doc/zupt" \
     "$appdir/usr/share/icons/hicolor/128x128/apps" \
     "$appdir/usr/share/licenses/zupt"
-install -m 0644 README.md CHANGELOG.md SECURITY.md THREAT_MODEL.md \
+install -m 0644 README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md \
+    CHANGELOG.md SECURITY.md THREAT_MODEL.md \
     "$appdir/usr/share/doc/zupt/"
 install -m 0644 LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 \
     LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 NOTICE \

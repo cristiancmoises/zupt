@@ -134,7 +134,8 @@ jobs:
           mkdir -p out "$bundle"
           if [[ -x ./zupt.exe ]]; then source_exe=./zupt.exe; else source_exe=./zupt; fi
           install -m 0755 "$source_exe" "$bundle/zupt.exe"
-          install -m 0644 README.md CHANGELOG.md LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 \
+          install -m 0644 README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md \
+            CHANGELOG.md LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 \
             LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 \
             NOTICE THIRD-PARTY-NOTICES.md "$bundle/"
           toolchain_prefix=${MINGW_PREFIX:-/ucrt64}

@@ -1,3 +1,13 @@
+zupt (5.2.9-1) UNRELEASED; urgency=medium
+
+  * Update the bundled VaptVupt codec to 2.65.11 while retaining the existing
+    archive format, wrapper policy, read-back check, and provenance notices.
+  * Add Brazilian Portuguese README and consolidated operational guidance to
+    the package documentation.
+  * Require fresh 5.2.9 source, package, sanitizer, Windows, and macOS gates.
+
+ -- Cristian Cezar Moisés <sac@securityops.co>  Sun, 06 Sep 2026 16:30:00 +0000
+
 zupt (5.2.8-1) UNRELEASED; urgency=medium
 
   * Close CodeQL High path-race findings in SDK key publication, disk-restore

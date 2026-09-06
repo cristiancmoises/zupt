@@ -20,7 +20,7 @@
 # installed smoke test.
 
 Name:           zupt
-Version:        5.2.8
+Version:        5.2.9
 Release:        1%{?dist}
 Summary:        Backup compression with authenticated and post-quantum encryption
 
@@ -46,7 +46,7 @@ BuildRequires:  tar
 # python3 is only needed for the regression-test harness (byte sweeps,
 # tamper injection). The shipped binary has no Python dependency.
 
-Provides:       bundled(vaptvupt-codec) = 2.65.3
+Provides:       bundled(vaptvupt-codec) = 2.65.11
 
 %description
 ZUPT is a pure-C11 backup compression utility featuring:
@@ -91,7 +91,7 @@ comments. Plain archives use non-cryptographic checksums.
 
 %files
 %license LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 NOTICE THIRD-PARTY-NOTICES.md
-%doc README.md SECURITY.md THREAT_MODEL.md CHANGELOG.md
+%doc README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md SECURITY.md THREAT_MODEL.md CHANGELOG.md
 %{_bindir}/%{name}
 %{_datadir}/bash-completion/completions/%{name}
 %{_datadir}/zsh/site-functions/_%{name}
@@ -101,6 +101,12 @@ comments. Plain archives use non-cryptographic checksums.
 %endif
 
 %changelog
+* Sun Sep 06 2026 Cristian Cezar Moisés <sac@securityops.co> - 5.2.9-1
+- Update the bundled VaptVupt codec to 2.65.11 while preserving the archive
+  format, wrapper policy, read-back check, and provenance notices.
+- Add Brazilian Portuguese project and operational documentation.
+- Require fresh 5.2.9 source, package, sanitizer, Windows, and macOS gates.
+
 * Mon Aug 31 2026 Cristian Cezar Moisés <sac@securityops.co> - 5.2.8-1
 - Close CodeQL High path-race findings in SDK key save, disk restore, and
   benchmark cleanup; add the SDK gate, portable raw-C1 fixture handling, and

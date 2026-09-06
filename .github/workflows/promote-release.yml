@@ -11,7 +11,7 @@ on:
         required: true
         type: number
       tag:
-        description: Existing annotated release tag, for example v5.2.8
+        description: Existing annotated release tag, for example v5.2.9
         required: true
         type: string
 
@@ -434,7 +434,8 @@ jobs:
           archive = pathlib.Path(sys.argv[1])
           root = sys.argv[2]
           expected_files = {
-              "zupt", "README.md", "CHANGELOG.md", "SECURITY.md",
+              "zupt", "README.md", "README.pt-BR.md", "DOCUMENTACAO.pt-BR.md",
+              "CHANGELOG.md", "SECURITY.md",
               "THREAT_MODEL.md", "LICENSE", "LICENSE-AGPL-3.0",
               "LICENSE-GPL-3.0", "LICENSE-BSD-2-Clause",
               "LICENSE-BSD-3-Clause", "LICENSE-CC0-1.0", "NOTICE",
@@ -479,6 +480,7 @@ jobs:
               f"{root}/assets/zupt-icon.png", f"{root}/assets/zupt.ico",
               f"{root}/LICENSE-AGPL-3.0", f"{root}/LICENSE-GUI",
               f"{root}/ASSET-PROVENANCE.md", f"{root}/CHANGELOG.md",
+              f"{root}/README.pt-BR.md", f"{root}/DOCUMENTACAO.pt-BR.md",
           }
           with zipfile.ZipFile(archive) as package:
               names = package.namelist()
@@ -514,6 +516,8 @@ jobs:
                   f"{root}/",
                   f"{root}/zupt.exe",
                   f"{root}/README.md",
+                  f"{root}/README.pt-BR.md",
+                  f"{root}/DOCUMENTACAO.pt-BR.md",
                   f"{root}/CHANGELOG.md",
                   f"{root}/LICENSE",
                   f"{root}/LICENSE-AGPL-3.0",

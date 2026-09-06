@@ -298,7 +298,7 @@ fi
 if grep -Eq '^Name:[[:space:]]+zupt$' "$spec" && \
    grep -Eq '^Source0:[[:space:]]+%\{name\}-%\{version\}\.tar\.gz$' "$spec" && \
    grep -Eq '^License:[[:space:]]+AGPL-3\.0-or-later AND GPL-3\.0-or-later AND BSD-2-Clause AND BSD-3-Clause AND CC0-1\.0$' "$spec" && \
-   grep -Eq '^Provides:[[:space:]]+bundled\(vaptvupt-codec\) = 2\.65\.3$' "$spec" && \
+   grep -Eq '^Provides:[[:space:]]+bundled\(vaptvupt-codec\) = 2\.65\.11$' "$spec" && \
    grep -Eq '^Provides:[[:space:]]+vaptvupt = %\{version\}-%\{release\}$' "$spec" && \
    grep -Eq '^Obsoletes:[[:space:]]+vaptvupt < %\{version\}$' "$spec" && \
    grep -Fq 'WITH_SDK=0 WITH_PQBOX=0' "$spec" && \

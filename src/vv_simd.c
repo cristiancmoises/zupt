@@ -81,17 +81,18 @@ static void copy_match_scalar(uint8_t *dst, uint32_t offset, size_t length) {
  * x86-64 AVX2 (guarded by compile-time + runtime detection)
  * ═══════════════════════════════════════════════════════════════ */
 
-#if defined(__x86_64__) || defined(_M_X64)
+#if !VV_DISABLE_SIMD && (defined(__x86_64__) || defined(_M_X64))
 
-#ifdef __AVX2__
+#if VV_HAS_AVX2
 #include <cpuid.h>
-#include <immintrin.h>
 
 static int vv_has_avx2(void) {
     unsigned int eax, ebx, ecx, edx;
     if (!__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx)) return 0;
     return (ebx & (1 << 5)) != 0;  /* AVX2 bit */
 }
+
+#include <immintrin.h>
 
 static void copy_fast_avx2(uint8_t *dst, const uint8_t *src, size_t n) {
     while (n >= 32) {
@@ -161,7 +162,7 @@ static void copy_match_sse2(uint8_t *dst, uint32_t offset, size_t length) {
  * ARM64 NEON (compile-time detection)
  * ═══════════════════════════════════════════════════════════════ */
 
-#if defined(__aarch64__) && defined(__ARM_NEON)
+#if VV_HAS_NEON
 #include <arm_neon.h>
 
 static void copy_fast_neon(uint8_t *dst, const uint8_t *src, size_t n) {
@@ -192,6 +193,18 @@ static void copy_match_neon(uint8_t *dst, uint32_t offset, size_t length) {
  * RUNTIME DISPATCH (initialized once at first call)
  * ═══════════════════════════════════════════════════════════════ */
 
+#if VV_DISABLE_SIMD
+
+void vv_copy_fast(uint8_t *dst, const uint8_t *src, size_t n) {
+    copy_fast_scalar(dst, src, n);
+}
+
+void vv_copy_match(uint8_t *dst, uint32_t offset, size_t length) {
+    copy_match_scalar(dst, offset, length);
+}
+
+#else
+
 typedef void (*copy_fast_fn)(uint8_t *, const uint8_t *, size_t);
 typedef void (*copy_match_fn)(uint8_t *, uint32_t, size_t);
 
@@ -218,7 +231,7 @@ static void vv_init_simd(void) {
     copy_match_fn match;
 
 #if defined(__x86_64__) || defined(_M_X64)
-#ifdef __AVX2__
+#if VV_HAS_AVX2
     if (vv_has_avx2()) {
         fast  = copy_fast_avx2;
         match = copy_match_avx2;
@@ -229,7 +242,7 @@ static void vv_init_simd(void) {
         fast  = copy_fast_sse2;
         match = copy_match_sse2;
     }
-#elif defined(__aarch64__) && defined(__ARM_NEON)
+#elif VV_HAS_NEON
     fast  = copy_fast_neon;
     match = copy_match_neon;
 #else
@@ -258,3 +271,5 @@ void vv_copy_match(uint8_t *dst, uint32_t offset, size_t length) {
     }
     fn(dst, offset, length);
 }
+
+#endif /* VV_DISABLE_SIMD */

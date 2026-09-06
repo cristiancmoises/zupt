@@ -4,13 +4,13 @@
  * Copyright (c) 2025-2026 Cristian Cezar Moisés
  *
  * ZUPT-COMPAT: thin wrapper over vv_compress/vv_decompress with
- * backup-optimized defaults for VaptVupt 2.65.0.
+ * backup-optimized defaults for bundled VaptVupt 2.65.11.
  *
- * Defaults applied here (per ZUPT_INTEGRATION.md, Sprint 122):
- *   - opts.checksum = 0      (ZUPT's HMAC-SHA256 / AES-GCM-SIV outer
- *                             already authenticates the compressed
- *                             bytes; XXH64 footer is redundant work
- *                             and saves ~10% encode time)
+ * Defaults retained by this adapter:
+ *   - opts.checksum = 0      (ZUPT records a per-block XXH64. Encrypted
+ *                             modes also cover ciphertext and canonical
+ *                             metadata with HMAC-SHA256, so the codec
+ *                             footer would duplicate validation.)
  *   - opts.format_v2 = 0     (AUTO). Since codec v2.61.0 the encoder
  *                             auto-enables min_match=3 ('T' blocks) for
  *                             binary-detected input and keeps 'S' blocks
@@ -22,7 +22,7 @@
  *                             binary. Never force it here.
  *   - VV_DECOMPRESS_SKIP_CHECKSUM on decode (matched pair to
  *                             checksum=0 on encode; saves ~30% on real
- *                             fixtures, 2-5x on AEAD-wrapped data)
+ *                             fixtures, 2-5x on HMAC-protected encrypted data)
  *   - opts.compat_v246_5_decoder = 0 (allow lit_fmt=4 / 4-stream
  *                             Huffman; we control both encoder and
  *                             decoder versions in-tree, so we always
@@ -94,7 +94,8 @@ int64_t vvz_compress(const uint8_t *src, size_t src_len,
 
 int64_t vvz_decompress(const uint8_t *src, size_t src_len,
                        uint8_t *dst, size_t dst_cap) {
-    /* Skip XXH64 verification — zupt's HMAC-SHA256 already authenticates */
+    /* The ZUPT block reader checks its stored XXH64 after decoding. Encrypted
+     * modes also verify their HMAC before decryption. */
     return vv_decompress_flags(src, src_len, dst, dst_cap,
                                VV_DECOMPRESS_SKIP_CHECKSUM);
 }
@@ -116,6 +117,8 @@ int vv_get_frame_info(const uint8_t *src, size_t src_len,
     memcpy(&fh, src, sizeof(fh));
     if (fh.magic != VV_MAGIC) return VV_ERR_BAD_MAGIC;
     if (fh.version != 1) return VV_ERR_CORRUPT;
+    if ((fh.flags & 0x0Cu) == 0x0Cu) return VV_ERR_CORRUPT;
+    if (fh.window_log < 10 || fh.window_log > 24) return VV_ERR_CORRUPT;
 
     info->version = fh.version;
     info->has_checksum = (fh.flags & 1) ? 1 : 0;
