@@ -2,11 +2,11 @@
 ;;; Copyright (c) 2026 Cristian Cezar Moisés
 ;;;
 ;;; GNU Guix package definitions for ZUPT (CLI + PySide6 GUI).
-;; RELEASE_RECIPE_STATE=verified-legacy-5.2.9
-;;; This verified historical recipe is not a 5.2.10 package or latest claim.
-;;; After the immutable 5.2.10 tag, use a packaging-only commit to pin the
-;;; generated forge source archive and its verified hash. New public release
-;;; packages use .zupt; no new tarball is uploaded.
+;;; Post-tag recipe pin: immutable v5.2.10 source commit
+;;; 3b3b8f494b4bdd3b74aab60388eef1694ef316f8.
+;;; The generated forge archive was compared to git archive of that commit.
+;;; This packaging-only follow-up does not change the release tag. New public
+;;; release packages use .zupt; no new tarball is uploaded.
 ;;; Source-only build (no vendored libraries): the CLI links only libc/libm/
 ;;; pthread from the store.
 ;;;
@@ -67,17 +67,16 @@
         xcb-util-renderutil xcb-util-wm xcb-util-cursor
         libinput-minimal mtdev libevdev eudev))
 
-(define %zupt-version "5.2.9")
+(define %zupt-version "5.2.10")
 
 (define %zupt-source
   (origin
     (method url-fetch)
     (uri (string-append
           "https://github.com/cristiancmoises/zupt"
-          "/releases/download/v" %zupt-version
-          "/zupt-" %zupt-version ".tar.gz"))
+          "/archive/refs/tags/v" %zupt-version ".tar.gz"))
     (sha256
-     (base32 "0w818y57q1q3gk559x2yp7xj9f71a4a3yz1skl2apg0b3hjy7q94"))))
+     (base32 "06n2f8p0i0hxbpdp4b1ymyysjkng3gv2ldvndn1ck62mqz66mk2n"))))
 
 (define-public zupt
   (package
@@ -121,7 +120,7 @@ ML-KEM-768 with X25519 (recommended), and
 @code{--pq-only} uses ML-KEM-768 alone for @dfn{PQ-only} compliance postures.
 Payload protection is AES-256-CTR + HMAC-SHA256 Encrypt-then-MAC with a fresh
 random per-block nonce; AES-NI/SHA-NI dispatch at runtime; the bundled
-VaptVupt 2.65.11 LZ+ANS codec has portable fallbacks.  Password mode uses
+VaptVupt 2.65.13 LZ+ANS codec has portable fallbacks.  Password mode uses
 PBKDF2-SHA256.  The tool is
 AGPL-3.0-or-later; the embedded codec is GPL-3.0-or-later; the two
 xxHash-derived XXH64 units additionally carry BSD-2-Clause; and portions of

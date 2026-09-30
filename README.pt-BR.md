@@ -104,10 +104,11 @@ como assinado.
 
 ## Código-fonte e procedência do codec
 
-As receitas AUR, Homebrew e Guix mantêm explicitamente a versão 5.2.9 e seus
-hashes verificados. Não representam pacotes 5.2.10. Uma atualização separada
-após a tag imutável pode fixar o arquivo de fonte gerado pelo forge, sem
-alterar a tag ou publicar um novo tarball.
+A tag imutável `v5.2.10` mantém as receitas históricas AUR, Homebrew e Guix
+da versão 5.2.9. Uma atualização de empacotamento separada fixa essas receitas
+no arquivo de fonte verificado, gerado pelo forge para a tag exata 5.2.10,
+sem alterar a tag ou publicar um novo tarball. A verificação dos pins não
+representa teste nativo de instalação AUR, Homebrew ou Guix.
 
 O codec incluído integra o VaptVupt 2.65.13 no commit
 `e30dc9329be7cf9f233b1ac0b1fc9ed31f530391`, com adaptações do ZUPT preservadas.
