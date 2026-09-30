@@ -7,6 +7,8 @@ bundled VaptVupt compression codec with authenticated AES-256-CTR +
 HMAC-SHA256 encryption, native ML-KEM-768/X25519 hybrid encryption, archive
 integrity checks, multithreaded operation, and a Python/Qt graphical frontend.
 
+Available for openSUSE: [download and update instructions](#opensuse-and-obs).
+
 Version 5.2.10 updates the bundled VaptVupt codec from 2.65.11 to 2.65.13.
 It prepares only reachable matcher buckets for small BALANCED/EXTREME inputs
 and their first-block prepass, sizes hash3 history to the actual chain, and
@@ -491,6 +493,40 @@ source input and require independent validation when that input changes.
 
 ## openSUSE and OBS
 
+ZUPT is available for openSUSE through the community OBS project
+[`home:cabelo:innovators`](https://build.opensuse.org/project/show/home:cabelo:innovators).
+Use the [openSUSE package page](https://software.opensuse.org/package/zupt)
+to choose your distribution, or browse the verified download repositories for
+[Leap 16.0](https://download.opensuse.org/repositories/home:/cabelo:/innovators/16.0/)
+and [Tumbleweed](https://download.opensuse.org/repositories/home:/cabelo:/innovators/openSUSE_Tumbleweed/).
+Select the matching OS release and architecture; inspect the repository and its
+signing key before enabling it. These are community packages, not a claim of
+Factory acceptance or inclusion in the default distribution repositories.
+
+As checked on 2026-09-30, both x86_64 repositories offer ZUPT **5.2.9**.
+That downstream version is separate from this repository's **5.2.10** release;
+do not assume that it includes this release's codec update.
+
+After enabling the matching repository on a non-transactional openSUSE system:
+
+~~~sh
+sudo zypper refresh
+sudo zypper install zupt
+~~~
+
+To update an already installed package from your configured repositories:
+
+~~~sh
+sudo zypper refresh
+sudo zypper update zupt
+zupt --version
+~~~
+
+Review the proposed transaction; do not disable signature checks or force a
+vendor change. These commands do not perform a Tumbleweed distribution upgrade.
+See the [openSUSE Zypper guide](https://doc.opensuse.org/documentation/tumbleweed/zypper/)
+for repository management and system-update guidance.
+
 The maintained upstream recipe is in packaging/opensuse. It targets the
 immutable v5.2.10 tag, disables submodules and Git LFS, builds with
 WITH_SDK=0 WITH_PQBOX=0, runs real checks, and installs without the renamed-era
@@ -546,7 +582,9 @@ the author of the current upstream source, build, test, documentation, and
 packaging changes, including the 5.2.2 baseline and corrective
 5.2.3/5.2.4/5.2.5/5.2.6/5.2.7/5.2.8/5.2.10 work.
 
-Alessandro de Oliveira Faria (Cabelo) is credited as the openSUSE collaborator
+Thank you to Alessandro de Oliveira Faria
+([Cabelo](https://build.opensuse.org/users/cabelo)) for helping maintain the
+community openSUSE package. He is credited as the openSUSE collaborator
 and downstream package maintainer. He reviews the handoff, commits it in the
 OBS project he maintains, and may make the additional openSUSE-side adjustments
 he considers necessary. That downstream role is not attribution of ZUPT source

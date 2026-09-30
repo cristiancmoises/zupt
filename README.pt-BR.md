@@ -9,6 +9,8 @@ como código-fonte com criptografia autenticada AES-256-CTR + HMAC-SHA256,
 criptografia híbrida ML-KEM-768/X25519, verificação de integridade, execução
 multithread e uma interface gráfica opcional em Python/Qt.
 
+Disponível para openSUSE: [download e atualização](#pacotes-opensuse).
+
 ## O que muda na versão 5.2.10
 
 - Atualiza o codec incluído de 2.65.11 para 2.65.13.
@@ -23,6 +25,50 @@ multithread e uma interface gráfica opcional em Python/Qt.
 O suporte a contexto FAST sem alocação faz parte da biblioteca VaptVupt, mas o
 ZUPT continua usando quadros independentes pela API tradicional. O programa não
 depende de módulo do kernel.
+
+## Pacotes openSUSE
+
+O ZUPT está disponível para openSUSE pelo projeto comunitário OBS
+[`home:cabelo:innovators`](https://build.opensuse.org/project/show/home:cabelo:innovators).
+Use a [página do pacote openSUSE](https://software.opensuse.org/package/zupt)
+para selecionar sua distribuição ou consulte os repositórios de download
+verificados para
+[Leap 16.0](https://download.opensuse.org/repositories/home:/cabelo:/innovators/16.0/)
+e [Tumbleweed](https://download.opensuse.org/repositories/home:/cabelo:/innovators/openSUSE_Tumbleweed/).
+Escolha a versão do sistema e a arquitetura corretas; confira o repositório e
+sua chave de assinatura antes de habilitá-lo. São pacotes comunitários, não uma
+alegação de aceitação no Factory ou inclusão nos repositórios padrão.
+
+Na verificação de 2026-09-30, ambos os repositórios x86_64 oferecem ZUPT
+**5.2.9**. Essa versão downstream é diferente da **5.2.10** deste repositório;
+não presuma que inclui a atualização de codec desta versão.
+
+Depois de habilitar o repositório correspondente em um sistema openSUSE não
+transacional:
+
+```sh
+sudo zypper refresh
+sudo zypper install zupt
+```
+
+Para atualizar um pacote já instalado pelos repositórios configurados:
+
+```sh
+sudo zypper refresh
+sudo zypper update zupt
+zupt --version
+```
+
+Revise a transação proposta; não desative verificações de assinatura nem force
+a troca de fornecedor. Esses comandos não fazem uma atualização de distribuição
+do Tumbleweed. Consulte o
+[guia do Zypper](https://doc.opensuse.org/documentation/tumbleweed/zypper/)
+para gerenciar repositórios e atualizações do sistema.
+
+Agradecemos a Alessandro de Oliveira Faria
+([Cabelo](https://build.opensuse.org/users/cabelo)) pela ajuda na manutenção do
+pacote comunitário openSUSE. Essa colaboração downstream não implica autoria do
+código-fonte upstream.
 
 ## Compilação rápida
 
