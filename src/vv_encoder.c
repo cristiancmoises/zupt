@@ -409,7 +409,7 @@ static void matcher_set_format_v2(matcher_t *m) {
 /* Enable hash3 path: allocate tables. Idempotent and cheap to skip. */
 static int matcher_enable_hash3(matcher_t *m) {
     if (m->table3) return 1;  /* Already enabled */
-    uint32_t wsz = 1u << m->wlog;
+    uint32_t wsz = m->chain_mask + 1;
     m->table3 = (int32_t *)malloc(VV_HC3_SIZE * sizeof(int32_t));
     m->hash3_chain = (int32_t *)malloc(wsz * sizeof(int32_t));
     if (!m->table3 || !m->hash3_chain) {
@@ -1273,7 +1273,10 @@ static VV_NOINLINE size_t compress_block_optimal(const uint8_t *src, size_t star
          * unaffected: both >16 wlogs emit 3-byte offsets. Output-
          * identical — verified by the ratio gate at +-0. */
         uint32_t pp_wlog = (m->wlog < 20) ? m->wlog : 20;
-        if (matcher_init(&mp, pp_wlog, 4, 0)) {
+        /* This matcher starts with no history. A small first block can use
+         * the same reachable-bucket setup as the one-shot encoder. */
+        const uint8_t *pp_src = start_pos == 0 && block_len <= 4096 ? src : NULL;
+        if (matcher_init_for_input(&mp, pp_wlog, 4, 0, pp_src, block_len)) {
             mp.accel = 2;
             mp.max_match = m->max_match;
             size_t pcap = block_len + block_len / 255 + 1024;
@@ -2330,8 +2333,11 @@ int64_t vv_compress_inner(const uint8_t *src, size_t src_len,
     /* Matcher */
     matcher_t m;
     /* SPRINT 93 audit: handle allocation failure cleanly */
-    const uint8_t *small_src =
-        opts->mode == VV_MODE_ULTRA_FAST && src_len <= 4096 ? src : NULL;
+    /* A NULL, zero-length input still has no history. The non-NULL marker
+     * selects bounded setup without changing full-history matcher_init. */
+    static const uint8_t empty_input;
+    const uint8_t *small_src = src_len <= 4096 ?
+        (src_len ? src : &empty_input) : NULL;
     if (!matcher_init_for_input(&m, wlog, depth, enable_hash4,
                                 small_src, src_len)) {
         return VV_ERR_NOMEM;

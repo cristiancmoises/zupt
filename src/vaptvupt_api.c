@@ -4,7 +4,7 @@
  * Copyright (c) 2025-2026 Cristian Cezar Moisés
  *
  * ZUPT-COMPAT: thin wrapper over vv_compress/vv_decompress with
- * backup-optimized defaults for bundled VaptVupt 2.65.11.
+ * backup-optimized defaults for bundled VaptVupt 2.65.13.
  *
  * Defaults retained by this adapter:
  *   - opts.checksum = 0      (ZUPT records a per-block XXH64. Encrypted

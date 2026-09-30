@@ -1,4 +1,4 @@
-# ZUPT 5.2.9 threat model
+# ZUPT 5.2.10 threat model
 
 This document defines the security boundary of the ZUPT archive tool. It is
 not a certification, a guarantee against every hostile input, or a substitute
@@ -17,7 +17,7 @@ plausibly deniable.
 
 ## Baseline considered here
 
-The upstream baseline is built from the 5.2.9 source with:
+The upstream baseline is built from the 5.2.10 source with:
 
 ```sh
 make WITH_SDK=0 WITH_PQBOX=0
@@ -38,8 +38,8 @@ separately identified hand-written assembly. Portable C is the default.
 Architecture portability is a source property, not evidence that an unexecuted
 architecture passed.
 
-The bundled compression boundary is VaptVupt codec 2.65.11 at commit
-`1cc78bce90619dbf97e0ed1ad449c3c4f6329041`. ZUPT continues to verify decoded
+The bundled compression boundary is VaptVupt codec 2.65.13 at commit
+`e30dc9329be7cf9f233b1ac0b1fc9ed31f530391`. ZUPT continues to verify decoded
 data with exact-length checks and its own per-block XXH64 outside the codec.
 Encrypted modes additionally authenticate ciphertext and canonical metadata
 with HMAC-SHA256. Codec tests and sanitizers are evidence for exercised paths,
@@ -199,7 +199,7 @@ pinned parent and verifies its filesystem identity before handle-based
 deletion. An attacker who inserts a link can cause cleanup failure, but the
 cleanup must not traverse to the link target.
 
-The Windows handle-relative boundary in 5.2.9 covers normal local Win32 paths.
+The Windows handle-relative boundary in 5.2.10 covers normal local Win32 paths.
 Win32 extended-length and device-namespace paths, raw UNC output roots, and
 mapped/network-drive output are not supported. Cross-build and Wine results are
 not a substitute for the required native `windows-latest` Unicode package
@@ -277,20 +277,16 @@ expanded bytes and fail closed when a cap is reached. Commit `ff99770` passed
 all 39 source-only scanner cases, including GNU thin archives, scanner-bomb
 limits, and safe diagnostic cases.
 
-DEB, binary RPM, SRPM, notice-bearing Linux tar.xz, source-only portable GUI
-ZIP, Windows ZIP, and macOS DMG files can be published separately from the
-tagged source. Each artifact extends the trust boundary to its builder,
-toolchain, runner image, and packaging scripts. Treat it as validated only when
-the exact target has a recorded build, content/package inspection, extracted or
-installed smoke test, and applicable archive round trip. An AppImage is not
-promoted for 5.2.9; bare Linux and Windows executables are also excluded.
+New source and Linux CLI archives are published as verified, unencrypted
+`.zupt` files. Freshly built DEB/RPM/SRPM packages may accompany them. Each
+artifact extends the trust boundary to its builder, toolchain, runner image
+and packaging scripts; validation requires exact-target builds, payload
+inspection and extracted or installed smoke tests. Internal RPM/OBS tarballs
+are build inputs rather than new public release assets.
 
-For 5.2.9, that gated artifact scope covers the CLI files plus the exact GUI
-DEB, noarch/source RPM, and source-only portable ZIP named in the README. The
-portable ZIP contains no compiled runtime and crosses the release boundary only
-after source scans and an exact safe-member check. AppDir and Flatpak bundles
-and GUI platform installers remain excluded; Windows ZIP and macOS DMG outputs
-remain CLI-only.
+AppImage is not promoted for 5.2.10; bare executables, unbuilt GUI installers
+and untested Windows/macOS binaries are excluded. Historical platform results
+do not approve new artifacts.
 
 The immutable, non-promoted 5.2.2 candidate at `ff99770` passed the full local
 `make release-check`: packaging reported `PASS=49 FAIL=0 SKIP=0`; strict GCC,
@@ -355,7 +351,7 @@ These are historical facts about earlier releases, retained to support recovery:
   combinations remain unclaimed.
 
 Historical test counts in the changelog describe those releases. They do not
-automatically become 5.2.9 results; current outcomes belong in the release
+automatically become 5.2.10 results; current outcomes belong in the release
 validation record, with unavailable environments marked `SKIP`. In particular,
 runs made before the final positional-AAD and mandatory-AIT changes are not
 final release gates for the resulting candidate.
@@ -366,4 +362,4 @@ Email **zupt@riseup.net** with `[security]` in the subject. Include the version,
 platform, impact, and a minimal non-sensitive reproducer. Do not disclose the
 issue publicly until a coordinated timeline has been agreed.
 
-Document version: 5.2.9, 2026-09-06.
+Document version: 5.2.10, 2026-09-30.

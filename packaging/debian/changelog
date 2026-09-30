@@ -1,3 +1,11 @@
+zupt (5.2.10-1) UNRELEASED; urgency=medium
+
+  * Integrate VaptVupt 2.65.13 small-input encoder preparation, retaining
+    Zupt wrapper policy, parser bounds, secure wipes and third-party notices.
+  * Preserve archive format 1.6 and require fresh release checks.
+
+ -- Cristian Cezar Moisés <sac@securityops.co>  Wed, 30 Sep 2026 19:00:00 -0300
+
 zupt (5.2.9-1) UNRELEASED; urgency=medium
 
   * Update the bundled VaptVupt codec to 2.65.11 while retaining the existing

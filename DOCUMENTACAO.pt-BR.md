@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 
-# Documentação operacional do ZUPT 5.2.9
+# Documentação operacional do ZUPT 5.2.10
 
 Este documento reúne instalação, uso seguro, distribuição e validação para a
 versão em português do Brasil. Os documentos técnicos em inglês continuam
@@ -107,7 +107,7 @@ Wine não substitui o teste nativo obrigatório.
 
 ## 5. Codec VaptVupt incluído
 
-ZUPT 5.2.9 inclui VaptVupt 2.65.11. O adaptador mantém:
+ZUPT 5.2.10 inclui VaptVupt 2.65.13. O adaptador mantém:
 
 - quadros independentes e janela automática;
 - níveis 1–2 em FAST, 3–7 em balanced e 8–9 em extreme;

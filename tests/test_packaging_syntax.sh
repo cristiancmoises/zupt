@@ -48,6 +48,17 @@ fi
 
 check_recipe_version() {
     local recipe=$1 recipe_version=$2
+    local legacy_path='' legacy_marker='# RELEASE_RECIPE_STATE=verified-legacy-5.2.9'
+    case $recipe in
+        AUR) legacy_path=packaging/aur/PKGBUILD ;;
+        Homebrew) legacy_path=packaging/homebrew/zupt.rb ;;
+        Guix) legacy_path=packaging/guix/zupt.scm; legacy_marker=';; RELEASE_RECIPE_STATE=verified-legacy-5.2.9' ;;
+    esac
+    if [[ $version == 5.2.10 && $recipe_version == 5.2.9 && -n $legacy_path ]] &&
+       grep -Fqx "$legacy_marker" "$legacy_path"; then
+        pass "$recipe explicitly remains the verified legacy 5.2.9 recipe (not a 5.2.10 package)"
+        return
+    fi
     if [[ $recipe_version == "$version" ]]; then
         pass "$recipe version is $version"
     else
@@ -71,6 +82,32 @@ check_recipe_version openSUSE \
     "$(awk '/^Version:/{print $2; exit}' packaging/opensuse/zupt.spec)"
 check_recipe_version GUI-Deb-Control \
     "$(awk '/^Version:/{print $2; exit}' gui/packaging/deb/control)"
+
+if [[ $version == 5.2.10 ]]; then
+    if grep -Fqx '# RELEASE_RECIPE_STATE=verified-legacy-5.2.9' packaging/aur/PKGBUILD &&
+       grep -Fqx '# RELEASE_RECIPE_STATE=verified-legacy-5.2.9' packaging/homebrew/zupt.rb &&
+       grep -Fqx ';; RELEASE_RECIPE_STATE=verified-legacy-5.2.9' packaging/guix/zupt.scm; then
+        # Compare the PKGBUILD variable references literally, not this shell's values.
+        # shellcheck disable=SC2016
+        if grep -Fqx 'pkgver=5.2.9' packaging/aur/PKGBUILD &&
+           grep -Fqx '  version "5.2.9"' packaging/homebrew/zupt.rb &&
+           grep -Fqx '(define %zupt-version "5.2.9")' packaging/guix/zupt.scm &&
+           grep -Fqx 'source=("${pkgname}-${pkgver}.tar.gz::https://github.com/cristiancmoises/zupt/releases/download/v${pkgver}/${pkgname}-${pkgver}.tar.gz")' packaging/aur/PKGBUILD &&
+           grep -Fqx "sha256sums=('24e1e3251c0bbcab049d3a7c3f1451e1b824fbb95ef454ca7c03077c8a470171')" packaging/aur/PKGBUILD &&
+           grep -Fqx '  url "https://github.com/cristiancmoises/zupt/releases/download/v5.2.9/zupt-5.2.9.tar.gz"' packaging/homebrew/zupt.rb &&
+           grep -Fqx '  sha256 "24e1e3251c0bbcab049d3a7c3f1451e1b824fbb95ef454ca7c03077c8a470171"' packaging/homebrew/zupt.rb &&
+           grep -Fqx '          "/releases/download/v" %zupt-version' packaging/guix/zupt.scm &&
+           grep -Fqx '          "/zupt-" %zupt-version ".tar.gz"))' packaging/guix/zupt.scm &&
+           grep -Fqx '     (base32 "0w818y57q1q3gk559x2yp7xj9f71a4a3yz1skl2apg0b3hjy7q94"))))' packaging/guix/zupt.scm; then
+            pass 'all three legacy recipe versions, source URLs and verified 5.2.9 hashes are exact'
+        else
+            fail 'legacy recipe declarations do not match the exact verified 5.2.9 state'
+        fi
+    elif grep -Eq 'RELEASE_RECIPE_STATE=|24e1e3251c0bbcab049d3a7c3f1451e1b824fbb95ef454ca7c03077c8a470171|0w818y57q1q3gk559x2yp7xj9f71a4a3yz1skl2apg0b3hjy7q94' \
+        packaging/aur/PKGBUILD packaging/homebrew/zupt.rb packaging/guix/zupt.scm; then
+        fail 'legacy 5.2.9 pins require all three exact legacy recipe declarations'
+    fi
+fi
 
 if grep -Fqx "VERSION=\${VERSION:-$version}" install.sh && \
    has_exact_line_crlf_safe \
@@ -298,7 +335,7 @@ fi
 if grep -Eq '^Name:[[:space:]]+zupt$' "$spec" && \
    grep -Eq '^Source0:[[:space:]]+%\{name\}-%\{version\}\.tar\.gz$' "$spec" && \
    grep -Eq '^License:[[:space:]]+AGPL-3\.0-or-later AND GPL-3\.0-or-later AND BSD-2-Clause AND BSD-3-Clause AND CC0-1\.0$' "$spec" && \
-   grep -Eq '^Provides:[[:space:]]+bundled\(vaptvupt-codec\) = 2\.65\.11$' "$spec" && \
+   grep -Eq '^Provides:[[:space:]]+bundled\(vaptvupt-codec\) = 2\.65\.13$' "$spec" && \
    grep -Eq '^Provides:[[:space:]]+vaptvupt = %\{version\}-%\{release\}$' "$spec" && \
    grep -Eq '^Obsoletes:[[:space:]]+vaptvupt < %\{version\}$' "$spec" && \
    grep -Fq 'WITH_SDK=0 WITH_PQBOX=0' "$spec" && \
