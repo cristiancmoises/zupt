@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 
-# ZUPT 5.2.9
+# ZUPT 5.2.10
 
 [English](README.md) | Português do Brasil
 
@@ -9,12 +9,12 @@ como código-fonte com criptografia autenticada AES-256-CTR + HMAC-SHA256,
 criptografia híbrida ML-KEM-768/X25519, verificação de integridade, execução
 multithread e uma interface gráfica opcional em Python/Qt.
 
-## O que muda na versão 5.2.9
+## O que muda na versão 5.2.10
 
-- Atualiza o codec incluído de 2.65.3 para 2.65.11.
-- Traz validações adicionais de limites no decodificador, rejeição de fluxos
-  truncados, correções de capacidade de saída e de XXH64 e reaproveitamento de
-  alocações internas.
+- Atualiza o codec incluído de 2.65.11 para 2.65.13.
+- Prepara somente buckets alcançáveis para entradas pequenas em
+  BALANCED/EXTREME e no pré-passe do primeiro bloco, dimensiona o histórico
+  hash3 pela cadeia real e inicializa explicitamente a raiz da árvore Huffman.
 - Preserva a política do adaptador do ZUPT e sua verificação por
   descompactação e comparação antes de aceitar um bloco comprimido.
 - Não altera o formato de arquivo 1.6, o identificador de codec `0x0010`, a
@@ -79,33 +79,40 @@ em português está em [DOCUMENTACAO.pt-BR.md](DOCUMENTACAO.pt-BR.md).
 
 ## Pacotes e artefatos de release
 
-A versão só deve ser publicada depois de todos os testes aplicáveis ao alvo.
-O contrato da release 5.2.9 prevê exatamente os 13 arquivos abaixo:
+Publique somente arquivos compilados e validados a partir da tag exata.
+Novos arquivos de fonte e Linux usam `.zupt` sem criptografia, com
+`zupt test`, extração e comparação integral antes da publicação.
 
-| Arquivo | Alvo e limite da validação |
+| Arquivo | Validação exigida antes da publicação |
 | --- | --- |
-| `zupt-5.2.9.tar.gz` | Código-fonte reproduzível; duas exportações idênticas, auditoria de conteúdo e SHA-256. |
-| `zupt-5.2.9.tar.gz.sha256` | Arquivo auxiliar com o SHA-256 do código-fonte reproduzível. |
-| `zupt_5.2.9_amd64.deb` | Ubuntu 24.04 amd64; instalação, ciclo funcional e remoção. |
-| `zupt-5.2.9-0.x86_64.rpm` | openSUSE Tumbleweed x86_64; inspeção, instalação, ciclo funcional e remoção. |
-| `zupt-5.2.9-0.src.rpm` | RPM fonte correspondente exatamente ao RPM binário validado. |
-| `zupt-5.2.9-linux-x86_64.tar.xz` | CLI Linux x86_64 e avisos públicos completos; dependências permitidas e teste do pacote extraído. |
-| `zupt-gui_5.2.9_all.deb` | GUI Python/Qt independente de arquitetura; dependências, conteúdo e integração GUI/CLI instalada em modo sem tela. |
-| `zupt-gui-5.2.9-1.noarch.rpm` | GUI Python/Qt noarch; inspeção e integração GUI/CLI instalada em modo sem tela. |
-| `zupt-gui-5.2.9-1.src.rpm` | RPM fonte correspondente exatamente ao RPM noarch da GUI. |
-| `zupt-gui-5.2.9-portable.zip` | GUI e inicializadores portáteis somente com código-fonte, sem runtime compilado; licenças, procedência, lista exata de membros e integração GUI/CLI extraída em modo sem tela. |
-| `zupt-5.2.9-windows-x86_64.zip` | Executável nativo Windows x86_64 com avisos; ciclo funcional a partir do ZIP extraído. |
-| Um entre `ZUPT-5.2.9-macOS-x86_64.dmg` e `ZUPT-5.2.9-macOS-arm64.dmg` | Imagem nativa macOS; ciclo funcional do executável montado, com a arquitetura real do executor no nome. |
-| `SHA256SUMS` | Manifesto determinístico dos outros 12 arquivos promovidos. |
+| `zupt-5.2.10-src.zupt` | Árvore de fonte sem credenciais ou prompts; extração igual à tag. |
+| `zupt-5.2.10-linux-x86_64.zupt` | CLI Linux x86_64 e avisos completos; teste funcional da extração. |
+| `zupt_5.2.10_amd64.deb` | Compilação DEB real, dependências e conteúdo; teste da CLI extraída ou instalada. |
+| `zupt-5.2.10-0.x86_64.rpm` e `zupt-5.2.10-0.src.rpm` | Compilação RPM/SRPM real, procedência, conteúdo e teste funcional. |
+| `SHA256SUMS`, `SHA256SUMS.asc`, `release-key.asc` | Hashes exatos, assinatura destacada verificada e chave pública. |
 
-Um artefato ausente ou sem seu teste nativo deve ser informado como não
-publicado. AppImage, AppDir, Flatpak, instaladores gráficos nativos e executáveis
-soltos não fazem parte desse conjunto.
+Um pacote sem sua compilação ou seu teste exigido não é publicado. Testes
+locais do pacote extraído não equivalem a instalação em Ubuntu/openSUSE.
+Windows, macOS, instaladores GUI e outras arquiteturas precisam de builds
+nativos novos e não são prometidos nesta versão. Releases anteriores
+preservam seus formatos e arquivos.
+
+O fluxo antigo de promoção de 13 arquivos fica desativado para v5.2.10 ou
+posterior. Tarballs RPM/OBS e arquivos CI são entradas internas de construção;
+não são os novos downloads públicos. Nunca descreva um pacote sem assinatura
+como assinado.
 
 ## Código-fonte e procedência do codec
 
-O codec incluído corresponde ao VaptVupt 2.65.11 no commit
-`1cc78bce90619dbf97e0ed1ad449c3c4f6329041`, com adaptações do ZUPT preservadas.
+As receitas AUR, Homebrew e Guix mantêm explicitamente a versão 5.2.9 e seus
+hashes verificados. Não representam pacotes 5.2.10. Uma atualização separada
+após a tag imutável pode fixar o arquivo de fonte gerado pelo forge, sem
+alterar a tag ou publicar um novo tarball.
+
+O codec incluído integra o VaptVupt 2.65.13 no commit
+`e30dc9329be7cf9f233b1ac0b1fc9ed31f530391`, com adaptações do ZUPT preservadas.
+Não é uma cópia byte a byte da árvore canônica: mantém os limites do parser,
+o fallback de limpeza segura Darwin/NetBSD e a política do adaptador.
 Os arquivos do aplicativo usam AGPL-3.0-or-later; os arquivos do codec usam
 GPL-3.0-or-later. As rotinas derivadas de xxHash também preservam BSD-2-Clause.
 Veja [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) e os arquivos `LICENSE*`.

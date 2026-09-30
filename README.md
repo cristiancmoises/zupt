@@ -1,4 +1,4 @@
-# ZUPT 5.2.9
+# ZUPT 5.2.10
 
 [English](README.md) | [Português do Brasil](README.pt-BR.md)
 
@@ -7,13 +7,13 @@ bundled VaptVupt compression codec with authenticated AES-256-CTR +
 HMAC-SHA256 encryption, native ML-KEM-768/X25519 hybrid encryption, archive
 integrity checks, multithreaded operation, and a Python/Qt graphical frontend.
 
-Version 5.2.9 updates the bundled VaptVupt codec from 2.65.3 to 2.65.11.
-The refresh carries decoder span validation, stricter truncated-bitstream and
-output-capacity handling, allocation reuse, scalar-build support, and XXH64
-pointer-bound corrections while retaining Zupt's wrapper policy and read-back
-self-check. Archive format 1.6, codec identifier `0x0010`, CLI behavior, and SDK
-ABI remain unchanged. Publish a release only after its exact-tag source,
-package, sanitizer, Windows, and macOS matrix passes.
+Version 5.2.10 updates the bundled VaptVupt codec from 2.65.11 to 2.65.13.
+It prepares only reachable matcher buckets for small BALANCED/EXTREME inputs
+and their first-block prepass, sizes hash3 history to the actual chain, and
+initializes the Huffman tree root explicitly. Zupt retains its parser guards,
+secure-wipe fallback, wrapper policy, licensing notices, and read-back check.
+Archive format 1.6, codec identifier `0x0010`, CLI behavior, and SDK ABI remain
+unchanged. Release assets require fresh checks against the exact tagged source.
 
 Version 5.2.8 closes three CodeQL High path-race findings: SDK key copies now
 publish atomically through an already-open private object, POSIX disk restore
@@ -66,17 +66,20 @@ The `.zupt` archive extension, format v1.6, magic bytes, codec identifiers, and
 SDK ABI remain unchanged. An optional `vaptvupt` command alias may be provided
 for scripts written against versions 3.0.0 through 5.2.1.
 
-## Codec compatibility refresh in 5.2.9
+## Codec compatibility refresh in 5.2.10
 
-The in-tree codec corresponds to VaptVupt tag `v2.65.11` at commit
-`1cc78bce90619dbf97e0ed1ad449c3c4f6329041`. Zupt keeps its established
+The in-tree codec integrates VaptVupt tag `v2.65.13` at commit
+`e30dc9329be7cf9f233b1ac0b1fc9ed31f530391`. It is a consumer adaptation rather than a
+byte-identical canonical copy: Zupt retains its GPL-3.0-or-later codec notices,
+Darwin/NetBSD volatile secure-wipe fallback, and optimal-parser signed bounds.
+Zupt keeps its established
 level-to-mode mapping, codec-checksum-off policy, automatic window and BCJ
 selection, and decode-plus-compare acceptance check. Zupt records its own
 per-block XXH64; encrypted modes additionally authenticate ciphertext and
 metadata with HMAC-SHA256. It continues
 to use independent one-shot frames and does not require a kernel module or the
 new caller-owned FAST context. Focused cross-version fixtures are supporting
-local evidence, not a substitute for the complete 5.2.9 release matrix.
+local evidence, not a substitute for the complete 5.2.10 release matrix.
 
 Brazilian Portuguese introductions and operational guidance are provided in
 [README.pt-BR.md](README.pt-BR.md) and
@@ -236,78 +239,31 @@ users. Those assets must be built from the tagged source, tested on their target
 environment, and kept outside Git and the source archive. A format that was not
 built and tested is not presented as supported.
 
-## 5.2.9 release artifact contract
+## 5.2.10 release artifact contract
 
-The 5.2.9 release may contain exactly the following 13 files only after every
-corresponding target gate succeeds. `SHA256SUMS` must record the exact promoted
-filenames and digests. Release notes must identify the tested commit and the
-manually dispatched exact-tag CI run. Until then, an asset is unpublished.
+Publish only files freshly built and validated from the exact tagged source.
+New source and Linux archives use unencrypted `.zupt` files, verified by
+`zupt test` and complete extraction comparison. Release notes identify the
+tested commit, commands, limitations and signatures actually produced.
 
-| Format | Intended target and validation boundary |
+| Artifact | Validation required before publication |
 | --- | --- |
-| `zupt-5.2.9.tar.gz` | Reproducible, source-only archive; scanned twice-built input plus SHA-256. |
-| `zupt-5.2.9.tar.gz.sha256` | SHA-256 sidecar for the reproducible source archive. |
-| `zupt_5.2.9_amd64.deb` | Ubuntu 24.04 amd64 package; install, functional round trip, and uninstall gate. |
-| `zupt-5.2.9-0.x86_64.rpm` | openSUSE Tumbleweed x86_64 binary RPM; package inspection, install, round trip, and uninstall gate. |
-| `zupt-5.2.9-0.src.rpm` | Source RPM corresponding exactly to the gated openSUSE binary RPM. |
-| `zupt-5.2.9-linux-x86_64.tar.xz` | Linux x86_64 CLI plus the complete public license/notice payload; dependency allowlist and extracted-package functional gate. |
-| `zupt-gui_5.2.9_all.deb` | Architecture-independent Python/Qt GUI package; exact dependency/payload checks plus installed off-screen GUI/CLI integration gate. |
-| `zupt-gui-5.2.9-1.noarch.rpm` | Architecture-independent Python/Qt GUI RPM; package inspection plus installed off-screen GUI/CLI integration gate. |
-| `zupt-gui-5.2.9-1.src.rpm` | Source RPM corresponding exactly to the gated noarch GUI RPM. |
-| `zupt-gui-5.2.9-portable.zip` | Source-only GUI and launchers with licenses/provenance; source scan, exact member allowlist, and extracted off-screen GUI/CLI gate. |
-| `zupt-5.2.9-windows-x86_64.zip` | Native Windows x86_64 executable with notices; extracted-ZIP round-trip gate. |
-| Exactly one `ZUPT-5.2.9-macOS-{x86_64\|arm64}.dmg` | Native macOS image; mounted packaged executable round-trip gate, with the actual runner architecture in the filename. |
-| `SHA256SUMS` | Deterministic manifest covering the other 12 promoted files. |
+| `zupt-5.2.10-src.zupt` | Source-only tree, no credentials or task prompts; extraction matches the tag. |
+| `zupt-5.2.10-linux-x86_64.zupt` | Linux x86_64 CLI and complete public notices; extracted CLI round trip. |
+| `zupt_5.2.10_amd64.deb` | Real DEB build, dependency/payload inspection and extracted or installed CLI test. |
+| `zupt-5.2.10-0.x86_64.rpm` and `zupt-5.2.10-0.src.rpm` | Real RPM/SRPM build, source provenance, payload inspection and extracted or installed CLI test. |
+| `SHA256SUMS`, `SHA256SUMS.asc`, `release-key.asc` | Exact asset hashes, verified detached signature and public signing key. |
 
-An asset absent from the release was not promoted through its mandatory gate.
-Do not infer support for another distribution release, OS version, CPU
-architecture, raw UNC/SMB destination, or package manager from a similarly
-named file. Binary assets are release outputs, never source-build inputs.
+A package without its required build or test is unpublished. Local extracted
+package tests do not imply installation tests on Ubuntu/openSUSE. Windows,
+macOS, GUI installers and other architectures require fresh native builds and
+are not promised by this release. Prior releases keep their original artifacts.
 
-No AppImage is promised for 5.2.9. The inspected upstream type-2 runtime lacked
-a complete notice/source-relink handoff for every statically linked component,
-so redistributing it would not meet this release's provenance gate. AppDir and
-Flatpak bundles and GUI platform installers are likewise outside the promoted
-set because their runtime, license, or target gates are incomplete. A bare
-Linux executable or Windows `.exe` is not promoted: each CLI executable is
-carried only inside its notice-bearing archive. The Windows ZIP and macOS DMG
-remain CLI-only.
-
-The promoted GUI artifacts are the gated architecture-independent DEB,
-noarch/source RPM, and source-only portable ZIP listed above. The portable ZIP
-does not bundle Python, Qt, or the ZUPT CLI; its launchers select compatible
-software already installed on the target. Other historical GUI packages and
-platform installers are not carried forward implicitly.
-
-The canonical source repository is
-<https://github.com/cristiancmoises/zupt>. After promotion, the canonical
-release URL is <https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9>.
-Assets referenced
-by the AUR, Homebrew, Guix, or generic RPM recipes must exist there at their
-recorded URL before those recipes are published.
-
-Audit the current checkout and its Git archive with:
-
-~~~sh
-bash scripts/check-source-only.sh
-bash tests/test_source_only.sh
-~~~
-
-For a tag or an existing source archive:
-
-~~~sh
-bash scripts/check-source-only.sh --tag v5.2.9
-bash scripts/check-source-only.sh --archive /path/to/zupt-5.2.9.tar.gz
-~~~
-
-Unknown `.bin` files fail the scan. A necessary binary data fixture may be
-allowed only with `--data-manifest FILE`; each tab-separated record must name
-its path, purpose, provenance, and SPDX license. This exception never permits
-compiled or executable magic, packages, AppImages, bytecode, or Git LFS
-pointers. Nested scans cap recursion, member count, individual expansion, and
-total expanded bytes and fail closed at a limit. On committed Linux candidate
-`ff99770`, all 39 source-only scanner cases passed, including GNU thin archives,
-scanner-bomb limits, and safe diagnostic cases.
+The old 13-asset promotion workflow is disabled for v5.2.10 and later.
+Its source tarballs and portable tar.xz outputs are internal CI/build inputs,
+not new public release uploads. The release procedure publishes only the
+verified current asset set; a missing signature must never be described as a
+signed artifact.
 
 ## Build from source
 
@@ -461,7 +417,7 @@ openSUSE RPM checks. Promotion run `33457868306` published the exact tested
 asset allowlist. Unexecuted environments remain `SKIP`, never `PASS`; these
 project-run results are not independent certification.
 
-On Windows, 5.2.9 scopes output handling to normal local Win32 paths. A MinGW
+On Windows, 5.2.10 scopes output handling to normal local Win32 paths. A MinGW
 cross-build or Wine run is not native-Windows evidence; the `windows-latest`
 package job, including its Unicode round trip, remains a mandatory publication
 gate. Win32 extended-length and device-namespace paths, raw UNC output roots
@@ -483,7 +439,7 @@ downgrading authentication of header and footer metadata.
 `disk restore`, and exists only to recover a known, trusted archive created
 before AIT was introduced. Do not use that override for an archive from
 untrusted or attacker-writable storage; verify and migrate the recovered data to
-a newly created 5.2.9 archive. Compression and disk backup never create a
+a newly created 5.2.10 archive. Compression and disk backup never create a
 no-AIT archive.
 
 `info` is deliberately different: it reports unauthenticated framing metadata,
@@ -508,30 +464,34 @@ distribution is claimed merely because the code has a fallback path.
 
 ## Source archive
 
-Generate the reproducible source archive outside the repository:
+The AUR, Homebrew and Guix recipes explicitly retain the verified 5.2.9
+archive and checksum. They are historical recipes, not 5.2.10 package claims.
+A separate post-tag packaging update can pin the forge-generated source
+archive without changing the immutable release tag or uploading a tarball.
+
+Publish new source releases as unencrypted `.zupt` archives. The release
+procedure exports the exact tagged tree into a private staging directory,
+audits that tree, and uses the built Zupt CLI to compress it. Test and extract
+each archive and compare the complete extracted tree before publishing it:
 
 ~~~sh
-make dist
-sha256sum /tmp/zupt-5.2.9.tar.gz
-bash scripts/check-source-only.sh \
-    --archive /tmp/zupt-5.2.9.tar.gz
+zupt test zupt-5.2.10-src.zupt
+zupt extract -o source-check zupt-5.2.10-src.zupt
+sha256sum zupt-5.2.10-src.zupt
 ~~~
 
-Archive ordering, ownership and timestamps are normalized. The default epoch is
-recorded in `.source-date-epoch`; a packager may override SOURCE_DATE_EPOCH.
-Running the export twice from identical committed input and epoch must produce
-the same SHA-256. The AUR, Homebrew and Guix recipes are `export-ignore` so
-their checksum fields do not make the archive self-referential. `make dist`
-archives the verified `HEAD` tree object rather than embedding the commit ID,
-so a commit changing only those ignored recipes leaves the fixed-epoch archive
-byte-identical. A tagged release must contain the final archive digest/content
-hash in each export-ignored recipe, contain no `REPLACE_AFTER...` marker, and
-pass the package syntax gate.
+Zupt assigns archive identifiers and creation times, so verification compares
+payload content rather than promising byte-identical `.zupt` output.
+`SHA256SUMS` identifies the actual published files and its detached signature
+authenticates that manifest. `make dist` retains its reproducible tarball for
+internal RPM/OBS and distribution build inputs; that tarball is not a public
+release asset. AUR, Homebrew and Guix recipe hashes refer to their declared
+source input and require independent validation when that input changes.
 
 ## openSUSE and OBS
 
 The maintained upstream recipe is in packaging/opensuse. It targets the
-immutable v5.2.9 tag, disables submodules and Git LFS, builds with
+immutable v5.2.10 tag, disables submodules and Git LFS, builds with
 WITH_SDK=0 WITH_PQBOX=0, runs real checks, and installs without the renamed-era
 `vaptvupt` alias.
 
@@ -541,12 +501,12 @@ container/RPM builds, OBS operations and architectures that were not executed.
 
 ## Bundled codec provenance
 
-The bundled compression codec is source from VaptVupt tag `v2.65.11` at commit
-`1cc78bce90619dbf97e0ed1ad449c3c4f6329041`. The repository preserves local
+The bundled compression codec is source from VaptVupt tag `v2.65.13` at commit
+`e30dc9329be7cf9f233b1ac0b1fc9ed31f530391`. The repository preserves local
 wrapper, safety, platform, and provenance adjustments; details are in
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
-The package declares `bundled(vaptvupt-codec) = 2.65.11`. It does not claim that
+The package declares `bundled(vaptvupt-codec) = 2.65.13`. It does not claim that
 the codec is unbundled or provided by a system library.
 
 ## Security notes
@@ -573,7 +533,7 @@ The optional GUI is under `gui/`. It invokes the `zupt` CLI and needs Python 3
 plus PySide6 or PyQt6. GUI image assets are data files whose purpose,
 provenance and license are recorded in [gui/assets/README.md](gui/assets/README.md).
 The integrated source and lightweight consistency checks do not constitute a
-target-native audit of every historical GUI format. The 5.2.9 artifact promise
+target-native audit of every historical GUI format. The 5.2.10 artifact promise
 is limited to the gated GUI DEB, noarch/source RPM, and source-only portable ZIP
 listed above; AppImage, AppDir, Flatpak bundles, and platform GUI installers
 remain excluded.
@@ -583,14 +543,14 @@ remain excluded.
 Cristian Cezar Moisés is the creator and current upstream maintainer of ZUPT and
 the author of the current upstream source, build, test, documentation, and
 packaging changes, including the 5.2.2 baseline and corrective
-5.2.3/5.2.4/5.2.5/5.2.6/5.2.7/5.2.8/5.2.9 work.
+5.2.3/5.2.4/5.2.5/5.2.6/5.2.7/5.2.8/5.2.10 work.
 
 Alessandro de Oliveira Faria (Cabelo) is credited as the openSUSE collaborator
 and downstream package maintainer. He reviews the handoff, commits it in the
 OBS project he maintains, and may make the additional openSUSE-side adjustments
 he considers necessary. That downstream role is not attribution of ZUPT source
 authorship or of the upstream 5.2.2, 5.2.3, 5.2.4, 5.2.5, 5.2.6, 5.2.7, or
-5.2.8 or 5.2.9 changes.
+5.2.8 or 5.2.10 changes.
 
 ## License
 

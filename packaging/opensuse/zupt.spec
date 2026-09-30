@@ -18,7 +18,7 @@
 #
 
 Name:           zupt
-Version:        5.2.9
+Version:        5.2.10
 Release:        0
 Summary:        Backup compression with authenticated and post-quantum encryption
 License:        AGPL-3.0-or-later AND GPL-3.0-or-later AND BSD-2-Clause AND BSD-3-Clause AND CC0-1.0
@@ -38,7 +38,7 @@ BuildRequires:  make
 BuildRequires:  python3-base
 BuildRequires:  sed
 BuildRequires:  tar
-Provides:       bundled(vaptvupt-codec) = 2.65.11
+Provides:       bundled(vaptvupt-codec) = 2.65.13
 Provides:       vaptvupt = %{version}-%{release}
 Obsoletes:      vaptvupt < %{version}
 

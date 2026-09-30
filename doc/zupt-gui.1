@@ -1,6 +1,6 @@
 .\" SPDX-License-Identifier: AGPL-3.0-or-later
 .\" Copyright (c) 2025-2026 Cristian Cezar Moisés
-.TH ZUPT-GUI 1 "2026-09-06" "ZUPT 5.2.9" "User Commands"
+.TH ZUPT-GUI 1 "2026-09-30" "ZUPT 5.2.10" "User Commands"
 .SH NAME
 zupt-gui \- Qt interface for the ZUPT backup utility
 .SH SYNOPSIS
@@ -47,13 +47,11 @@ or
 only when libvuptsdk or libpqvaptvupt is independently reported enabled.
 These two optional integrations are detected separately.
 .PP
-The gated 5.2.9 GUI release set is limited to the architecture-independent DEB,
-noarch/source RPM, and source-only portable ZIP named in the project README.
-Package gates require exact checks and installed off-screen GUI/CLI integration.
-The portable ZIP receives source scans, an exact safe-member allowlist, and an
-extracted launcher test; it bundles no Python, Qt, CLI, or compiled runtime.
-AppImage, AppDir and Flatpak bundles and Windows/macOS GUI installers are not
-promoted; the Windows ZIP and macOS DMG are CLI-only.
+The GUI remains available as source in 5.2.10. A separately published GUI
+package requires a fresh build, dependency inspection and off-screen GUI/CLI
+integration test; the presence of a packaging recipe does not establish that
+its artifact was built. AppImage, AppDir and Flatpak bundles and unbuilt
+Windows/macOS GUI installers are not promoted.
 .PP
 The GUI does not expose the CLI's recovery-only
 .B --allow-legacy-no-ait

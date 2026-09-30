@@ -1,20 +1,27 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-# ZUPT 5.2.9 audit guide and finding history
+# ZUPT 5.2.10 audit guide and finding history
 
 This document describes review surfaces and reproducible checks. It is an
 upstream self-review, not an independent audit, certification, or guarantee.
 `SECURITY.md` defines reporting policy and `THREAT_MODEL.md` defines the
 security boundary.
 
-## 5.2.9 scope
+## 5.2.10 scope
+
+Fresh local candidate checks on 2026-09-30 passed the source-only `make check
+sdk-test`, `make test-asan-run` ASan/UBSan smoke test, and all 54 packaging
+syntax checks. The canonical allocator-limit regression was compiled against
+this consumer's codec and passed all 432 cases, including NULL empty inputs.
+Optional dependency and unavailable platform SKIPs are not passes. These
+results are local candidate evidence, not signed release-asset approval.
 
 The baseline scope is the source-only CLI and its bundled source codec:
 
 - first-party C and headers under `src/` and `include/`;
 - textual architecture-specific source under `jasmin/`, distinguishing
   compiler-generated output from separately identified hand-written assembly;
-- VaptVupt codec source at release 2.65.11, commit
-  `1cc78bce90619dbf97e0ed1ad449c3c4f6329041`, with provenance and licensing in
+- VaptVupt codec source at release 2.65.13, commit
+  `e30dc9329be7cf9f233b1ac0b1fc9ed31f530391`, with provenance and licensing in
   `THIRD-PARTY-NOTICES.md`;
 - CLI tests, source scanner, build system, CI, and packaging recipes;
 - the Python GUI source as a caller of the CLI.
@@ -29,7 +36,7 @@ output.
 
 ## Source-only review
 
-The 5.2.9 baseline retains the source-only boundary introduced in 5.2.2, which
+The 5.2.10 baseline retains the source-only boundary introduced in 5.2.2, which
 removed incomplete SDK/PQBOX header snapshots and local precompiled-library
 expectations. Git and new upstream source
 archives are intended to contain no compiled executable, object, shared/static
@@ -43,10 +50,10 @@ scripts/check-source-only.sh
 
 # committed Git tree or immutable tag
 scripts/check-source-only.sh --tag HEAD
-scripts/check-source-only.sh --tag v5.2.9
+scripts/check-source-only.sh --tag v5.2.10
 
 # generated source archive
-scripts/check-source-only.sh --archive /path/to/zupt-5.2.9.tar.gz
+scripts/check-source-only.sh --archive /path/to/zupt-5.2.10.tar.gz
 ```
 
 The scanner checks extensions and magic bytes, nested archives, symlink targets,
@@ -323,19 +330,15 @@ the main package. Review the built RPM for dependencies, paths, permissions,
 RPATH/RUNPATH, hardening, debug information, licenses, and unowned files, then
 test it after installation in a disposable target environment.
 
-Release-page DEB, binary RPM, SRPM, notice-bearing Linux tar.xz, Windows ZIP,
-and macOS DMG packages are separate outputs, never members of Git or source
-archives. Publish only formats built and tested for their stated target and
-include SHA-256 checksums. The gated GUI set adds the architecture-independent
-DEB, noarch/source RPM, and source-only portable GUI ZIP. Package gates include
-exact payload/dependency and installed off-screen integration checks; the
-portable ZIP additionally receives source scans, an exact safe-member allowlist,
-and an extracted launcher test. An AppImage is not promoted by the 5.2.9
-policy; AppDir and Flatpak bundles, GUI platform installers, and bare
-Linux/Windows executables are also excluded. Windows ZIP and macOS DMG outputs
-remain CLI-only.
+New public source and Linux CLI archives use verified, unencrypted `.zupt`
+files with signed SHA-256 manifests. Fresh DEB/RPM/SRPM outputs require their
+own builds, payload/dependency checks and extracted or installed smoke tests.
+Internal RPM/OBS tarballs and CI artifacts are build/audit inputs rather than
+new public release downloads. AppImage is not promoted by the 5.2.10 policy;
+unbuilt GUI installers, bare executables and untested Windows/macOS binaries
+are excluded. Historical platform evidence is not inherited by this version.
 
-No Wine result is retained as release evidence for 5.2.9. Cross-compilation
+No Wine result is retained as release evidence for 5.2.10. Cross-compilation
 does not establish native-Windows behavior. Extended-length/device namespace
 paths, raw UNC output roots, and mapped/network-drive output are unsupported;
 the native Windows workflow remains a publication gate for the ZIP containing

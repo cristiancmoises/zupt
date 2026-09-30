@@ -11,7 +11,7 @@ on:
         required: true
         type: number
       tag:
-        description: Existing annotated release tag, for example v5.2.9
+        description: Existing annotated release tag, for example v5.2.10
         required: true
         type: string
 
@@ -48,6 +48,14 @@ jobs:
             echo 'tag must have the form vX.Y.Z' >&2
             exit 1
           }
+          # This historical promotion matrix expects public tar.gz/tar.xz
+          # and platform packages. New releases use independently verified
+          # .zupt source/Linux archives plus only freshly tested DEB/RPMs.
+          if [[ $(printf '%s\n' v5.2.10 "$RELEASE_TAG" | sort -V | tail -n 1) == "$RELEASE_TAG" ]]; then
+            echo 'Legacy promotion is disabled for v5.2.10 and newer.' >&2
+            echo 'Publish the exact tested .zupt/DEB/RPM assets and signed checksums through the current release procedure.' >&2
+            exit 1
+          fi
 
           tag_ref_api="repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG"
           tag_object_type=$(gh api "$tag_ref_api" --jq '.object.type')

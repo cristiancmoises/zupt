@@ -2,6 +2,11 @@
 ;;; Copyright (c) 2026 Cristian Cezar Moisés
 ;;;
 ;;; GNU Guix package definitions for ZUPT (CLI + PySide6 GUI).
+;; RELEASE_RECIPE_STATE=verified-legacy-5.2.9
+;;; This verified historical recipe is not a 5.2.10 package or latest claim.
+;;; After the immutable 5.2.10 tag, use a packaging-only commit to pin the
+;;; generated forge source archive and its verified hash. New public release
+;;; packages use .zupt; no new tarball is uploaded.
 ;;; Source-only build (no vendored libraries): the CLI links only libc/libm/
 ;;; pthread from the store.
 ;;;

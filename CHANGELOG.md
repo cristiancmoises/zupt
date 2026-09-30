@@ -1,5 +1,25 @@
 # ZUPT Changelog
 
+## [5.2.10] — 2026-09-30 — VaptVupt 2.65.13 integration
+
+- Integrate the VaptVupt 2.65.13 encoder changes from
+  `e30dc9329be7cf9f233b1ac0b1fc9ed31f530391`: reachable-bucket preparation for small
+  BALANCED/EXTREME inputs and their first-block prepass, correctly sized
+  hash3 history, bounded NULL/zero-length setup, and explicit Huffman
+  tree-root initialization.
+- Retain Zupt's parser bounds, Darwin/NetBSD secure-wipe fallback, codec
+  licensing and third-party notices, wrapper defaults, and read-back check.
+  The imported files are consumer adaptations rather than byte-identical
+  canonical codec copies.
+- Preserve archive format 1.6, codec identifier `0x0010`, and the public ABI.
+- Publish new source and Linux archives as verified, unencrypted `.zupt`
+  files with SHA-256 checksums. Internal RPM/OBS source tarballs are build
+  inputs; old release artifacts remain historical.
+- Require fresh tests for the exact candidate. Unbuilt platform packages
+  are not release assets and prior CI results do not approve this version.
+- Mark AUR, Homebrew and Guix recipes as verified legacy 5.2.9 inputs;
+  update their source pins separately after the immutable 5.2.10 tag.
+
 ## [5.2.9] — 2026-09-06 — VaptVupt 2.65.11 compatibility refresh
 
 - Update the bundled VaptVupt codec from 2.65.3 to tag `v2.65.11` at

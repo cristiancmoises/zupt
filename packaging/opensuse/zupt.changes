@@ -1,4 +1,14 @@
 -------------------------------------------------------------------
+Wed Sep 30 22:00:00 UTC 2026 - Cristian Cezar Moisés <sac@securityops.co>
+
+- Update to 5.2.10:
+  * Integrate VaptVupt 2.65.13 small-input matcher preparation, retaining
+    Zupt parser bounds, platform wipes, wrapper policy and notices.
+  * Retain source-only OBS inputs and require fresh package checks.
+  * Publish new upstream source/Linux archives as verified .zupt files;
+    the OBS Source0 tarball remains an internal build input.
+
+-------------------------------------------------------------------
 Sun Sep  6 16:30:00 UTC 2026 - Cristian Cezar Moisés <sac@securityops.co>
 
 - Update to 5.2.9:

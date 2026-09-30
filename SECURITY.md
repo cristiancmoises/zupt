@@ -1,4 +1,4 @@
-# Security Policy — ZUPT 5.2.9
+# Security Policy — ZUPT 5.2.10
 
 ## Reporting vulnerabilities
 
@@ -55,8 +55,8 @@ release gate.
 
 ## Bundled codec boundary
 
-ZUPT 5.2.9 bundles VaptVupt codec 2.65.11 from commit
-`1cc78bce90619dbf97e0ed1ad449c3c4f6329041`. Its decoder hardening and
+ZUPT 5.2.10 bundles VaptVupt codec 2.65.13 from commit
+`e30dc9329be7cf9f233b1ac0b1fc9ed31f530391`. Its decoder hardening and
 capacity/accounting corrections reduce malformed-input and undersized-buffer
 risk at the compression boundary; they do not turn ordinary project tests into
 a security certification. ZUPT retains its fail-closed encode readback check,
@@ -78,7 +78,7 @@ partially accepted.
 
 ### Optional integrations
 
-The 5.2.9 default is `WITH_SDK=0 WITH_PQBOX=0`:
+The 5.2.10 default is `WITH_SDK=0 WITH_PQBOX=0`:
 
 - `WITH_SDK=1` enables libvuptsdk-backed features, including the SDK PQ mode
   and Argon2id support, using a separately installed system development package.
@@ -152,7 +152,7 @@ can compromise archives encrypted to it.
 
 ## Constant-time and side-channel scope
 
-Portable C is the 5.2.9 default. Sensitive comparisons and selections use
+Portable C is the 5.2.10 default. Sensitive comparisons and selections use
 branchless helpers, but generated machine-code behavior remains dependent on
 the compiler and platform. This is not a formal whole-program constant-time
 claim. The C AES implementation uses table lookups and is unsuitable for a
@@ -252,7 +252,7 @@ recorded as fixed rather than dismissed.
 
 The Windows handle-relative implementation is scoped to normal local Win32
 paths. Win32 extended-length and device-namespace paths, raw UNC output roots,
-and mapped/network-drive output are not supported in 5.2.9. Cross-build and
+and mapped/network-drive output are not supported in 5.2.10. Cross-build and
 Wine results are not native-Windows evidence; the `windows-latest` package gate
 must pass its Unicode round trip before Windows assets are published. Restore
 to a normal local directory first and move verified output to network storage
@@ -295,7 +295,7 @@ shared/static library, or distribution package. Audit them with:
 
 ```sh
 scripts/check-source-only.sh
-scripts/check-source-only.sh --archive /path/to/zupt-5.2.9.tar.gz
+scripts/check-source-only.sh --archive /path/to/zupt-5.2.10.tar.gz
 ```
 
 Nested archive inspection is required to enforce bounded recursion, member
@@ -303,20 +303,16 @@ count, per-entry expanded size, and total expanded size, and to fail closed on
 limit violations. On commit `ff99770`, the source-only scanner suite passed
 39/39, including GNU thin archives, resource-limit cases, and safe diagnostics.
 
-DEB, binary RPM, SRPM, notice-bearing Linux tar.xz, source-only portable GUI
-ZIP, Windows ZIP, and macOS DMG release assets are separate outputs. An
-AppImage is not promoted for 5.2.9. A bare Linux or Windows executable is also
-excluded; executables are distributed only inside their notice-bearing
-archives. Trust an artifact only when its exact format has a recorded build,
-content/metadata inspection, extracted or installed smoke test, and applicable
-archive round trip. Never treat an unexecuted platform as passing.
+New public source and Linux CLI archives use unencrypted `.zupt` files.
+DEB/RPM/SRPM packages are separate outputs and may be published only after
+fresh builds and their stated tests. Internal RPM/OBS tarballs are not public
+release assets. Trust an artifact only when its exact format has recorded
+content/metadata inspection, extracted or installed smoke tests and applicable
+archive round trips. Never treat an unexecuted platform as passing.
 
-The gated 5.2.9 set is the CLI package/archive set plus the exact GUI DEB,
-noarch/source RPM, and source-only portable ZIP documented in the README. The
-portable GUI ZIP contains no compiled runtime and is scanned as source before
-and after extraction. Other GUI packages, AppImage, AppDir and Flatpak bundles,
-and GUI platform installers are excluded. Windows ZIP and macOS DMG artifacts
-remain CLI-only.
+AppImage is not promoted for 5.2.10. Bare executables, unbuilt GUI installers
+and untested Windows/macOS binaries are outside this release claim. Existing
+packaging recipes and historical platform results do not establish new builds.
 
 ## Reproducing project checks
 

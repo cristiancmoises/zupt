@@ -20,7 +20,7 @@
 # installed smoke test.
 
 Name:           zupt
-Version:        5.2.9
+Version:        5.2.10
 Release:        1%{?dist}
 Summary:        Backup compression with authenticated and post-quantum encryption
 
@@ -46,7 +46,7 @@ BuildRequires:  tar
 # python3 is only needed for the regression-test harness (byte sweeps,
 # tamper injection). The shipped binary has no Python dependency.
 
-Provides:       bundled(vaptvupt-codec) = 2.65.11
+Provides:       bundled(vaptvupt-codec) = 2.65.13
 
 %description
 ZUPT is a pure-C11 backup compression utility featuring:
@@ -101,6 +101,11 @@ comments. Plain archives use non-cryptographic checksums.
 %endif
 
 %changelog
+* Wed Sep 30 2026 Cristian Cezar Moisés <sac@securityops.co> - 5.2.10-1
+- Integrate VaptVupt 2.65.13 small-input matcher preparation, retaining Zupt
+  parser bounds, platform wipes, wrapper policy and notices.
+- Require fresh checks and publish new public source/Linux archives as .zupt.
+
 * Sun Sep 06 2026 Cristian Cezar Moisés <sac@securityops.co> - 5.2.9-1
 - Update the bundled VaptVupt codec to 2.65.11 while preserving the archive
   format, wrapper policy, read-back check, and provenance notices.
