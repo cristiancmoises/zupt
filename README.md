@@ -464,10 +464,11 @@ distribution is claimed merely because the code has a fallback path.
 
 ## Source archive
 
-The AUR, Homebrew and Guix recipes explicitly retain the verified 5.2.9
-archive and checksum. They are historical recipes, not 5.2.10 package claims.
-A separate post-tag packaging update can pin the forge-generated source
-archive without changing the immutable release tag or uploading a tarball.
+The immutable `v5.2.10` source tag retains the historical 5.2.9 AUR, Homebrew
+and Guix recipes. A separate post-tag packaging follow-up pins those recipes
+to the verified forge-generated source archive of the exact 5.2.10 tag,
+without changing that tag or uploading a public tarball. Native AUR/Homebrew/
+Guix installation results are not implied by the source pin verification.
 
 Publish new source releases as unencrypted `.zupt` archives. The release
 procedure exports the exact tagged tree into a private staging directory,
