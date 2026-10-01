@@ -29,6 +29,7 @@
 #else
   #include <fcntl.h>
   #include <signal.h>
+  #include <sys/select.h>
   #include <termios.h>
 #endif
 
@@ -735,8 +736,8 @@ static int prompt_password(const char *prompt, char *buf, size_t cap) {
         return 0;
     }
 #endif
-    fprintf(stderr, "%s", prompt);
 #ifdef _WIN32
+    fprintf(stderr, "%s", prompt);
     size_t i = 0;
     int too_long = 0;
     for (;;) {
@@ -782,6 +783,11 @@ static int prompt_password(const char *prompt, char *buf, size_t cap) {
         fprintf(stderr, "\nError: cannot configure terminal input.\n");
         return 0;
     }
+    int input_flags = fcntl(STDIN_FILENO, F_GETFL);
+    if (input_flags < 0) {
+        fprintf(stderr, "\nError: cannot configure terminal input.\n");
+        return 0;
+    }
     memset(&temporary, 0, sizeof(temporary));
     temporary.sa_handler = zupt_password_prompt_interrupted;
     sigemptyset(&prompt_signal_mask);
@@ -791,6 +797,13 @@ static int prompt_password(const char *prompt, char *buf, size_t cap) {
         (void)sigaddset(&prompt_signal_mask, prompt_signals[index]);
     temporary.sa_mask = prompt_signal_mask;
     zupt_password_prompt_signal = 0;
+    /* Keep prompt signals blocked except in pselect's atomic input wait.
+     * A flag check followed by fgets can otherwise lose a signal delivered
+     * just before fgets starts blocking. */
+    if (sigprocmask(SIG_BLOCK, &prompt_signal_mask, &previous_signal_mask) != 0) {
+        fprintf(stderr, "\nError: cannot protect terminal state.\n");
+        return 0;
+    }
     for (size_t index = 0;
          index < sizeof(prompt_signals) / sizeof(prompt_signals[0]);
          index++) {
@@ -801,6 +814,7 @@ static int prompt_password(const char *prompt, char *buf, size_t cap) {
                 (void)sigaction(prompt_signals[handlers_installed],
                                 &previous[handlers_installed], NULL);
             }
+            (void)sigprocmask(SIG_SETMASK, &previous_signal_mask, NULL);
             fprintf(stderr, "\nError: cannot protect terminal state.\n");
             return 0;
         }
@@ -811,38 +825,59 @@ static int prompt_password(const char *prompt, char *buf, size_t cap) {
      * tcflag_t (unsigned int). The cast makes the conversion
      * explicit and silences -Wsign-conversion. */
     new_t.c_lflag &= (tcflag_t)~ECHO;
-    if (tcsetattr(STDIN_FILENO, TCSANOW, &new_t) != 0) {
+    if (fcntl(STDIN_FILENO, F_SETFL, input_flags | O_NONBLOCK) != 0 ||
+        tcsetattr(STDIN_FILENO, TCSANOW, &new_t) != 0) {
+        (void)fcntl(STDIN_FILENO, F_SETFL, input_flags);
         while (handlers_installed > 0) {
             handlers_installed--;
             (void)sigaction(prompt_signals[handlers_installed],
                             &previous[handlers_installed], NULL);
         }
-        fprintf(stderr, "\nError: cannot disable terminal echo.\n");
+        (void)sigprocmask(SIG_SETMASK, &previous_signal_mask, NULL);
+        fprintf(stderr, "\nError: cannot configure terminal input.\n");
         return 0;
     }
+    fprintf(stderr, "%s", prompt);
     int ok = 0;
     int too_long = 0;
-    if (zupt_password_prompt_signal == 0 && fgets(buf, (int)cap, stdin)) {
-        size_t len = strlen(buf);
-        if (len > 0 && buf[len-1] == '\n') {
-            buf[len-1] = '\0';
-        } else {
-            int ch = fgetc(stdin);
-            if (ch != '\n' && ch != EOF) {
-                too_long = 1;
-                while ((ch = fgetc(stdin)) != '\n' && ch != EOF) {}
-            }
-            if (ferror(stdin)) too_long = 1;
+    size_t length = 0;
+    while (zupt_password_prompt_signal == 0) {
+        fd_set readable;
+        FD_ZERO(&readable);
+        FD_SET(STDIN_FILENO, &readable);
+        int ready = pselect(STDIN_FILENO + 1, &readable, NULL, NULL, NULL,
+                            &previous_signal_mask);
+        if (ready < 0) {
+            if (errno == EINTR) continue;
+            break;
         }
-        ok = buf[0] != '\0';
+        if (zupt_password_prompt_signal != 0) break;
+        /* Read directly so stdio cannot hide bytes from pselect. The read
+         * must be nonblocking: a terminal signal can flush the ready input
+         * before this call while its delivery is still blocked. */
+        unsigned char ch;
+        ssize_t count = read(STDIN_FILENO, &ch, 1);
+        if (count < 0) {
+            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
+                continue;
+            break;
+        }
+        if (count == 0 || ch == '\n') {
+            ok = length > 0;
+            break;
+        }
+        if (length < cap - 1) buf[length++] = (char)ch;
+        else too_long = 1;
     }
-    /* Block every handled prompt signal while restoring terminal state and
-     * the caller's handlers. Otherwise a second signal can interrupt the one
-     * tcsetattr attempt or land between the signal snapshot and restoration,
-     * leaving echo disabled or swallowing the later signal. */
-    int signals_blocked =
-        sigprocmask(SIG_BLOCK, &prompt_signal_mask, &previous_signal_mask) == 0;
-    if (!signals_blocked) ok = 0;
+    buf[length] = '\0';
+    if (buf[0] == '\0') ok = 0;
+    /* Signals remain blocked while restoring the terminal and the caller's
+     * handlers, including any signal that arrived after the final read. */
+    int input_restore_status;
+    do {
+        input_restore_status = fcntl(STDIN_FILENO, F_SETFL, input_flags);
+    } while (input_restore_status != 0 && errno == EINTR);
+    if (input_restore_status != 0) ok = 0;
     int terminal_restore_status;
     do {
         terminal_restore_status = tcsetattr(STDIN_FILENO, TCSANOW, &old);
@@ -855,8 +890,7 @@ static int prompt_password(const char *prompt, char *buf, size_t cap) {
                       &previous[handlers_installed], NULL) != 0)
             ok = 0;
     }
-    if (signals_blocked &&
-        sigprocmask(SIG_SETMASK, &previous_signal_mask, NULL) != 0)
+    if (sigprocmask(SIG_SETMASK, &previous_signal_mask, NULL) != 0)
         ok = 0;
     fprintf(stderr, "\n");
     if (interrupted_by != 0) {
