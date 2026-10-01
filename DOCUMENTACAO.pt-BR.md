@@ -8,11 +8,20 @@ sendo a referência detalhada: [INSTALL.md](INSTALL.md),
 [DISTRIBUTION.md](DISTRIBUTION.md), [SECURITY.md](SECURITY.md) e
 [THREAT_MODEL.md](THREAT_MODEL.md).
 
+Use a [página explícita da release 5.2.10](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.10),
+não `releases/latest`. A entrega é uma pré-release com problemas conhecidos:
+o gate GCC estrito continua falhando. Os testes aprovados por pacote não são
+aprovação global nem garantia de estabilidade.
+
 ## 1. Instalação a partir do código-fonte
 
 O perfil padrão não usa bibliotecas opcionais empacotadas no repositório.
 Instale um compilador C11, GNU Make, Bash, Python 3, `file`, `tar`, `gzip` e as
 ferramentas de desenvolvimento da plataforma.
+
+Se a fonte veio do bundle `.zupt` já verificado, entre no diretório extraído
+e aplique `chmod u+x scripts/check-source-only.sh` antes de compilar: o formato
+não preserva permissões executáveis. Um checkout Git preserva esses modos.
 
 ```sh
 make clean
@@ -148,21 +157,81 @@ Também são obrigatórios, conforme disponibilidade:
 Registre `PASS`, `FAIL`, `SKIP` ou `BLOCKED` por alvo. Um teste antigo, pulado
 ou executado em outra arquitetura não aprova a release atual.
 
+Na entrega atual, Windows x86_64 e macOS arm64 passaram no run nativo
+[36858438699](https://github.com/cristiancmoises/zupt/actions/runs/36858438699)
+do commit de empacotamento/testes P `4a66b0cab55900bc64699428fb41c48c07de126a`.
+Os caminhos `src`, `include`, `jasmin`, `sdk/src` e `Makefile` são iguais aos
+da tag de runtime C `24995eb7652a31eedc46386bab14c63cbb31e050`; não se trata
+de CI da tag C exata. O DMG foi verificado e a CLI montada foi testada no macOS.
+Os cinco avisos de runtime Windows passaram na validação do pacote.
+GUI DEB da tag C e RPM/SRPM/portátil da GUI com fonte C também passaram.
+Testes locais static-musl e DEB/RPM extraídos não equivalem a instalação
+Ubuntu/openSUSE. A geração 85 do perfil Guix local instalou a CLI C e a GUI com
+graft; versão, operação/PTY da CLI e GUI off-screen com seis abas passaram.
+A geração 84 e as 39 entradas não relacionadas foram preservadas.
+Falhas e SKIPs de outros gates permanecem.
+
 ## 7. Política de distribuição
 
 Git e o arquivo-fonte devem conter somente código-fonte, documentação, testes,
 receitas e dados necessários. Objetos, executáveis, bibliotecas compiladas,
 pacotes e artefatos de CI ficam fora do histórico Git.
 
-Os artefatos binários pertencem apenas às páginas de release. Cada arquivo
-deve nascer da tag anotada e imutável, passar pelo teste de sua plataforma e
-aparecer em `SHA256SUMS`. Os doze payloads esperados, mais `SHA256SUMS`, formam
-o conjunto de 13 arquivos descrito em [README.pt-BR.md](README.pt-BR.md).
+Os binários pertencem às páginas de release, com procedência da tag de runtime
+e do commit efetivo de empacotamento documentadas. São cinco bundles `.zupt`
+genuínos, sem criptografia, com VaptVupt no nível 9: fonte, CLI Linux x86_64,
+CLI Windows x86_64, DMG CLI macOS **arm64, não universal**, e frontend portátil
+da GUI. O frontend contém fonte/scripts, não Python, Qt ou CLI empacotados.
+DEB/RPM/SRPM da CLI e da GUI mantêm seus formatos nativos. A lista exata está em
+[README.pt-BR.md](README.pt-BR.md); o antigo conjunto de 13 arquivos é histórico.
 
-As receitas AUR, Homebrew e Guix só podem receber o hash final depois que o
-arquivo-fonte reproduzível da árvore comprometida estiver pronto. Nunca publique
-um marcador `REPLACE_AFTER...`; a árvore marcada deve conter os hashes finais.
-Nunca mova uma tag para corrigir uma falha.
+Verifique a chave 6C por um canal independente:
+`CF8BA569591B6E7F4D24B0736C95BFAE0646DCCA`. Depois de importar a chave pública
+confirmada, valide o inventário e extraia com um desktop Zupt confiável:
+
+```sh
+gpg --verify SHA256SUMS.asc SHA256SUMS
+sha256sum --check SHA256SUMS
+zupt test zupt-5.2.10-source.zupt
+zupt extract -o fonte-verificada zupt-5.2.10-source.zupt
+```
+
+O formato restaura conteúdo de arquivos regulares, não permissões executáveis.
+Antes dos helpers de fonte, entre em
+`fonte-verificada/zupt-5.2.10-source` e aplique
+`chmod u+x scripts/check-source-only.sh`. Para a CLI Linux verificada:
+
+```sh
+zupt test zupt-5.2.10-linux-x86_64.zupt
+zupt extract -o linux-verificado zupt-5.2.10-linux-x86_64.zupt
+chmod u+x linux-verificado/zupt-5.2.10-linux-x86_64/zupt
+linux-verificado/zupt-5.2.10-linux-x86_64/zupt --version
+```
+
+No frontend portátil, use `bash zupt-gui.sh` no diretório extraído, com Python,
+Qt e uma CLI verificada externos. Não altere permissões recursivamente.
+
+Uma CLI desktop 5.2.9 confiável decodificou os bundles atuais nos testes locais.
+Não publique novos `.tar.gz` como downloads manuais. Os arquivos gerados
+automaticamente pelo forge e os tarballs internos do SRPM/OBS são entradas de
+construção distintas, não esses bundles públicos.
+
+As receitas AUR, Homebrew e Guix dentro da tag C são **5.2.10**, porém ainda
+pinam o candidato antigo A `3b3b8f494b4bdd3b74aab60388eef1694ef316f8`.
+Use o commit assinado posterior `06c792a9de8f524bef962e8af7804e29d4fe0bff`
+ou um descendente revisado para obter os hashes C corrigidos, sem mover C:
+
+```sh
+git clone https://github.com/cristiancmoises/zupt.git zupt-receitas
+cd zupt-receitas
+git switch --detach 06c792a9de8f524bef962e8af7804e29d4fe0bff
+git verify-commit HEAD
+guix build -f packaging/guix/zupt.scm
+```
+
+Esse arquivo seleciona a GUI com a CLI correspondente como dependência. Build
+não instala no perfil. Não desative checksums nem presuma instalação validada
+de AUR/Homebrew/Nix. O histórico do candidato anterior permanece preservado.
 
 AppImage, AppDir, Flatpak, instaladores gráficos nativos e executáveis soltos
 continuam fora do conjunto promovido. A presença de um script auxiliar não é
