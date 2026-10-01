@@ -4,10 +4,12 @@
 
 [English](README.md) | Português do Brasil
 
-Este README descreve o código-fonte 5.2.10. Os downloads publicados e seu estado
-de validação estão na [página de releases](https://github.com/cristiancmoises/zupt/releases/latest);
-a versão do código ou uma tag Git, isoladamente, não significa que os pacotes
-já foram publicados.
+Este README descreve o código-fonte 5.2.10 e as atualizações de empacotamento.
+Use a [página explícita da versão 5.2.10](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.10),
+não `releases/latest`, que pode selecionar uma versão estável anterior.
+A entrega 5.2.10 é uma pré-release com problemas conhecidos enquanto o gate GCC
+estrito permanece falhando; testes de pacotes aprovados não significam aprovação
+de todos os gates. Uma versão ou tag, isoladamente, não publica um arquivo.
 
 ZUPT é um arquivador de backup em C11. Ele combina o codec VaptVupt incluído
 como código-fonte com criptografia autenticada AES-256-CTR + HMAC-SHA256,
@@ -137,23 +139,50 @@ em português está em [DOCUMENTACAO.pt-BR.md](DOCUMENTACAO.pt-BR.md).
 
 ## Pacotes e artefatos de release
 
-Publique somente arquivos compilados e validados a partir da tag exata.
-Novos arquivos de fonte e Linux usam `.zupt` sem criptografia, com
-`zupt test`, extração e comparação integral antes da publicação.
+Os cinco bundles são arquivos `.zupt` genuínos, sem criptografia, comprimidos
+com VaptVupt no nível 9, testados com `zupt test` e comparação integral após a
+extração. DEB/RPM/SRPM mantêm seus formatos nativos. Registre a tag do runtime
+e o commit efetivamente usado na compilação de cada pacote separadamente.
 
 | Arquivo | Validação exigida antes da publicação |
 | --- | --- |
-| `zupt-5.2.10-src.zupt` | Árvore de fonte sem credenciais ou prompts; extração igual à tag. |
+| `zupt-5.2.10-source.zupt` | Árvore de fonte comparada integralmente aos blobs Git da tag assinada C. |
 | `zupt-5.2.10-linux-x86_64.zupt` | CLI Linux x86_64 e avisos completos; teste funcional da extração. |
+| `zupt-5.2.10-windows-x86_64.zupt` | CLI nativa Windows x86_64, cinco avisos de runtime e round trips Unicode/PATH restrito. |
+| `zupt-5.2.10-macos-arm64.zupt` | DMG da CLI nativa arm64 dentro do bundle; verificação e teste do binário montado no macOS. Não é universal. |
+| `zupt-gui-5.2.10-portable.zupt` | Fonte da interface, scripts e avisos; requer Python, Qt e CLI compatível externos. |
 | `zupt_5.2.10_amd64.deb` | Compilação DEB real, dependências e conteúdo; teste da CLI extraída ou instalada. |
 | `zupt-5.2.10-0.x86_64.rpm` e `zupt-5.2.10-0.src.rpm` | Compilação RPM/SRPM real, procedência, conteúdo e teste funcional. |
+| `zupt-gui_5.2.10_all.deb`, `zupt-gui-5.2.10-1.noarch.rpm`, `zupt-gui-5.2.10-1.src.rpm` | Metadados, dependências, avisos e integração GUI/CLI off-screen. |
 | `SHA256SUMS`, `SHA256SUMS.asc`, `release-key.asc` | Hashes exatos, assinatura destacada verificada e chave pública. |
 
-Um pacote sem sua compilação ou seu teste exigido não é publicado. Testes
-locais do pacote extraído não equivalem a instalação em Ubuntu/openSUSE.
-Windows, macOS, instaladores GUI e outras arquiteturas precisam de builds
-nativos novos e não são prometidos nesta versão. Releases anteriores
-preservam seus formatos e arquivos.
+Os resultados atuais têm escopos distintos:
+
+- O run nativo Windows/macOS [36858438699](https://github.com/cristiancmoises/zupt/actions/runs/36858438699)
+  passou no commit de testes/empacotamento P `4a66b0cab55900bc64699428fb41c48c07de126a`.
+  `src`, `include`, `jasmin`, `sdk/src` e `Makefile` são iguais à tag C
+  `24995eb7652a31eedc46386bab14c63cbb31e050`; não é CI da tag C exata.
+- O job GUI DEB da tag C no run [36849573076](https://github.com/cristiancmoises/zupt/actions/runs/36849573076)
+  passou. RPM/SRPM da GUI e o frontend portátil com fonte C também passaram;
+  isso não transforma o workflow C, que falhou, em PASS global.
+- A CLI C e a GUI com graft estão instaladas na geração 85 do perfil Guix
+  local; versão, operação/PTY da CLI e GUI off-screen com seis abas passaram.
+  A geração 84 foi preservada e as 39 entradas não relacionadas não mudaram.
+- A CLI local static-musl e testes dos DEB/RPM extraídos passaram, mas não
+  equivalem a instalação nativa Ubuntu/openSUSE. A falha GCC estrita permanece.
+
+Só está publicado o arquivo presente no inventário assinado com hash correto.
+Confirme por um canal independente a impressão digital da chave 6C registrada:
+`CF8BA569591B6E7F4D24B0736C95BFAE0646DCCA`. Verifique com
+`gpg --verify SHA256SUMS.asc SHA256SUMS` e `sha256sum --check SHA256SUMS`.
+Veja [INSTALL.md](INSTALL.md) e [DOCUMENTACAO.pt-BR.md](DOCUMENTACAO.pt-BR.md).
+AppImage, AppDir, Flatpak, instaladores GUI nativos e outras arquiteturas ficam
+excluídos. Releases anteriores preservam seus formatos e arquivos.
+
+A extração `.zupt` restaura conteúdo, não permissões de execução. Depois de
+verificar o bundle Linux, use `chmod u+x` somente no arquivo `zupt`; invoque o
+launcher portátil com `bash zupt-gui.sh`. Os helpers de fonte também exigem
+permissões pontuais, conforme [INSTALL.md](INSTALL.md).
 
 O fluxo antigo de promoção de 13 arquivos fica desativado para v5.2.10 ou
 posterior. Tarballs RPM/OBS e arquivos CI são entradas internas de construção;
@@ -162,11 +191,15 @@ como assinado.
 
 ## Código-fonte e procedência do codec
 
-A tag imutável `v5.2.10` mantém as receitas históricas AUR, Homebrew e Guix
-da versão 5.2.9. Uma atualização de empacotamento separada fixa essas receitas
-no arquivo de fonte verificado, gerado pelo forge para a tag exata 5.2.10,
-sem alterar a tag ou publicar um novo tarball. A verificação dos pins não
-representa teste nativo de instalação AUR, Homebrew ou Guix.
+A tag imutável C `v5.2.10` contém receitas AUR, Homebrew e Guix da versão
+**5.2.10**, mas com hashes do candidato anterior A
+`3b3b8f494b4bdd3b74aab60388eef1694ef316f8`. Não use esses pins antigos com a
+tag corrigida. O commit posterior de empacotamento
+`06c792a9de8f524bef962e8af7804e29d4fe0bff` fixa o arquivo gerado pelo forge
+para C; use esse commit ou um descendente revisado nas receitas. A tag C não
+muda e não há upload público de novo tarball. Verificar pins não comprova
+instalação AUR/Homebrew. A instalação no perfil Guix local e os testes CLI/GUI
+passaram separadamente, conforme registrado acima.
 
 O codec incluído integra o VaptVupt 2.65.13 no commit
 `e30dc9329be7cf9f233b1ac0b1fc9ed31f530391`, com adaptações do ZUPT preservadas.

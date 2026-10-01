@@ -1,8 +1,12 @@
-# Installing ZUPT 5.2.9
+# Installing ZUPT 5.2.10
 
 This guide covers the ZUPT command-line program and the optional Python GUI.
 The canonical source repository is
-`https://github.com/cristiancmoises/zupt`.
+[GitHub](https://github.com/cristiancmoises/zupt).
+Use the explicit [5.2.10 release page](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.10)
+instead of `releases/latest`. This delivery is a known-issues prerelease while
+the strict GCC gate remains failing. Check each asset's recorded target and
+limitations; a successful package test is not approval of the entire matrix.
 
 ## Choosing an installation method
 
@@ -10,10 +14,68 @@ The canonical source repository is
   path described below.
 - Use a distribution package only when it matches your distribution release
   and architecture.
-- Release-page DEB, RPM, Linux tar.xz, portable GUI ZIP, Windows ZIP, and macOS
-  files are separate artifacts. Their presence does not make them part of the
+- Release-page DEB/RPM/SRPM and the five `.zupt` bundles are separate artifacts.
+  Their presence does not make them part of the
   Git tree or upstream source archive. Use only artifacts whose release notes
   record a successful format-specific test for your target.
+
+## Current bundles and verification
+
+All five bundles use genuine, unencrypted VaptVupt level-9 `.zupt` containers:
+
+| Bundle | Contents and prerequisites |
+|---|---|
+| `zupt-5.2.10-source.zupt` | Exact signed C source tree; a trusted desktop Zupt decoder is needed to unpack it. |
+| `zupt-5.2.10-linux-x86_64.zupt` | Static-musl Linux x86_64 CLI and complete runtime notices. |
+| `zupt-5.2.10-windows-x86_64.zupt` | Native x86_64 CLI and five mandatory MinGW/GCC runtime notices; no Qt GUI. |
+| `zupt-5.2.10-macos-arm64.zupt` | CLI-only `ZUPT-5.2.10-macOS-arm64.dmg`; not a universal binary or Qt GUI. |
+| `zupt-gui-5.2.10-portable.zupt` | Frontend source/scripts/notices; Python, PySide6 or PyQt6, and a matching `zupt` CLI remain external. |
+
+Native packages are `zupt_5.2.10_amd64.deb`, CLI binary/source RPMs
+`zupt-5.2.10-0.{x86_64,src}.rpm`, `zupt-gui_5.2.10_all.deb`, and GUI
+`zupt-gui-5.2.10-1.{noarch,src}.rpm`. Do not install an SRPM as a binary package.
+AppImage, AppDir, Flatpak and platform GUI installers are not in this delivery.
+
+Verify the registered signing fingerprint through an independently trusted
+channel: `CF8BA569591B6E7F4D24B0736C95BFAE0646DCCA` (6C key). Import the
+confirmed `release-key.asc`, then verify the inventory before unpacking:
+
+```sh
+gpg --verify SHA256SUMS.asc SHA256SUMS
+sha256sum --check SHA256SUMS
+zupt test zupt-5.2.10-source.zupt
+zupt extract -o source-check zupt-5.2.10-source.zupt
+```
+
+Use a new extraction directory and inspect the restored files. A trusted 5.2.9
+desktop CLI decoded the current bundles in local checks; installing a new CLI
+is not required just to unpack the source. Do not rename a tarball to `.zupt`.
+Extraction restores regular file contents, not executable modes. For the
+verified Linux CLI bundle, restore only its executable permission:
+
+```sh
+zupt test zupt-5.2.10-linux-x86_64.zupt
+zupt extract -o linux-check zupt-5.2.10-linux-x86_64.zupt
+chmod u+x linux-check/zupt-5.2.10-linux-x86_64/zupt
+linux-check/zupt-5.2.10-linux-x86_64/zupt --version
+```
+
+Forge-generated source archives and standard SRPM build inputs are separate
+internal/downstream inputs, not manually uploaded `.tar.gz` release downloads.
+
+Windows and macOS packaged CLI checks passed in native CI run
+[36858438699](https://github.com/cristiancmoises/zupt/actions/runs/36858438699)
+at P `4a66b0cab55900bc64699428fb41c48c07de126a`; its runtime source paths match
+C `24995eb7652a31eedc46386bab14c63cbb31e050`. The macOS DMG was verified and
+its read-only mounted CLI tested on arm64, not mounted on the Linux host.
+GUI DEB C-tag CI and C-source GUI RPM/portable checks passed. Local static-musl
+CLI/extracted DEB/RPM tests are not native Ubuntu/openSUSE installations.
+Local Guix profile generation 85 now contains the C CLI and grafted GUI;
+version, CLI functional/PTY and six-tab GUI off-screen checks passed. Generation
+84 is retained and all 39 unrelated entries are unchanged. This is not an
+AUR/Homebrew or native RPM/DEB installation claim. See [DISTRIBUTION.md](DISTRIBUTION.md).
+
+## Historical releases (not current validation)
 
 The immutable `v5.2.2` candidate was not promoted after CI integration
 failures. The immutable `v5.2.3` candidate was not promoted because its
@@ -44,8 +106,8 @@ artifacts or evidence as 5.2.8 packages or validation. Version 5.2.9 adds the
 VaptVupt 2.65.11 compatibility refresh and requires an independent, fresh
 exact-tag validation record before any new package is published.
 
-The 5.2.9 release contract permits exactly these 13 gated assets after their
-target-specific checks pass:
+The historical 5.2.9 contract used these 13 gated assets after their
+target-specific checks, not the 5.2.10 formats above:
 
 | Component | Gated artifacts |
 |---|---|
@@ -96,11 +158,21 @@ sudo pacman -S base-devel gzip
 ```
 
 Package names can differ by distribution release. These commands are examples,
-not a statement that 5.2.9 has been accepted into each distribution repository.
+not a statement that 5.2.10 has been accepted into each distribution repository.
 
 ## Build and test from source
 
-Verify the checkout or extracted archive, then use the source-only feature set:
+After verifying and extracting the source bundle above, enter and audit its
+tree, restoring only the selected helper's execute permission:
+
+```sh
+cd source-check/zupt-5.2.10-source
+chmod u+x scripts/check-source-only.sh
+bash scripts/check-source-only.sh
+```
+
+Alternatively, use a verified Git checkout of `v5.2.10`, whose tracked execute
+modes are retained. In either tree, build the source-only feature set:
 
 ```sh
 scripts/check-source-only.sh
@@ -112,12 +184,8 @@ make WITH_SDK=0 WITH_PQBOX=0 check
 ./zupt --help
 ```
 
-From a release archive, run the scanner as follows before extraction or from a
-trusted checkout after download:
-
-```sh
-scripts/check-source-only.sh --archive /path/to/zupt-5.2.9.tar.gz
-```
+The C source is immutable, but its AUR/Homebrew/Guix recipes have stale earlier-candidate pins;
+use the post-tag recipe checkout below rather than bypassing checksum checks.
 
 The default build provides the native password, ML-KEM-768 + X25519 hybrid
 `--pq`, and ML-KEM-768 `--pq-only` paths. See `SECURITY.md` and
@@ -181,6 +249,26 @@ To remove an installation made with the same prefix:
 sudo make PREFIX=/usr/local uninstall
 ```
 
+### Corrected downstream recipe checkout
+
+The C tag's recipes say **5.2.10**, not 5.2.9, but pin the earlier candidate A
+`3b3b8f494b4bdd3b74aab60388eef1694ef316f8`. They cannot verify the corrected
+C archive. Use the signed packaging follow-up, without moving the runtime tag:
+
+```sh
+git clone https://github.com/cristiancmoises/zupt.git zupt-recipes
+cd zupt-recipes
+git switch --detach 06c792a9de8f524bef962e8af7804e29d4fe0bff
+git verify-commit HEAD
+guix build -f packaging/guix/zupt.scm
+```
+
+That file selects the GUI package, whose launcher pins the matching store CLI.
+Build and inspect the result before any `guix package -f` profile transaction;
+the local CLI/GUI builds and smoke tests do not themselves change the profile.
+AUR/Homebrew installation is not claimed. Nix and other targets need their own
+fresh checks. Never disable checksum verification to make a stale recipe work.
+
 ## Optional system integrations
 
 The SDK and PQBOX integrations are independent and disabled by default:
@@ -224,6 +312,19 @@ The GUI can use PySide6 or PyQt6. Prefer a distribution-managed Qt binding when
 available. A package-specific installer may provide launchers and desktop
 integration; consult its release notes instead of assuming a particular GUI
 package version or filename.
+
+For the verified portable `.zupt` frontend, extract into a new directory and
+invoke its launcher through `bash`, since execute modes are not preserved:
+
+```sh
+zupt test zupt-gui-5.2.10-portable.zupt
+zupt extract -o gui-check zupt-gui-5.2.10-portable.zupt
+ZUPT_BIN=/absolute/path/to/verified/zupt \
+  bash gui-check/zupt-gui-5.2.10-portable/zupt-gui.sh
+```
+
+Use your external Python/Qt environment; the portable bundle does not ship
+Python, Qt or the CLI.
 
 For a headless sanity check:
 

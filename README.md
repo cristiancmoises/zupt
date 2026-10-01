@@ -2,9 +2,12 @@
 
 [English](README.md) | [Português do Brasil](README.pt-BR.md)
 
-This README describes the 5.2.10 source. Published downloads and their validation
-status are listed on the [release page](https://github.com/cristiancmoises/zupt/releases/latest);
-a source version or Git tag alone does not mean packages have been published.
+This README describes the 5.2.10 source and packaging follow-ups. Use the explicit
+[5.2.10 release page](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.10),
+not `releases/latest`, which can still select an older stable release.
+The 5.2.10 delivery is a known-issues prerelease while the strict GCC gate remains
+failing; successful package tests do not mean every release gate passed.
+A source version or Git tag alone does not mean an asset has been published.
 
 ZUPT is a command-line backup archiver written in C11. It combines the
 bundled VaptVupt compression codec with authenticated AES-256-CTR +
@@ -27,6 +30,8 @@ terminal input flushing without hanging, and cleanup restores the original
 terminal settings and descriptor flags. Regression tests cover all four handled
 signals, prompt ordering, flushed input, confirmation and password-size limits.
 The Windows prompt and archive grammar are unchanged.
+
+## Historical 5.2.8 validation (not 5.2.10 evidence)
 
 Version 5.2.8 closes three CodeQL High path-race findings: SDK key copies now
 publish atomically through an already-open private object, POSIX disk restore
@@ -248,29 +253,56 @@ contain object files, shared or static libraries, compiled executables,
 RPM/DEB/AppImage packages, unresolved Git LFS pointers, or release binaries.
 
 Release pages may provide separately generated packages requested for end
-users. Those assets must be built from the tagged source, tested on their target
-environment, and kept outside Git and the source archive. A format that was not
-built and tested is not presented as supported.
+users. Record the runtime tag and any packaging-only build commit separately,
+test each artifact on its stated target, and keep binaries outside Git and the
+source archive. An untested format is not presented as supported.
 
 ## 5.2.10 release artifact contract
 
-Publish only files freshly built and validated from the exact tagged source.
-New source and Linux archives use unencrypted `.zupt` files, verified by
-`zupt test` and complete extraction comparison. Release notes identify the
-tested commit, commands, limitations and signatures actually produced.
+The five release bundles are genuine, unencrypted `.zupt` archives compressed
+with VaptVupt at level 9, tested with `zupt test` and complete extraction
+comparison. Native DEB/RPM/SRPM packages retain their package-manager formats.
+Release notes identify the runtime source, actual build commit, tests and limits.
 
 | Artifact | Validation required before publication |
 | --- | --- |
-| `zupt-5.2.10-src.zupt` | Source-only tree, no credentials or task prompts; extraction matches the tag. |
+| `zupt-5.2.10-source.zupt` | Source-only tree; complete Git-blob comparison to signed tag C. |
 | `zupt-5.2.10-linux-x86_64.zupt` | Linux x86_64 CLI and complete public notices; extracted CLI round trip. |
+| `zupt-5.2.10-windows-x86_64.zupt` | Native Windows x86_64 CLI, five runtime notices and packaged Unicode/restricted-PATH round trips. |
+| `zupt-5.2.10-macos-arm64.zupt` | Native arm64 CLI DMG inside the bundle; DMG verification and mounted-binary round trips on macOS. Not universal. |
+| `zupt-gui-5.2.10-portable.zupt` | GUI frontend source, scripts and notices; external Python, Qt and matching CLI required. |
 | `zupt_5.2.10_amd64.deb` | Real DEB build, dependency/payload inspection and extracted or installed CLI test. |
 | `zupt-5.2.10-0.x86_64.rpm` and `zupt-5.2.10-0.src.rpm` | Real RPM/SRPM build, source provenance, payload inspection and extracted or installed CLI test. |
+| `zupt-gui_5.2.10_all.deb`, `zupt-gui-5.2.10-1.noarch.rpm`, `zupt-gui-5.2.10-1.src.rpm` | GUI package metadata, dependencies, notices and off-screen GUI/CLI integration. |
 | `SHA256SUMS`, `SHA256SUMS.asc`, `release-key.asc` | Exact asset hashes, verified detached signature and public signing key. |
 
-A package without its required build or test is unpublished. Local extracted
-package tests do not imply installation tests on Ubuntu/openSUSE. Windows,
-macOS, GUI installers and other architectures require fresh native builds and
-are not promised by this release. Prior releases keep their original artifacts.
+Current evidence distinguishes these results:
+
+- Native Windows/macOS run [36858438699](https://github.com/cristiancmoises/zupt/actions/runs/36858438699)
+  passed on packaging/test commit P `4a66b0cab55900bc64699428fb41c48c07de126a`.
+  Its `src`, `include`, `jasmin`, `sdk/src` and `Makefile` match runtime tag C
+  `24995eb7652a31eedc46386bab14c63cbb31e050`; this is not exact-tag C CI.
+- The C-tag GUI DEB job in [36849573076](https://github.com/cristiancmoises/zupt/actions/runs/36849573076)
+  passed. C-source GUI RPM/SRPM and portable frontend checks also passed; a
+  successful job does not turn the overall failed C workflow into a PASS.
+- Guix C CLI and the grafted GUI are installed in local profile generation 85;
+  version, CLI functional/PTY and six-tab GUI off-screen checks passed.
+  Generation 84 is retained and all 39 unrelated profile entries are unchanged.
+- Local static-musl CLI and extracted DEB/RPM tests passed; these are not native
+  Ubuntu/openSUSE installations. The strict GCC failure remains a known issue.
+
+Only assets actually listed with matching signed inventory are published.
+Verify the public key fingerprint independently:
+`CF8BA569591B6E7F4D24B0736C95BFAE0646DCCA` (registered 6C key), then run
+`gpg --verify SHA256SUMS.asc SHA256SUMS` and `sha256sum --check SHA256SUMS`.
+See [INSTALL.md](INSTALL.md) for extraction and installation. AppImage, AppDir,
+Flatpak bundles, platform GUI installers and other architectures are excluded.
+Prior releases keep their original artifacts.
+
+`.zupt` extraction restores regular file contents, not executable modes.
+After verifying a Linux bundle, apply `chmod u+x` only to its `zupt` file;
+invoke the portable shell launcher with `bash zupt-gui.sh`. Source build helpers
+also need selected execute permissions as documented in [INSTALL.md](INSTALL.md).
 
 The old 13-asset promotion workflow is disabled for v5.2.10 and later.
 Its source tarballs and portable tar.xz outputs are internal CI/build inputs,
@@ -477,11 +509,15 @@ distribution is claimed merely because the code has a fallback path.
 
 ## Source archive
 
-The immutable `v5.2.10` source tag retains the historical 5.2.9 AUR, Homebrew
-and Guix recipes. A separate post-tag packaging follow-up pins those recipes
-to the verified forge-generated source archive of the exact 5.2.10 tag,
-without changing that tag or uploading a public tarball. Native AUR/Homebrew/
-Guix installation results are not implied by the source pin verification.
+The immutable `v5.2.10` source tag C contains **5.2.10** AUR, Homebrew and Guix
+recipes, but their checksums still refer to the earlier candidate A
+`3b3b8f494b4bdd3b74aab60388eef1694ef316f8`. Do not build those stale pins
+against the corrected tag. Post-tag packaging commit
+`06c792a9de8f524bef962e8af7804e29d4fe0bff` supplies verified C archive pins;
+use that commit or a reviewed descendant for recipes, as described in
+[INSTALL.md](INSTALL.md). C stays immutable; there is no new public tarball.
+Pin verification is not an AUR/Homebrew installation result. The local Guix
+profile installation and CLI/GUI checks passed separately, as recorded above.
 
 Publish new source releases as unencrypted `.zupt` archives. The release
 procedure exports the exact tagged tree into a private staging directory,
@@ -489,9 +525,12 @@ audits that tree, and uses the built Zupt CLI to compress it. Test and extract
 each archive and compare the complete extracted tree before publishing it:
 
 ~~~sh
-zupt test zupt-5.2.10-src.zupt
-zupt extract -o source-check zupt-5.2.10-src.zupt
-sha256sum zupt-5.2.10-src.zupt
+zupt test zupt-5.2.10-source.zupt
+zupt extract -o source-check zupt-5.2.10-source.zupt
+sha256sum zupt-5.2.10-source.zupt
+cd source-check/zupt-5.2.10-source
+chmod u+x scripts/check-source-only.sh
+bash scripts/check-source-only.sh
 ~~~
 
 Zupt assigns archive identifiers and creation times, so verification compares
@@ -582,7 +621,7 @@ plus PySide6 or PyQt6. GUI image assets are data files whose purpose,
 provenance and license are recorded in [gui/assets/README.md](gui/assets/README.md).
 The integrated source and lightweight consistency checks do not constitute a
 target-native audit of every historical GUI format. The 5.2.10 artifact promise
-is limited to the gated GUI DEB, noarch/source RPM, and source-only portable ZIP
+is limited to the gated GUI DEB, noarch/source RPM, and portable `.zupt` frontend
 listed above; AppImage, AppDir, Flatpak bundles, and platform GUI installers
 remain excluded.
 
