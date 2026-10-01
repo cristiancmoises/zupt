@@ -23,14 +23,18 @@
 #   3. Verifies extract REJECTS the swapped archive (auth failure)
 #   4. Also verifies normal extract still works (regression guard)
 
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
+surgery="$repo_root/tests/archive_surgery.py"
+python3 "$repo_root/tests/test_block_swap_fixture.py" || exit 1
+
 ZUPT_BIN=${1:-./zupt}
 case $ZUPT_BIN in
     /*) ;;
     *) ZUPT_BIN=$PWD/${ZUPT_BIN#./} ;;
 esac
-TMPDIR=$(mktemp -d)
-trap "rm -rf $TMPDIR" EXIT
-cd "$TMPDIR"
+test_root=$(mktemp -d)
+trap 'rm -rf -- "$test_root"' EXIT
+cd "$test_root" || exit 1
 
 PASS=0; FAIL=0
 chk() {
@@ -56,86 +60,31 @@ mkdir extract_normal
 chk "Normal extract still works (regression guard)"
 
 # P2: The block-swap attack must FAIL (no files extracted, or wrong files rejected)
-python3 << 'PYEOF'
-import sys, struct
-data = bytearray(open('archive.zupt','rb').read())
-# Find DATA blocks via block magic 0xbb 0x01 + block_type=DATA(0)
-def parse_blocks(data):
-    blocks = []
-    i = 0
-    while i < len(data) - 7:
-        if data[i] == 0xbb and data[i+1] == 0x01:
-            block_type = data[i+2]
-            codec = struct.unpack('<H', bytes(data[i+3:i+5]))[0]
-            flags = struct.unpack('<H', bytes(data[i+5:i+7]))[0]
-            # parse varint uncomp
-            idx = i + 7
-            uncomp, shift = 0, 0
-            while idx < len(data):
-                b = data[idx]
-                uncomp |= (b & 0x7F) << shift
-                idx += 1
-                if not (b & 0x80): break
-                shift += 7
-            comp, shift = 0, 0
-            while idx < len(data):
-                b = data[idx]
-                comp |= (b & 0x7F) << shift
-                idx += 1
-                if not (b & 0x80): break
-                shift += 7
-            payload_start = idx + 8  # skip 8-byte checksum
-            block_end = payload_start + comp
-            blocks.append({
-                'type': block_type, 'flags': flags,
-                'start': i, 'end': block_end, 'comp': comp,
-            })
-            i = block_end
-        else:
-            i += 1
-    return blocks
-
-blocks = parse_blocks(data)
-data_blocks = [b for b in blocks if b['type'] == 0 and b['flags'] & 0x01]
-if len(data_blocks) < 2:
-    print(f"Found only {len(data_blocks)} encrypted DATA blocks; can't swap", file=sys.stderr)
-    sys.exit(2)
-
-# Swap the first two DATA blocks
-B0 = bytes(data[data_blocks[0]['start']:data_blocks[0]['end']])
-B1 = bytes(data[data_blocks[1]['start']:data_blocks[1]['end']])
-swapped = bytearray(data)
-# Swap (assume same size)
-if len(B0) != len(B1):
-    print(f"different block sizes {len(B0)} vs {len(B1)}; can't swap directly", file=sys.stderr)
-    sys.exit(2)
-swapped[data_blocks[0]['start']:data_blocks[0]['end']] = B1
-swapped[data_blocks[1]['start']:data_blocks[1]['end']] = B0
-open('archive_swapped.zupt','wb').write(bytes(swapped))
-print(f"swap done", file=sys.stderr)
-PYEOF
+python3 "$surgery" swap-frames archive.zupt archive_swapped.zupt \
+    --kind data --require-encrypted
 swap_status=$?
 
 if [ $swap_status -eq 0 ]; then
+    auth_out=$("$ZUPT_BIN" test archive_swapped.zupt -p mypassword 2>&1)
+    auth_rc=$?
     mkdir extract_attack
     out=$("$ZUPT_BIN" x archive_swapped.zupt -p mypassword -o extract_attack 2>&1)
     rc=$?
+    installed=$(find extract_attack -mindepth 1 -print -quit)
+    installed_status=$?
 
-    # Attack defense check: at least one of these must hold
-    #   - rc != 0 (extract returned error)
-    #   - no files extracted
-    #   - extracted files have wrong content (we reject this — would mean the
-    #     bug is still present)
-    a_swapped=0; b_swapped=0
-    [ -f extract_attack/file_A.txt ] && cmp -s file_B.txt extract_attack/file_A.txt && a_swapped=1
-    [ -f extract_attack/file_B.txt ] && cmp -s file_A.txt extract_attack/file_B.txt && b_swapped=1
-
-    if [ "$a_swapped" = "1" ] && [ "$b_swapped" = "1" ]; then
-        # BAD: attack succeeded — file_A has B's content and vice versa
-        false
-    else
-        # GOOD: attack rejected (either error, no files, or files unchanged)
+    # A parser error is not authentication evidence: the valid swapped frames
+    # must fail authentication, extraction must fail, and no plaintext may be
+    # installed. The test command reports the authentication reason, while
+    # extraction reports only its aggregate error count for this fixture.
+    if [ "$auth_rc" -ne 0 ] &&
+       printf '%s\n' "$auth_out" | grep -Fq 'Authentication failed' &&
+       [ "$rc" -ne 0 ] &&
+       [ "$installed_status" -eq 0 ] && [ -z "$installed" ]; then
         true
+    else
+        printf '%s\n' "$auth_out" "$out" >&2
+        false
     fi
     chk "Block-swap attack rejected (cross-file reorder)"
 else
@@ -175,7 +124,7 @@ chk "Multi-file archive roundtrip (per-file seq counters)"
 # P6: Wrong password still fails cleanly
 mkdir wrong_pw
 out=$("$ZUPT_BIN" x archive.zupt -p WRONG_PASSWORD -o wrong_pw 2>&1)
-[ ! -f wrong_pw/file_A.txt ]
+[ ! -f wrong_pw/file_A.txt ] || { printf '%s\n' "$out" >&2; false; }
 chk "Wrong password rejected"
 
 echo
