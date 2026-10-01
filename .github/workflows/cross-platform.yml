@@ -149,10 +149,10 @@ jobs:
             "$toolchain_prefix/share/licenses/crt/COPYING.MinGW-w64.txt" \
             "$bundle/COPYING.MinGW-w64.txt"
           install -m 0644 \
-            "$toolchain_prefix/share/licenses/gcc-libs/COPYING3" \
+            "$toolchain_prefix/share/licenses/libgcc/COPYING3" \
             "$bundle/GCC-COPYING3.txt"
           install -m 0644 \
-            "$toolchain_prefix/share/licenses/gcc-libs/COPYING.RUNTIME" \
+            "$toolchain_prefix/share/licenses/libgcc/COPYING.RUNTIME" \
             "$bundle/GCC-RUNTIME-LIBRARY-EXCEPTION.txt"
           zip_path=$PWD/out/zupt-$version-windows-x86_64.zip
           (cd out/work && zip -9 -r "$zip_path" \
