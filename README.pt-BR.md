@@ -4,6 +4,11 @@
 
 [English](README.md) | Português do Brasil
 
+Este README descreve o código-fonte 5.2.10. Os downloads publicados e seu estado
+de validação estão na [página de releases](https://github.com/cristiancmoises/zupt/releases/latest);
+a versão do código ou uma tag Git, isoladamente, não significa que os pacotes
+já foram publicados.
+
 ZUPT é um arquivador de backup em C11. Ele combina o codec VaptVupt incluído
 como código-fonte com criptografia autenticada AES-256-CTR + HMAC-SHA256,
 criptografia híbrida ML-KEM-768/X25519, verificação de integridade, execução
@@ -19,12 +24,19 @@ Disponível para openSUSE: [download e atualização](#pacotes-opensuse).
   hash3 pela cadeia real e inicializa explicitamente a raiz da árvore Huffman.
 - Preserva a política do adaptador do ZUPT e sua verificação por
   descompactação e comparação antes de aceitar um bloco comprimido.
+- Desativa o eco antes de mostrar o prompt POSIX de senha e usa uma espera
+  atômica por sinais. Leituras não bloqueantes evitam travamento quando o
+  terminal descarta a entrada; ao sair, restaura a configuração do terminal
+  e os flags originais do descritor. Os testes cobrem os quatro sinais,
+  confirmação, entrada descartada e limites de tamanho de senha.
 - Não altera o formato de arquivo 1.6, o identificador de codec `0x0010`, a
   interface de linha de comando nem a ABI pública do SDK.
 
 O suporte a contexto FAST sem alocação faz parte da biblioteca VaptVupt, mas o
 ZUPT continua usando quadros independentes pela API tradicional. O programa não
 depende de módulo do kernel.
+
+O prompt Windows e a gramática dos arquivos permanecem inalterados.
 
 ## Pacotes openSUSE
 
