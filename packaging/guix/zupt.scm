@@ -3,7 +3,7 @@
 ;;;
 ;;; GNU Guix package definitions for ZUPT (CLI + PySide6 GUI).
 ;;; Post-tag recipe pin: immutable v5.2.10 source commit
-;;; 3b3b8f494b4bdd3b74aab60388eef1694ef316f8.
+;;; 24995eb7652a31eedc46386bab14c63cbb31e050.
 ;;; The generated forge archive was compared to git archive of that commit.
 ;;; This packaging-only follow-up does not change the release tag. New public
 ;;; release packages use .zupt; no new tarball is uploaded.
@@ -76,7 +76,7 @@
           "https://github.com/cristiancmoises/zupt"
           "/archive/refs/tags/v" %zupt-version ".tar.gz"))
     (sha256
-     (base32 "06n2f8p0i0hxbpdp4b1ymyysjkng3gv2ldvndn1ck62mqz66mk2n"))))
+     (base32 "1z78q52n9l7fmlcpbzjijswyj4ml343a7izjv7714iayp8q1rs1m"))))
 
 (define-public zupt
   (package
