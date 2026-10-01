@@ -1,6 +1,18 @@
 # ZUPT Changelog
 
-## [5.2.10] — 2026-09-30 — VaptVupt 2.65.13 integration
+## [5.2.10] — 2026-10-01 — Codec compatibility and terminal prompt fixes
+
+The original unpublished 5.2.10 tag preceded the terminal corrections below.
+The maintainer authorized correcting that tag before the first package release;
+the previous tag object and commits are retained as development evidence.
+Validate the signed release commit rather than reusing old candidate packages.
+
+- Disable POSIX terminal echo before printing the password prompt. Use an
+  atomic signal wait and nonblocking reads so input-entry interruption and
+  terminal input flushing cannot strand the prompt. Restore terminal state,
+  descriptor flags, handlers and the signal mask before propagating a signal.
+- Add deterministic ordering and interruption regressions, real terminal flush
+  cases, confirmation round trips, and empty/maximum/oversized password checks.
 
 - Integrate the VaptVupt 2.65.13 encoder changes from
   `e30dc9329be7cf9f233b1ac0b1fc9ed31f530391`: reachable-bucket preparation for small

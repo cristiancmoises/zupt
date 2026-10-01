@@ -2,6 +2,10 @@
 
 [English](README.md) | [Português do Brasil](README.pt-BR.md)
 
+This README describes the 5.2.10 source. Published downloads and their validation
+status are listed on the [release page](https://github.com/cristiancmoises/zupt/releases/latest);
+a source version or Git tag alone does not mean packages have been published.
+
 ZUPT is a command-line backup archiver written in C11. It combines the
 bundled VaptVupt compression codec with authenticated AES-256-CTR +
 HMAC-SHA256 encryption, native ML-KEM-768/X25519 hybrid encryption, archive
@@ -16,6 +20,13 @@ initializes the Huffman tree root explicitly. Zupt retains its parser guards,
 secure-wipe fallback, wrapper policy, licensing notices, and read-back check.
 Archive format 1.6, codec identifier `0x0010`, CLI behavior, and SDK ABI remain
 unchanged. Release assets require fresh checks against the exact tagged source.
+
+The POSIX password prompt now disables echo before displaying the prompt and
+waits for input with an atomic signal transition. Nonblocking reads handle
+terminal input flushing without hanging, and cleanup restores the original
+terminal settings and descriptor flags. Regression tests cover all four handled
+signals, prompt ordering, flushed input, confirmation and password-size limits.
+The Windows prompt and archive grammar are unchanged.
 
 Version 5.2.8 closes three CodeQL High path-race findings: SDK key copies now
 publish atomically through an already-open private object, POSIX disk restore
