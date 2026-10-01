@@ -63,6 +63,14 @@ def wait_prompt(process, master, transcript):
     wait_output(process, master, transcript, b"Password:")
 
 
+def assert_terminal_flags(slave, expected, context):
+    restored = fcntl.fcntl(slave, fcntl.F_GETFL)
+    if restored != expected:
+        raise SystemExit(
+            f"terminal descriptor flags were not restored after {context}: "
+            f"expected={expected:#x} actual={restored:#x} xor={expected ^ restored:#x}")
+
+
 def dynamic_elf(path):
     # LD_PRELOAD cannot exercise a statically linked CLI. Do not skip its
     # ordinary PTY tests below: static builds need the same echo restoration.
@@ -93,7 +101,19 @@ with tempfile.TemporaryDirectory(prefix="zupt-password-signal-") as work:
     @contextlib.contextmanager
     def child(shim=None, mode="echo", number=signal.SIGINT, controlling=False):
         master, slave = pty.openpty()
+        before_write = fcntl.fcntl(slave, fcntl.F_GETFL)
+        # Darwin exposes a sticky FWASWRITTEN status bit after a successful
+        # write. Prime this shared stdin/stdout/stderr description before its
+        # baseline; F_SETFL cannot undo kernel write history. Keep the complete
+        # flag comparison below, including O_NONBLOCK and every caller flag.
+        if os.write(slave, b"\n") != 1:
+            raise SystemExit("cannot prime the synthetic terminal descriptor")
+        if not select.select([master], [], [], 2)[0]:
+            raise SystemExit("synthetic terminal priming output was not readable")
+        drain(master, bytearray())
         initial = (termios.tcgetattr(slave), fcntl.fcntl(slave, fcntl.F_GETFL))
+        print(f"PTY parent write flags: before={before_write:#x} "
+              f"after={initial[1]:#x} xor={before_write ^ initial[1]:#x}")
         event_read, event_write = os.pipe()
         ack_read, ack_write = os.pipe()
         environment = os.environ.copy()
@@ -137,8 +157,7 @@ with tempfile.TemporaryDirectory(prefix="zupt-password-signal-") as work:
         restored = termios.tcgetattr(slave)
         if restored != initial[0]:
             raise SystemExit(f"terminal state was not restored after {name}")
-        if fcntl.fcntl(slave, fcntl.F_GETFL) != initial[1]:
-            raise SystemExit(f"terminal descriptor flags were not restored after {name}")
+        assert_terminal_flags(slave, initial[1], name)
         if not (restored[3] & termios.ECHO):
             raise SystemExit("terminal echo is disabled after interrupted prompt")
         if os.path.exists(archive):
@@ -325,8 +344,7 @@ ssize_t read(int fd, void *buffer, size_t capacity) {
                 raise SystemExit("interactive password was echoed to the terminal")
             if termios.tcgetattr(slave) != initial[0]:
                 raise SystemExit("terminal state was not restored after successful prompts")
-            if fcntl.fcntl(slave, fcntl.F_GETFL) != initial[1]:
-                raise SystemExit("terminal descriptor flags were not restored after successful prompts")
+            assert_terminal_flags(slave, initial[1], "successful prompts")
             password_file = os.path.join(work, "roundtrip-password")
             with open(password_file, "wb") as stream:
                 stream.write(password + b"\n")
@@ -346,7 +364,6 @@ ssize_t read(int fd, void *buffer, size_t capacity) {
                 raise SystemExit(f"{length}-byte interactive password was not rejected")
             if termios.tcgetattr(slave) != initial[0]:
                 raise SystemExit("terminal state was not restored after rejected input")
-            if fcntl.fcntl(slave, fcntl.F_GETFL) != initial[1]:
-                raise SystemExit("terminal descriptor flags were not restored after rejected input")
+            assert_terminal_flags(slave, initial[1], "rejected input")
         print(f"password prompt {length}-byte input rejection: PASS")
 PY
