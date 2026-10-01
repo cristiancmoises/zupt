@@ -54,6 +54,9 @@ jobs:
       - name: Validate release packaging metadata
         run: bash tests/test_packaging_syntax.sh
 
+      - name: Exercise downstream source checksum verification
+        run: python3 tests/test_recipe_source_checksums.py
+
       - name: ShellCheck release and source-policy scripts
         run: |
           shellcheck \
@@ -231,37 +234,73 @@ jobs:
           bash scripts/check-source-only.sh --archive \
             "$RUNNER_TEMP/release-source/zupt-$version.tar.gz"
       - name: Match downstream recipe checksums to the tagged source archive
-        if: startsWith(github.ref, 'refs/tags/v')
+        # Recipe pins are a post-tag follow-up: a tag cannot contain its own
+        # generated archive checksum. Check those pins on branches and PRs.
+        # The independent make-dist reproducibility/audit above also runs on tags.
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: |
           set -Eeuo pipefail
-          version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
-          source_tar="$RUNNER_TEMP/release-source/zupt-$version.tar.gz"
-          actual_sha=$(sha256sum "$source_tar" | awk '{print $1}')
-          aur_sha=$(awk -F"'" '/^sha256sums=/ { print $2; exit }' packaging/aur/PKGBUILD)
-          homebrew_sha=$(awk -F'"' '/^[[:space:]]*sha256 / { print $2; exit }' packaging/homebrew/zupt.rb)
-          guix_base32=$(sed -n 's/^[[:space:]]*(base32 "\([^"]*\)").*/\1/p' \
-            packaging/guix/zupt.scm | head -n 1)
-          actual_base32=$(python3 - "$source_tar" <<'PY'
+          python3 - "$RUNNER_TEMP/recipe-source.tar.gz" <<'PY'
           import hashlib
           import pathlib
+          import re
+          import subprocess
           import sys
 
+          def declaration(pattern, text, label):
+              matches = re.findall(pattern, text, re.MULTILINE)
+              if len(matches) != 1:
+                  raise SystemExit("Expected one " + label + " declaration")
+              return matches[0]
+
+          aur = pathlib.Path("packaging/aur/PKGBUILD").read_text()
+          homebrew = pathlib.Path("packaging/homebrew/zupt.rb").read_text()
+          guix = pathlib.Path("packaging/guix/zupt.scm").read_text()
+          version = declaration(r'^#define ZUPT_VERSION_STRING "([0-9.]+)"',
+                                pathlib.Path("include/zupt.h").read_text(), "source version")
+          versions = [declaration(r'^pkgver=([0-9.]+)$', aur, "AUR version"),
+                      declaration(r'^\s*version "([0-9.]+)"$', homebrew, "Homebrew version"),
+                      declaration(r'^\(define\s+%zupt-version\s+"([0-9.]+)"\s*\)$', guix, "Guix version")]
+          if any(value != version for value in versions):
+              raise SystemExit("Downstream recipe versions do not match the source version")
+
+          aur_source = declaration(r'^source=\("([^"\n]+)"\)$', aur, "AUR source")
+          aur_source = aur_source.replace("${pkgname}", "zupt").replace("${pkgver}", version)
+          alias, separator, aur_url = aur_source.partition("::")
+          if separator != "::" or alias != "zupt-" + version + ".tar.gz":
+              raise SystemExit("Unexpected AUR source alias")
+          homebrew_url = declaration(r'^\s*url "([^"\n]+)"$', homebrew, "Homebrew URL")
+          guix_parts = declaration(
+              r'\(uri\s+\(string-append\s+"([^"\n]+)"\s+"([^"\n]+)"\s+%zupt-version\s+"([^"\n]+)"\s*\)\)',
+              guix, "Guix URL")
+          guix_url = guix_parts[0] + guix_parts[1] + version + guix_parts[2]
+          expected_url = "https://github.com/cristiancmoises/zupt/archive/refs/tags/v" + version + ".tar.gz"
+          if any(url != expected_url for url in (aur_url, homebrew_url, guix_url)):
+              raise SystemExit("Downstream source URLs must match the expected HTTPS project tag archive")
+
+          aur_sha = declaration(r"^sha256sums=\('([0-9a-f]{64})'\)$", aur, "AUR checksum")
+          homebrew_sha = declaration(r'^\s*sha256 "([0-9a-f]{64})"$', homebrew, "Homebrew checksum")
+          guix_base32 = declaration(r'\(base32 "([0-9a-z]{52})"\)', guix, "Guix checksum")
+          source_tar = pathlib.Path(sys.argv[1])
+          subprocess.run(["curl", "--fail", "--location", "--proto", "=https",
+                          "--proto-redir", "=https", "--connect-timeout", "20",
+                          "--max-time", "120", "--max-filesize", "16777216",
+                          "--retry", "2", "--retry-max-time", "120",
+                          "--output", str(source_tar), expected_url],
+                         check=True, timeout=180)
+          digest = hashlib.sha256(source_tar.read_bytes()).digest()
+          actual_sha = digest.hex()
           alphabet = "0123456789abcdfghijklmnpqrsvwxyz"
-          digest = hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).digest()
           value = int.from_bytes(digest, "little")
           length = (len(digest) * 8 + 4) // 5
-          print("".join(alphabet[(value >> (5 * index)) & 31]
-                        for index in range(length - 1, -1, -1)))
+          actual_base32 = "".join(alphabet[(value >> (5 * index)) & 31]
+                                  for index in range(length - 1, -1, -1))
+          if aur_sha != actual_sha or homebrew_sha != actual_sha:
+              raise SystemExit("AUR or Homebrew checksum does not match the configured tag archive")
+          if guix_base32 != actual_base32:
+              raise SystemExit("Guix checksum does not match the configured tag archive")
+          print("PASS: all downstream pins match", expected_url, actual_sha)
           PY
-          )
-          [[ $aur_sha == "$actual_sha" && $homebrew_sha == "$actual_sha" ]] || {
-            echo 'AUR or Homebrew checksum does not match the source archive' >&2
-            exit 1
-          }
-          [[ $guix_base32 == "$actual_base32" ]] || {
-            echo 'Guix checksum does not match the source archive' >&2
-            exit 1
-          }
       - name: Upload source and checksum
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
