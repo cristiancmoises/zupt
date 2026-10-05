@@ -1,13 +1,13 @@
-# ZUPT 5.2.10
+# ZUPT
 
 [English](README.md) | [Português do Brasil](README.pt-BR.md)
 
-This README describes the 5.2.10 source and packaging follow-ups. Use the explicit
-[5.2.10 release page](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.10),
-not `releases/latest`, which can still select an older stable release.
-The 5.2.10 delivery is a known-issues prerelease while the strict GCC gate remains
-failing; successful package tests do not mean every release gate passed.
-A source version or Git tag alone does not mean an asset has been published.
+The published official version is
+[ZUPT 5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
+Version **5.2.10 is in development**, not an official download. Its earlier
+tag and delivery were withdrawn; the corrected version will be published only
+after validation. Source version strings and local tags do not establish release
+status.
 
 ZUPT is a command-line backup archiver written in C11. It combines the
 bundled VaptVupt compression codec with authenticated AES-256-CTR +
@@ -15,6 +15,20 @@ HMAC-SHA256 encryption, native ML-KEM-768/X25519 hybrid encryption, archive
 integrity checks, multithreaded operation, and a Python/Qt graphical frontend.
 
 Available for openSUSE: [download and update instructions](#opensuse-and-obs).
+
+Try [ZUPT Web online](https://zupt-web.securityops.co) with non-sensitive sample
+files and disposable passwords or keys. Uploaded data is processed on the
+server. Available features, versions, and limits may differ from the local
+CLI/GUI.
+
+## Official version 5.2.9
+
+The official 5.2.9 release bundles VaptVupt 2.65.11 and retains archive format
+1.6 and codec identifier `0x0010`. Download its packages from the
+[5.2.9 release page](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9)
+and verify the accompanying checksums. Existing 5.2.9 packages are unchanged.
+
+## Version 5.2.10 in development
 
 Version 5.2.10 updates the bundled VaptVupt codec from 2.65.11 to 2.65.13.
 It prepares only reachable matcher buckets for small BALANCED/EXTREME inputs
@@ -241,9 +255,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the release record.
 - SecurityOps Brazil mirror: https://git.securityops.com.br/cristiancmoises/zupt
 - SecurityOps global mirror: https://git.securityops.co/cristiancmoises/zupt
 
-GitHub remains canonical. For every published version, the 13 gated assets
-must be mirrored byte-for-byte on the three hosts above after exact-tag gates
-and promotion succeed.
+GitHub remains canonical. Published assets must be mirrored byte-for-byte on
+the three hosts above after the exact-source gates and publication checks pass.
 
 ## Source-only policy
 
@@ -257,16 +270,17 @@ users. Record the runtime tag and any packaging-only build commit separately,
 test each artifact on its stated target, and keep binaries outside Git and the
 source archive. An untested format is not presented as supported.
 
-## 5.2.10 release artifact contract
+## Planned 5.2.10 release artifacts (not published)
 
-The five release bundles are genuine, unencrypted `.zupt` archives compressed
-with VaptVupt at level 9, tested with `zupt test` and complete extraction
-comparison. Native DEB/RPM/SRPM packages retain their package-manager formats.
+The following names and checks describe the planned release, not available
+downloads. The five release bundles must be genuine, unencrypted `.zupt`
+archives compressed with VaptVupt at level 9, tested with `zupt test` and complete
+extraction comparison. Native DEB/RPM/SRPM packages retain their formats.
 Release notes identify the runtime source, actual build commit, tests and limits.
 
 | Artifact | Validation required before publication |
 | --- | --- |
-| `zupt-5.2.10-source.zupt` | Source-only tree; complete Git-blob comparison to signed tag C. |
+| `zupt-5.2.10-source.zupt` | Source-only tree; complete Git-blob comparison to the validated official tag. |
 | `zupt-5.2.10-linux-x86_64.zupt` | Linux x86_64 CLI and complete public notices; extracted CLI round trip. |
 | `zupt-5.2.10-windows-x86_64.zupt` | Native Windows x86_64 CLI, five runtime notices and packaged Unicode/restricted-PATH round trips. |
 | `zupt-5.2.10-macos-arm64.zupt` | Native arm64 CLI DMG inside the bundle; DMG verification and mounted-binary round trips on macOS. Not universal. |
@@ -276,7 +290,8 @@ Release notes identify the runtime source, actual build commit, tests and limits
 | `zupt-gui_5.2.10_all.deb`, `zupt-gui-5.2.10-1.noarch.rpm`, `zupt-gui-5.2.10-1.src.rpm` | GUI package metadata, dependencies, notices and off-screen GUI/CLI integration. |
 | `SHA256SUMS`, `SHA256SUMS.asc`, `release-key.asc` | Exact asset hashes, verified detached signature and public signing key. |
 
-Current evidence distinguishes these results:
+Historical checks of the withdrawn delivery distinguish these results. They
+do not validate a future corrected 5.2.10 release:
 
 - Native Windows/macOS run [36858438699](https://github.com/cristiancmoises/zupt/actions/runs/36858438699)
   passed on packaging/test commit P `4a66b0cab55900bc64699428fb41c48c07de126a`.
@@ -509,15 +524,11 @@ distribution is claimed merely because the code has a fallback path.
 
 ## Source archive
 
-The immutable `v5.2.10` source tag C contains **5.2.10** AUR, Homebrew and Guix
-recipes, but their checksums still refer to the earlier candidate A
-`3b3b8f494b4bdd3b74aab60388eef1694ef316f8`. Do not build those stale pins
-against the corrected tag. Post-tag packaging commit
-`06c792a9de8f524bef962e8af7804e29d4fe0bff` supplies verified C archive pins;
-use that commit or a reviewed descendant for recipes, as described in
-[INSTALL.md](INSTALL.md). C stays immutable; there is no new public tarball.
-Pin verification is not an AUR/Homebrew installation result. The local Guix
-profile installation and CLI/GUI checks passed separately, as recorded above.
+The earlier `v5.2.10` tag and release were withdrawn. Do not use stale
+AUR, Homebrew or Guix recipe pins as an official installation source. Those
+recipes and hashes must be finalized against the validated official source
+before publication. Historical package or profile checks do not validate that
+future release. The commands below describe its planned archive verification.
 
 Publish new source releases as unencrypted `.zupt` archives. The release
 procedure exports the exact tagged tree into a private staging directory,
@@ -554,8 +565,8 @@ signing key before enabling it. These are community packages, not a claim of
 Factory acceptance or inclusion in the default distribution repositories.
 
 As checked on 2026-09-30, both x86_64 repositories offer ZUPT **5.2.9**.
-That downstream version is separate from this repository's **5.2.10** release;
-do not assume that it includes this release's codec update.
+That downstream version is separate from the **5.2.10 development source**;
+do not assume that it includes the development codec update.
 
 After enabling the matching repository on a non-transactional openSUSE system:
 
@@ -577,10 +588,11 @@ vendor change. These commands do not perform a Tumbleweed distribution upgrade.
 See the [openSUSE Zypper guide](https://doc.opensuse.org/documentation/tumbleweed/zypper/)
 for repository management and system-update guidance.
 
-The maintained upstream recipe is in packaging/opensuse. It targets the
-immutable v5.2.10 tag, disables submodules and Git LFS, builds with
-WITH_SDK=0 WITH_PQBOX=0, runs real checks, and installs without the renamed-era
-`vaptvupt` alias.
+The upstream recipe is in packaging/opensuse. It currently names v5.2.10,
+whose public tag was withdrawn; it is not an official installation recipe until
+its source pin and checks are finalized. Its intended profile disables
+submodules and Git LFS, builds with WITH_SDK=0 WITH_PQBOX=0, runs real checks,
+and installs without the renamed-era `vaptvupt` alias.
 
 This repository does not claim that the package has been submitted to or
 accepted by openSUSE Factory. The packaging README distinguishes local parsing,

@@ -1,15 +1,14 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 
-# ZUPT 5.2.10
+# ZUPT
 
 [English](README.md) | Português do Brasil
 
-Este README descreve o código-fonte 5.2.10 e as atualizações de empacotamento.
-Use a [página explícita da versão 5.2.10](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.10),
-não `releases/latest`, que pode selecionar uma versão estável anterior.
-A entrega 5.2.10 é uma pré-release com problemas conhecidos enquanto o gate GCC
-estrito permanece falhando; testes de pacotes aprovados não significam aprovação
-de todos os gates. Uma versão ou tag, isoladamente, não publica um arquivo.
+A versão oficial publicada é a
+[ZUPT 5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
+A **5.2.10 está em desenvolvimento**, não é um download oficial. Sua tag e
+entrega anteriores foram retiradas; a versão corrigida só será publicada após
+validação. Versões no código e tags locais não comprovam publicação.
 
 ZUPT é um arquivador de backup em C11. Ele combina o codec VaptVupt incluído
 como código-fonte com criptografia autenticada AES-256-CTR + HMAC-SHA256,
@@ -18,7 +17,19 @@ multithread e uma interface gráfica opcional em Python/Qt.
 
 Disponível para openSUSE: [download e atualização](#pacotes-opensuse).
 
-## O que muda na versão 5.2.10
+Experimente o [ZUPT Web online](https://zupt-web.securityops.co) com arquivos
+de exemplo sem dados sensíveis e senhas ou chaves descartáveis. Os dados enviados
+são processados no servidor. Os recursos, a versão e os limites disponíveis
+podem diferir dos da CLI/GUI local.
+
+## Versão oficial 5.2.9
+
+A versão oficial 5.2.9 inclui VaptVupt 2.65.11 e preserva o formato de arquivo
+1.6 e o identificador `0x0010`. Baixe seus pacotes pela
+[release 5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9)
+e confira os checksums que a acompanham. Os pacotes existentes não mudaram.
+
+## O que muda na versão 5.2.10 em desenvolvimento
 
 - Atualiza o codec incluído de 2.65.11 para 2.65.13.
 - Prepara somente buckets alcançáveis para entradas pequenas em
@@ -54,8 +65,8 @@ sua chave de assinatura antes de habilitá-lo. São pacotes comunitários, não 
 alegação de aceitação no Factory ou inclusão nos repositórios padrão.
 
 Na verificação de 2026-09-30, ambos os repositórios x86_64 oferecem ZUPT
-**5.2.9**. Essa versão downstream é diferente da **5.2.10** deste repositório;
-não presuma que inclui a atualização de codec desta versão.
+**5.2.9**. Essa versão downstream é diferente do código **5.2.10 em
+desenvolvimento**; não presuma que inclui a atualização de codec em andamento.
 
 Depois de habilitar o repositório correspondente em um sistema openSUSE não
 transacional:
@@ -137,16 +148,17 @@ O modelo de ameaças completo permanece em [THREAT_MODEL.md](THREAT_MODEL.md) e
 a política de segurança em [SECURITY.md](SECURITY.md). A orientação operacional
 em português está em [DOCUMENTACAO.pt-BR.md](DOCUMENTACAO.pt-BR.md).
 
-## Pacotes e artefatos de release
+## Artefatos planejados da 5.2.10 (não publicados)
 
-Os cinco bundles são arquivos `.zupt` genuínos, sem criptografia, comprimidos
-com VaptVupt no nível 9, testados com `zupt test` e comparação integral após a
-extração. DEB/RPM/SRPM mantêm seus formatos nativos. Registre a tag do runtime
-e o commit efetivamente usado na compilação de cada pacote separadamente.
+Os nomes e verificações abaixo descrevem a release planejada, não downloads
+disponíveis. Os cinco bundles deverão ser arquivos `.zupt` genuínos, sem
+criptografia, comprimidos com VaptVupt no nível 9, testados com `zupt test` e
+comparação integral após a extração. DEB/RPM/SRPM mantêm seus formatos nativos.
+Registre a tag do runtime e o commit usado na compilação separadamente.
 
 | Arquivo | Validação exigida antes da publicação |
 | --- | --- |
-| `zupt-5.2.10-source.zupt` | Árvore de fonte comparada integralmente aos blobs Git da tag assinada C. |
+| `zupt-5.2.10-source.zupt` | Árvore de fonte comparada integralmente aos blobs Git da tag oficial validada. |
 | `zupt-5.2.10-linux-x86_64.zupt` | CLI Linux x86_64 e avisos completos; teste funcional da extração. |
 | `zupt-5.2.10-windows-x86_64.zupt` | CLI nativa Windows x86_64, cinco avisos de runtime e round trips Unicode/PATH restrito. |
 | `zupt-5.2.10-macos-arm64.zupt` | DMG da CLI nativa arm64 dentro do bundle; verificação e teste do binário montado no macOS. Não é universal. |
@@ -156,7 +168,8 @@ e o commit efetivamente usado na compilação de cada pacote separadamente.
 | `zupt-gui_5.2.10_all.deb`, `zupt-gui-5.2.10-1.noarch.rpm`, `zupt-gui-5.2.10-1.src.rpm` | Metadados, dependências, avisos e integração GUI/CLI off-screen. |
 | `SHA256SUMS`, `SHA256SUMS.asc`, `release-key.asc` | Hashes exatos, assinatura destacada verificada e chave pública. |
 
-Os resultados atuais têm escopos distintos:
+As verificações históricas da entrega retirada têm escopos distintos. Elas não
+validam uma futura release 5.2.10 corrigida:
 
 - O run nativo Windows/macOS [36858438699](https://github.com/cristiancmoises/zupt/actions/runs/36858438699)
   passou no commit de testes/empacotamento P `4a66b0cab55900bc64699428fb41c48c07de126a`.
@@ -191,15 +204,11 @@ como assinado.
 
 ## Código-fonte e procedência do codec
 
-A tag imutável C `v5.2.10` contém receitas AUR, Homebrew e Guix da versão
-**5.2.10**, mas com hashes do candidato anterior A
-`3b3b8f494b4bdd3b74aab60388eef1694ef316f8`. Não use esses pins antigos com a
-tag corrigida. O commit posterior de empacotamento
-`06c792a9de8f524bef962e8af7804e29d4fe0bff` fixa o arquivo gerado pelo forge
-para C; use esse commit ou um descendente revisado nas receitas. A tag C não
-muda e não há upload público de novo tarball. Verificar pins não comprova
-instalação AUR/Homebrew. A instalação no perfil Guix local e os testes CLI/GUI
-passaram separadamente, conforme registrado acima.
+A tag e a release anteriores `v5.2.10` foram retiradas. Não use pins antigos
+das receitas AUR, Homebrew ou Guix como fonte oficial de instalação. As receitas
+e seus hashes precisam ser finalizados contra a fonte oficial validada antes da
+publicação. Testes históricos de pacotes ou do perfil não validam essa futura
+release.
 
 O codec incluído integra o VaptVupt 2.65.13 no commit
 `e30dc9329be7cf9f233b1ac0b1fc9ed31f530391`, com adaptações do ZUPT preservadas.
