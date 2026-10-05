@@ -1,13 +1,25 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 
-# ZUPT 5.2.9
+# ZUPT
 
 [English](README.md) | Português do Brasil
+
+A versão oficial publicada é a
+[ZUPT 5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
+A **5.2.10 está em desenvolvimento**, não é um download oficial. Sua tag e
+entrega anteriores foram retiradas; a versão corrigida só será publicada após
+validação. Versões no código e tags locais não comprovam publicação.
+Este espelho contém atualmente o código-fonte 5.2.9.
 
 ZUPT é um arquivador de backup em C11. Ele combina o codec VaptVupt incluído
 como código-fonte com criptografia autenticada AES-256-CTR + HMAC-SHA256,
 criptografia híbrida ML-KEM-768/X25519, verificação de integridade, execução
 multithread e uma interface gráfica opcional em Python/Qt.
+
+Experimente o [ZUPT Web online](https://zupt-web.securityops.co) com arquivos
+de exemplo sem dados sensíveis e senhas ou chaves descartáveis. Os dados enviados
+são processados no servidor. Os recursos, a versão e os limites disponíveis
+podem diferir dos da CLI/GUI local.
 
 ## O que muda na versão 5.2.9
 

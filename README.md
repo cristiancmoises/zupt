@@ -1,11 +1,25 @@
-# ZUPT 5.2.9
+# ZUPT
 
 [English](README.md) | [Português do Brasil](README.pt-BR.md)
+
+The published official version is
+[ZUPT 5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
+Version **5.2.10 is in development**, not an official download. Its earlier
+tag and delivery were withdrawn; the corrected version will be published only
+after validation. Source version strings and local tags do not establish release
+status. This mirror currently contains the 5.2.9 source.
 
 ZUPT is a command-line backup archiver written in C11. It combines the
 bundled VaptVupt compression codec with authenticated AES-256-CTR +
 HMAC-SHA256 encryption, native ML-KEM-768/X25519 hybrid encryption, archive
 integrity checks, multithreaded operation, and a Python/Qt graphical frontend.
+
+Try [ZUPT Web online](https://zupt-web.securityops.co) with non-sensitive sample
+files and disposable passwords or keys. Uploaded data is processed on the
+server. Available features, versions, and limits may differ from the local
+CLI/GUI.
+
+## Official version 5.2.9
 
 Version 5.2.9 updates the bundled VaptVupt codec from 2.65.3 to 2.65.11.
 The refresh carries decoder span validation, stricter truncated-bitstream and
@@ -531,7 +545,7 @@ pass the package syntax gate.
 ## openSUSE and OBS
 
 The maintained upstream recipe is in packaging/opensuse. It targets the
-immutable v5.2.9 tag, disables submodules and Git LFS, builds with
+published v5.2.9 tag, disables submodules and Git LFS, builds with
 WITH_SDK=0 WITH_PQBOX=0, runs real checks, and installs without the renamed-era
 `vaptvupt` alias.
 
