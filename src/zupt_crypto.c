@@ -22,8 +22,9 @@
   #include <sys/syscall.h>
   #include <unistd.h>
 #endif
-#ifndef _WIN32
-  #include <fcntl.h>
+#include <fcntl.h>
+#ifdef _WIN32
+  #include <io.h>
 #endif
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -548,9 +549,10 @@ uint8_t *zupt_decrypt_buffer_aad(const zupt_keyring_t *kr,
     }
 #endif
 
-    /* F-06 fix retained: fold to nonzero-indicator bit before AND. */
-    uint64_t nz_v2 = (diff_v2 | (uint64_t)(-(int64_t)diff_v2)) >> 63;  /* CT-REQUIRED */
-    uint64_t nz_v1 = (diff_v1 | (uint64_t)(-(int64_t)diff_v1)) >> 63;  /* CT-REQUIRED */
+    /* Fold before AND. The assembly comparison can set any of the 64 bits,
+     * so the negation must stay unsigned, including when only bit 63 is set. */
+    uint64_t nz_v2 = (diff_v2 | (UINT64_C(0) - diff_v2)) >> 63;  /* CT-REQUIRED */
+    uint64_t nz_v1 = (diff_v1 | (UINT64_C(0) - diff_v1)) >> 63;  /* CT-REQUIRED */
     uint64_t diff = nz_v2 & nz_v1;
 
     zupt_secure_wipe(expected_mac_v2, sizeof(expected_mac_v2));
@@ -576,37 +578,20 @@ uint8_t *zupt_decrypt_buffer(const zupt_keyring_t *kr,
     return zupt_decrypt_buffer_aad(kr, pkg, pkglen, block_seq, NULL, 0, olen);
 }
 
-/* Write a key file without ever opening an existing directory entry. Private
- * material is created mode 0600 on POSIX independently of the caller's umask.
- * Windows uses CREATE_NEW and, for private material, a protected DACL granting
- * access only to the current token's user SID. A failed write, flush, or close
- * leaves the exclusively created incomplete or durability-uncertain file in
- * place for the user to review and remove. This deliberately avoids a
- * pathname-based cleanup after close:
- * another process with write access to the parent directory could otherwise
- * replace the entry and trick cleanup into deleting an unrelated file.
- *
- * This is intentionally shared with the optional pq-box module. Public-key
- * output is exclusive too: besides avoiding symlink truncation, that prevents
- * `keygen --pub -o private.key -k private.key` from destroying the only copy of
- * a private key. */
-int zupt_keyfile_write_new(const char *path, const uint8_t *data, size_t length,
-                           int private_material) {
-    if (!path || path[0] == '\0' || (!data && length != 0) ||
+/* The key writer and SDK staging share exclusive creation and private-file
+ * permissions. Keep creation separate from writing so callers retain the
+ * original descriptor rather than closing and reopening a reserved name. */
+#ifdef _WIN32
+static HANDLE zupt_open_new_file_handle(const char *path, int private_material) {
+    if (!path || path[0] == '\0' ||
         (private_material != 0 && private_material != 1)) {
         errno = EINVAL;
-        return -1;
-    }
-
-#ifdef _WIN32
-    if (length > (size_t)MAXDWORD) {
-        errno = EFBIG;
-        return -1;
+        return INVALID_HANDLE_VALUE;
     }
     wchar_t *wide_path = zupt_win_utf8_to_wide_alloc(path);
     if (!wide_path) {
         errno = EINVAL;
-        return -1;
+        return INVALID_HANDLE_VALUE;
     }
 
     SECURITY_ATTRIBUTES attributes;
@@ -719,30 +704,14 @@ int zupt_keyfile_write_new(const char *path, const uint8_t *data, size_t length,
         free(token_user);
         if (token) CloseHandle(token);
         if (advapi) FreeLibrary(advapi);
-        acl = NULL;
-        token_user = NULL;
-        token = NULL;
-        advapi = NULL;
+        free(wide_path);
         if (handle == INVALID_HANDLE_VALUE) {
-            free(wide_path);
             errno = (create_error == ERROR_FILE_EXISTS ||
                      create_error == ERROR_ALREADY_EXISTS)
                         ? EEXIST : EACCES;
-            return -1;
         }
     }
-
-    DWORD written = 0;
-    int failed = !WriteFile(handle, data, (DWORD)length, &written, NULL) ||
-                 written != (DWORD)length || !FlushFileBuffers(handle);
-    if (!CloseHandle(handle)) failed = 1;
-    if (failed) {
-        free(wide_path);
-        errno = EIO;
-        return -1;
-    }
-    free(wide_path);
-    return 0;
+    return handle;
 
 windows_security_error:
     errno = EACCES;
@@ -752,8 +721,11 @@ windows_security_cleanup:
     if (token) CloseHandle(token);
     if (advapi) FreeLibrary(advapi);
     free(wide_path);
-    return -1;
+    return INVALID_HANDLE_VALUE;
+}
 #else
+static int zupt_open_new_file_descriptor(const char *path, int private_material,
+                                          int *created) {
     int flags = O_WRONLY | O_CREAT | O_EXCL;
 #ifdef O_NOFOLLOW
     flags |= O_NOFOLLOW;
@@ -763,6 +735,7 @@ windows_security_cleanup:
 #endif
     int descriptor = open(path, flags, private_material ? 0600 : 0666);
     if (descriptor < 0) return -1;
+    if (created) *created = 1;
 
     int failed = 0;
     int saved_errno = 0;
@@ -780,6 +753,92 @@ windows_security_cleanup:
         }
     }
 #endif
+    if (failed) {
+        close(descriptor);
+        errno = saved_errno;
+        return -1;
+    }
+    return descriptor;
+}
+#endif
+
+FILE *zupt_private_staging_open_new(const char *path, int *created) {
+    if (created) *created = 0;
+    if (!path || !*path || !created) { errno = EINVAL; return NULL; }
+#ifdef _WIN32
+    HANDLE handle = zupt_open_new_file_handle(path, 1);
+    if (handle == INVALID_HANDLE_VALUE) return NULL;
+    *created = 1;
+    int descriptor = _open_osfhandle((intptr_t)handle,
+                                      _O_WRONLY | _O_BINARY | _O_NOINHERIT);
+    if (descriptor < 0) {
+        int saved_errno = errno;
+        CloseHandle(handle);
+        errno = saved_errno;
+        return NULL;
+    }
+    FILE *stream = _fdopen(descriptor, "wb");
+    if (!stream) {
+        int saved_errno = errno;
+        _close(descriptor);
+        errno = saved_errno;
+    }
+#else
+    int descriptor = zupt_open_new_file_descriptor(path, 1, created);
+    if (descriptor < 0) return NULL;
+    FILE *stream = fdopen(descriptor, "wb");
+    if (!stream) {
+        int saved_errno = errno;
+        close(descriptor);
+        errno = saved_errno;
+    }
+#endif
+    return stream;
+}
+
+/* Write a key file without ever opening an existing directory entry. Private
+ * material is created mode 0600 on POSIX independently of the caller's umask.
+ * Windows uses CREATE_NEW and, for private material, a protected DACL granting
+ * access only to the current token's user SID. A failed write, flush, or close
+ * leaves the exclusively created incomplete or durability-uncertain file in
+ * place for the user to review and remove. This deliberately avoids a
+ * pathname-based cleanup after close:
+ * another process with write access to the parent directory could otherwise
+ * replace the entry and trick cleanup into deleting an unrelated file.
+ *
+ * This is intentionally shared with the optional pq-box module. Public-key
+ * output is exclusive too: besides avoiding symlink truncation, that prevents
+ * `keygen --pub -o private.key -k private.key` from destroying the only copy of
+ * a private key. */
+static int zupt_keyfile_write_new_created(const char *path, const uint8_t *data,
+                                          size_t length, int private_material,
+                                          int *created) {
+    if (created) *created = 0;
+    if (!path || path[0] == '\0' || (!data && length != 0) ||
+        (private_material != 0 && private_material != 1)) {
+        errno = EINVAL;
+        return -1;
+    }
+
+#ifdef _WIN32
+    if (length > (size_t)MAXDWORD) {
+        errno = EFBIG;
+        return -1;
+    }
+    HANDLE handle = zupt_open_new_file_handle(path, private_material);
+    if (handle == INVALID_HANDLE_VALUE) return -1;
+    if (created) *created = 1;
+    DWORD written = 0;
+    int failed = !WriteFile(handle, data, (DWORD)length, &written, NULL) ||
+                 written != (DWORD)length || !FlushFileBuffers(handle);
+    if (!CloseHandle(handle)) failed = 1;
+    if (failed) { errno = EIO; return -1; }
+    return 0;
+#else
+    int descriptor = zupt_open_new_file_descriptor(path, private_material, created);
+    if (descriptor < 0) return -1;
+    int failed = 0;
+    int saved_errno = 0;
     size_t offset = 0;
     while (!failed && offset < length) {
         ssize_t amount = write(descriptor, data + offset, length - offset);
@@ -807,6 +866,11 @@ windows_security_cleanup:
 #endif
 }
 
+int zupt_keyfile_write_new(const char *path, const uint8_t *data, size_t length,
+                           int private_material) {
+    return zupt_keyfile_write_new_created(path, data, length, private_material, NULL);
+}
+
 /* Load and structurally validate one native key blob before exposing any key
  * bytes to a caller. The historical writers have always serialized the XXH64
  * trailer with zupt_le64_put(), so readers deliberately interpret it as
@@ -830,8 +894,12 @@ static int load_native_key_blob(const char *path, const char magic[4],
     if (!stream) return -1;
 
     size_t length = fread(buffer, 1, private_file_size, stream);
-    int trailing = fgetc(stream);
     int failed = ferror(stream) != 0;
+    int trailing = EOF;
+    if (!failed && !feof(stream)) {
+        trailing = fgetc(stream);
+        failed = ferror(stream) != 0;
+    }
     if (fclose(stream) != 0) failed = 1;
 
     int has_private = length >= 6 && buffer[5] == private_flag;
@@ -889,7 +957,8 @@ static int load_native_key_blob(const char *path, const char magic[4],
 #define ZKEY_PUB_FILE_SIZE  (ZKEY_PUB_SIZE + ZKEY_CHECKSUM_SIZE)
 #define ZKEY_PRIV_FILE_SIZE (ZKEY_PRIV_SIZE + ZKEY_CHECKSUM_SIZE)
 
-int zupt_hybrid_keygen(const char *keyfile) {
+int zupt_hybrid_keygen_created(const char *keyfile, int *created) {
+    if (created) *created = 0;
     uint8_t ml_pk[MLKEM_PUBLICKEYBYTES] = {0};
     uint8_t ml_sk[MLKEM_SECRETKEYBYTES] = {0};
     uint8_t x_sk[32] = {0}, x_pk[32] = {0};
@@ -916,7 +985,7 @@ int zupt_hybrid_keygen(const char *keyfile) {
     /* Checksum */
     zupt_le64_put(buf + total, zupt_xxh64(buf, total, 0));
 
-    result = zupt_keyfile_write_new(keyfile, buf, sizeof(buf), 1);
+    result = zupt_keyfile_write_new_created(keyfile, buf, sizeof(buf), 1, created);
 out:
     zupt_secure_wipe(ml_sk, sizeof(ml_sk));
     zupt_secure_wipe(x_sk, sizeof(x_sk));
@@ -924,7 +993,13 @@ out:
     return result;
 }
 
-int zupt_hybrid_export_pubkey(const char *privfile, const char *pubfile) {
+int zupt_hybrid_keygen(const char *keyfile) {
+    return zupt_hybrid_keygen_created(keyfile, NULL);
+}
+
+int zupt_hybrid_export_pubkey_created(const char *privfile, const char *pubfile,
+                                      int *created) {
+    if (created) *created = 0;
     uint8_t private_blob[ZKEY_PRIV_FILE_SIZE] = {0};
     uint8_t public_blob[ZKEY_PUB_FILE_SIZE] = {0};
     size_t private_size = 0;
@@ -945,12 +1020,16 @@ int zupt_hybrid_export_pubkey(const char *privfile, const char *pubfile) {
     zupt_le64_put(public_blob + total,
                   zupt_xxh64(public_blob, total, 0));
 
-    result = zupt_keyfile_write_new(pubfile, public_blob,
-                                    sizeof(public_blob), 0);
+    result = zupt_keyfile_write_new_created(pubfile, public_blob,
+                                            sizeof(public_blob), 0, created);
 out:
     zupt_secure_wipe(private_blob, sizeof(private_blob));
     zupt_secure_wipe(public_blob, sizeof(public_blob));
     return result;
+}
+
+int zupt_hybrid_export_pubkey(const char *privfile, const char *pubfile) {
+    return zupt_hybrid_export_pubkey_created(privfile, pubfile, NULL);
 }
 
 /* Read public key from a .zupt-key file (works for both pub and priv files) */
@@ -991,14 +1070,15 @@ static int read_privkey(const char *path, uint8_t ml_pk[1184], uint8_t x_pk[32],
 /*
  * HYBRID ENCRYPT INIT: Encapsulate with ML-KEM + X25519, derive archive keys.
  *
- * enc_hdr output (1121 bytes):
+ * enc_hdr output (1137 bytes):
  *   [1B]    enc_type = 0x02 (PQ-Hybrid)
  *   [1088B] ml_kem_ciphertext
  *   [32B]   ephemeral_x25519_pubkey
+ *   [16B]   base_nonce
  *
  * Key derivation:
  *   hybrid_ikm = ml_kem_ss XOR x25519_ss
- *   archive_key[64] = SHA-256(hybrid_ikm ‖ ml_kem_ct ‖ ephemeral_pk ‖ "ZUPT-HYBRID-v1")
+ *   archive_key[64] = SHA3-512(hybrid_ikm ‖ ml_kem_ct ‖ ephemeral_pk ‖ "ZUPT-HYBRID-v1")
  *   enc_key = archive_key[0:32], mac_key = archive_key[32:64]
  */
 /* FRAMA-C: Hybrid PQ encrypt init — ML-KEM-768 + X25519 KEM */
@@ -1079,7 +1159,7 @@ int zupt_hybrid_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
 /* FRAMA-C: Hybrid PQ decrypt init — ML-KEM-768 + X25519 decaps */
 /*@ requires \valid(kr);
   @ requires \valid_read(privkeyfile);
-  @ requires enc_hdr_len >= 1137;
+  @ requires enc_hdr_len == 1137;
   @ requires \valid_read(enc_hdr + (0..enc_hdr_len-1));
   @ assigns kr->enc_key[0..31], kr->mac_key[0..31], kr->base_nonce[0..15],
   @         kr->iterations, kr->active;
@@ -1087,7 +1167,7 @@ int zupt_hybrid_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
 */
 int zupt_hybrid_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
                               const uint8_t *enc_hdr, size_t enc_hdr_len) {
-    if (enc_hdr_len < 1 + 1088 + 32 + 16) return -1;  /* enc_type + ct + eph_pk + nonce */
+    if (enc_hdr_len != 1 + 1088 + 32 + 16) return -1;  /* enc_type + ct + eph_pk + nonce */
     if (enc_hdr[0] != ZUPT_ENC_PQ_HYBRID) return -1;
 
     const uint8_t *ml_ct  = enc_hdr + 1;
@@ -1319,7 +1399,7 @@ int zupt_pq_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
 
 int zupt_pq_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
                          const uint8_t *enc_hdr, size_t enc_hdr_len) {
-    if (enc_hdr_len < 1 + 1088 + 16) return -1;
+    if (enc_hdr_len != 1 + 1088 + 16) return -1;
     if (enc_hdr[0] != ZUPT_ENC_PQ_ONLY) return -1;
     const uint8_t *ml_ct = enc_hdr + 1;
     const uint8_t *nonce = enc_hdr + 1 + 1088;

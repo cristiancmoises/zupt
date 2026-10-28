@@ -7,13 +7,18 @@ on:
   push:
     branches:
       - master
-      - 'codex/**'
     tags:
       - 'v*'
   pull_request:
     branches:
       - master
   workflow_dispatch:
+    inputs:
+      verify_recipe_pins:
+        description: Verify recipe pins after publishing the signed tag
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -48,11 +53,17 @@ jobs:
       - name: Exercise positive and negative scanner fixtures
         run: bash tests/test_source_only.sh
 
+      - name: Exercise credential gate failure paths
+        run: make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-ci-credentials
+
       - name: Audit license headers
         run: make WITH_SDK=0 WITH_PQBOX=0 audit-licenses
 
       - name: Validate release packaging metadata
         run: bash tests/test_packaging_syntax.sh
+
+      - name: Test native package publication and tool failures
+        run: make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-packaging-failures
 
       - name: Exercise downstream source checksum verification
         run: python3 tests/test_recipe_source_checksums.py
@@ -76,6 +87,8 @@ jobs:
             tests/test_benchmark_temp_safety.sh \
             tests/test_block_type_confusion.sh \
             tests/test_disk_device_capacity.sh \
+            tests/test_deb_packaging_failures.sh \
+            tests/test_rpm_packaging_failures.sh \
             tests/test_f09_preface.sh \
             tests/test_key_files.sh \
             tests/test_legacy_disk_5_2_1.sh \
@@ -88,10 +101,15 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          grep_status=0
           findings=$(git grep -Il -E -- \
-            "-----BEGIN (RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----|https?://[^/@[:space:]]+:[A-Za-z0-9_+=.-]{20,}@|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{16}|xox[baprs]-[A-Za-z0-9-]{20,}|(FORGEJO_TOKEN|SECURITYOPS_TOKEN|GITHUB_TOKEN|CODEBERG_TOKEN)[[:space:]]*[:=][[:space:]]*['\\\"]?[A-Za-z0-9_+=./-]{20,}" \
-            -- . || true)
-          if [[ -n $findings ]]; then
+            "-----BEGIN (RSA |OPENSSH |EC |DSA |ENCRYPTED )?PRIVATE KEY-----|https?://[^/@[:space:]]+:[A-Za-z0-9_+=.-]{20,}@|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{16}|xox[baprs]-[A-Za-z0-9-]{20,}|(FORGEJO_TOKEN|SECURITYOPS_TOKEN|GITHUB_TOKEN|CODEBERG_TOKEN)[[:space:]]*[:=][[:space:]]*['\\\"]?[A-Za-z0-9_+=./-]{20,}" \
+            -- .) || grep_status=$?
+          if [[ $grep_status -gt 1 ]]; then
+            printf 'credential audit failed (git grep status %s)\n' "$grep_status" >&2
+            exit 1
+          fi
+          if [[ $grep_status -ne 1 || -n $findings ]]; then
             printf '%s\n' "$findings" >&2
             echo 'credential-like material found in tracked files' >&2
             exit 1
@@ -234,10 +252,11 @@ jobs:
           bash scripts/check-source-only.sh --archive \
             "$RUNNER_TEMP/release-source/zupt-$version.tar.gz"
       - name: Match downstream recipe checksums to the tagged source archive
-        # Recipe pins are a post-tag follow-up: a tag cannot contain its own
-        # generated archive checksum. Check those pins on branches and PRs.
-        # The independent make-dist reproducibility/audit above also runs on tags.
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        # Recipe pins are a post-tag follow-up. Run this networked check only
+        # when a maintainer explicitly dispatches the packaging commit after
+        # publishing the signed tag. The separate make-dist audit above is
+        # the pre-tag source gate and still runs on branches, PRs and tags.
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.verify_recipe_pins }}
         run: |
           set -Eeuo pipefail
           python3 - "$RUNNER_TEMP/recipe-source.tar.gz" <<'PY'
@@ -347,6 +366,9 @@ jobs:
           sudo apt-get install -y "$deb" "$gui_deb"
           bash scripts/test-installed-zupt.sh /usr/bin/zupt
           QT_QPA_PLATFORM=offscreen zupt-gui --version | grep -Fx "zupt-gui $version"
+          QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 \
+            ZUPT_BIN=/usr/bin/zupt ZUPT_GUI_MODULE=/usr/lib/zupt-gui/zupt_gui.py \
+            /usr/bin/python3 tests/test_gui_workflows.py
           test ! -e /usr/bin/vaptvupt
           sudo apt-get purge -y zupt-gui zupt
           test ! -e /usr/bin/zupt-gui
@@ -533,6 +555,9 @@ jobs:
           dnf install -y "$core_rpm" "$gui_rpm"
           bash scripts/test-installed-zupt.sh /usr/bin/zupt
           QT_QPA_PLATFORM=offscreen zupt-gui --version | grep -Fx "zupt-gui $version"
+          QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 \
+            ZUPT_BIN=/usr/bin/zupt ZUPT_GUI_MODULE=/usr/share/zupt-gui/zupt_gui.py \
+            /usr/bin/python3 tests/test_gui_workflows.py
           test ! -e /usr/bin/vaptvupt
           dnf remove -y zupt-gui zupt
           test ! -e /usr/bin/zupt-gui
@@ -611,7 +636,7 @@ jobs:
           retention-days: 7
 
   gui-portable:
-    name: Source-only GUI portable ZIP gate
+    name: Source-only GUI portable Zupt gate
     needs: [source-policy, build-and-test]
     runs-on: ubuntu-24.04
     steps:
@@ -624,40 +649,38 @@ jobs:
       - name: Install GUI smoke-test and archive tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential file python3 python3-pyqt6 unzip zip
+          sudo apt-get install -y build-essential file python3 python3-pyqt6
       - name: Assemble, audit and execute the portable GUI source bundle
         run: |
           version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
           make -j"$(nproc)" V=1 WITH_SDK=0 WITH_PQBOX=0 INSTALL_LEGACY_ALIAS=0
-          root="$RUNNER_TEMP/gui-work/zupt-gui-$version-portable"
-          output="$RUNNER_TEMP/release-gui-portable/zupt-gui-$version-portable.zip"
-          mkdir -p "$root/assets" "$(dirname "$output")"
-          install -m 0644 gui/src/zupt_gui.py "$root/zupt_gui.py"
-          install -m 0755 packaging/portable/zupt-gui.sh \
-            packaging/portable/zupt-gui.command "$root/"
-          install -m 0644 packaging/portable/zupt-gui.bat "$root/"
-          install -m 0644 packaging/portable/README.txt "$root/README.txt"
-          install -m 0644 gui/assets/zupt-icon.png gui/assets/zupt.ico "$root/assets/"
-          install -m 0644 README.pt-BR.md DOCUMENTACAO.pt-BR.md \
-            LICENSE-AGPL-3.0 gui/LICENSE-GUI CHANGELOG.md "$root/"
-          install -m 0644 gui/assets/README.md "$root/ASSET-PROVENANCE.md"
-          bash scripts/check-source-only.sh --tree "$root"
-          QT_QPA_PLATFORM=offscreen PATH="$PWD:$PATH" \
-            "$root/zupt-gui.sh" --version | grep -Fx "zupt-gui $version"
-          epoch=$(<.source-date-epoch)
-          find "$root" -exec touch -d "@$epoch" {} +
-          (cd "$(dirname "$root")" && zip -X -9 -r "$output" "$(basename "$root")")
-          extract=$(mktemp -d)
-          unzip -q "$output" -d "$extract"
-          bash scripts/check-source-only.sh --tree "$extract/$(basename "$root")"
-          QT_QPA_PLATFORM=offscreen PATH="$PWD:$PATH" \
-            "$extract/$(basename "$root")/zupt-gui.sh" --version | \
+          make V=1 WITH_SDK=0 WITH_PQBOX=0 check-gui
+          make V=1 WITH_SDK=0 WITH_PQBOX=0 PYTHON=/usr/bin/python3 test-portable-gui
+          release_dir="$RUNNER_TEMP/release-gui-portable"
+          DIST_DIR="$release_dir" ZUPT_BIN="$PWD/zupt" PYTHON=/usr/bin/python3 \
+            bash packaging/build-portable-gui.sh
+          extract="$release_dir/zupt-gui-$version-portable.extracted/zupt-gui-$version-portable"
+          runtime=$(mktemp -d "$RUNNER_TEMP/portable GUI with spaces.XXXXXXXX")
+          mv -- "$extract" "$runtime/"
+          extract="$runtime/zupt-gui-$version-portable"
+          QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 ZUPT_BIN="$PWD/zupt" \
+            bash "$extract/zupt-gui.sh" --version | \
             grep -Fx "zupt-gui $version"
-          sha256sum "$output"
+          QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 ZUPT_BIN="$PWD/zupt" \
+            bash "$extract/zupt-gui.sh" --help | grep -F 'usage: zupt-gui'
+          QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 ZUPT_BIN="$PWD/zupt" \
+            bash "$extract/zupt-gui.sh" --selftest
+          QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 \
+            ZUPT_BIN="$PWD/zupt" \
+            ZUPT_GUI_MODULE="$extract/zupt_gui.py" \
+            /usr/bin/python3 tests/test_gui_workflows.py
+          (cd "$release_dir" && sha256sum --check "zupt-gui-$version-portable.zupt.sha256")
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-gui-portable
-          path: ${{ runner.temp }}/release-gui-portable/*.zip
+          path: |
+            ${{ runner.temp }}/release-gui-portable/*.zupt
+            ${{ runner.temp }}/release-gui-portable/*.zupt.sha256
           if-no-files-found: error
           retention-days: 7
 

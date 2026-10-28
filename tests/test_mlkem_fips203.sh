@@ -12,16 +12,32 @@
 #
 # Skips gracefully (exit 0) when the toolchain or an ML-KEM-capable OpenSSL is
 # unavailable, so it is safe inside distro package builds.
-set -u
+set -euo pipefail
 echo "ML-KEM-768 FIPS 203 conformance (interop vs OpenSSL)"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 CC="${CC:-cc}"
 
 command -v openssl >/dev/null 2>&1 || { echo "  SKIP: no openssl"; exit 0; }
-if ! openssl list -kem-algorithms 2>/dev/null | grep -qiE "ML-KEM-768|MLKEM768"; then
-    echo "  SKIP: openssl has no ML-KEM-768 (need 3.5+)"; exit 0
+if ! openssl_version=$(openssl version); then
+    echo "  FAIL: openssl version query failed" >&2
+    exit 1
 fi
+# Older tools may not implement the capability-query option at all.
+case $openssl_version in
+    OpenSSL\ [012].*|OpenSSL\ 3.[01234].*)
+        echo "  SKIP: need OpenSSL 3.5+ for ML-KEM-768"; exit 0 ;;
+    OpenSSL\ *) ;;
+    *) echo "  SKIP: reference implementation is not OpenSSL"; exit 0 ;;
+esac
+if ! kem_algorithms=$(openssl list -kem-algorithms); then
+    echo "  FAIL: openssl KEM capability query failed" >&2
+    exit 1
+fi
+case $kem_algorithms in
+    *[Mm][Ll]-[Kk][Ee][Mm]-768*|*[Mm][Ll][Kk][Ee][Mm]768*) ;;
+    *) echo "  SKIP: openssl has no ML-KEM-768 (need 3.5+)"; exit 0 ;;
+esac
 command -v "$CC" >/dev/null 2>&1 || CC=gcc
 command -v "$CC" >/dev/null 2>&1 || { echo "  SKIP: no C compiler"; exit 0; }
 command -v od >/dev/null 2>&1 || { echo "  SKIP: no od"; exit 0; }
@@ -41,8 +57,8 @@ cd "$T" || exit 1
 # 1) deterministic keygen ek match
 head -c 64 /dev/urandom > dz.bin
 SEED=$(hx dz.bin)
-openssl genpkey -algorithm ML-KEM-768 -pkeyopt hexseed:"$SEED" -out osl.pem 2>/dev/null
-openssl pkey -in osl.pem -pubout -outform DER -out osl_pub.der 2>/dev/null
+openssl genpkey -algorithm ML-KEM-768 -pkeyopt hexseed:"$SEED" -out osl.pem
+openssl pkey -in osl.pem -pubout -outform DER -out osl_pub.der
 tail -c 1184 osl_pub.der > osl_ek.bin
 MLKEM_RAND="$T/dz.bin" "$H" keygen
 if cmp -s ek.bin osl_ek.bin; then
@@ -53,8 +69,9 @@ fi
 
 # 2) my encaps -> openssl decap
 unset MLKEM_RAND
-"$H" encaps osl_ek.bin >/dev/null 2>&1; cp ss.bin ss_mine.bin
-openssl pkeyutl -decap -inkey osl.pem -in ct.bin -secret ss_osl.bin 2>/dev/null
+"$H" encaps osl_ek.bin
+cp ss.bin ss_mine.bin
+openssl pkeyutl -decap -inkey osl.pem -in ct.bin -secret ss_osl.bin
 if cmp -s ss_mine.bin ss_osl.bin; then
     ok "my encaps -> OpenSSL decap: shared secret matches"
 else
@@ -65,8 +82,9 @@ fi
 HDR=$(( $(wc -c < osl_pub.der) - 1184 )); head -c "$HDR" osl_pub.der > hdr.bin
 "$H" keygen
 cat hdr.bin ek.bin > my_pub.der
-openssl pkeyutl -encap -pubin -inkey my_pub.der -secret ss_osl2.bin -out ct2.bin 2>/dev/null
-"$H" decaps dk.bin ct2.bin >/dev/null 2>&1; cp ss.bin ss_mine2.bin
+openssl pkeyutl -encap -pubin -inkey my_pub.der -secret ss_osl2.bin -out ct2.bin
+"$H" decaps dk.bin ct2.bin
+cp ss.bin ss_mine2.bin
 if cmp -s ss_mine2.bin ss_osl2.bin; then
     ok "OpenSSL encap -> my decap: shared secret matches"
 else

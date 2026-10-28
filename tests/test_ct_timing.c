@@ -2,43 +2,18 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * Copyright (c) 2025-2026 Cristian Cezar Moisés
  *
- * Constant-time timing regression measurement for zupt_ct_memeq (v3.5.0).
+ * Fixed/equal versus random/differing timing regression for zupt_ct_memeq.
+ * Each bounded batch contains balanced, shuffled records. All comparators
+ * reuse those records and the same copy path; no class-dependent generation
+ * occurs immediately before the timed call. Comparator order rotates across
+ * batches and runs. Both raw and independently 10%-cropped statistics are
+ * reported; the existing cropped-median gate remains 400.0 / 0.20.
  *
- * The MAC-tag comparison is the most timing-sensitive operation in the
- * codebase: if "wrong on byte 0" were measurably faster than "wrong on
- * byte 31", an attacker could forge a tag byte-by-byte. zupt_ct_memeq
- * is written to be constant-time; this test MEASURES that, rather than
- * trusting the source comment.
- *
- * Method (Reparaz, Balasch, Verbauwhede — "Dude, is my code constant
- * time?", DATE 2017): time the function on two input classes and apply
- * Welch's t-test to the timing distributions.
- *
- *   Class FIX: compare a fixed reference tag against an IDENTICAL copy
- *              (the all-equal case — the slowest, full-scan path).
- *   Class RND: compare the reference tag against a RANDOM tag (differs
- *              at a random, usually early, position).
- *
- * A non-constant-time compare (e.g. memcmp with early return) finishes
- * class RND much sooner than class FIX, so the means diverge and |t|
- * grows without bound as samples accumulate. A constant-time compare
- * keeps the two distributions statistically indistinguishable, so |t|
- * stays bounded.
- *
- * Robustness: wall-clock nanosecond timing on a shared CI vCPU is noisy,
- * so we (a) discard the slowest 10% of each class as scheduling outliers
- * (standard dudect "cropping"), (b) require the result to hold on the
- * cropped data, and (c) use a deliberately loose threshold (|t| < 8;
- * dudect's own leak threshold is |t| > 10 over millions of samples).
- * The point is to catch a gross leak (early-return / memcmp), which
- * produces |t| in the hundreds, not to certify against a sub-nanosecond
- * microarchitectural side channel — that needs dedicated hardware.
- *
- * As a positive control, the test also times plain memcmp() the same
- * way and asserts it DOES leak (|t| large) — proving the harness can
- * actually detect a non-CT compare on this host. If the control fails
- * to show a leak the host is too noisy to draw a conclusion, and the
- * test reports INCONCLUSIVE (skips) rather than passing vacuously.
+ * Calibration uses a deliberately early-exiting volatile-byte scan; libc
+ * memcmp is diagnostic only. The label-only negative control always compares
+ * equal bytes. These roles are fixed before collecting any measurements.
+ * Invalid/weak controls or label-only separation are INCONCLUSIVE, not PASS.
+ * This is a regression measurement, not a constant-time proof.
  */
 #include "zupt.h"
 #include <stdio.h>
@@ -48,208 +23,305 @@
 #include <time.h>
 #include <math.h>
 
-#define TAG_LEN     32
-#define N_SAMPLES   200000
-#define CROP_FRAC   0.10      /* drop slowest 10% of each class */
+#define TAG_LEN       32
+#define N_SAMPLES     200000
+#define CROP_FRAC     0.10
+#define BATCH_SAMPLES 256
+#define MAX_LEN       2048
+#define N_RUNS        5
 
-/* Volatile sink so the compiler can't discard the compared result. */
+enum {
+    CASE_MEMCMP,
+    CASE_TARGET,
+    CASE_LABEL_ONLY,
+    CASE_EARLY_EXIT,
+    N_CASES
+};
+
+static const double CONTROL_STRONG = 400.0;
+static const double MAX_RATIO = 0.20;
 static volatile int g_sink;
 
-static uint64_t now_ns(void) {
+typedef int (*cmp_fn)(const void *, const void *, size_t);
+
+struct timing_record {
+    uint8_t bytes[MAX_LEN];
+    unsigned random_class;
+};
+
+struct timing_stats {
+    double raw_t, cropped_t;
+};
+
+static int now_ns(uint64_t *out) {
     struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+        return -1;
+    *out = (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+    return 0;
 }
 
-/* Welch's t-statistic for two samples. */
+static int moments(const double *x, size_t n, double *mean, double *variance) {
+    if (n < 2) return -1;
+    *mean = 0.0;
+    for (size_t i = 0; i < n; i++) {
+        if (!isfinite(x[i])) return -1;
+        *mean += x[i];
+    }
+    *mean /= (double)n;
+    *variance = 0.0;
+    for (size_t i = 0; i < n; i++) {
+        double d = x[i] - *mean;
+        *variance += d * d;
+    }
+    *variance /= (double)(n - 1);
+    return isfinite(*mean) && isfinite(*variance) ? 0 : -1;
+}
+
 static double welch_t(const double *x, size_t nx, const double *y, size_t ny) {
-    double mx = 0, my = 0;
-    for (size_t i = 0; i < nx; i++) mx += x[i];
-    mx /= (double)nx;
-    for (size_t i = 0; i < ny; i++) my += y[i];
-    my /= (double)ny;
-    double vx = 0, vy = 0;
-    for (size_t i = 0; i < nx; i++) { double d = x[i] - mx; vx += d * d; }
-    for (size_t i = 0; i < ny; i++) { double d = y[i] - my; vy += d * d; }
-    vx /= (double)(nx - 1);
-    vy /= (double)(ny - 1);
+    double mx, my, vx, vy;
+    if (moments(x, nx, &mx, &vx) != 0 || moments(y, ny, &my, &vy) != 0)
+        return NAN;
     double denom = sqrt(vx / (double)nx + vy / (double)ny);
-    if (denom == 0.0) return 0.0;
+    if (denom == 0.0)
+        return mx == my ? 0.0 : copysign(INFINITY, mx - my);
     return (mx - my) / denom;
 }
 
-/* Measure |t| for a comparison function over FIX vs RND input classes.
- * fn returns nonzero on "equal" (zupt_ct_memeq) — we only care about
- * timing, not the return value. */
-typedef int (*cmp_fn)(const void *, const void *, size_t);
-
-/* proper double comparator for qsort cropping */
 static int cmp_dbl(const void *a, const void *b) {
     double x = *(const double *)a, y = *(const double *)b;
+    /* Verdicts reject invalid gated statistics after median calculation;
+     * diagnostic NaNs still need a consistent qsort ordering. */
+    if (isnan(x)) return isnan(y) ? 0 : 1;
+    if (isnan(y)) return -1;
     return (x > y) - (x < y);
 }
 
-/* memcmp wrapper matching the cmp_fn signature (positive control). */
 static int memcmp_wrap(const void *a, const void *b, size_t n) {
     return memcmp(a, b, n) == 0;
 }
 
-/* Time `fn` over FIX (equal) vs RND (differing) classes and return
- * Welch |t| on the cropped samples.
- *
- * Both classes use the SAME two small buffers (ref, cmp) so the memory
- * footprint and cache behaviour are identical — the only difference is
- * the bytes in `cmp`. For each sample we (1) prepare cmp OUTSIDE the
- * timed region (either copy ref for FIX, or fill random for RND), then
- * (2) time a single fn() call. Class order is decided by a coin flip per
- * iteration so any first-vs-second ordering bias cancels across the two
- * distributions rather than loading onto one of them. */
-static double measure_t2_len(cmp_fn fn, size_t buflen) {
-    static uint8_t ref[2048], cmp[2048];
-    static double tfix[N_SAMPLES], trnd[N_SAMPLES];
-    size_t nfix = 0, nrnd = 0;
-    if (buflen > sizeof(ref)) buflen = sizeof(ref);
-
-    for (size_t i = 0; i < buflen; i++) ref[i] = (uint8_t)(0xA5 ^ (i * 7));
-
-    /* Warm up. */
-    memcpy(cmp, ref, buflen);
-    for (int w = 0; w < 2000; w++) g_sink = fn(ref, cmp, buflen);
-
-    for (size_t i = 0; i < 2 * N_SAMPLES; i++) {
-        int is_rnd = rand() & 1;
-        if (is_rnd) {
-            for (size_t j = 0; j < buflen; j++) cmp[j] = (uint8_t)rand();
-        } else {
-            memcpy(cmp, ref, buflen);
-        }
-        /* Single timed call — identical buffers, only contents differ. */
-        uint64_t t0 = now_ns();
-        g_sink = fn(ref, cmp, buflen);
-        uint64_t t1 = now_ns();
-        double dt = (double)(t1 - t0);
-        if (is_rnd) { if (nrnd < N_SAMPLES) trnd[nrnd++] = dt; }
-        else        { if (nfix < N_SAMPLES) tfix[nfix++] = dt; }
-        if (nfix >= N_SAMPLES && nrnd >= N_SAMPLES) break;
-    }
-    qsort(tfix, nfix, sizeof(double), cmp_dbl);
-    qsort(trnd, nrnd, sizeof(double), cmp_dbl);
-    size_t kf = (size_t)((double)nfix * (1.0 - CROP_FRAC));
-    size_t kr = (size_t)((double)nrnd * (1.0 - CROP_FRAC));
-    return welch_t(tfix, kf, trnd, kr);
+/* A label-only negative control: the measured inputs never depend on label.
+ * It still receives the same prepared buffers and invokes the real primitive. */
+static int label_only_wrap(const void *a, const void *b, size_t n) {
+    (void)b;
+    return zupt_ct_memeq(a, a, n);
 }
 
-/* 32-byte (MAC tag) convenience wrapper. */
-static double measure_t2(cmp_fn fn) { return measure_t2_len(fn, TAG_LEN); }
+/* Positive control with an intentionally observable early exit. */
+static int early_exit_wrap(const void *a, const void *b, size_t n) {
+    const volatile uint8_t *pa = (const volatile uint8_t *)a;
+    const volatile uint8_t *pb = (const volatile uint8_t *)b;
+    for (size_t i = 0; i < n; i++)
+        if (pa[i] != pb[i]) return 0;
+    return 1;
+}
+
+static int make_batch(struct timing_record *records, size_t count,
+                      const uint8_t *ref, size_t buflen) {
+    if (count == 0 || count > BATCH_SAMPLES || (count & 1u) ||
+        buflen == 0 || buflen > MAX_LEN)
+        return -1;
+    for (size_t i = 0; i < count; i++) {
+        records[i].random_class = (unsigned)(i & 1u);
+        /* Generation is completed for the entire batch before measurement. */
+        for (size_t j = 0; j < buflen; j++)
+            records[i].bytes[j] = (uint8_t)rand();
+        if (!records[i].random_class)
+            memcpy(records[i].bytes, ref, buflen);
+        else if (memcmp(records[i].bytes, ref, buflen) == 0)
+            records[i].bytes[0] ^= 1u;
+    }
+    /* Shuffle complete records, not separate class-dependent memory banks. */
+    for (size_t i = count - 1; i > 0; i--) {
+        size_t j = (size_t)rand() % (i + 1);
+        struct timing_record swap = records[i];
+        records[i] = records[j];
+        records[j] = swap;
+    }
+    return 0;
+}
+
+/* One label-independent copy path, also exercised by the deterministic test. */
+static void prepare_input(uint8_t *cmp, const struct timing_record *record,
+                          size_t buflen) {
+    memcpy(cmp, record->bytes, buflen);
+}
+
+static unsigned case_at(unsigned run, size_t batch, unsigned step,
+                        unsigned cases) {
+    return (unsigned)(((size_t)run + batch + step) % cases);
+}
+
+static int finish_stats(double *fix, double *rnd, size_t count,
+                        unsigned run, const char *name, struct timing_stats *out) {
+    double fm, fv, rm, rv;
+    if (moments(fix, count, &fm, &fv) || moments(rnd, count, &rm, &rv))
+        return -1;
+    out->raw_t = welch_t(fix, count, rnd, count);
+    printf("  run %u %-12s n=%zu/%zu raw t=%+.2f mean=%.2f/%.2f var=%.2f/%.2f",
+           run + 1, name, count, count, out->raw_t, fm, rm, fv, rv);
+    qsort(fix, count, sizeof(double), cmp_dbl);
+    qsort(rnd, count, sizeof(double), cmp_dbl);
+    size_t kept = (size_t)((double)count * (1.0 - CROP_FRAC));
+    if (moments(fix, kept, &fm, &fv) || moments(rnd, kept, &rm, &rv))
+        return -1;
+    out->cropped_t = welch_t(fix, kept, rnd, kept);
+    printf("; cropped n=%zu/%zu t=%+.2f mean=%.2f/%.2f var=%.2f/%.2f\n",
+           kept, kept, out->cropped_t, fm, rm, fv, rv);
+    return isnan(out->raw_t) || isnan(out->cropped_t) ? -1 : 0;
+}
+
+static int measure_cases(size_t buflen, unsigned run, unsigned cases,
+                         struct timing_stats out[N_CASES]) {
+    static struct timing_record records[BATCH_SAMPLES];
+    static double times[N_CASES][2][N_SAMPLES];
+    uint8_t ref[MAX_LEN], cmp[MAX_LEN];
+    size_t counts[N_CASES][2] = {{0}};
+    cmp_fn functions[N_CASES] = {
+        memcmp_wrap, zupt_ct_memeq, label_only_wrap, early_exit_wrap
+    };
+    const char *names[N_CASES] = {"memcmp", "ct_memeq", "label-only", "early-exit"};
+#ifdef ZUPT_CT_TIMING_LEAKY_TARGET
+    /* A test-only sensitivity fixture; the negative control stays real. */
+    functions[CASE_TARGET] = early_exit_wrap;
+    names[CASE_TARGET] = "leaky-target";
+#endif
+    if (buflen == 0 || buflen > MAX_LEN || cases == 0 || cases > N_CASES)
+        return -1;
+    for (size_t i = 0; i < buflen; i++) ref[i] = (uint8_t)(0xA5 ^ (i * 7));
+    memcpy(cmp, ref, buflen);
+    for (unsigned c = 0; c < cases; c++)
+        for (unsigned w = 0; w < 2000; w++)
+            g_sink = functions[c](ref, cmp, buflen);
+
+    size_t batch = 0;
+    for (size_t per_class = 0; per_class < N_SAMPLES; batch++) {
+        size_t count = 2 * (N_SAMPLES - per_class);
+        if (count > BATCH_SAMPLES) count = BATCH_SAMPLES;
+        if (make_batch(records, count, ref, buflen) != 0) return -1;
+        for (unsigned step = 0; step < cases; step++) {
+            unsigned c = case_at(run, batch, step, cases);
+            for (size_t i = 0; i < count; i++) {
+                prepare_input(cmp, &records[i], buflen);
+                uint64_t t0, t1;
+                if (now_ns(&t0) != 0) return -1;
+                g_sink = functions[c](ref, cmp, buflen);
+                if (now_ns(&t1) != 0 || t1 < t0) return -1;
+                unsigned label = records[i].random_class;
+                times[c][label][counts[c][label]++] = (double)(t1 - t0);
+            }
+        }
+        per_class += count / 2;
+    }
+    for (unsigned c = 0; c < cases; c++) {
+        if (counts[c][0] != N_SAMPLES || counts[c][1] != N_SAMPLES ||
+            finish_stats(times[c][0], times[c][1], N_SAMPLES,
+                         run, names[c], &out[c]) != 0)
+            return -1;
+    }
+    return 0;
+}
+
+/* 0: conclusive regression PASS; 1: FAIL; 2: invalid measurement;
+ * 77: INCONCLUSIVE. Never normalize against infinity to fabricate a pass. */
+static int timing_verdict(double control, double target, double label_only) {
+    if (isnan(control) || isnan(target) || isnan(label_only) ||
+        control < 0.0 || target < 0.0 || label_only < 0.0)
+        return 2;
+    if (!isfinite(control) || !isfinite(label_only) ||
+        control < CONTROL_STRONG || label_only / control > MAX_RATIO)
+        return 77;
+    return target / control <= MAX_RATIO ? 0 : 1;
+}
+
+/* Call only after every matched control tuple has been validated. */
+static double matched_ratio_median(double runs[N_CASES][N_RUNS]) {
+    double ratios[N_RUNS];
+    for (unsigned r = 0; r < N_RUNS; r++)
+        ratios[r] = runs[CASE_TARGET][r] / runs[CASE_EARLY_EXIT][r];
+    qsort(ratios, N_RUNS, sizeof(double), cmp_dbl);
+    return ratios[N_RUNS / 2];
+}
+
+static int campaign_verdict(double runs[N_CASES][N_RUNS], double medians[N_CASES]) {
+    for (unsigned c = 0; c < N_CASES; c++) {
+        double sorted[N_RUNS];
+        memcpy(sorted, runs[c], sizeof(sorted));
+        qsort(sorted, N_RUNS, sizeof(double), cmp_dbl);
+        medians[c] = sorted[N_RUNS / 2];
+    }
+    /* Do not assemble valid controls from unrelated runs' medians. All
+     * predeclared runs must have matched valid controls; select none away. */
+    int matched_controls = 0;
+    for (unsigned r = 0; r < N_RUNS; r++) {
+        int verdict = timing_verdict(runs[CASE_EARLY_EXIT][r],
+                                     runs[CASE_TARGET][r], runs[CASE_LABEL_ONLY][r]);
+        if (verdict == 2) return 2;
+        if (verdict == 77) matched_controls = 77;
+    }
+    if (matched_controls != 0) return matched_controls;
+    int median_verdict = timing_verdict(medians[CASE_EARLY_EXIT],
+                                      medians[CASE_TARGET], medians[CASE_LABEL_ONLY]);
+    if (median_verdict != 0) return median_verdict;
+    /* Require the ratio of medians AND the matched-ratio median;
+     * no favorable runs or denominator are selected to obtain a PASS. */
+    return matched_ratio_median(runs) <= MAX_RATIO ? 0 : 1;
+}
 
 int main(void) {
-    printf("Constant-time compares (dudect-style): MAC tag + ML-KEM ciphertext\n");
+    printf("Constant-time regression measurement: balanced common preparation\n");
+    printf("  calibration=early-exit; libc=diagnostic; thresholds=400.0/0.20\n");
+#ifdef ZUPT_CT_TIMING_LEAKY_TARGET
+    printf("  Sensitivity fixture: deliberately early-exiting target, not zupt_ct_memeq\n");
+#else
+    printf("  Production target: zupt_ct_memeq\n");
+#endif
     srand(12345);
-
-    int pass = 0, fail = 0;
-
-    /* Median of a few measurements to damp single-run vCPU noise. */
-    double ct_runs[5], mc_runs[5];
-    for (int r = 0; r < 5; r++) {
-        mc_runs[r] = fabs(measure_t2(memcmp_wrap));
-        ct_runs[r] = fabs(measure_t2(zupt_ct_memeq));
+    double runs[N_CASES][N_RUNS];
+    for (unsigned r = 0; r < N_RUNS; r++) {
+        struct timing_stats stats[N_CASES];
+        if (measure_cases(TAG_LEN, r, N_CASES, stats) != 0) {
+            fprintf(stderr, "Timing measurement ERROR: timer/statistics/input failure\n");
+            return 2;
+        }
+        for (unsigned c = 0; c < N_CASES; c++)
+            runs[c][r] = fabs(stats[c].cropped_t);
     }
-    qsort(mc_runs, 5, sizeof(double), cmp_dbl);
-    qsort(ct_runs, 5, sizeof(double), cmp_dbl);
-    double t_memcmp = mc_runs[2];   /* median */
-    double t_ct     = ct_runs[2];   /* median */
-
-    printf("  memcmp (control, expected to leak):   |t| = %8.2f\n", t_memcmp);
-    printf("  zupt_ct_memeq (expected constant):    |t| = %8.2f\n", t_ct);
-
-    /* Environment-relative criterion, made robust against vCPU noise.
-     *
-     * Absolute |t| thresholds are not portable: on a shared CI vCPU the
-     * clock_gettime overhead and scheduler noise put even a perfectly
-     * constant-time 32-byte compare at |t| in the low tens, while a
-     * dedicated box sits near 0. The portable signal is the RATIO to a
-     * deliberately leaky baseline (memcmp with early return) measured in
-     * the SAME environment — BUT that ratio is only meaningful when the
-     * baseline leaks STRONGLY and cleanly.
-     *
-     * Observed on this shared vCPU: when the host is quiet, the memcmp
-     * control reaches |t| ≈ 600–1500 and zupt_ct_memeq sits at |t| ≈ 5–70
-     * (ratio ≈ 0.01–0.05 — clearly flat). When the host is under
-     * contention, BOTH collapse into a common noise band (control ≈ 210,
-     * ct_memeq ≈ 190): the measurement simply cannot separate them, and
-     * the ratio (≈ 0.9) is an artifact of noise, not a real leak. The
-     * tell is that a contended control barely clears 200 while a quiet
-     * one is 3–7× higher.
-     *
-     * So we only render a pass/fail verdict when the control leaks
-     * STRONGLY (|t| >= 400 — comfortably above the ~210 contention band
-     * and far below the ~600+ quiet floor). Below that we report
-     * INCONCLUSIVE rather than risk a noise-driven false failure. A
-     * genuine early-return regression still fails: on a quiet host the
-     * leaky function tracks the control (ratio → ~1.0) while the control
-     * is well above 400. */
-    const double CONTROL_STRONG = 400.0; /* control must leak THIS strongly for a valid verdict */
-    const double MAX_RATIO      = 0.20;  /* when control is strong: CT compare <= 20% of it */
-
-    if (t_memcmp < CONTROL_STRONG) {
-        printf("  - control |t|=%.1f below %.0f: host under contention this run;\n", t_memcmp, CONTROL_STRONG);
-        printf("    control and ct_memeq are in a common noise band, ratio not meaningful\n");
-        printf("  SKIP: timing measurement inconclusive on this host; rerun on a quiet host\n");
-        printf("  Constant-time timing gate: SKIP (measurement environment)\n");
-        return 0;
-    }
-    printf("  \xE2\x9C\x93 control: memcmp leaks strongly (|t|=%.1f, harness is sensitive)\n", t_memcmp);
-    pass++;
-
-    double ratio = t_ct / t_memcmp;
-    printf("  ratio zupt_ct_memeq/memcmp = %.3f (must be <= %.2f)\n", ratio, MAX_RATIO);
-    if (ratio <= MAX_RATIO) {
-        printf("  \xE2\x9C\x93 no timing-regression signal observed for zupt_ct_memeq (%.1f%% of control)\n",
-               ratio * 100.0);
-        pass++;
-    } else {
-        printf("  \xE2\x9C\x97 zupt_ct_memeq timing tracks the input classes (%.1f%% of control)\n",
-               ratio * 100.0);
-        fail++;
+    double medians[N_CASES];
+    int verdict = campaign_verdict(runs, medians);
+    printf("  cropped median |t|: memcmp=%.2f target=%.2f label-only=%.2f early-exit=%.2f\n",
+           medians[CASE_MEMCMP], medians[CASE_TARGET], medians[CASE_LABEL_ONLY],
+           medians[CASE_EARLY_EXIT]);
+    if (isfinite(medians[CASE_EARLY_EXIT]) && medians[CASE_EARLY_EXIT] >= CONTROL_STRONG)
+        printf("  t-statistic ratios to early-exit: target=%.3f label-only=%.3f; limit=%.2f\n",
+               medians[CASE_TARGET] / medians[CASE_EARLY_EXIT],
+               medians[CASE_LABEL_ONLY] / medians[CASE_EARLY_EXIT], MAX_RATIO);
+    if (verdict == 0 || verdict == 1)
+        printf("  matched-run target/control ratio median=%.3f; limit=%.2f\n",
+               matched_ratio_median(runs), MAX_RATIO);
+    if (verdict == 77)
+        printf("  Constant-time timing gate: INCONCLUSIVE (weak/invalid controls or label-only separation)\n");
+    else if (verdict == 0)
+        printf("  Constant-time timing gate: PASS (no regression signal under these controls)\n");
+    else if (verdict == 1)
+        printf("  Constant-time timing gate: FAIL (target exceeds unchanged %.2f ratio)\n", MAX_RATIO);
+    else {
+        fprintf(stderr, "  Constant-time timing gate: ERROR (invalid statistic)\n");
+        return 2;
     }
 
-    /* ── ML-KEM-768 decaps ciphertext compare (1088 bytes) ──
-     *
-     * The implicit-rejection check in zupt_mlkem768_decaps compares the
-     * re-encrypted ciphertext against the received one over all 1088
-     * bytes via this same zupt_ct_memeq. A timing leak there is a KEM
-     * decapsulation oracle that breaks IND-CCA2.
-     *
-     * IMPORTANT — why this measurement is INFORMATIONAL, not pass/fail:
-     * at 1088 bytes the dudect signal is dominated by memory/cache
-     * effects rather than the compare's control flow, and plain memcmp
-     * over 1088 bytes is no longer a cleanly-leaking control (its own
-     * timing is data-dependent in ways unrelated to early-exit). The
-     * environment-relative ratio that is meaningful at 32 bytes is not
-     * meaningful here on a shared vCPU. The 32-byte gate is only regression
-     * evidence when its control is conclusive; it is not a constant-time
-     * proof. Source inspection shows an OR-accumulate loop without intended
-     * data-dependent exit or access, and tests/test_ct_timing.sh confirms that
-     * decapsulation routes through this primitive. Exact compiled behavior
-     * remains compiler- and platform-dependent. We print the 1088B numbers for
-     * transparency but do not gate on them. */
-    printf("\n  -- ML-KEM ciphertext compare (1088 bytes, informational) --\n");
-    double mc1088_runs[5], ct1088_runs[5];
-    for (int r = 0; r < 5; r++) {
-        mc1088_runs[r]  = fabs(measure_t2_len(memcmp_wrap,   1088));
-        ct1088_runs[r]  = fabs(measure_t2_len(zupt_ct_memeq, 1088));
+    /* The same selected target at the ML-KEM ciphertext length, informational
+     * only. A sensitivity build keeps its deliberately leaky target here too.
+     * These measurements do not certify compiled-target constant-time behavior. */
+    printf("\n  -- 1088-byte comparison, informational --\n");
+    for (unsigned r = 0; r < N_RUNS; r++) {
+        struct timing_stats stats[N_CASES];
+        if (measure_cases(1088, r, 2, stats) != 0) {
+            fprintf(stderr, "Informational timing measurement ERROR\n");
+            return 2;
+        }
     }
-    qsort(mc1088_runs, 5, sizeof(double), cmp_dbl);
-    qsort(ct1088_runs, 5, sizeof(double), cmp_dbl);
-    printf("  memcmp 1088B:        |t| = %8.2f   (not a clean control at this size)\n",
-           mc1088_runs[2]);
-    printf("  zupt_ct_memeq 1088B: |t| = %8.2f\n", ct1088_runs[2]);
-    printf("  note: the 1088B result is informational; source routing uses the same\n");
-    printf("        fixed-length OR-accumulate primitive, but this is not a proof of\n");
-    printf("        constant-time behavior for the compiled target.\n");
-
-    printf("\n  ───────────────────────────────────────\n");
-    printf("  Timing regression checks: %d passed, %d failed\n", pass, fail);
-    printf("  ───────────────────────────────────────\n");
-    return fail ? 1 : 0;
+    printf("  Measurements are regression evidence, not a constant-time proof.\n");
+    return verdict;
 }

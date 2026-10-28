@@ -13,9 +13,23 @@ fail() {
     exit 1
 }
 
-"${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
-    "$repo_root/tests/fixture_hex_decode.c" -o "$tmp/fixture-decode" ||
-    fail 'could not build fixture decoder'
+read -r -a cc_command <<<"${CC:-cc}"
+read -r -a decoder_cppflags <<<"${CPPFLAGS:-}"
+read -r -a decoder_cflags <<<"${CFLAGS:-}"
+read -r -a decoder_ldflags <<<"${LDFLAGS:-}"
+read -r -a decoder_ldlibs <<<"${LDLIBS:-}"
+((${#cc_command[@]} > 0)) || fail 'CC does not name a compiler'
+if "${cc_command[@]}" ${decoder_cppflags[@]+"${decoder_cppflags[@]}"} \
+    ${decoder_cflags[@]+"${decoder_cflags[@]}"} -std=c11 -Wall -Wextra -Werror \
+    "$repo_root/tests/fixture_hex_decode.c" \
+    ${decoder_ldflags[@]+"${decoder_ldflags[@]}"} \
+    ${decoder_ldlibs[@]+"${decoder_ldlibs[@]}"} -o "$tmp/fixture-decode"; then
+    :
+else
+    compiler_status=$?
+    printf 'FAIL: could not build fixture decoder (exit %s)\n' "$compiler_status" >&2
+    exit "$compiler_status"
+fi
 "$tmp/fixture-decode" "$fixture" "$tmp/legacy.zupt" ||
     fail 'could not decode v5.2.1 fixture'
 

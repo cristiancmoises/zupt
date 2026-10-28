@@ -1,12 +1,15 @@
-# Installing ZUPT 5.2.10
+# Installing ZUPT
 
 This guide covers the ZUPT command-line program and the optional Python GUI.
 The canonical source repository is
 [GitHub](https://github.com/cristiancmoises/zupt).
-Use the explicit [5.2.10 release page](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.10)
-instead of `releases/latest`. This delivery is a known-issues prerelease while
-the strict GCC gate remains failing. Check each asset's recorded target and
-limitations; a successful package test is not approval of the entire matrix.
+For official packages, use the
+[5.2.9 release page](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9)
+and its `SHA256SUMS`. Existing 5.2.9 assets keep their original formats:
+use the appropriate tar/ZIP/DMG or native package tool, not `zupt extract` for
+those legacy containers. Version 5.2.10 is still in development; its earlier
+delivery was withdrawn. The `.zupt` instructions below describe the next
+official release, not currently available downloads.
 
 ## Choosing an installation method
 
@@ -19,13 +22,14 @@ limitations; a successful package test is not approval of the entire matrix.
   Git tree or upstream source archive. Use only artifacts whose release notes
   record a successful format-specific test for your target.
 
-## Current bundles and verification
+## Planned 5.2.10 bundles and verification
 
-All five bundles use genuine, unencrypted VaptVupt level-9 `.zupt` containers:
+After validation, all five new bundles must use genuine, unencrypted VaptVupt
+level-9 `.zupt` containers. Do not use earlier packages as the final version:
 
 | Bundle | Contents and prerequisites |
 |---|---|
-| `zupt-5.2.10-source.zupt` | Exact signed C source tree; a trusted desktop Zupt decoder is needed to unpack it. |
+| `zupt-5.2.10-source.zupt` | Exact final signed source tree; a trusted desktop Zupt decoder is needed to unpack it. |
 | `zupt-5.2.10-linux-x86_64.zupt` | Static-musl Linux x86_64 CLI and complete runtime notices. |
 | `zupt-5.2.10-windows-x86_64.zupt` | Native x86_64 CLI and five mandatory MinGW/GCC runtime notices; no Qt GUI. |
 | `zupt-5.2.10-macos-arm64.zupt` | CLI-only `ZUPT-5.2.10-macOS-arm64.dmg`; not a universal binary or Qt GUI. |
@@ -48,8 +52,9 @@ zupt extract -o source-check zupt-5.2.10-source.zupt
 ```
 
 Use a new extraction directory and inspect the restored files. A trusted 5.2.9
-desktop CLI decoded the current bundles in local checks; installing a new CLI
-is not required just to unpack the source. Do not rename a tarball to `.zupt`.
+desktop CLI decoded the withdrawn delivery's bundles in local checks; repeat
+that compatibility check for the final artifacts before publication. Do not
+rename a tarball to `.zupt`.
 Extraction restores regular file contents, not executable modes. For the
 verified Linux CLI bundle, restore only its executable permission:
 
@@ -63,17 +68,10 @@ linux-check/zupt-5.2.10-linux-x86_64/zupt --version
 Forge-generated source archives and standard SRPM build inputs are separate
 internal/downstream inputs, not manually uploaded `.tar.gz` release downloads.
 
-Windows and macOS packaged CLI checks passed in native CI run
-[36858438699](https://github.com/cristiancmoises/zupt/actions/runs/36858438699)
-at P `4a66b0cab55900bc64699428fb41c48c07de126a`; its runtime source paths match
-C `24995eb7652a31eedc46386bab14c63cbb31e050`. The macOS DMG was verified and
-its read-only mounted CLI tested on arm64, not mounted on the Linux host.
-GUI DEB C-tag CI and C-source GUI RPM/portable checks passed. Local static-musl
-CLI/extracted DEB/RPM tests are not native Ubuntu/openSUSE installations.
-Local Guix profile generation 85 now contains the C CLI and grafted GUI;
-version, CLI functional/PTY and six-tab GUI off-screen checks passed. Generation
-84 is retained and all 39 unrelated entries are unchanged. This is not an
-AUR/Homebrew or native RPM/DEB installation claim. See [DISTRIBUTION.md](DISTRIBUTION.md).
+Package checks from the withdrawn 5.2.10 delivery are historical evidence,
+not validation of the corrected source. Rebuild and test each final package
+before publication. A local extracted DEB/RPM test is not a native installation
+test. See [DISTRIBUTION.md](DISTRIBUTION.md) for the required release gates.
 
 ## Historical releases (not current validation)
 
@@ -171,8 +169,10 @@ chmod u+x scripts/check-source-only.sh
 bash scripts/check-source-only.sh
 ```
 
-Alternatively, use a verified Git checkout of `v5.2.10`, whose tracked execute
-modes are retained. In either tree, build the source-only feature set:
+After official publication, a verified Git checkout of `v5.2.10` will retain
+tracked execute modes. Until then, use the official `v5.2.9` release for an
+installation, not the withdrawn 5.2.10 source pins. Build the source-only
+feature set with:
 
 ```sh
 scripts/check-source-only.sh
@@ -184,8 +184,9 @@ make WITH_SDK=0 WITH_PQBOX=0 check
 ./zupt --help
 ```
 
-The C source is immutable, but its AUR/Homebrew/Guix recipes have stale earlier-candidate pins;
-use the post-tag recipe checkout below rather than bypassing checksum checks.
+The withdrawn 5.2.10 source and recipe checksums are not final release pins.
+Regenerate and verify downstream pins from the final signed tag; never bypass
+checksum checks to make an old recipe work.
 
 The default build provides the native password, ML-KEM-768 + X25519 hybrid
 `--pq`, and ML-KEM-768 `--pq-only` paths. See `SECURITY.md` and
@@ -249,25 +250,18 @@ To remove an installation made with the same prefix:
 sudo make PREFIX=/usr/local uninstall
 ```
 
-### Corrected downstream recipe checkout
+### Downstream recipe validation
 
-The C tag's recipes say **5.2.10**, not 5.2.9, but pin the earlier candidate A
-`3b3b8f494b4bdd3b74aab60388eef1694ef316f8`. They cannot verify the corrected
-C archive. Use the signed packaging follow-up, without moving the runtime tag:
+For a current installation, start from the official 5.2.9 release and the
+matching recipe, not a withdrawn 5.2.10 packaging commit. Before installing a
+future 5.2.10 recipe, verify its source URL, checksum and exact signed source
+commit, then build and test it with the target package manager.
 
-```sh
-git clone https://github.com/cristiancmoises/zupt.git zupt-recipes
-cd zupt-recipes
-git switch --detach 06c792a9de8f524bef962e8af7804e29d4fe0bff
-git verify-commit HEAD
-guix build -f packaging/guix/zupt.scm
-```
-
-That file selects the GUI package, whose launcher pins the matching store CLI.
-Build and inspect the result before any `guix package -f` profile transaction;
-the local CLI/GUI builds and smoke tests do not themselves change the profile.
-AUR/Homebrew installation is not claimed. Nix and other targets need their own
-fresh checks. Never disable checksum verification to make a stale recipe work.
+`packaging/guix/zupt.scm` selects the GUI package, whose launcher pins the
+matching store CLI. A `guix build -f packaging/guix/zupt.scm` check builds a
+store result; it does not install it in the profile. Inspect the result before
+any `guix package -f` transaction. Guix smoke tests do not establish
+AUR/Homebrew/Nix installation support. Never disable checksum verification.
 
 ## Optional system integrations
 

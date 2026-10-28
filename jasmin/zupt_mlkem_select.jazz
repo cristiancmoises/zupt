@@ -6,6 +6,7 @@
  * Operates in u64 chunks: 4 × 8 = 32 bytes, no byte access.
  */
 
+#[ct = "public * public * public * secret -> ()"]
 export fn zupt_ct_select_32(
     reg u64 out_ptr,
     reg u64 a_ptr,

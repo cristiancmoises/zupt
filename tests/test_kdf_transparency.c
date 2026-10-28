@@ -20,9 +20,10 @@
  *      keys for both (so old archives keep opening).
  *   3. decrypt-init REFUSES an unknown profile rather than guessing a
  *      derivation (fail-closed).
- *   4. The system libzuptsdk Argon2id KDF is deterministic and memory-hard
- *      (a coarse cost floor). This detects an unexpectedly weak system
- *      implementation before users depend on archives produced by it.
+ *   4. The configured SDK KDF is deterministic and clears a coarse runtime
+ *      cost floor. This confirms provider dispatch and detects unexpectedly
+ *      cheap configurations; timing does not identify the algorithm or prove
+ *      memory hardness.
  */
 #include "zupt.h"
 #include <stdio.h>
@@ -88,7 +89,7 @@ int main(void) {
         else bad("unknown KDF profile was accepted");
     }
 
-    /* 4. KDF is deterministic and memory-hard (coarse cost floor). */
+    /* 4. The configured SDK KDF is deterministic and clears a cost floor. */
     {
         uint8_t salt[16]; memset(salt, 7, 16);
         uint8_t k1[32], k2[32];
@@ -100,18 +101,17 @@ int main(void) {
         double ms = (double)(b.tv_sec - a.tv_sec) * 1000.0
                   + (double)(b.tv_nsec - a.tv_nsec) / 1e6;
         if (r1 == 0 && r2 == 0 && memcmp(k1, k2, 32) == 0)
-            ok("Argon2id KDF is deterministic (same password+salt -> same key)");
+            ok("configured SDK KDF is deterministic (same password+salt -> same key)");
         else
-            bad("Argon2id KDF not deterministic");
-        /* Memory-hard Argon2id at the MODERATE preset takes hundreds of ms
-         * on current hardware. A sub-20ms derivation almost certainly means
-         * the SDK was replaced with a non-memory-hard stand-in — refuse to
-         * pass so the regression is caught at build time, not by a user. */
+            bad("configured SDK KDF not deterministic");
+        /* This coarse elapsed-time floor catches unexpectedly cheap provider
+         * configurations. It does not identify the KDF or prove memory
+         * hardness; those require review of the exact provider source. */
         if (ms >= 20.0)
-            ok("Argon2id KDF cost floor met (memory-hard preset active)");
+            ok("configured SDK KDF cost floor met");
         else {
             char buf[96];
-            snprintf(buf, sizeof buf, "Argon2id KDF suspiciously fast (%.1f ms) — weak/stub system SDK?", ms);
+            snprintf(buf, sizeof buf, "configured SDK KDF below cost floor (%.1f ms)", ms);
             bad(buf);
         }
     }

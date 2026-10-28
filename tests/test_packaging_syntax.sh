@@ -29,9 +29,84 @@ has_exact_line_crlf_safe() {
 version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
 [[ -n $version ]] || { printf 'FAIL: cannot determine upstream version\n' >&2; exit 1; }
 
+check_gui_installed_docs() (
+    set -Eeuo pipefail
+    local work stage prefix share doc source_file installed fixture missing status
+    work=$(mktemp -d "${TMPDIR:-/tmp}/zupt-gui-docs.XXXXXXXX") || exit 1
+    trap 'rm -rf -- "$work"' EXIT
+    stage=$work/stage
+    prefix='/opt/zupt test'
+    share=$prefix/custom-share
+    doc=$stage$share/doc/zupt-gui
+    BINDIR=$prefix/bin LIBEXECDIR=$prefix/lib/zupt-gui DATADIR=$share \
+        bash gui/install.sh --destdir "$stage" --prefix "$prefix" || exit 1
+    [[ ! -e $stage$prefix/bin/vaptvupt-gui && ! -L $stage$prefix/bin/vaptvupt-gui ]] || exit 1
+    for source_file in docs/USER_GUIDE.md docs/GUIA_USUARIO.pt-BR.md \
+        SECURITY.md DISTRIBUTION.md; do
+        installed=$doc/$source_file
+        [[ -f $installed && ! -L $installed ]] || {
+            printf 'missing installed GUI document: %s\n' "$source_file" >&2
+            exit 1
+        }
+        cmp -- "$source_file" "$installed" || exit 1
+    done
+    python3 - "$doc" <<'PY' || exit 1
+import stat
+import sys
+from pathlib import Path
+
+doc = Path(sys.argv[1])
+for name in (
+    "docs/USER_GUIDE.md",
+    "docs/GUIA_USUARIO.pt-BR.md",
+    "SECURITY.md",
+    "DISTRIBUTION.md",
+):
+    if stat.S_IMODE((doc / name).stat().st_mode) != 0o644:
+        raise SystemExit(f"incorrect installed GUI documentation mode: {name}")
+PY
+
+    bash gui/install.sh --destdir "$work/native" --prefix /usr || exit 1
+    python3 scripts/check-installed-docs.py "$root" "$work/native" zupt-gui || exit 1
+
+    # Omitted source guides must fail before creating a partial installation.
+    fixture=$work/source
+    for source_file in gui/install.sh gui/src/zupt_gui.py \
+        gui/assets/zupt-icon.png gui/packaging/zupt-gui.desktop doc/zupt-gui.1 \
+        LICENSE LICENSE-AGPL-3.0 gui/LICENSE-GUI gui/assets/README.md \
+        docs/USER_GUIDE.md docs/GUIA_USUARIO.pt-BR.md SECURITY.md DISTRIBUTION.md; do
+        mkdir -p -- "$fixture/$(dirname -- "$source_file")" || exit 1
+        cp -- "$source_file" "$fixture/$source_file" || exit 1
+    done
+    for missing in USER_GUIDE.md GUIA_USUARIO.pt-BR.md; do
+        mv -- "$fixture/docs/$missing" "$fixture/docs/$missing.removed" || exit 1
+        stage=$work/rejected-$missing
+        if bash "$fixture/gui/install.sh" --destdir "$stage" --prefix /usr \
+            > "$work/rejection.log" 2>&1; then
+            status=0
+        else
+            status=$?
+        fi
+        [[ $status == 1 ]] || {
+            cat -- "$work/rejection.log" >&2
+            printf 'missing GUI guide returned %s, expected 1\n' "$status" >&2
+            exit 1
+        }
+        grep -Fq "required source file is missing: $fixture/docs/$missing" "$work/rejection.log" || exit 1
+        [[ ! -e $stage ]] || exit 1
+        mv -- "$fixture/docs/$missing.removed" "$fixture/docs/$missing" || exit 1
+    done
+)
+
+if check_gui_installed_docs; then
+    pass 'GUI installer stages bilingual guides and rejects missing guides before installation'
+else
+    fail 'GUI installer documentation staging or missing-guide handling'
+fi
+
 for script in packaging/build-deb.sh packaging/build-rpm.sh \
     packaging/build-appimage.sh packaging/build-gui-appimage.sh \
-    packaging/build-gui-deb.sh packaging/build-gui-rpm.sh \
+    packaging/build-gui-deb.sh packaging/build-gui-rpm.sh packaging/build-portable-gui.sh \
     gui/packaging/appimage/build-appimage.sh packaging/build-dmg.sh \
     scripts/check-source-only.sh scripts/export-opensuse-package.sh \
     scripts/test-installed-zupt.sh packaging/opensuse/source-audit.sh; do
@@ -82,6 +157,15 @@ check_recipe_version openSUSE \
     "$(awk '/^Version:/{print $2; exit}' packaging/opensuse/zupt.spec)"
 check_recipe_version GUI-Deb-Control \
     "$(awk '/^Version:/{print $2; exit}' gui/packaging/deb/control)"
+
+if grep -Fqx \
+       'Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz' \
+       packaging/rpm/zupt.spec &&
+   ! grep -Fq '/releases/download/' packaging/rpm/zupt.spec; then
+    pass 'Fedora source uses the tag archive rather than a public release tarball'
+else
+    fail 'Fedora source still depends on a public release tarball'
+fi
 
 if [[ $version == 5.2.10 ]]; then
     if grep -Fqx '# RELEASE_RECIPE_STATE=verified-legacy-5.2.9' packaging/aur/PKGBUILD &&
@@ -172,8 +256,14 @@ if command -v guile >/dev/null 2>&1; then
     else
         fail 'Guix recipe reader syntax'
     fi
+    if guile --no-auto-compile -q -s tests/test_guix_gui_install_plan.scm; then
+        pass 'Guix CLI fixtures/guides and GUI copy, launcher, desktop and check phases'
+    else
+        fail 'Guix CLI fixtures/guides and GUI copy, launcher, desktop and check phases'
+    fi
 else
     skip 'Guile unavailable for Guix syntax'
+    skip 'Guile unavailable for Guix CLI/GUI phase tests'
 fi
 
 if command -v xmllint >/dev/null 2>&1; then
@@ -332,6 +422,16 @@ else
     fail 'downstream Windows GUI helper permits incomplete runtime notices'
 fi
 
+if grep -Fqx '  macOS:    bash zupt-gui.command' packaging/portable/README.txt && \
+   grep -Fqx '  POSIX:    bash zupt-gui.sh' packaging/portable/README.txt && \
+   grep -Fq 'does not restore executable permissions' packaging/portable/README.txt && \
+   grep -Fq 'chmod u+x zupt-gui.command' packaging/portable/README.txt && \
+   ! grep -Fqx '  POSIX:    ./zupt-gui.sh' packaging/portable/README.txt; then
+    pass 'portable GUI instructions do not assume executable archive permissions'
+else
+    fail 'portable GUI instructions assume executable archive permissions'
+fi
+
 if grep -Eq '^Name:[[:space:]]+zupt$' "$spec" && \
    grep -Eq '^Source0:[[:space:]]+%\{name\}-%\{version\}\.tar\.gz$' "$spec" && \
    grep -Eq '^License:[[:space:]]+AGPL-3\.0-or-later AND GPL-3\.0-or-later AND BSD-2-Clause AND BSD-3-Clause AND CC0-1\.0$' "$spec" && \
@@ -346,6 +446,13 @@ if grep -Eq '^Name:[[:space:]]+zupt$' "$spec" && \
     pass 'openSUSE spec source, license, features and alias policy'
 else
     fail 'openSUSE spec source, license, features or alias policy'
+fi
+
+if grep -Fqx '%{_mandir}/man1/zupt.1*' "$spec" && \
+   ! grep -Fq '%{?ext_man}' "$spec"; then
+    pass 'openSUSE spec accepts the installed compressed man page without distro macros'
+else
+    fail 'openSUSE spec requires a distro-specific man-page suffix macro'
 fi
 
 if grep -Fq 'LICENSE-BSD-3-Clause' packaging/build-deb.sh && \
@@ -404,6 +511,7 @@ if command -v shellcheck >/dev/null 2>&1; then
         packaging/build-gui-appimage.sh
         packaging/build-gui-deb.sh
         packaging/build-gui-rpm.sh
+        packaging/build-portable-gui.sh
         gui/packaging/appimage/build-appimage.sh
         packaging/build-dmg.sh
         packaging/opensuse/source-audit.sh

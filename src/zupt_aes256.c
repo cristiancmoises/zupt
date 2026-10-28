@@ -32,9 +32,15 @@ static const uint8_t SBOX[256] = {
 static const uint8_t RCON[11] = {0x00,0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,0x1b,0x36};
 
 /* ─── GF(2^8) multiply ─── */
+/*@ assigns \nothing; */
 static inline uint8_t xtime(uint8_t x) { return (x<<1)^(((x>>7)&1)*0x1b); }
+/*@ assigns \nothing; */
 static inline uint8_t gmul(uint8_t a, uint8_t b) {
     uint8_t r=0;
+    /*@ loop invariant 0 <= i <= 8;
+      @ loop assigns i, a, b, r;
+      @ loop variant 8-i;
+    */
     for (int i=0;i<8;i++) { if (b&1) r^=a; a=xtime(a); b>>=1; }
     return r;
 }
@@ -48,20 +54,34 @@ static inline uint8_t gmul(uint8_t a, uint8_t b) {
 */
 void zupt_aes256_init(zupt_aes256_ctx *c, const uint8_t key[32]) {
     uint32_t *rk = c->rk;
+    /*@ loop invariant 0 <= i <= 8;
+      @ loop invariant \initialized(rk + (0..i-1));
+      @ loop assigns i, rk[0..7];
+      @ loop variant 8-i;
+    */
     for (int i=0;i<8;i++)
         rk[i] = ((uint32_t)key[4*i]<<24)|((uint32_t)key[4*i+1]<<16)|
                 ((uint32_t)key[4*i+2]<<8)|key[4*i+3];
+    /*@ loop invariant 8 <= i <= 60;
+      @ loop invariant \initialized(rk + (0..i-1));
+      @ loop assigns i, rk[8..59];
+      @ loop variant 60-i;
+    */
     for (int i=8;i<60;i++) {
         uint32_t t = rk[i-1];
         if (i%8==0) {
             t = ((uint32_t)SBOX[(t>>16)&0xFF]<<24)|((uint32_t)SBOX[(t>>8)&0xFF]<<16)|
-                ((uint32_t)SBOX[t&0xFF]<<8)|SBOX[t>>24];
+                ((uint32_t)SBOX[t&0xFF]<<8)|SBOX[(t>>24)&0xFF];
             t ^= (uint32_t)RCON[i/8]<<24;
         } else if (i%8==4) {
-            t = ((uint32_t)SBOX[t>>24]<<24)|((uint32_t)SBOX[(t>>16)&0xFF]<<16)|
+            t = ((uint32_t)SBOX[(t>>24)&0xFF]<<24)|((uint32_t)SBOX[(t>>16)&0xFF]<<16)|
                 ((uint32_t)SBOX[(t>>8)&0xFF]<<8)|SBOX[t&0xFF];
         }
         rk[i] = rk[i-8]^t;
+        /*@ assert old_prefix_initialized:
+          @   \forall integer j; 0 <= j < i ==> \initialized(rk+j);
+        */
+        /*@ assert new_word_initialized: \initialized(rk+i); */
     }
 }
 
@@ -78,12 +98,27 @@ void zupt_aes256_encrypt_block(const zupt_aes256_ctx *c, const uint8_t in[16], u
     uint8_t s[16];
     const uint32_t *rk = c->rk;
     /* AddRoundKey(0) */
+    /*@ loop invariant 0 <= i <= 16;
+      @ loop invariant \initialized(s + (0..i-1));
+      @ loop assigns i, s[0..15];
+      @ loop variant 16-i;
+    */
     for (int i=0;i<16;i++)
         s[i] = in[i]^(uint8_t)(rk[i/4]>>((3-i%4)*8));
     /* Rounds 1-13 */
+    /*@ loop invariant 1 <= r <= 14;
+      @ loop invariant \initialized(s + (0..15));
+      @ loop assigns r, s[0..15];
+      @ loop variant 14-r;
+    */
     for (int r=1;r<=13;r++) {
         uint8_t t[16];
         /* SubBytes */
+        /*@ loop invariant 0 <= i <= 16;
+          @ loop invariant \initialized(t + (0..i-1));
+          @ loop assigns i, t[0..15];
+          @ loop variant 16-i;
+        */
         for (int i=0;i<16;i++) t[i]=SBOX[s[i]];
         /* ShiftRows */
         uint8_t u[16];
@@ -92,6 +127,11 @@ void zupt_aes256_encrypt_block(const zupt_aes256_ctx *c, const uint8_t in[16], u
         u[8]=t[8]; u[9]=t[13]; u[10]=t[2]; u[11]=t[7];
         u[12]=t[12]; u[13]=t[1]; u[14]=t[6]; u[15]=t[11];
         /* MixColumns */
+        /*@ loop invariant 0 <= col <= 4;
+          @ loop invariant \initialized(s + (0..15));
+          @ loop assigns col, s[0..15];
+          @ loop variant 4-col;
+        */
         for (int col=0;col<4;col++) {
             uint8_t a0=u[col*4],a1=u[col*4+1],a2=u[col*4+2],a3=u[col*4+3];
             s[col*4+0]=gmul(a0,2)^gmul(a1,3)^a2^a3;
@@ -100,18 +140,33 @@ void zupt_aes256_encrypt_block(const zupt_aes256_ctx *c, const uint8_t in[16], u
             s[col*4+3]=gmul(a0,3)^a1^a2^gmul(a3,2);
         }
         /* AddRoundKey */
+        /*@ loop invariant 0 <= i <= 16;
+          @ loop invariant \initialized(s + (0..15));
+          @ loop assigns i, s[0..15];
+          @ loop variant 16-i;
+        */
         for (int i=0;i<16;i++)
             s[i] ^= (uint8_t)(rk[r*4+i/4]>>((3-i%4)*8));
     }
     /* Round 14 (no MixColumns) */
     {
         uint8_t t[16];
+        /*@ loop invariant 0 <= i <= 16;
+          @ loop invariant \initialized(t + (0..i-1));
+          @ loop assigns i, t[0..15];
+          @ loop variant 16-i;
+        */
         for (int i=0;i<16;i++) t[i]=SBOX[s[i]];
         uint8_t u[16];
         u[0]=t[0]; u[1]=t[5]; u[2]=t[10]; u[3]=t[15];
         u[4]=t[4]; u[5]=t[9]; u[6]=t[14]; u[7]=t[3];
         u[8]=t[8]; u[9]=t[13]; u[10]=t[2]; u[11]=t[7];
         u[12]=t[12]; u[13]=t[1]; u[14]=t[6]; u[15]=t[11];
+        /*@ loop invariant 0 <= i <= 16;
+          @ loop invariant \initialized(out + (0..i-1));
+          @ loop assigns i, out[0..15];
+          @ loop variant 16-i;
+        */
         for (int i=0;i<16;i++)
             out[i] = u[i]^(uint8_t)(rk[56+i/4]>>((3-i%4)*8));
     }

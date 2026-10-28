@@ -94,7 +94,8 @@ typedef struct {
  * dst[0..dst_cap-1]  — output buffer (header + bitstream)
  * *dst_len           — on success, set to actual compressed size
  *
- * Returns VVH_OK on success, or VVH_ERR_OVERFLOW if dst too small.
+ * Returns VVH_OK on success, VVH_ERR_NOMEM if table allocation fails,
+ * or VVH_ERR_OVERFLOW if dst is too small.
  * If compressed size >= src_len, returns VVH_ERR_OVERFLOW (incompressible).
  */
 vvh_error_t vvh_encode(const uint8_t *src, size_t src_len,
@@ -134,7 +135,7 @@ vvh_error_t vvh_decode(const uint8_t *src, size_t src_len,
  *
  * Returns VVH_OK on success.
  * Returns VVH_ERR_OVERFLOW if src_len < 1024, dst too small, or output
- * not smaller than input.
+ * not smaller than input. Returns VVH_ERR_NOMEM if table allocation fails.
  */
 vvh_error_t vvh_encode4(const uint8_t *src, size_t src_len,
                         uint8_t *dst, size_t dst_cap, size_t *dst_len);

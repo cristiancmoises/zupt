@@ -66,7 +66,8 @@
       if (!tramp) return -1;
       tramp->func = func; tramp->arg = arg;
       *t = (HANDLE)_beginthreadex(NULL, 0, zthread_win_entry, tramp, 0, NULL);
-      return *t ? 0 : -1;
+      if (!*t) { free(tramp); return -1; }
+      return 0;
   }
   static inline int zthread_join(zthread_t t) {
       WaitForSingleObject(t, INFINITE);

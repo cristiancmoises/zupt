@@ -21,7 +21,8 @@
 # This test asserts the guard is present and that the exact ASAN-failing
 # input round-trips clean.
 
-set -u
+set -Eeuo pipefail
+umask 077
 PASS=0; FAIL=0
 P() { echo "  ✓ $1"; PASS=$((PASS+1)); }
 F() { echo "  ✗ $1"; FAIL=$((FAIL+1)); }
@@ -72,20 +73,64 @@ fi
 # ── Functional: the exact ASAN-failing input round-trips ──
 # Degenerate all-repeats: one 4.5 KB pattern repeated to 10 MB, the
 # input class that triggered the original over-write at L1.
-WORK=$(mktemp -d)
-python3 -c "
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/zupt-decode-slack.XXXXXXXX")
+trap 'rm -rf -- "$WORK"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+python3 - "$WORK/redundant.dat" <<'PY'
+import sys
+
 pat = (b'The quick brown fox jumps over the lazy dog. ' * 100)
 data = (pat * (10*1024*1024 // len(pat) + 1))[:10*1024*1024]
-open('$WORK/redundant.dat','wb').write(data)
-"
+with open(sys.argv[1], 'wb') as output:
+    output.write(data)
+PY
+
+round_trip() {
+    local level=$1 label=$2 directory=$3 status ex case_root
+    shift 3
+    case_root=$WORK/$directory
+    if ! mkdir -p "$case_root/out"; then
+        F "degenerate-input $label fixture setup failed"
+        return 1
+    fi
+    # A failed producer must not reuse an earlier level's usable archive.
+    if "$BIN" c -l "$level" "$@" "$case_root/a.zupt" "$WORK/redundant.dat" >"$case_root/compress.log" 2>&1; then
+        :
+    else
+        status=$?
+        F "degenerate-input $label compression failed (status $status)"
+        cat -- "$case_root/compress.log" >&2
+        return 1
+    fi
+    if "$BIN" x "$@" -o "$case_root/out" "$case_root/a.zupt" >"$case_root/extract.log" 2>&1; then
+        :
+    else
+        status=$?
+        F "degenerate-input $label extraction failed (status $status)"
+        cat -- "$case_root/extract.log" >&2
+        return 1
+    fi
+    if ex=$(find "$case_root/out" -type f); then
+        :
+    else
+        F "degenerate-input $label output enumeration failed"
+        return 1
+    fi
+    if [ -z "$ex" ] || ! cmp -s -- "$ex" "$WORK/redundant.dat"; then
+        F "degenerate-input $label round-trip mismatch"
+        return 1
+    fi
+}
+
 SLACK_OK=1
 for L in 1 5 9; do
-    "$BIN" c -l $L "$WORK/a.zupt" "$WORK/redundant.dat" >/dev/null 2>&1
-    rm -rf "$WORK/out"; mkdir -p "$WORK/out"
-    "$BIN" x -o "$WORK/out" "$WORK/a.zupt" >/dev/null 2>&1
-    ex=$(find "$WORK/out" -type f | head -1)
-    if [ -z "$ex" ] || ! diff -q "$ex" "$WORK/redundant.dat" >/dev/null 2>&1; then
-        SLACK_OK=0; F "degenerate-input L$L round-trip mismatch"
+    # Omitting -t enables automatic compression workers, not the serial path.
+    if round_trip "$L" "L$L" "single-$L" -t 1; then
+        :
+    else
+        SLACK_OK=0
     fi
 done
 [ "$SLACK_OK" = 1 ] && P "degenerate all-repeats round-trips byte-exact (L1/5/9)"
@@ -93,17 +138,13 @@ done
 # Multi-threaded variant (exercises zupt_parallel.c decode).
 MT_OK=1
 for L in 1 9; do
-    "$BIN" c -l $L -t 4 "$WORK/mt.zupt" "$WORK/redundant.dat" >/dev/null 2>&1
-    rm -rf "$WORK/mtout"; mkdir -p "$WORK/mtout"
-    "$BIN" x -t 4 -o "$WORK/mtout" "$WORK/mt.zupt" >/dev/null 2>&1
-    ex=$(find "$WORK/mtout" -type f | head -1)
-    if [ -z "$ex" ] || ! diff -q "$ex" "$WORK/redundant.dat" >/dev/null 2>&1; then
-        MT_OK=0; F "degenerate-input L$L (MT) round-trip mismatch"
+    if round_trip "$L" "L$L (MT)" "multi-$L" -t 4; then
+        :
+    else
+        MT_OK=0
     fi
 done
 [ "$MT_OK" = 1 ] && P "degenerate all-repeats round-trips byte-exact (MT, L1/9)"
-
-rm -rf "$WORK"
 
 echo ""
 echo "  ───────────────────────────────────────"

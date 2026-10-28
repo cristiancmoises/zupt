@@ -24,12 +24,15 @@ mkdir -p -- "$dist_dir"
 dist_dir=$(cd -- "$dist_dir" && pwd -P)
 case $dist_dir/ in "$repo_root"/*) die 'DIST_DIR must be outside the repository' ;; esac
 output=$dist_dir/zupt-gui_${version}_all.deb
-[[ ! -e $output ]] || die "refusing to overwrite existing output: $output"
+[[ ! -e $output && ! -L $output ]] || die "refusing to overwrite existing output: $output"
 
 for command_name in make python3 dpkg-deb gzip sha256sum; do
     command -v -- "$command_name" >/dev/null 2>&1 || \
         die "required command not found: $command_name"
 done
+# The suffix requires a directory, so a substituted FIFO cannot block this open.
+exec {dist_fd}<"$dist_dir/."
+python3 scripts/publish-package.py --check-directory "$dist_fd" "$dist_dir"
 
 jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1')}
 work=$(mktemp -d "${TMPDIR:-/tmp}/zupt-gui-deb.XXXXXXXX")
@@ -39,6 +42,7 @@ cleanup() {
     make -C "$repo_root" clean >/dev/null 2>&1 || true
     chmod -R u+rwX "$work" 2>/dev/null || true
     rm -rf -- "$work"
+    exec {dist_fd}<&-
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -104,12 +108,12 @@ fi
 
 mkdir -p -- "$extract"
 dpkg-deb --extract "$package_tmp" "$extract"
+python3 scripts/check-installed-docs.py "$repo_root" "$extract" zupt-gui
 PYTHONDONTWRITEBYTECODE=1 python3 - <<PY
 from pathlib import Path
 p = Path("$extract/usr/lib/zupt-gui/zupt_gui.py")
 compile(p.read_text(encoding="utf-8"), str(p), "exec")
 PY
 
-mv -- "$package_tmp" "$output"
-sha256sum "$output"
+python3 scripts/publish-package.py "$dist_fd" "$dist_dir" "$package_tmp"
 printf 'PASS: built and content-validated %s\n' "$output"

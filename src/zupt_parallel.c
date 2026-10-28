@@ -429,9 +429,11 @@ zpar_ctx_t *zpar_create(int nthreads, uint32_t block_size, int mode,
         ctx->threads_running++;
     }
 
-    /* If no threads started, fall back gracefully (caller can check) */
-    if (ctx->threads_running == 0 && nthreads > 0) {
-        fprintf(stderr, "  Warning: thread creation failed, using single thread\n");
+    /* Every slot has a dedicated worker. A partial pool leaves submissions
+     * waiting on slots with no worker; use the caller's sequential fallback. */
+    if (ctx->threads_running != nthreads) {
+        zpar_destroy(ctx);
+        return NULL;
     }
 
     return ctx;

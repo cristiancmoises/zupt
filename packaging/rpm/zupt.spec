@@ -3,16 +3,16 @@
 # Fedora / RHEL / CentOS RPM spec for zupt.
 #
 # Build with:
-#   spectool -g zupt.spec                    # fetches the upstream tarball
+#   spectool -g zupt.spec                    # fetches the tag snapshot
 #   rpmbuild -ba zupt.spec                   # builds source + binary RPMs
 #
 # To bring a release into production:
-#   1. Run `make dist` upstream → /tmp/zupt-VERSION.tar.gz (reproducible).
-#   2. Upload to the canonical GitHub release.
-#   3. Update %{version} below.
-#   4. Run `sha256sum /tmp/zupt-VERSION.tar.gz` and update Source0
-#      checksum (handled by spectool when configured) or pin via
-#      sha256sum in a separate manifest if your distro requires it.
+#   1. Create and verify the final signed upstream tag.
+#   2. Update %{version} below and fetch the forge-generated tag snapshot.
+#   3. Compare its extracted files with the signed Git tree and record its
+#      checksum in the distribution's source metadata.
+#   4. Keep `make dist` tarballs private to RPM/OBS build staging; public
+#      source downloads for this release use the verified .zupt bundle.
 #   5. rpmbuild --define '_topdir /path/to/rpmbuild' -ba zupt.spec
 #
 # This is an upstream Fedora-family recipe. A target is supported only after
@@ -26,7 +26,7 @@ Summary:        Backup compression with authenticated and post-quantum encryptio
 
 License:        AGPL-3.0-or-later AND GPL-3.0-or-later AND BSD-2-Clause AND BSD-3-Clause AND CC0-1.0
 URL:            https://github.com/cristiancmoises/zupt
-Source0:        %{url}/releases/download/v%{version}/%{name}-%{version}.tar.gz
+Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
 BuildRequires:  gcc
 BuildRequires:  git-core
@@ -43,8 +43,8 @@ BuildRequires:  grep
 BuildRequires:  gzip
 BuildRequires:  sed
 BuildRequires:  tar
-# python3 is only needed for the regression-test harness (byte sweeps,
-# tamper injection). The shipped binary has no Python dependency.
+# python3 is needed for regression and extracted-package checks.
+# The shipped CLI binary has no Python dependency.
 
 Provides:       bundled(vaptvupt-codec) = 2.65.13
 
@@ -92,6 +92,7 @@ comments. Plain archives use non-cryptographic checksums.
 %files
 %license LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 NOTICE THIRD-PARTY-NOTICES.md
 %doc README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md SECURITY.md THREAT_MODEL.md CHANGELOG.md
+%doc docs DISTRIBUTION.md
 %{_bindir}/%{name}
 %{_datadir}/bash-completion/completions/%{name}
 %{_datadir}/zsh/site-functions/_%{name}

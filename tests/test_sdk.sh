@@ -39,10 +39,26 @@ fi
 printf 'Hello SDK PQ encryption\n' >input.txt
 dd if=/dev/urandom of=large.bin bs=65536 count=4 2>/dev/null
 
-if "$zupt" c --pq-sdk key.priv.pub small.zupt input.txt >/dev/null 2>&1; then
+sdk_encrypt_log=''
+if sdk_encrypt_log=$("$zupt" c --pq-sdk key.priv.pub small.zupt input.txt 2>&1); then
     pass 'SDK encrypts a small file'
 else
     fail 'SDK encrypts a small file'
+fi
+if grep -Fq 'Payload protection: AES-256-CTR + HMAC-SHA256' \
+        <<<"$sdk_encrypt_log" &&
+   ! grep -Eqi 'XChaCha20-Poly1305|AES-256-SIV' <<<"$sdk_encrypt_log"; then
+    pass 'SDK reports the payload protection it actually uses'
+else
+    fail 'SDK reports the payload protection it actually uses'
+fi
+sdk_info_log=''
+if sdk_info_log=$("$zupt" info small.zupt 2>&1) &&
+   grep -Fq 'SDK-v2 recipient envelope' <<<"$sdk_info_log" &&
+   ! grep -Eqi 'XChaCha20-Poly1305|AES-256-SIV|HPKE' <<<"$sdk_info_log"; then
+    pass 'archive info identifies the external SDK recipient envelope'
+else
+    fail 'archive info identifies the external SDK recipient envelope'
 fi
 mkdir extract1
 if (cd extract1 && "$zupt" x --pq-sdk ../key.priv ../small.zupt >/dev/null 2>&1); then

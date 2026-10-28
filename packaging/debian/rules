@@ -30,3 +30,7 @@ override_dh_auto_install:
 
 override_dh_auto_clean:
 	$(MAKE) clean
+
+override_dh_compress:
+	# Preserve Markdown filenames and their relative links.
+	dh_compress -X.md

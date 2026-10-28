@@ -184,8 +184,8 @@ static inline int zupt_win_mkdir_utf8(const char *path) {
 /* Encryption types (stored in encryption header block) */
 #define ZUPT_ENC_PBKDF2     0x01  /* Password-based: PBKDF2 → AES-256-CTR + HMAC */
 #define ZUPT_ENC_PQ_HYBRID  0x02  /* ML-KEM-768 + X25519 hybrid KEM (legacy XOR+SHA3) */
-#define ZUPT_ENC_PQ_SDK_V2  0x03  /* libvuptsdk v2 header: HKDF combiner + commitment + HPKE binding */
-#define ZUPT_ENC_PW_ARGON2  0x04  /* Password-based via libvuptsdk: Argon2id + XChaCha20-Poly1305 */
+#define ZUPT_ENC_PQ_SDK_V2  0x03  /* Opaque libvuptsdk SDK-v2 recipient envelope */
+#define ZUPT_ENC_PW_ARGON2  0x04  /* libvuptsdk Argon2id KDF; AES-CTR + HMAC payload */
 #define ZUPT_ENC_PQ_BOX_V1  0x05  /* libpqvaptvupt sealed box: HKDF-SHA256 domain-separated combiner */
 #define ZUPT_ENC_PQ_ONLY    0x06  /* Full post-quantum: ML-KEM-768 only (no X25519), SHA3-512 KDF (v4.2.0) */
 
@@ -353,7 +353,7 @@ typedef struct {
     int level; uint32_t block_size; uint16_t codec_id;
     int verbose, encrypt, quiet, solid, threads;
     int pq_mode;           /* 1 = post-quantum hybrid KEM mode */
-    int sdk_mode;          /* 1 = use libvuptsdk-backed v3 crypto (HKDF combiner + commitment + HPKE) */
+    int sdk_mode;          /* 1 = use libvuptsdk-backed key setup */
     int box_mode;          /* 1 = libpqvaptvupt sealed-box mode (ZUPT_ENC_PQ_BOX_V1) */
     int pqonly_mode;       /* 1 = full post-quantum mode: ML-KEM-768 only (ZUPT_ENC_PQ_ONLY) */
     int dedup;             /* 1 = block-level deduplication enabled */
@@ -577,6 +577,13 @@ int zupt_keyfile_write_new(const char *path, const uint8_t *data, size_t length,
                            int private_material);
 int zupt_hybrid_keygen(const char *keyfile);
 int zupt_hybrid_export_pubkey(const char *privfile, const char *pubfile);
+/* Internal SDK ownership variants. Reset *created before any fallible work,
+ * then set it when exclusive creation succeeds, including later failures.
+ * They retain failed outputs just like the legacy entry points. Callers may
+ * clean flagged outputs only within their own trusted temporary directory. */
+int zupt_hybrid_keygen_created(const char *keyfile, int *created);
+int zupt_hybrid_export_pubkey_created(const char *privfile, const char *pubfile,
+                                      int *created);
 int zupt_hybrid_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
                               uint8_t *enc_hdr, size_t *enc_hdr_len);
 int zupt_hybrid_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
@@ -635,6 +642,13 @@ zupt_error_t zupt_disk_restore(const char *archive_path, const char *target_path
 
 /* ─── Internal Block I/O (used by format + disk modules) ─── */
 typedef struct zupt_atomic_output zupt_atomic_output_t;
+
+/* Internal named staging, not part of the public SDK ABI. Create exclusively
+ * with owner-only access, retaining that handle through stdio conversion.
+ * CREATED is set even if conversion fails after creation; a zero value means
+ * the caller must not remove the path. Cleanup requires a trusted temporary
+ * parent; this flag does not authenticate a later replacement directory entry. */
+FILE *zupt_private_staging_open_new(const char *path, int *created);
 
 /* Create an archive in a private file next to OUTPUT_PATH.  finish(..., 1)
  * atomically replaces only the final directory entry; it never follows a

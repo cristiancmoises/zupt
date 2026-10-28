@@ -1,231 +1,190 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2026 Cristian Cezar Moisés
-# Generated from jasmin/zupt_aes_ctr.jazz by jasminc.
-	.intel_syntax noprefix
+# Generated from jasmin/zupt_aes_ctr.jazz by Jasmin compiler 2026.09.0.
+# Source SHA256: dbc2bf0f709b86646c1e590ec07711750c12e4c89b25241b22a8d699a46b1883
+	.att_syntax
 	.text
 	.p2align	5
 	.global	zupt_aes256_blk
 	.type	zupt_aes256_blk, %function
-/* zupt_aes256_blk(out_ptr=rdi, in_blk=rsi, key=rdx, ctr_blk=rcx)
- * AES-256 single-block encrypt: out = AES(key, ctr) XOR in
- *
- * FIX v2.0.0: Round keys at [rsp+0], [rsp+16], [rsp+32], ..., [rsp+224]
- * The previous version had [rsp+0], [rsp+1], ..., [rsp+14] (byte offsets).
- *
- * Stack layout: 15 × 16 bytes = 240 bytes for round keys, 16-byte aligned.
- */
 zupt_aes256_blk:
-	mov 	r10, rsp
-	lea 	rsp, qword ptr[rsp - 256]
-	and 	rsp, -16
-
-	/* Load 256-bit key (two u128 halves) */
-	vmovdqu	xmm0, xmmword ptr[rdx]        /* key[0] = first 128 bits */
-	vmovdqu	xmm1, xmmword ptr[rdx + 16]   /* key[1] = second 128 bits */
-
-	/* Store round keys 0-1 (the raw key halves) */
-	vmovdqa	xmmword ptr[rsp + 0], xmm0     /* rk0 */
-	vmovdqa	xmmword ptr[rsp + 16], xmm1    /* rk1 */
-
-	/* Round key 2 (even): RCON=0x01 */
-	vaeskeygenassist	xmm2, xmm1, 0x01
-	vpshufd	xmm2, xmm2, 0xFF
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpxor	xmm0, xmm0, xmm2
-	vmovdqa	xmmword ptr[rsp + 32], xmm0    /* rk2 */
-
-	/* Round key 3 (odd) */
-	vaeskeygenassist	xmm2, xmm0, 0
-	vpshufd	xmm2, xmm2, 0xAA
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpxor	xmm1, xmm1, xmm2
-	vmovdqa	xmmword ptr[rsp + 48], xmm1    /* rk3 */
-
-	/* Round key 4 (even): RCON=0x02 */
-	vaeskeygenassist	xmm2, xmm1, 0x02
-	vpshufd	xmm2, xmm2, 0xFF
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpxor	xmm0, xmm0, xmm2
-	vmovdqa	xmmword ptr[rsp + 64], xmm0    /* rk4 */
-
-	/* Round key 5 (odd) */
-	vaeskeygenassist	xmm2, xmm0, 0
-	vpshufd	xmm2, xmm2, 0xAA
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpxor	xmm1, xmm1, xmm2
-	vmovdqa	xmmword ptr[rsp + 80], xmm1    /* rk5 */
-
-	/* Round key 6 (even): RCON=0x04 */
-	vaeskeygenassist	xmm2, xmm1, 0x04
-	vpshufd	xmm2, xmm2, 0xFF
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpxor	xmm0, xmm0, xmm2
-	vmovdqa	xmmword ptr[rsp + 96], xmm0    /* rk6 */
-
-	/* Round key 7 (odd) */
-	vaeskeygenassist	xmm2, xmm0, 0
-	vpshufd	xmm2, xmm2, 0xAA
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpxor	xmm1, xmm1, xmm2
-	vmovdqa	xmmword ptr[rsp + 112], xmm1   /* rk7 */
-
-	/* Round key 8 (even): RCON=0x08 */
-	vaeskeygenassist	xmm2, xmm1, 0x08
-	vpshufd	xmm2, xmm2, 0xFF
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpxor	xmm0, xmm0, xmm2
-	vmovdqa	xmmword ptr[rsp + 128], xmm0   /* rk8 */
-
-	/* Round key 9 (odd) */
-	vaeskeygenassist	xmm2, xmm0, 0
-	vpshufd	xmm2, xmm2, 0xAA
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpxor	xmm1, xmm1, xmm2
-	vmovdqa	xmmword ptr[rsp + 144], xmm1   /* rk9 */
-
-	/* Round key 10 (even): RCON=0x10 */
-	vaeskeygenassist	xmm2, xmm1, 0x10
-	vpshufd	xmm2, xmm2, 0xFF
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpxor	xmm0, xmm0, xmm2
-	vmovdqa	xmmword ptr[rsp + 160], xmm0   /* rk10 */
-
-	/* Round key 11 (odd) */
-	vaeskeygenassist	xmm2, xmm0, 0
-	vpshufd	xmm2, xmm2, 0xAA
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpxor	xmm1, xmm1, xmm2
-	vmovdqa	xmmword ptr[rsp + 176], xmm1   /* rk11 */
-
-	/* Round key 12 (even): RCON=0x20 */
-	vaeskeygenassist	xmm2, xmm1, 0x20
-	vpshufd	xmm2, xmm2, 0xFF
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpxor	xmm0, xmm0, xmm2
-	vmovdqa	xmmword ptr[rsp + 192], xmm0   /* rk12 */
-
-	/* Round key 13 (odd) */
-	vaeskeygenassist	xmm2, xmm0, 0
-	vpshufd	xmm2, xmm2, 0xAA
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpslldq	xmm3, xmm1, 4
-	vpxor	xmm1, xmm1, xmm3
-	vpxor	xmm1, xmm1, xmm2
-	vmovdqa	xmmword ptr[rsp + 208], xmm1   /* rk13 */
-
-	/* Round key 14 (even): RCON=0x40 */
-	vaeskeygenassist	xmm2, xmm1, 0x40
-	vpshufd	xmm2, xmm2, 0xFF
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpslldq	xmm3, xmm0, 4
-	vpxor	xmm0, xmm0, xmm3
-	vpxor	xmm0, xmm0, xmm2
-	vmovdqa	xmmword ptr[rsp + 224], xmm0   /* rk14 */
-
-	/* ═══ Encrypt: AES-256 14 rounds ═══ */
-	vmovdqu	xmm4, xmmword ptr[rcx]         /* Load counter block */
-	vpxor	xmm4, xmm4, xmmword ptr[rsp + 0]    /* AddRoundKey(rk0) */
-	vaesenc	xmm4, xmm4, xmmword ptr[rsp + 16]   /* Round 1 */
-	vaesenc	xmm4, xmm4, xmmword ptr[rsp + 32]   /* Round 2 */
-	vaesenc	xmm4, xmm4, xmmword ptr[rsp + 48]   /* Round 3 */
-	vaesenc	xmm4, xmm4, xmmword ptr[rsp + 64]   /* Round 4 */
-	vaesenc	xmm4, xmm4, xmmword ptr[rsp + 80]   /* Round 5 */
-	vaesenc	xmm4, xmm4, xmmword ptr[rsp + 96]   /* Round 6 */
-	vaesenc	xmm4, xmm4, xmmword ptr[rsp + 112]  /* Round 7 */
-	vaesenc	xmm4, xmm4, xmmword ptr[rsp + 128]  /* Round 8 */
-	vaesenc	xmm4, xmm4, xmmword ptr[rsp + 144]  /* Round 9 */
-	vaesenc	xmm4, xmm4, xmmword ptr[rsp + 160]  /* Round 10 */
-	vaesenc	xmm4, xmm4, xmmword ptr[rsp + 176]  /* Round 11 */
-	vaesenc	xmm4, xmm4, xmmword ptr[rsp + 192]  /* Round 12 */
-	vaesenc	xmm4, xmm4, xmmword ptr[rsp + 208]  /* Round 13 */
-	vaesenclast	xmm4, xmm4, xmmword ptr[rsp + 224] /* Round 14 (final) */
-
-	/* XOR keystream with plaintext */
-	vmovdqu	xmm5, xmmword ptr[rsi]         /* Load plaintext block */
-	vpxor	xmm4, xmm4, xmm5
-	vmovdqu	xmmword ptr[rdi], xmm4         /* Store result */
-
-	/* Wipe round keys from stack */
-	vpxor	xmm0, xmm0, xmm0
-	vmovdqa	xmmword ptr[rsp + 0], xmm0
-	vmovdqa	xmmword ptr[rsp + 16], xmm0
-	vmovdqa	xmmword ptr[rsp + 32], xmm0
-	vmovdqa	xmmword ptr[rsp + 48], xmm0
-	vmovdqa	xmmword ptr[rsp + 64], xmm0
-	vmovdqa	xmmword ptr[rsp + 80], xmm0
-	vmovdqa	xmmword ptr[rsp + 96], xmm0
-	vmovdqa	xmmword ptr[rsp + 112], xmm0
-	vmovdqa	xmmword ptr[rsp + 128], xmm0
-	vmovdqa	xmmword ptr[rsp + 144], xmm0
-	vmovdqa	xmmword ptr[rsp + 160], xmm0
-	vmovdqa	xmmword ptr[rsp + 176], xmm0
-	vmovdqa	xmmword ptr[rsp + 192], xmm0
-	vmovdqa	xmmword ptr[rsp + 208], xmm0
-	vmovdqa	xmmword ptr[rsp + 224], xmm0
-
-	mov 	rsp, r10
+	movq	%rsp, %r10
+	leaq	-240(%rsp), %rsp
+	andq	$-16, %rsp
+	vmovdqu	(%rdx), %xmm0
+	vmovdqu	16(%rdx), %xmm1
+	vmovdqu	%xmm0, (%rsp)
+	vmovdqu	%xmm1, 16(%rsp)
+	vaeskeygenassist	$1, %xmm1, %xmm2
+	vpshufd	$255, %xmm2, %xmm2
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpxor	%xmm2, %xmm0, %xmm0
+	vmovdqu	%xmm0, 32(%rsp)
+	vaeskeygenassist	$0, %xmm0, %xmm2
+	vpshufd	$170, %xmm2, %xmm2
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpxor	%xmm2, %xmm1, %xmm1
+	vmovdqu	%xmm1, 48(%rsp)
+	vaeskeygenassist	$2, %xmm1, %xmm2
+	vpshufd	$255, %xmm2, %xmm2
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpxor	%xmm2, %xmm0, %xmm0
+	vmovdqu	%xmm0, 64(%rsp)
+	vaeskeygenassist	$0, %xmm0, %xmm2
+	vpshufd	$170, %xmm2, %xmm2
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpxor	%xmm2, %xmm1, %xmm1
+	vmovdqu	%xmm1, 80(%rsp)
+	vaeskeygenassist	$4, %xmm1, %xmm2
+	vpshufd	$255, %xmm2, %xmm2
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpxor	%xmm2, %xmm0, %xmm0
+	vmovdqu	%xmm0, 96(%rsp)
+	vaeskeygenassist	$0, %xmm0, %xmm2
+	vpshufd	$170, %xmm2, %xmm2
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpxor	%xmm2, %xmm1, %xmm1
+	vmovdqu	%xmm1, 112(%rsp)
+	vaeskeygenassist	$8, %xmm1, %xmm2
+	vpshufd	$255, %xmm2, %xmm2
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpxor	%xmm2, %xmm0, %xmm0
+	vmovdqu	%xmm0, 128(%rsp)
+	vaeskeygenassist	$0, %xmm0, %xmm2
+	vpshufd	$170, %xmm2, %xmm2
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpxor	%xmm2, %xmm1, %xmm1
+	vmovdqu	%xmm1, 144(%rsp)
+	vaeskeygenassist	$16, %xmm1, %xmm2
+	vpshufd	$255, %xmm2, %xmm2
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpxor	%xmm2, %xmm0, %xmm0
+	vmovdqu	%xmm0, 160(%rsp)
+	vaeskeygenassist	$0, %xmm0, %xmm2
+	vpshufd	$170, %xmm2, %xmm2
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpxor	%xmm2, %xmm1, %xmm1
+	vmovdqu	%xmm1, 176(%rsp)
+	vaeskeygenassist	$32, %xmm1, %xmm2
+	vpshufd	$255, %xmm2, %xmm2
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpxor	%xmm2, %xmm0, %xmm0
+	vmovdqu	%xmm0, 192(%rsp)
+	vaeskeygenassist	$0, %xmm0, %xmm2
+	vpshufd	$170, %xmm2, %xmm2
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpslldq	$4, %xmm1, %xmm3
+	vpxor	%xmm3, %xmm1, %xmm1
+	vpxor	%xmm2, %xmm1, %xmm1
+	vmovdqu	%xmm1, 208(%rsp)
+	vaeskeygenassist	$64, %xmm1, %xmm2
+	vpshufd	$255, %xmm2, %xmm2
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpslldq	$4, %xmm0, %xmm3
+	vpxor	%xmm3, %xmm0, %xmm0
+	vpxor	%xmm2, %xmm0, %xmm0
+	vmovdqu	%xmm0, 224(%rsp)
+	vmovdqu	(%rcx), %xmm0
+	vpxor	(%rsp), %xmm0, %xmm0
+	vaesenc	16(%rsp), %xmm0, %xmm0
+	vaesenc	32(%rsp), %xmm0, %xmm0
+	vaesenc	48(%rsp), %xmm0, %xmm0
+	vaesenc	64(%rsp), %xmm0, %xmm0
+	vaesenc	80(%rsp), %xmm0, %xmm0
+	vaesenc	96(%rsp), %xmm0, %xmm0
+	vaesenc	112(%rsp), %xmm0, %xmm0
+	vaesenc	128(%rsp), %xmm0, %xmm0
+	vaesenc	144(%rsp), %xmm0, %xmm0
+	vaesenc	160(%rsp), %xmm0, %xmm0
+	vaesenc	176(%rsp), %xmm0, %xmm0
+	vaesenc	192(%rsp), %xmm0, %xmm0
+	vaesenc	208(%rsp), %xmm0, %xmm0
+	vaesenclast	224(%rsp), %xmm0, %xmm0
+	vmovdqu	(%rsi), %xmm1
+	vpxor	%xmm1, %xmm0, %xmm0
+	vmovdqu	%xmm0, (%rdi)
+	movq	%r10, %rsp
+	movq	%rsp, %rsi
+	vpxor	%xmm2, %xmm2, %xmm2
+	andq	$-16, %rsp
+	subq	$240, %rsp
+	vmovdqu	%xmm2, 224(%rsp)
+	vmovdqu	%xmm2, 208(%rsp)
+	vmovdqu	%xmm2, 192(%rsp)
+	vmovdqu	%xmm2, 176(%rsp)
+	vmovdqu	%xmm2, 160(%rsp)
+	vmovdqu	%xmm2, 144(%rsp)
+	vmovdqu	%xmm2, 128(%rsp)
+	vmovdqu	%xmm2, 112(%rsp)
+	vmovdqu	%xmm2, 96(%rsp)
+	vmovdqu	%xmm2, 80(%rsp)
+	vmovdqu	%xmm2, 64(%rsp)
+	vmovdqu	%xmm2, 48(%rsp)
+	vmovdqu	%xmm2, 32(%rsp)
+	vmovdqu	%xmm2, 16(%rsp)
+	vmovdqu	%xmm2, (%rsp)
+	movq	%rsi, %rsp
 	ret
-	.size	zupt_aes256_blk, . - zupt_aes256_blk
-
-	.section .note.GNU-stack,"",@progbits
+	.ident	"Jasmin Compiler 2026.09.0"
+	.section	".note.GNU-stack", "", %progbits

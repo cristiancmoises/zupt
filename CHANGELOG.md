@@ -1,18 +1,1078 @@
 # ZUPT Changelog
 
-## [5.2.10] — 2026-10-01 — Codec compatibility and terminal prompt fixes
+## [5.2.10] — Unreleased — Codec compatibility and terminal fixes
 
-The original unpublished 5.2.10 tag preceded the terminal corrections below.
-The maintainer authorized correcting that tag before the first package release;
-the previous tag object and commits are retained as development evidence.
-Validate the signed release commit rather than reusing old candidate packages.
+Version 5.2.10 is being validated and is not an official release. Its earlier
+delivery was withdrawn; previous packages do not validate the corrected source.
+The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Validate the corrected source with strict GCC/Clang full suites and in-tree
+  SDK targets, plus a separate GCC `WITH_JASMIN=1` application profile. Retain
+  explicit skips and earlier failed attempts; final-package and release gates
+  remain separate. Document reproducible checks in English and Portuguese.
+- Check the remaining output length before forming wide-copy pointers in five
+  ANS sequence-copy guards, preserving APIs and frame grammar. Retain three
+  malformed metadata fixtures and add five exact-output v1/v2 sequence cases.
+  The production-scalar Frama-C profile passes with zero alarms and 63 valid
+  preconditions; six exact fixture witnesses and 82 synthetic controls reject
+  incomplete or pruned results. Restoring the four old match guards produces
+  four alarms and is rejected. Document the finite scope and reproduction in
+  EN/PT-BR; runtime and final-package acceptance remain separate requirements.
+- Rerun the real GCC 14.3.0 guest sanitizer profile on the frozen 294-file
+  source after separately qualifying the replacement kernel. All three real
+  sanitizer negatives, instrumented CLI round trips/rejections, ordinary
+  in-tree SDK/license/export checks and three ML-KEM/OpenSSL comparisons pass.
+  Require all 25 completion records and source/tool/process/collector checks.
+  Document the bounded scope in EN/PT-BR: no new full suite, direct ANS-refill
+  ASan campaign, Qt execution, whole-program proof or final-package approval.
+- Requalify the isolation-only VM slice with a separately pinned installed
+  kernel after the previous kernel disappeared. Seven generic and nine native
+  controls, an exact 17-record completion protocol and 13 parser cases pass.
+  Preserve the initial namespace failure and linker-wrapper warning. Restore
+  the original process-limit placement and real-binutils route without raising
+  caps; controller bytes match across linker routes. Record the environment
+  scope in EN/PT-BR. No Zupt payload, guest compiler or sanitizer is executed
+  by that isolation-only profile; final-package acceptance is separate.
+- Extend the existing ANS allocation test with 79,560 direct refill states,
+  checking all reader fields, unchanged source bytes and repeated-fill
+  idempotence against a byte-loop oracle. Exact-sized nonempty allocations
+  exercise tail and bulk boundaries without extra readable bytes. GCC and
+  Clang ordinary/non-recovering UBSan profiles pass; two private mutations
+  pass the old test but fail the new checks at counts 56/57. Strict `check`
+  and CLI smoke pass with 11/10 skips. A private finite Frama-C extension
+  validates 33 preconditions; maintained reader WP retains 30 exact goals.
+  Document commands and limits in EN/PT-BR. No implementation/API/format
+  change; broader formal obligations and final packages remain open, and a
+  missing pinned VM kernel blocks fresh ASan/LSan qualification.
+- Reject uppercase and mixed-case `warning:`/`error:` diagnostics in the AES
+  formal-result gate. A new regression reproduced a false approval before the
+  one-line predicate correction; retain all 28 earlier supervisor controls and
+  add four capitalization cases. All 32 now pass, as does the unchanged real
+  Frama-C fixed-vector AES profile. Strict GCC 14.3.0 and Clang 22.1.8 `check`
+  and functional CLI smoke pass with 11 and ten explicit skips. Document the
+  commands and limited scope in EN/PT-BR; cryptography and format are unchanged,
+  and final-package and broader formal acceptance remain separate conditions.
+- Revalidate the current 294-file source with `WITH_JASMIN=1`: strict GCC
+  `check`, 16 cryptographic vectors, CLI functional smoke and 14 threaded checks
+  pass, retaining 11 explicit skips. F-06 reaches Jasmin AES-NI with 2,000 honest round trips
+  and no accepted HMAC tampers. The same CLI passes 12 portable-GUI helper
+  test methods with subcases, including genuine level-9 `.zupt`, exact
+  17-file payload/checksum/extraction and output-preservation controls.
+  Record commands and limits in EN/PT-BR. This is not Qt execution, assembly
+  sanitizer coverage, full optional-profile or final-package acceptance;
+  leave the release unpublished pending the remaining production gates.
+- Repeat the four maintained Frama-C 29.0 gates on the current 294-file source
+  with recognized Z3 4.12.2 and real solver controls. Metadata bounds, reader
+  init/take, logarithm ranges and fixed-vector AES pass their unchanged
+  conditional checks. Separate ordinary and qualified-UBSan Jasmin 2026.09.0
+  runs pass five-source analysis, generated/runtime instruction and wipe
+  checks, 1,026 AES blocks and 1,539 AES4 cases each. Preserve full emitted
+  output, source/tool identities, independent statuses and scope limits.
+  Document reproduction in EN/PT-BR; do not equate selected checks with
+  caller proofs, complete optional-profile runtime or final-package approval.
+- Reject failed producers in the in-tree SDK exported-function check, including
+  complete output followed by an error. Use sequential checked stages and
+  accept grep's status 1 only for the expected no-match condition. Six false
+  approvals were reproduced before the fix; 25 retained recipe controls and
+  11 actual-target supervision cases now pass. Fresh strict Clang 22.1.8
+  `test-all`, license, real internal SDK and symbol targets pass in the bounded
+  VM with 14 explicit skips. Ordinary strict GCC `check` and CLI tests pass
+  with 11 skips. Document reproduction and the finite maintained formal gates
+  in EN/PT-BR; retain historical diagnostics and broader review obligations.
+  No SDK implementation, ABI, format, new benchmark or production claim.
+- Reject failed compression, extraction and complete file enumeration in the
+  exact-size test's BCJ round trips, retaining stage diagnostics and requiring
+  exactly one byte-matching output. Five false approvals fail before the fix;
+  all ten existing compiler controls and nine BCJ cases pass afterward. Fresh
+  strict GCC 14.3.0 `test-all`, license, internal SDK and symbol checks pass
+  in the bounded VM with 15 explicit skips, including actual ASan exact-size,
+  BCJ, timing-regression and ML-KEM/OpenSSL checks. Ordinary `check` and the
+  CLI functional suite also pass with 11 skips. Document commands and scope
+  in EN/PT-BR. No runtime, API, format, new performance or production claim;
+  broader formal, optional-provider, platform and final-package gates remain.
+- Add `test-worker-allocation` to `check`. Five real-CLI STORE cases cover
+  normal operation and two worker allocation failures with absent/existing
+  destinations. Test-only link wrappers require exact allocation events,
+  successful worker starts/completions and one deliberate fault. Verify exact
+  exit status, prior output preservation and temporary-file cleanup. Strict
+  GCC ordinary/UBSan profiles and expanded ordinary `check` plus CLI tests
+  pass; 11 existing skips remain. Document reproduction in EN/PT-BR. No
+  runtime, format or API change, default-thread OOM diagnosis, leak proof or
+  production approval; Clang qualification remains unavailable here.
+- Check slack-test fixture cleanup with nonrecursive `rmdir`, preserving its
+  status instead of treating failed `find` output as an empty directory.
+  Retain three controls for empty, hidden-file and tool-error cases. Require
+  explicit serial `-t 1` at L1/5/9 and retain four-thread L1/9; the synthetic
+  CLI checks both compression and extraction arguments. Six supervisor cases
+  fail before the routing fix; all ten and the three cleanup controls pass
+  afterward. Fresh strict GCC `check`, real CLI tests and 54 source-audit
+  cases pass, retaining 11 skips. Preserve the intervening automatic-24-thread
+  L5 out-of-memory failure under the unchanged 1-GiB address-space cap; this
+  test-routing correction does not diagnose that allocation or change codec,
+  API, format, resource limits or production status.
+- Propagate extracted-byte count pipeline failures explicitly, including when
+  a failed `wc` has already emitted a plausible numeric count. Four real-tool
+  forwarding/failure controls bring the source-audit suite to 54 cases; two
+  reproduced false approvals before the fix, while empty-error rejection
+  remains intact. Strict GCC `check` and the real CLI functional suite pass
+  with the same 11 explicit skips. Preserve existing archive budgets, codec
+  behavior and package/production acceptance.
+- Require successful CLI compression and extraction before accepting the
+  decode-slack round trips. Use fresh per-level/per-route archives, retain
+  failed-command diagnostics and clean fixtures on exit. Ten maintained
+  supervisor controls reproduce six earlier false approvals and preserve
+  corruption/missing-output rejection. `check` runs both these synthetic
+  controls and the unchanged real 10-MiB workload; strict GCC and the CLI
+  functional suite pass with the same 11 explicit skips. No runtime codec,
+  format, cryptography or production-status change.
+- Reject incomplete source-audit enumerations instead of accepting a failed
+  `find` or Git listing as end-of-input. Check fresh NUL-delimited manifests
+  before scanning trees, accounting extracted files or reading the Git index.
+  Ten new fixture/forwarding/failure controls bring the maintained suite to
+  50 cases; six negative cases reproduced false approvals before the fix.
+  Strict GCC `check` and the real CLI functional suite pass with 11 explicit
+  skips. Keep codec behavior and package/production acceptance unchanged.
+- Correct the current EN/PT-BR README metadata-validation summaries to match
+  the maintained three-fixture, 20-precondition gate; preserve dated results.
+  Record the fresh scoped Frama-C/Jasmin revalidation and its limits in both
+  user guides.
+- Diagnose the two exhausted-refill Typed warnings with a private explicit
+  byte-load experiment. The exhausted-reader profile passes 63 exact WP roots
+  without analysis warnings or a libc overlay. A separate live-bulk contract
+  passes all 64 original roots using bounded shift and exhaustive range tactics;
+  all three range children close, and only the deliberately false postcondition
+  remains unproved in the matched negative. This is field/frame/advance coverage
+  under initialized, readable, separated-span assumptions, not accumulator
+  functional equality or general refill proof. Eight GCC/Clang ordinary/UBSan
+  ANS runs pass; a private in-process comparison of seven accepted synthetic
+  datasets finds no consistent timing benefit. Keep the alternative outside
+  the product. Original codec bytes, two Typed warnings and production status
+  remain unchanged; consolidate the scope and limits in both languages.
+- Add 288 mixed-lane ANS4 calls to the existing allocation regression, using
+  an independently derived literal oracle for a synthetic accepted input.
+  Cover lane lengths 0/1/8/9, output lengths 1..36, four alignments, exact
+  allocation ends, consumed length, allocation counts and workspace reuse.
+  Two private decoder mutations pass the old target and fail the new checks.
+  Strict GCC 14.3.0/Clang 22.1.8 ordinary and UBSan runs pass; fresh GCC
+  ASan/LSan/UBSan scalar and AVX2 VM builds pass. Complete strict VM `test-all`
+  and separate license/in-tree SDK/symbol checks also pass with GCC and Clang,
+  retaining 15/14 explicit skips. The unavailable old Clang profile remains
+  blocked; the separately pinned installed provider has its own validation.
+  Optional SDK/PQBOX/Jasmin are disabled in these complete suites. No runtime,
+  API or format changes, new performance claims or release approval; formal
+  warnings and final-package gates remain unresolved.
+- Isolate the Frama-C 29 libc-contract diagnostic using a private header copy
+  that adds only explicit `memcpy` termination and exit clauses. The unchanged
+  positive analysis retains all 62 goal identities and discharges them; a
+  matched false-postcondition control leaves only its extra goal unproved.
+  The missing-spec warning disappears, but two Typed pointer-cast warnings
+  still block strict admission. Retain the three-warning stock-header result.
+  These explicit external-library assumptions do not prove libc or general
+  refill; no model, warning policy, codec code or release-status change.
+- Run the expanded actual `test-ans-allocation` target under GCC 14.3.0
+  ASan/LSan/UBSan in a disposable 2-CPU/2-GiB VM. Fresh scalar and AVX2 builds
+  each pass all 9,360 preservation states and the retained allocation, context,
+  zero-extension and logarithm checks. All 23 ordered completion records and
+  process/collector/integrity/protocol statuses pass. Three actual sanitizer
+  fault controls are rejected; product stages have no OOM/PID-limit events or
+  surviving descendants. Keep resource limits unchanged and record separate
+  feature-macro checks and compilation flags. The new private runner passes
+  22 regression methods after reproducing unsupported-profile rejection.
+  This is focused GCC memory-safety testing, not a new full-suite, Clang ASan,
+  generic refill proof, final-package or production approval.
+- Add 9,360 exhausted-reader preservation states to `test-ans-allocation`,
+  covering six accumulator patterns, all bit counts 0..64, eight positions
+  including `SIZE_MAX`, and NULL, local-byte and reader-alias source pointers.
+  Strict GCC 14.3.0 and Clang 22.1.8 pass, also with non-recovering UBSan at
+  `-O2`. Two private state-corruption mutations pass the old test but fail
+  the new check. Repeat the unchanged reader WP gate (30 exact JSON goals).
+  A private exhausted-refill contract and loop annotations yield 62/62 goals,
+  but three `memcpy`/Typed warnings still block strict admission; a matched
+  false-postcondition control leaves precisely its extra goal unproved.
+  Preserve the initial 40/54 diagnostic and overflow-mutation result. These
+  annotations are not shipped as proved contracts. No executable codec,
+  API, format or release-status change. The subsequent GCC sanitizer VM run
+  is recorded above; the formal warnings remain unresolved.
+- Repeat the actual current-source `test-all` and in-tree SDK checks with
+  strict Clang 22.1.8 in the bounded VM. All 24 required records and independent
+  statuses pass, including timing regression, 81 ASan exact-size cases and
+  15 cases in the SDK round-trip suite. The first passing run retains 15 skips,
+  including unavailable guest OpenSSL; its result is not interop coverage.
+  Add the two missing, already-pinned OpenSSL image entries and repeat the
+  actual suite: all three real interoperability comparisons pass, with 14
+  remaining skips. Three selection regression cases guard that inclusion.
+  Preserve the initial pre-boot image-size failure. Use lossless BCJ/XZ transport for the
+  private image, retaining every source/tool input and the 128-MiB file cap;
+  six real transport tests and 12 wrapper controls pass. No product code,
+  format, API or release-status change. Clarify that historical broad WP
+  totals are not a reconciled inventory of current unresolved obligations.
+- Validate the actual Jasmin-enabled CLI with strict GCC 14.3.0 `check`,
+  functional smoke and 14/14 threaded checks, retaining 11 explicit skips.
+  F-06 reaches the AES-NI path with 2,000 honest round trips and no accepted
+  one-bit HMAC tampers. Separately, the frozen 291-file source passes real
+  `test-all` and in-tree SDK/license/symbol checks in the bounded 2-CPU/2-GiB
+  VM, retaining 15 skips. Timing controls, 81 ASan exact-size cases and three
+  ML-KEM/OpenSSL cases pass. Preserve the earlier historical AVX2 byte-identity
+  failure before the suite: four allocation guards intentionally changed the
+  decoder. Qualify the new explicit current-source supervisor with 12 wrapper
+  controls without altering product tests, thresholds or VM caps. Document
+  reproduction and distinguish the older fuzz failure from later campaigns
+  in both languages. No product code, format, ABI or license changes; broader
+  formal, platform and final-package release gates remain pending.
+- Repeat the four unchanged Frama-C gates with the retained official Z3 4.12.2
+  binary, pinned loader/libraries and matching historical hashes. Why3 1.7.2
+  recognizes the actual version, and real SMT contradiction/satisfiable controls
+  pass before analysis. Reader WP again validates 30 exact JSON goals, now with
+  Z3 4.12.2 identities. A fresh qualified Jasmin UBSan fixture run also passes.
+  Keep the earlier unrecognized-version result and controller regression evidence
+  separate. No download, tool rebuild, product dependency or analysis criterion
+  changes; retained-byte identity is not upstream signature verification. These
+  selected results do not close the broader formal or final-package gates.
+  A fresh strict GCC 14.3.0 `check` and real CLI functional smoke suite also
+  pass with optional SDK/PQBOX/Jasmin and Cargo disabled, retaining 11 skips.
+- Restore the private Frama-C 29.0/Why3 1.7.2 tool closure through normal
+  authenticated Guix substitution and grafting, without changing user profiles
+  or trust configuration. The four unchanged Frama-C gates pass with GCC
+  14.3.0: ANS metadata bounds, logarithm ranges, reader WP and fixed-vector AES.
+  Reader WP validates 30 exact JSON goals (34/34 console results). Why3 warns
+  that Z3 4.13.0 is unrecognized; the existing reader gate accepts that identity,
+  but this is not recognized-solver qualification. A fresh qualified Jasmin
+  UBSan fixture repeat passes five selected sources, 1,026 AES blocks and
+  1,539 AES4 cases after rejecting a real overflow control. UBSan instruments
+  C fixtures, not assembly. Preserve the restoration timeout and three initial
+  status-125 runs caused by a missing private Why3 config; create that config
+  before every Frama-C invocation without changing public tests or criteria.
+  These conditional checks do not validate the complete program or final
+  packages, and do not authorize a production release.
+- Compare all 1,000 files in T6 instead of sampling five. Require compression
+  and extraction to exit zero, retain their diagnostics, and compare the
+  expected extracted tree recursively by relative path and content. Add eight
+  controls while preserving the earlier 71: clean operation, either process
+  failing after complete output, same-size corruption of unsampled file 2,
+  rename, relocation, a missing file and an extra file. The first five faults
+  reproduce false approvals; missing/extra cases already fail by count but
+  previously lose stderr. Mirror the real absolute-input archive layout in
+  the T6 fixture, and unlink the output hard link before corrupting data.
+  All 79 controls pass; a separate real-CLI run passes 14/14 threaded checks.
+  No product format, API,
+  cryptography, metadata-preservation or production-readiness claim changes.
+- Reject T14 timing approval when either compressor fails or does not leave a
+  regular, nonempty output. Capture each compressor's status before reading the
+  clock, retain stdout/stderr in per-compressor logs, and report one failure
+  with diagnostics instead of a successful timing sample. Add eleven controls
+  while retaining the earlier 60: clean operation and each phase's failure
+  before/after output, or zero status with missing, empty or directory output.
+  All ten negatives expose false approvals before the fix; all 71 controls
+  now pass. The actual CLI passes 14/14 threaded checks separately. Keep elapsed
+  times informational; these checks establish neither benchmark results,
+  archive integrity, sanitizer-runtime coverage nor production acceptance.
+- Revalidate the five current Jasmin sources with the existing hash-checked
+  2026.09.0 tools independently of the missing Frama-C profile. Ordinary
+  GCC 14.3.0 and non-recovering UBSan fixture builds pass the real source
+  gate, each with 1,026 AES blocks and 1,539 AES4 cases. Confirm actual UBSan
+  rejection before the qualified repeat; keep synthetic supervisor controls
+  separate. Compare the three executables and four APRON libraries against
+  their hash-pinned package members without installing or replacing tools.
+  No product source or analysis criterion changes. These conditional results
+  do not validate all C callers or final packages. The Frama-C reader repeat
+  at that stage failed before analysis on the missing pinned executable; that
+  attempt provided no Frama-C/Why3 result or production-release approval.
+- Stop the threaded suite before T1 if either binary `dd` producer fails or
+  its output has the wrong length. Preserve the 512,000-byte random fixture,
+  204,800-byte zero fixture and producer diagnostics. Add ten controls to the
+  existing helper, retaining its earlier 50: one normal fixture, eight producer
+  faults and a size validator that prints success before failing. The eight
+  producer faults expose false approvals in the unguarded script; the validator
+  control covers the new boundary. All nine negatives now require status 1,
+  diagnostics, cleanup and no compression, extraction or integrity commands.
+  All 60 synthetic-CLI controls pass. This is test-fixture acceptance, not
+  codec, concurrency, performance, sanitizer-runtime or production qualification.
+  Fresh strict GCC 14.3.0 `check` and actual CLI functional tests pass with
+  Cargo disabled and 11 explicit skips. A separate real-CLI threaded run
+  passes 14/14 checks; its elapsed times are not benchmark evidence. Existing
+  Guix phase/launcher controls pass with installed Guile 3.0.11 and matching
+  modules, including the patched 60-control harness. These are not native
+  package, Qt runtime, fresh formal or production-release acceptance.
+- Start the gradual Rust migration with an optional, dependency-free `no_std`
+  canonical-u64-varint core that forbids unsafe code and allocations. Keep the
+  production C11 CLI, format, crypto, ABI, recipes and release gates unchanged.
+  Add explicit `test-rust-varint` and `audit-rust-varint` developer targets;
+  neither is a dependency of the default build or distro `check`. Nine focused
+  tests and two real-C-oracle tests pass in debug and release, including
+  114,721 differential inputs per profile. Compare against the actual compiled
+  C buffer and FILE APIs, not a copied reference implementation. Formatting
+  and Clippy pass. This is not runtime migration, whole-parser validation,
+  formal proof, fuzz qualification or a production-release approval.
+  A fresh strict GCC distro `check` and actual CLI functional suite pass with
+  Cargo disabled and 11 explicit skips. Preserve earlier environment failures
+  and a private launcher failure; no test criterion or resource cap is relaxed.
+- Execute the current 284-file source in a disposable 2-CPU/2-GiB VM after
+  admission exceeds the unchanged 5-GiB host-memory floor. Guest isolation,
+  resource enforcement, descendant cleanup and all three ASan/LSan/UBSan
+  negative controls pass before product execution. The real instrumented CLI
+  passes `test-asan-run` and the installed functional smoke suite with leak
+  detection enabled. Separate, uninstrumented in-tree SDK/license/export tests
+  and three-way ML-KEM/OpenSSL interoperability also pass. The strict ordered
+  25-record transcript, process/collector statuses and source preservation
+  checks all pass. This is a bounded runtime slice, not full `test-all`, fuzz,
+  exact-size, external-SDK, GUI, native-package or production qualification.
+  Keep the earlier admission failures as historical evidence. A later formal
+  repeat stops before analysis because the pinned validation profile,
+  Frama-C 29.0 and Why3 paths are unavailable; no new formal pass is inferred.
+- Stop the threaded suite before compression if its JSON generator fails or
+  its output is not 5,000 records with sequential integer IDs, matching names
+  and finite floating-point scores. Preserve the original seeded generator
+  and retain failure diagnostics. Add nine controls to the existing helper:
+  one normal fixture and eight producer/data/validator failures, including
+  complete output followed by a nonzero exit. Failures require status 1,
+  workspace cleanup and no compression, extraction or integrity invocation.
+  The target now has 50 controls; its CLI remains synthetic, not a codec,
+  concurrency or performance test. Other fixture/status gaps remain open.
+- Create the threaded suite's workspace exclusively under `TMPDIR` with
+  `umask 077`, rather than reusing a predictable PID-based path. Stop before
+  invoking the CLI when creation fails; clean up on normal exit and handled
+  HUP/INT/TERM with nonzero interruption status. Extend the existing helper
+  with seven lifecycle controls, bringing the subtotal to 41 without changing
+  the original 34 process controls or the T1–T14 bodies. The seven controls
+  reject the old setup, including its status-zero INT result and mode-0666
+  fixture. Keep caller-controlled temporary parents trusted; SIGKILL and
+  forced supervisor termination cannot guarantee cleanup. These checks do
+  not qualify the full native threaded suite or production.
+- Reject false integrity success in T10 of the threaded suite. Preserve the CLI
+  status and combined output; require a clean sanitizer scan, the exact
+  nine-file success summary and one summary line. Reject failed scans even
+  when their output looks valid, as well as conflicting summaries after NUL.
+  Extend the existing synthetic supervisor to 34 whole-script controls, keeping
+  the 14 T9 controls. The original T10 falsely approves 18 of 33 controls;
+  a further NUL-conflict regression rejects the first fix. This corrects the
+  test's acceptance criteria, not the codec or archive format. Full native
+  threaded testing and the remaining production gates are separate.
+- Reject false success in the threaded suite's wrong-password case. Require
+  exact status 1 and the authentication diagnostic; reject sanitizer markers
+  and failures while reading either log scan. Add 14 whole-script synthetic
+  process controls to `make check`, including signals and NUL-prefixed output,
+  and exercise self-copy interpreter patching through the Guix phase tests.
+  Twelve controls expose the old false successes before the fix. These
+  controls do not exercise the codec, cryptography or concurrency; other
+  threaded command-status gaps and production gates remain open.
+- Run the existing functional smoke script on the Guix CLI output after
+  stripping and RUNPATH validation, rather than relying only on build-tree
+  tests. Preserve disabled-test and cross-build defaults. Extend the existing
+  Scheme phase tests with exact installed paths, spaces and propagated child
+  failures. A strict GCC build passes a private staged installation and the
+  real postprocessing/check phases without its build-tree executable; the
+  missing-output control is rejected. Native derivation, dependency closure,
+  GUI package and final production qualification remain pending.
+- Extend the existing ANS allocation/reader test with seven literal-state
+  steps covering zero-width reads, masked refill, short tails and EOF.
+  Preserve all previous test bodies, including the 2,312 bit-reference and
+  520 exhausted-counter cases. A private eager-refill mutation passes the
+  old suite but the new oracle rejects it after successful compilation.
+  The real core passes GCC/Clang non-recovering UBSan with `NDEBUG`; strict
+  `check` and CLI tests pass with 11/10 skips. Reuse the existing Make target
+  and document reproduction in English and Portuguese. No implementation,
+  format, API, license or production-readiness change is implied.
+- Revalidate strict Clang 22.1.8 `check` and the actual CLI functional suite
+  on current sources, with 10 explicit skips and SDK/PQBOX/Jasmin disabled.
+  Preserve an initial missing-`libgcc_s.so.1` UBSan-helper failure; correct
+  only the private compiler runtime environment and rerun without weakening
+  flags, tests or resource limits. Repeat the five selected Frama-C/Jasmin
+  gates successfully. These are bounded host checks, not complete formal,
+  current VM sanitizer, native-package or production approval.
+- Revalidate the portable frontend package with a fresh strict GCC CLI and
+  the existing 12-test suite: genuine unencrypted VaptVupt level-9 `.zupt`,
+  exact 17-file payload, checksum/extraction checks, failure controls and
+  output-preservation races. The covered-source SPDX-marker audit passes.
+  Execute the previously unavailable spec parse with installed RPM 4.20.1
+  and record its 14 declared build requirements. Preserve the actual Guix
+  macro prefix and distinguish parsing from native openSUSE builds or
+  dependency acceptance. Update English/Portuguese reproduction guidance;
+  no codec, cryptographic, API, source-mode or licensing-grant change.
+- Keep operational fallbacks in the three synchronous GUI queries without
+  hiding unexpected programming errors as missing version, capability or
+  archive metadata. Add two regression methods covering 18 expected failures
+  and nine unexpected errors; confirm the latter fail against the old code.
+  All 64 GUI methods pass with genuine PySide6 and PyQt6 in separate offscreen
+  environments; fresh strict GCC `check` and CLI tests pass with 11 skips.
+  Formatting and both preferred-provider typing profiles pass. Full Ruff
+  remains nonzero, improving from 16 to 11 findings without suppressions or
+  source-mode changes. Preserve earlier private supervisor/test-harness
+  failures and document the reproduction commands in English and Portuguese.
+  Worker cleanup, codec, format and cryptography are unchanged; no release
+  or native-package approval follows from these host results.
+- Revalidate the five existing Frama-C/Jasmin gates on current sources and run
+  the real ML-KEM/OpenSSL comparison, not just its supervisor controls. All
+  five conditional formal gates and three GCC/OpenSSL interoperability cases
+  pass. A fresh strict GCC CLI also passes the functional script, regression
+  22/0, built-in PQ 10/0 and dedup properties 14/0. Retain earlier missing-tool
+  and runtime-loader failures; correct only the private test environment.
+  Update both README tables and user guides with commands, tool versions and
+  scope limits. C, assembly, cryptography, API and format are unchanged. The
+  full detector, current VM sanitizer campaign and final packages remain
+  unqualified; these results do not approve publication.
+- Reject the PKCS#8 encrypted-private-key header in the CI credential policy.
+  The new synthetic fixture first reproduces incorrect acceptance; all six
+  regression methods pass after the one-alternative correction, covering nine
+  credential patterns and preserving acceptance of public-key, RSA public-key
+  and certificate headers. The actual gate passes on a private selected-source
+  index. Record the separate full-detector startup failure without changing
+  limits or treating version/input controls as a scan. Update both user guides
+  and README evidence tables. No codec, API, archive or cryptographic change;
+  neither header-policy success nor inventory classification approves release.
+- Extend the exact-sized ANS4 metadata regression with cumulative lane lengths,
+  unchanged poisoned output and unchanged `SIZE_MAX` consumption on rejection.
+  Pin the genuine three-fixture Frama-C result: 138/358 reached statements,
+  zero alarms and 20 valid preconditions. Retain the previous analysis settings
+  and add rejection of stale two-fixture reports; all 57 supervisor controls
+  pass. GCC/Clang scalar UBSan and private allocation/mutation controls pass
+  through existing Makefile recipes. Direct strict Clang retains 16 existing
+  cast-alignment diagnostics; no new suppression is added. Fresh strict GCC
+  `check` and CLI tests pass with 11 skips. Decoder, format, API and cryptography
+  are unchanged; these results do not qualify all decoder inputs or the release.
+- Reject operational errors in the CI credential gate instead of reporting a
+  clean scan. Accept only Git's no-match status with empty findings; preserve
+  error diagnostics and paths-only reporting. Execute the actual workflow
+  block in six regression methods with synthetic Git repositories, including
+  an outside-index sentinel for inherited Git overrides. Include the test in
+  `check` and source-policy CI. Fresh strict GCC/CLI checks pass with 11
+  explicit skips; new-test Ruff/format and both Pyright profiles pass. This
+  does not qualify the separate full credential scanner, hosted CI, native
+  packages or the release. Archive format, API and cryptography are unchanged.
+- Observe QObject destruction with retained, decorated GUI-thread receivers in
+  the existing lifetime regression. Genuine PyQt6 exposed a missing anonymous
+  callback despite measured native deletion; retain the worker wrapper so
+  PySide garbage collection cannot hide missing explicit cleanup. All 62
+  methods pass with both providers, and removing the cleanup connection in
+  private copies fails the regression. Production GUI/C code is unchanged.
+  Both final typing profiles pass; imports/format pass, full Ruff retains 16
+  findings. Host offscreen results do not qualify native packages, whole-suite
+  sanitizers or the release.
+- Organize imports and format the GUI and workflow tests with Ruff 0.16.10.
+  Import and formatting checks pass; full lint falls from 20 to 16 diagnostics
+  with all other findings and effective settings unchanged. A constrained AST,
+  comment and header comparison passes, retaining all 62 ordered test methods;
+  this comparison alone does not prove import initialization effects. Fresh
+  strict GCC/CLI checks, all 18 host stages and both genuine PySide6 typing
+  profiles pass, retaining 11 ordinary CLI skips. Preserve exception policies,
+  resource limits, archive format and cryptography. This is mechanical
+  cleanup, not full-lint, native-package, sanitizer or release approval.
+- Remove unused `Qt` and `QPixmap` imports from both GUI providers and mark the
+  Info action's ignored return status as `_code`. Preserve provider selection,
+  subprocess calls, output/error handling and every test byte. The three
+  focused Ruff findings are resolved; full lint falls from 23 to 20 with the
+  same effective configuration and remaining diagnostics. Both formatting
+  checks still failed at that earlier snapshot. Fresh strict GCC/CLI checks, all 62 workflow methods,
+  18 host stages and both genuine PySide6 typing profiles pass with the same
+  limits and 11 ordinary CLI skips. This is a quality cleanup, not a security
+  fix, PyQt6 runtime validation, native-package or release approval.
+- Add six POSIX real-process tests for the GUI's CLI probes: executable checks,
+  successful version banners, help fallback/cache, archive-info streams and
+  command status/output/arguments. Preserve the previous 56 methods and all
+  production GUI bytes. Fresh strict GCC checks, CLI functional tests, all 62
+  workflow methods and 18 host stages pass with 11 ordinary skips. Five private
+  mutations are rejected in the expected probe tests. Both genuine PySide6
+  typing profiles report zero errors after clarifying the test helper's stream
+  arguments; the initial type failure remains recorded. Full Ruff still has
+  23 diagnostics and both files fail formatting. This does not qualify native
+  packages, whole-suite sanitizers or the release.
+- Make subprocess exit handling explicit in five GUI probes/helpers and the
+  workflow supervisor with `check=False`, preserving the existing Python
+  default, return codes, output, timeouts and exceptions. Resolve six PLW1510
+  diagnostics without changing rules; 23 other Ruff diagnostics and both
+  formatting failures remain. Fresh strict GCC checks, CLI functional tests,
+  all 56 Qt tests and 17 host stages pass with 11 ordinary skips. Both actual
+  preferred-provider Pyright profiles return zero errors. This is not a
+  functional security fix, native-package validation or release approval.
+- Repeat all five selected Frama-C/Jasmin gates after the Guix policy fix,
+  using a fresh snapshot of the same 30 inputs and verified tool hashes.
+  All gates and source-integrity checks pass with unchanged analysis flags
+  and criteria. These finite, conditional results do not qualify the whole
+  application, native packages or a production release.
+- Install security and distribution policies with the Guix CLI and GUI user
+  guides. Extend the existing real-phase tests to compare four CLI and ten GUI
+  files; reproduce the missing CLI distribution policy and missing GUI security
+  policy before fixing the recipe. Fresh strict GCC checks, CLI functional
+  tests, all 56 GUI tests and 17 host stages pass with 11 ordinary skips.
+  Keep the withdrawn source origin unchanged until release gates pass.
+  A freshly pinned sanitizer VM attempt remains blocked at its unchanged
+  5-GiB preflight floor, before image or product execution. Separate private
+  wrapper controls now reject incomplete guest transcripts; they do not qualify
+  sanitizers, native packages or the release.
+- Preserve the GUI controller's inherited `QObject.thread()` method. Store its
+  worker thread privately; retain ownership, signal connections and join order.
+  A real Qt affinity regression reproduces the earlier `TypeError`; all 56 GUI
+  tests, strict GCC checks, CLI functional tests and 17 host stages then pass,
+  with 11 ordinary skips. Select genuine PySide6 types for static analysis while
+  keeping the runtime PyQt6 fallback unchanged. Both Pyright profiles report
+  zero errors after this correction and an explicit lifetime-fixture binding.
+  Verify the existing diagnostic and exit status when neither Qt binding exists.
+  Ruff still reports 29 diagnostics and formatting failures. This does not
+  qualify PyQt6 runtime, native packages, real desktops or the release.
+- Decode GUI CLI output incrementally so pipe boundaries do not corrupt UTF-8.
+  Reset decoder state for each run and flush incomplete sequences with the
+  existing replacement policy at EOF. Add five test methods covering 31
+  stream/cleanup scenarios; reproduce 22 assertion failures before the fix.
+  All 55 actual Qt tests, strict GCC checks, CLI functional tests and 17 host
+  recipe stages pass afterward, retaining 11 ordinary skips. Preserve progress,
+  cancellation and child cleanup; archive format and cryptography are unchanged.
+- Complete bounded Python type analysis after diagnosing allocator reservations.
+  A paired isolated experiment retains the 1-GiB cap and all analysis rules;
+  one glibc arena allows the V8 interpreter to finish. That earlier Pyright
+  snapshot reports 15 errors in configured basic mode and 16 with the documented
+  default command, including optional Qt imports/base classes; Ruff retains
+  29 diagnostics and formatting failures. Document reproduction and coverage
+  limits in both languages. This is not a type-check or production approval.
+- Display GUI operation logs as plain text, preserving literal CLI output and
+  archive names instead of interpreting markup. Keep the existing append
+  interface, read-only height, stylesheet, selection and scrolling behavior.
+  Reproduce three rendering failures before the change; all 50 actual Qt
+  tests then pass, including nine new controls and a real POSIX archive path.
+  Fresh strict GCC CLI checks, functional tests and all 17 host recipe stages
+  pass with 11 ordinary skips. Ruff's 29 baseline diagnostics and formatting
+  failures remain; that earlier Pyright attempt failed before analysis under
+  the existing memory limit. Document commands and limits in both user guides.
+  This does not qualify native packages, PyQt6, real desktop sessions or the release.
+- Fail static-analysis result processing on `grep` errors, invalid counts or
+  inconsistent count/status pairs, including after complete output. Keep
+  no-match results distinct from failed reads, and use string comparisons
+  for potentially large counts. Require SHA-NI source before compilation and
+  always compile it, even if it disappears later. Expand the existing harness
+  to 53 scenarios; reproduce 19 earlier false approvals and the later SHA-NI
+  omission before fixing them. Private source fixtures preserve worktree data.
+  Fresh strict GCC/Clang CLI and SDK checks pass with existing skips, followed
+  by all five actual selected Frama-C/Jasmin gates with pinned tools and
+  recorded inputs. These finite, conditional analyses do not prove the
+  whole program or qualify native packages and the release.
+- Reject failed or empty source discovery in the static-analysis gate before
+  invoking a compiler. Check `find` and `sort` separately so producer failures
+  cannot disappear through process substitution. Reproduce five earlier
+  false approvals, including failures after complete output; all seven
+  focused supervisor scenarios now pass. Fresh GCC/Clang CLI and SDK checks
+  pass with existing skips; the GCC static run passes nine checks, without
+  cppcheck. Add reproduction commands and coverage limits to both user guides.
+  Current-source VM sanitizer validation remains unexecuted: admission
+  rejected insufficient host memory without lowering the existing floor.
+- Pass the CLI's explicit Jasmin selection to in-tree SDK C compilation,
+  without importing external CLI provider flags or libraries. Preserve the
+  portable default and public ABI. Add 25 build-recipe assertions to `check`
+  and `sdk-test`, including caller flags and an inherited SDK build-directory
+  override. Linking AES objects is not evidence of SDK hardware dispatch.
+  Fresh strict GCC 14.3.0 and Clang 22.1.8 checks, real CLI smoke tests,
+  SDK runtime/export checks and ten actual C-object references pass with
+  documented platform/provider/tool skips. The 18 GCC and 15 Clang stages
+  validate the recorded source before the final results-table update;
+  native packages and complete sanitizer/release gates remain pending.
+- Patch generated DEB/RPM control interpreters in the Guix source phase.
+  Extend the real phase regression from seven to nine shell-control groups;
+  the added controls exercise actual package helpers with tool doubles,
+  not native package construction or installation. Preserve the original
+  no-interpreter failures and executor setup failures in the local evidence.
+  The corrected no-interpreter phase run passes all nine groups, including
+  20 DEB and 55 RPM cases. These are helper regressions, not package approval.
+- Fail ML-KEM/OpenSSL interoperability testing on subprocess errors, even
+  after complete output or matching comparison files. Distinguish failed
+  capability queries from an unavailable algorithm and retain producer
+  diagnostics. Add 15 shell controls to the existing crypto-wrapper target:
+  valid/mixed-case flows, legacy/provider skips and ten producer failures.
+  Preserve Bash 3.2 syntax and reject a failed version query before testing
+  capabilities. The original nine false approvals are reproduced before the
+  status fix; four later controls reproduce version/skip handling defects.
+  Cryptographic code,
+  comparison criteria and optional-tool skips are unchanged; document real
+  GCC/Clang interoperability commands in both user guides.
+  All 27 wrapper controls, fresh strict GCC checks and the real CLI smoke
+  suite pass; GCC 14.3.0 and Clang 22.1.8 each pass all three real OpenSSL
+  3.5.7 comparisons without skips. Ordinary checks retain 11 unrelated skips.
+- Revalidate the recorded 281-file snapshot with strict GCC 14.3.0 checks,
+  real CLI functional tests and actual GUI recipe phases using PySide6/Qt
+  6.9.2. All 41 GUI workflows and 17 recorded stages pass; ordinary checks
+  retain 11 explicit skips. Keep the unchanged 32-MiB cancellation fixture
+  in a GUI-specific profile; ordinary stages retain their 16-MiB file cap.
+  Preserve the earlier driver and fixture-capacity failures. Repeat all five
+  selected Frama-C/Jasmin gates with the corrected supervisors and verify
+  30 selected source files before and after execution. These host and
+  conditional formal results do not qualify a native Guix closure, final
+  packages or the release; later test-supervisor/documentation edits remain
+  outside the recorded ordinary-test snapshot.
+- Reject case-varied warnings, errors, failures and timeout diagnostics in the
+  ANS4 metadata analysis supervisor, even beside a complete clean summary.
+  Extend its controls from 47 to 56: eight negative fixtures reproduce the
+  previous false passes, and an informational unsupported-ACSL note remains
+  accepted. The unchanged real metadata fixtures pass again with 14/14 valid
+  preconditions and zero alarms. This does not prove valid-stream decoding or
+  qualify the release.
+- Extend the Guix interpreter-phase test from four to seven shell control
+  groups. Run the real standard source-shebang phase before the recipe's
+  generated-fixture phase, covering three non-executable self-copy wrappers.
+  The codec and package recipe are unchanged. Strict GCC 14.3.0 source-only
+  checks and real CLI functional tests also pass after the actual source
+  phases, with 11 explicit skips. These host checks do not approve a Guix
+  derivation or native package.
+- Stop source export when either `git archive` or gzip fails, even after a
+  complete output stream. Enable Bash `pipefail` only for `dist`, retaining
+  the default shell for other targets and the existing streaming pipeline.
+  Expand source-state controls from eight to 17; producer failures must not
+  reach the scanner or create/replace output. These fixture checks do not
+  qualify a final committed source package or native installation.
+- Reject failed checksum generation in the installed-executable smoke test,
+  even when the producer prints valid output or both manifests would be empty.
+  Use batched `find -exec` and explicit input/extracted-tree failure guards;
+  retain byte comparisons and CLI error/sanitizer checks. Extend its harness
+  from 53 to 65 POSIX cases with controlled hash, enumeration and sorting
+  failures. The fallback adapter does not qualify native Perl or other OSes.
+- Publish native DEB/RPM files with descriptor-relative, atomic no-clobber
+  links instead of final pathname-based move/copy operations. Prepare complete
+  private copies before any link; reject preexisting binary/source collisions
+  together and preserve late collisions. Require an owned, non-shared-writable
+  output directory, retain mismatched staging bindings and never roll back
+  published names. Print hashes of staged bytes only after success, preserving
+  GNU filename escaping. Traverse ancestors with Linux path descriptors so
+  search-only directories do not require read permission. Add 21 publisher
+  tests and extend the real-helper
+  boundary suites to 20 DEB/55 RPM cases. Whole-batch atomicity, arbitrary
+  namespace races, crash durability and native package approval are not claimed.
+- Stop DEB/RPM validation when an external metadata, inventory or ELF tool
+  fails, even after printing plausible output. Preserve its diagnostic and
+  exit status; keep existing metadata and ELF policy checks. Refuse existing
+  dangling DEB output symlinks without touching their targets. Add 12 DEB
+  and 47 RPM fault-boundary cases under the release-only
+  `test-packaging-failures` target, with commands in both user guides. These
+  tool-replacement tests do not qualify native packages or close output
+  publication races and partial RPM delivery.
+- Avoid trailing-byte probes after EOF or a failed native key-file read.
+  Preserve ZKEY/ZPQK validation, buffer wiping and `EINVAL` rejection behavior;
+  complete private blobs still require a trailing-byte probe. Add 66 real-key
+  cases for valid/invalid inputs, positive partial errors, trailing data,
+  close failures and unchanged caller outputs. GNU-cookie fault injection
+  runs on supported GNU/Linux targets and reports explicit skips elsewhere;
+  missing/unknown compiler targets fail rather than being reported as skips.
+- Track exclusive creation through internal key-generation/export variants so
+  the SDK can remove its own partial temporary keys after creation, permission,
+  write, synchronization or close failures. Preserve the original failure over
+  cleanup and custom allocator callbacks. Keep the existing CLI entry points'
+  deliberate failed-output retention and never remove colliding foreign files.
+  Add 74 checks covering ownership flags, failures, regular/symlink/hardlink
+  collisions and legacy retention; native Windows cleanup remains unqualified.
+- Reject failed or truncated SDK temporary-path formatting before using the
+  resulting name. Check every caller, including nested stream/extraction paths;
+  preserve foreign files, output pointers and callback state on rejection.
+  Add 26 checks for actual long-directory truncation, formatting failures,
+  allocation/descriptor cleanup and usable fixtures. Check Windows temporary
+  directory query failures and oversized results; native Windows validation
+  remains separate.
+- Stop SDK key-copy and archive-readback loops after an error or EOF, including
+  partial reads that already returned bytes. Preserve the read error over sink
+  and close failures, and record the outer read diagnostic after invoking an
+  output callback that may itself call the SDK. Add 18 cases for exact prefix
+  delivery, short/failed callbacks, nested SDK errors and atomic destination
+  preservation.
+- Check SDK file sizes and seek/read/close results before returning buffers.
+  Preserve the first failure, wipe incomplete buffers and support empty files
+  with allocators that reject zero-byte allocations. Add 58 real-archive cases
+  across buffer/file compression and both stream decompression readbacks.
+- Remove generated SDK key files when path allocation fails, and remove
+  internally exported public-key files when their handles are destroyed.
+  Preserve caller-loaded key files. Add 19 cases for allocation failures,
+  repeated lifecycles, collision identity and caller-owned file preservation;
+  document that public-key export uses a temporary file.
+- Create SDK staging files exclusively with owner-only access and retain the
+  created handle through stdio conversion. Reuse the key-file writer's creation
+  rules, including its Windows protected DACL, without changing key-file
+  write/flush or failure retention. Check staged writes and closes, and preserve
+  foreign files/links on creation collisions. Add 40 public-API cases covering
+  permissions, inode identity, descriptor cleanup and injected I/O failures.
+- Reject SDK read-callback lengths greater than the supplied buffer before
+  writing staged input. Report stream read and close failures, preserve the
+  first error and wipe the input scratch buffer on every exit. Add 13 focused
+  cases for byte-exact roundtrip, partial read failure, callback errors,
+  oversized counts and cleanup to `make sdk-test`. Separate build directories
+  now work for both static and shared SDK test binaries.
+- Include both user guides and linked policies in CLI DEB/RPM recipes and the
+  GUI RPM source tree. Preserve Markdown filenames in the Debian helper route.
+  Before delivering a DEB/RPM, validate its extracted documentation against
+  the current source: one expected directory, regular non-symlink files,
+  mode 0644 and matching bytes. Add the checker regressions to `make check`;
+  actual native package builds and installation remain separate release gates.
+- Install both user guides with the GUI source installer, together with the
+  security and distribution policies. Preserve their `docs/` layout and mode
+  0644; check real staging, custom paths and missing-guide rejection before
+  any partial installation. Native GUI DEB builds use this same installer,
+  but still require their separate package and runtime acceptance checks.
+- Include both user guides under `docs/` in the portable GUI source bundle and
+  Guix CLI/GUI documentation. Preserve the README's relative offline links;
+  the portable bundle validates 17 files, including the linked security and
+  distribution policies. Reject missing guides/policies and missing or
+  symlinked policy sources before delivering the bundle.
+- Resolve the eight shell-fixture emitters used by the Guix CLI checks to the
+  selected store interpreters, including generated Bash fixtures. Regressions
+  run the four newly covered wrapper groups without `/bin/sh` or `/usr/bin/env`;
+  these phase tests do not build the native package or validate its source pin.
+- Match Linux disk-capacity ioctl requests to the selected libc's `int` or
+  `unsigned long` declaration, preserving the command bits. Use bionic's
+  documented overload opt-out before including headers. Regressions exercise
+  both request ABIs, error paths, capacities above 4 GiB and compiler-wrapper
+  failures without accessing a real device. A Clang header model checks the
+  bionic declaration; it does not replace an Android NDK build.
+- Keep caller compiler/linker flags in the atomic-output test's directory
+  capability probe and report compile/run diagnostics. Distinguish an explicit
+  unsupported result from process failures, sanitizer diagnostics and missing
+  or conflicting completion markers. Add fast controls to `make check`; the
+  probe checks the test environment, not archive correctness by itself.
+- Preserve caller compiler and linker flags when building the legacy 5.2.1
+  disk fixture decoder, including static-musl linking and multiword compiler
+  commands. Keep strict warnings and propagate compiler failures with their
+  diagnostics. Four compiler-boundary controls are required by `make check`;
+  the real encrypted/deduplicated fixture still exercises list, test, extract
+  and disk restore separately.
+- Validate multi-symbol ANS initial states before allocating a decode table;
+  single-symbol headers keep their existing state-free encoding.
+- Check sequence-window parameters before allocation, fixing a scratch leak
+  when the limited API rejects an invalid window. Validate sequence tables
+  before reserving scratch and decode valid empty sequences without allocation,
+  retaining compatibility with their unused fields. Add six window and ten
+  sequence-table/empty-stream regressions for both sequence grammars.
+- Preserve the current VM resource failure and its 159-byte reproducer:
+  1,274,617 executions, 2,131 new corpus units, status 71 and 535 MiB RSS against
+  the unchanged 512-MiB limit. After the allocation fixes, a fresh campaign
+  with the same seven seeds, duration and limits completed 4,812,958 executions
+  and 2,560 new units at a 453-MiB peak with status zero and no artifacts.
+  Both internal campaign and supervisor verdicts passed. This bounded result
+  does not reclassify the earlier failed run or validate native packages.
+- Validate context ANS arguments before pointer formation and compare remaining
+  source lengths before advancing through its global table, context headers and
+  initial states. Add 2,216 exact-allocation truncation/alignment cases, empty
+  input and output-capacity checks, and valid context roundtrips with allocation
+  cleanup. The valid grammar and existing zero-extension behavior are retained.
+- Require successful child exits and complete fixture comparisons in the quick
+  suite, including random and empty files. Add failure controls for incomplete
+  extraction, nonzero exits with plausible output, misleading integrity text,
+  key generation and a CLI path containing spaces.
+- Reject distribution exports from a dirty source tree before replacing their
+  output. Eight controls cover staged/unstaged changes, deleted and untracked
+  sources, unusual filenames, clean export and excluded build output. Preserve
+  the earlier mixed-source release-check log: its runtime checks used the
+  corrected working source, but its archive build used the previous commit.
+
+- Reject S/T sequence payloads that declare literals but provide an empty
+  literal section before reserving decoder scratch space. This preserves the
+  valid wire format while avoiding repeated malformed-input allocations. Add a
+  regression that checks the error result, unchanged output state and zero
+  allocations; current GCC and Clang ASan/UBSan runs also retain codec
+  round-trip and destination-boundary coverage.
+- Tighten the Jasmin AES stack-wipe pattern checker. It now requires the
+  pinned alignment and frame allocation, all expected zero stores, stack
+  restoration and return, and rejects instructions inserted before restoration
+  or after return. Match complete opcodes and operands, reject comment/string
+  markers and earlier returns, and allow only the pinned trailing metadata.
+  Seventeen controls cover two valid tails and fifteen malformed variants;
+  this checks the emitted pattern, not processor register erasure, control
+  flow through the wipe or compiler trust.
+- Rebuild the continuous decoder-coverage executable from the current frozen
+  VM snapshot and symbolize the recorded RSS-limit failure. The exact binary
+  reached 2,360,279 executions and 2,040 new units before libFuzzer exited 71
+  at 598 MiB against the unchanged 512-MiB limit; the target cgroup peaked at
+  660,992,000 bytes without an OOM or PID event. The saved 127-byte input is
+  retained with SHA-256
+  d378fd4c77b7c57cc96bc62e04a69ad8fc3f95b849c76791c256e1ab38eba534.
+  Symbolization of the displayed live-heap context returns
+  `___interceptor_malloc`, `operator new` and `main`: 24,383,368 of
+  24,791,125 live bytes, separate from 244,292,744 quarantined bytes. This
+  does not explain the full RSS or exclude codec allocation contributions.
+  The run stopped after about 8.04 seconds of its 30-second budget; the
+  continuous coverage gate remains failed. A subsequent exact-binary VM
+  replay executed the saved input once in 1 ms with status zero, no artifacts
+  and a 47-MiB peak; this does not clear the continuous resource failure.
+- Run a current-source scalar direct-decoder fuzz diagnostic with Clang 22.1.8
+  ASan/UBSan/LSan for 30 seconds: 4,878,375 executions, 2,269 new units, a
+  344-MiB peak and no artifacts. This host-only result is separate from the
+  earlier isolated-VM RSS-limit failures and does not clear the VM fuzz gate.
+- Forward the configured GNU Make executable into the fuzz-build harness. This
+  keeps nested fuzz builds usable in a minimal GNU Guix shell where `make` is
+  intentionally absent from `PATH`; the harness rebuilds both fuzz targets and
+  retains its UBSan and injected-I/O checks.
+- Run the current source-only `check` target with GCC 14.3.0 and strict warning
+  errors: all executed checks pass after adding the declared `file` utility to
+  the isolated command PATH. SDK, PQBOX and Jasmin remain explicitly disabled
+  in this profile; it is not the final VM, formal-tool or package acceptance.
+- Validate the current CLI with Clang 22.1.8 ASan/UBSan and leak detection
+  in the same bounded disposable VM: archive and fictitious encrypted/deduplicated
+  disk roundtrips, help/version and all eight installed-functional checks pass.
+  Separate ordinary SDK tests pass 15/0; three-way ML-KEM interoperability
+  with OpenSSL 3.5.7 passes 3/0. Preserve the initial missing-reference failure;
+  the private profile-only dependency correction fits the unchanged image cap.
+  Add fail-fast English/pt-BR reproduction commands with explicit sanitizer
+  flags. These are smoke checks, not full-suite, fuzz, package or production
+  approval; formal and distribution gates remain incomplete.
+- Record the scalar decoder coverage campaign failure accurately: libFuzzer
+  reached 536 MiB against its fixed 512-MiB RSS limit after 2,108,708 inputs and
+  produced a 1,549-byte replay case. The target cgroup did not report an OOM.
+  Preserve the failed raw log, artifact hash, and status. The limit failure does
+  not by itself establish a codec defect or pass the required 30-second run.
+- Replay that exact saved input once with the identical fuzzer binary under the
+  same ASan/UBSan/LSan and 512-MiB RSS limits: it exits cleanly at 43 MiB with
+  no sanitizer finding. This is a one-input result only; it does not explain
+  the campaign's cumulative memory growth or clear the failed coverage gate.
+- Repeat the 30-second profile with private fixed callback buffers to avoid
+  per-input harness allocations. The same codec snapshot, Clang flags, corpus,
+  sanitizers and 512-MiB RSS limit remain in place. The campaign still fails:
+  libFuzzer exits 71 after 1,849,145 inputs at 514 MiB, reporting 241,285,420
+  quarantined bytes. Preserve its 61-byte OOM artifact and raw log. This change
+  did not resolve the resource failure; the coverage gate remains open.
+- Test `allocator_release_to_os_interval_ms=500` without changing quarantine
+  capacity or checks. The same binary/input scope still fails: 544 MiB and
+  exit 71 after 1,303,122 inputs, with 267,264,876 bytes quarantined. Retain the
+  114-byte OOM artifact and log; this allocator-release diagnostic does not
+  resolve the RSS failure or close the coverage gate.
+- Run a separately scoped coverage profile as thirty independent one-second
+  libFuzzer processes calling the real `vv_decompress` through a private
+  adapter. Clang 22.1.8 scalar ASan/UBSan/LSan, default quarantine, max input
+  4096 bytes and the unchanged per-process 512-MiB RSS limit: all 30 slices
+  completed (15,382,624 executions, 3,058 new corpus units), with a maximum
+  per-process RSS of 440 MiB, cgroup peak 472,612,864 bytes, and no artifacts,
+  events or remaining descendants. Process exits reset ASan quarantine, so this
+  is not equivalent to a continuous 30-second campaign or exhaustive coverage;
+  the earlier continuous-run RSS failures and the fuzz/release gates remain
+  unresolved. This private adapter is not the in-tree AFL stdin harness.
+- Validate the current ANS reader/refill and allocation regressions in a
+  disposable 2-CPU/2-GiB VM with Clang 22.1.8, ASan/UBSan and leak detection.
+  Scalar and AVX2 pass; exact-size codec tests pass 81/0 and 1,024 BCJ
+  bijection cases. Confirm all three sanitizer negative controls reject
+  their deliberately invalid programs. Preserve the ordinary-CLI scope
+  of separate L5/L9 archive roundtrips, unchanged resource limits and
+  incomplete formal/full-suite/fuzz/package gates. Add English and pt-BR
+  reproduction instructions; these focused results do not approve a release.
+- Saturate the ANS reader's buffered-bit count after exhaustion instead of
+  repeatedly subtracting into a negative signed value. Preserve implicit zero
+  extension, decoded bytes and source-consumption rules across single-stream,
+  four-lane and sequence callers; do not change encoding or the public API.
+  Add 2,312 independent bit-reader configurations, poisoned-context reset,
+  the complete 0..32-bit helper range and four-lane output lengths
+  1..4096 to the existing allocation regression, including suffix sentinels.
+  Add a conditional Frama-C 29.0 WP gate for initialization and consumption:
+  30 exact JSON obligations, plus 40 synthetic result controls that reject
+  incomplete proofs, unsupported solver output and process failures. Put the
+  real gate in `release-check` and the mock controls in `check`. Update the
+  metadata gate's observed footprint to 121/343 statements in 5/76 functions
+  and retain all earlier controls plus old-profile rejection (47 total).
+  Local symbol-loop unrolling and a decoder-scoped gauges domain resolve the
+  valid-stream experiment's three memory alarms without changing executable
+  C. Before the refill-guard change, it still had 13 unknown preconditions;
+  neither this conditional helper proof nor native regressions approve a
+  release or prove every caller correct. Earlier strict native `make check`
+  runs passed with GCC 14.3.0 and Clang 22.1.8, retaining unavailable-feature
+  skips and earlier environment/deadline failures. Focused scalar UBSan
+  regressions pass with both compilers;
+  the later focused ANS/CLI ASan/leak VM checks are recorded above, while
+  full-suite VM and final-package gates remain pending.
+- Compare the ANS refill's remaining length without adding to its position.
+  Under the existing `p <= l` invariant, an exhausted counter near `SIZE_MAX`
+  can no longer wrap into a source load. Add 520 synthetic exhausted-reader
+  cases with a NULL source, counts 0..64 and reads 0..32 to the existing
+  allocation test. The old guard fails with UBSan; strict GCC/Clang UBSan
+  runs pass after the correction. These counters do not represent real giant
+  input objects or establish a reachable ANS4 vulnerability. The valid-stream
+  Eva profile remains incomplete: zero memory alarms, 37 valid and 14 unknown
+  preconditions. The exhausted-counter Eva diagnostic reports a memory alarm
+  after merging states; its more precise trial times out. Preserve both
+  failures rather than claiming a refill proof or release approval.
+  Strict full native `make check` passes with GCC 14.3.0 and Clang 22.1.8
+  when run sequentially under the same two-CPU/resource limits. Preserve
+  both earlier parallel deadline failures (124 at 125 seconds), explicit
+  unavailable-feature skips and the pending VM/final-package checks.
+- Add a focused range analysis for the unchanged scalar ANS logarithm helper.
+  Frama-C 29.0 reaches its actual body over every uint32 input and separately
+  frequencies 0..4096: two range assertions and two interval preconditions
+  valid, zero alarms and 15/15 reached statements in 2/75 functions. Put the
+  real gate in `release-check` and 57 synthetic failure controls in `check`.
+  Add 4,195 native boundary checks; strict GCC/Clang UBSan passes and a private
+  zero-result mutation fails them. Preserve all earlier incomplete analyses:
+  helper ranges do not prove exact logarithm functionality, callers, table
+  equivalence or the complete decoder. No runtime algorithm changed.
+  Full strict Clang `make check` passes with explicit skips. Two GCC runs
+  reach the unchanged 125-second deadline in source-scanner checks; keep
+  them as failures, not completed suite passes. All 40 scanner controls
+  pass separately. Final packages and production validation remain pending.
+- Reuse the matching checked CLI only for the fuzz regression's plain STORE
+  seed, avoiding a duplicate ordinary CLI build. Preserve both actual UBSan
+  and non-LTO fault-injection builds and the direct-script fallback. Reject
+  invalid explicit paths before compiler discovery, anchor relative paths
+  and propagate seed failures. Add ten shell controls with a reproduced
+  failure before the fix. Strict full GCC 14.3.0 checks complete twice under
+  the original 125-second deadline (124.44/123.31 seconds); Clang 22.1.8
+  completes in 86.52 seconds. GCC has little margin, so these samples are not
+  evidence of reliable deadline headroom or production acceptance.
+  Default Make reuse uses normal CLI warning flags; strict CI and the
+  documented reproduction retain full-CLI `-Wcast-align -Werror` coverage.
+  Keep earlier deadline failures and unresolved formal analyses recorded.
+- Restore the Guix GUI build-time `check` phase after installation. Check the
+  installed launcher's version and offscreen selftest, then run the complete
+  GUI workflow suite against the installed module and matching CLI. Reuse the
+  launcher's dependency paths, discard inherited paths during checks and
+  restore the build environment even on failure. Add phase regressions for
+  default/enabled/disabled testing and failure at each child invocation.
+  The actual phase passed all 41 workflows with the staged PySide6 inputs;
+  native dependency-closure validation and the final source pin remain pending.
+- Release completed GUI job, worker and thread objects while the window stays
+  open. Keep the native thread join before controller disposal. Add a real
+  three-operation lifetime regression and check destruction without accessing
+  disposed Qt objects; preserve archive and cancellation assertions.
+  Refresh the active-job snapshot after close confirmation, because its modal
+  event loop can finish and dispose jobs before cancellation starts. Add a
+  regression that completes a real CLI job while that confirmation is pending.
+- Add bounds, initialized-prefix invariants, frame clauses and variants to all
+  seven portable AES block loops: 35 ACSL lines, no executable C or public
+  contract changes. The strict scoped WP run proves 214/214 exact JSON goals,
+  including all invariant/variant obligations and output initialization;
+  retain the original 113/144 result and 31 timeouts. Recheck initialization
+  58/58 and helpers 17/17 separately, and verify identical preprocessed C.
+  The real NIST Eva gate passes with 21 valid properties, seven preconditions,
+  zero warnings/alarms and unchanged complete fixture coverage. Extend all
+  27 supervisor controls with old-seven rejection, now 28 passing controls.
+  Record fresh tool hashes after older store paths became unavailable;
+  missing-awk and missing-plugin runs remain failures. These checks cover
+  selected safety/termination contracts, not functional AES or whole-program
+  security. Historical results alone do not approve publication.
+- Restore the exact missing PPL 1.2 Jasmin dependency in a private tool runtime,
+  authenticating the complete official Guix NAR against its signed hash/size
+  before selecting the shared library, SONAME link and license notice. No host
+  store/profile changes or product dependency changes. Fresh GCC 14.3.0 and
+  Clang 22.1.8 Make gates pass all five source analyses and instruction
+  comparisons, 1,026 AES blocks, 1,539 CTR cases and four supervisor controls
+  per compiler. Preserve caller conditions, resource limits and earlier
+  failures; this closes the missing-runtime blocker, not the broader formal
+  or final-package release gates.
+- Require the exact recorded ANS4 metadata Eva summary, reached decoder body
+  and returning test entry point. Reject missing, duplicated, conflicting,
+  pruned or specification-only results and scanner failures instead of
+  accepting clean but incomplete output. Retain the ten original supervisor
+  controls, extend them to 44 diagnostic cases, and add two controls for the
+  shared PASS-marker checker rejecting scanner statuses 2/127. All 46 mock
+  controls pass; they do not prove the codec. The real metadata-only gate
+  covers two rejection fixtures with 14 valid preconditions and zero alarms,
+  not the allocated table or valid-stream decoder path. Document the separate
+  unresolved 15-alarm valid-stream experiment and its precision timeout.
+- Make the two top-byte AES key-schedule SBOX bounds explicit. Add two
+  internal initialization assertions without weakening the public contract,
+  loop invariants or frame conditions. The scoped Frama-C 29.0 WP gate with
+  supported Z3 4.12.2 proves all 58 JSON goals; this is not a proof of AES/FIPS
+  functional equivalence or the whole program. Keep historical partial
+  results and document the exact analysis profile in both user guides.
+- Extend the Eva supervisor controls to reject the old four-property and
+  160-statement summaries after adding the two initialization assertions.
+  That snapshot required six valid properties and full 162-statement coverage,
+  while keeping
+  warning, error, precondition, byte-oracle and execution checks unchanged.
+- Add function and loop frame clauses, a loop invariant and a decreasing
+  variant to the portable AES arithmetic helpers, without changing executable
+  C or public preconditions. The scoped WP gate proves all 17 helper JSON
+  obligations; the initialization gate still proves its separate 58 goals.
+  Update the NIST Eva gate to its actual seven-property summary and retain
+  all 26 supervisor cases plus rejection of the old six-property output.
+  That 27-control snapshot and real Eva run pass; no functional AES or
+  whole-program proof is claimed.
+- Repeat the complete Linux VM suite after the AES initialization changes:
+  strict GCC 14.3.0 and Clang 22.1.8 builds with `WITH_JASMIN=0`, plus Clang
+  with `WITH_JASMIN=1` and required actual AES-NI/OS-enabled AVX dispatch.
+  Keep all 14/15 unavailable checks explicit. Separately run the actual GCC
+  CLI with ASan/UBSan and leak detection through archive, encrypted synthetic
+  disk-image and installed-smoke checks. These results do not approve native
+  packages, broader formal verification or production publication.
+- Run the complete source-only `make check` suite in the Guix CLI recipe,
+  rather than only the cryptographic vectors. Declare Python and Git as
+  build-time test prerequisites; do not add them to the CLI runtime inputs.
+  Patch the embedded shell interpreters in four test-fixture generators to
+  the build-side shell, since Guix does not provide `/bin/sh`.
 - Disable POSIX terminal echo before printing the password prompt. Use an
   atomic signal wait and nonblocking reads so input-entry interruption and
   terminal input flushing cannot strand the prompt. Restore terminal state,
   descriptor flags, handlers and the signal mask before propagating a signal.
 - Add deterministic ordering and interruption regressions, real terminal flush
   cases, confirmation round trips, and empty/maximum/oversized password checks.
+- On POSIX systems that provide `O_SEARCH` or `O_PATH`, accept compression
+  inputs, archive files opened for reading, archive outputs and extraction
+  beneath searchable but non-readable ancestor directories. Parent walks for
+  compression inputs, output roots and extraction roots prefer readable
+  directory descriptors and use the search-only fallback only for ancestors
+  that grant search but not read access. Those walks keep each opened ancestor
+  pinned with component-by-component no-follow and directory-type checks;
+  archive files opened for reading use normal POSIX traversal and remain held
+  by the open stream. This does not claim equivalent access semantics on other
+  platforms.
+- Redact `-p` and `--password` values in the GUI command log without modifying
+  the actual subprocess arguments. This does not hide process arguments from
+  local inspection. Add a strict Qt workflow gate for real archive operations,
+  password failures, byte-exact extraction, widget reuse, GUI-thread callbacks
+  and worker cancellation; exercise installed and extracted GUI sources in CI.
+- Reject an unavailable GUI module spec or loader and a missing source-version
+  macro with explicit test-bootstrap errors. Add regressions that execute the
+  real bootstrap, check the exact errors, and ensure invalid module specs do
+  not reach module creation. Keep the existing archive workflow checks intact.
+- Declare the linker-visible fuzz fault-injection wrappers before definition.
+  Compile both codec and archive variants with prototype warnings as errors,
+  including when the caller does not supply strict compiler flags.
+- Validate ANS and ANS4 decoder output pointers, source pointers, destination
+  capacity and consumption pointers before parsing untrusted headers. Reject
+  malformed frequency vectors before table indexing, keep the decode table
+  initialized on every path, and add NULL/undersized-argument regressions.
+- Keep Clang alignment-warning exceptions restricted to the same three audited
+  translation units in normal, sanitizer, in-tree SDK and fuzz builds. Detect the fuzz
+  compiler independently from `CC`. Build the real fuzz regressions with
+  `-Wcast-align -Werror` and check differing compiler classifications so that
+  other source files retain the strict warning policy.
+- Declare the in-tree SDK error helper's printf argument contract for GCC and
+  Clang. Keep missing-format-attribute diagnostics enabled on that source file
+  so strict SDK builds check both the helper and its callers without changing
+  the public interface or error formatting.
+- Build the exact-size codec sanitizer fixture with the selected `CC` and
+  caller compile/link flags instead of hardcoding GCC. Keep ASan enabled on
+  every fresh object and the link, and restrict Clang's alignment exception
+  to ANS and SIMD. Retain complete compiler diagnostics and failing child
+  exit statuses. Add compiler-orchestration regressions; the real sanitized
+  codec and BCJ round trips remain separate mandatory tests in `test-all`.
+- Pass byte-aligned AVX2 encoder and decoder addresses through the unaligned
+  intrinsic interface without casting to aligned vector pointers. Keep strict Clang
+  alignment diagnostics enabled for both. Use a small scalar source
+  set in the wrapper regression rather than requiring Bash associative arrays.
+- Run verified portable GUI shell launchers through `bash` after `.zupt`
+  extraction instead of assuming executable bits were restored. Document the
+  selected-file permission needed for the macOS Finder launcher, and check
+  these instructions in the packaging metadata regression.
+- Replace the portable GUI CI ZIP gate with a genuine unencrypted VaptVupt
+  level-9 `.zupt` helper. Verify the 13-file allowlist, source-only policy and
+  extracted bytes before retaining local outputs. Add package-boundary
+  regressions and run extracted launchers and Qt workflows separately.
+  Keep the legacy 5.2.10 release-promotion block in place.
+- Wait for the source-only scanner's portable watchdog to finish its current
+  polling or grace sleep instead of killing only the watchdog shell. Preserve
+  the archive command's exit status and time limit. Add a real archive scan
+  regression that detects and reaps unwaited children using a Linux subreaper;
+  report unavailable Linux/Python support explicitly rather than as coverage.
+- Close the GUI worker's CLI output pipe after success or read failure instead
+  of keeping its descriptor until widget teardown. Cover these paths and a
+  missing executable; leave the child arguments and cancellation policy intact.
+- Validate that a started GUI child has an output pipe and a callable `read1`
+  reader before consuming progress, and require byte results even at EOF.
+  Report a stable error and retain child cleanup and single completion when
+  that contract is absent or a reader returns another type. Bind deadline
+  test callbacks to their loop iteration and validate real test-child pipes.
+- Defer GUI worker completion until child cleanup has been attempted. Terminate
+  a child still running after read failure, reap it with a bounded five-second
+  wait and close its output pipe, even when an earlier cleanup step fails.
+  Report cleanup errors by stage and type without exposing child arguments;
+  turn a successful result into failure if cleanup fails. Add a real-child
+  regression, timeout and exit-race cases, and failure injection for cleanup.
+  Failed termination or waiting does not guarantee that the child was reaped.
+- Enforce a monotonic 7200-second GUI execution deadline measured before CLI
+  child creation, including startup time and blocked output reads. Start the
+  standard-library watchdog before launching the child; it waits until the
+  launch attempt returns or raises before handling expiry. Backups lasting
+  longer than two hours are terminated and fail; waiting after EOF uses only
+  the remaining budget. Release the launch wait, then cancel and join the
+  watchdog before child cleanup and completion. Test silent/progress children,
+  EOF without exit, remaining wait budget, watchdog failures and
+  exit/cancellation races. This best-effort
+  deadline cannot forcibly interrupt blocked process creation and does not
+  cover descendants retaining stdout or uninterruptible OS operations.
 
 - Integrate the VaptVupt 2.65.13 encoder changes from
   `e30dc9329be7cf9f233b1ac0b1fc9ed31f530391`: reachable-bucket preparation for small
@@ -24,15 +1084,226 @@ Validate the signed release commit rather than reusing old candidate packages.
   The imported files are consumer adaptations rather than byte-identical
   canonical codec copies.
 - Preserve archive format 1.6, codec identifier `0x0010`, and the public ABI.
-- Publish new source and Linux archives as verified, unencrypted `.zupt`
-  files with SHA-256 checksums. Internal RPM/OBS source tarballs are build
-  inputs; old release artifacts remain historical.
-- Require fresh tests for the exact candidate. Unbuilt platform packages
+- Prepare new public bundles as verified, unencrypted level-9 `.zupt`
+  files with SHA-256 checksums. Native DEB/RPM/SRPM packages keep their formats;
+  internal RPM/OBS source tarballs are build inputs. Old 5.2.9 artifacts remain
+  available in their original formats.
+- Require fresh tests for the exact final source. Unbuilt platform packages
   are not release assets and prior CI results do not approve this version.
-- Mark AUR, Homebrew and Guix recipes as verified legacy 5.2.9 inputs;
-  update their source pins separately after the immutable 5.2.10 tag.
+- Regenerate and verify downstream recipe pins from the final signed 5.2.10
+  source. Withdrawn package checksums do not validate the corrected version.
+- Keep branch and pull-request CI independent of the unpublished release tag.
+  After the final signed tag exists and the recipe-only pin update is ready,
+  run the CI workflow manually with `verify_recipe_pins=true` to validate the
+  downloaded tag archive against AUR, Homebrew and Guix.
+- Describe optional libvuptsdk modes according to the implemented boundary:
+  the SDK supplies Argon2id derivation or recipient wrapping, while ZUPT payload
+  blocks remain AES-256-CTR + HMAC-SHA256. This correction does not change the
+  archive format or existing SDK archives.
+- Keep GUI SDK labels at that public provider boundary, and recognize both
+  `SDK v2` and `SDK-v2` in archive information. This prevents SDK recipient
+  archives from being misclassified as password-protected archives.
+- Qualify historical security-review and proof wording where no independent
+  certification or retained reproducible proof artifact exists. The recorded
+  bugs, fixes and regression results are unchanged.
+- Make the Huffman estimator's zero/single-symbol bound explicit for strict
+  GCC range analysis; add deterministic estimator and encoded-byte regressions.
+- Keep the ACSL helper predicates type-correct for Frama-C 29. Bounded Eva
+  fixtures and the incomplete WP proof remain separate from general decoder
+  coverage. Earlier assembly vector/timing checks did not establish source
+  correspondence; the fresh five-source checks below address that separate
+  boundary, not the full application's correctness.
+- Preserve the historical WP diagnostic run with Z3 4.13.0: 346 of 653 goals
+  were discharged (251 Qed, 61 Z3, 12 termination and 22 unreachable), while
+  305 timed out and 2 remained unknown. Cached Why3 did not recognize that Z3
+  version, and analysis warnings remain; this is not an accepted proof gate.
+- Add loop bounds, initialized-prefix invariants, assigns clauses and variants
+  to `zupt_aes256_init` without changing its C behavior or public contract.
+  Frama-C 29.0 with GCC 14.3.0, `gcc_x86_64`, `Typed+int` and Qed improves
+  the scoped result from 16/39 to 39/58 discharged goals (37 Qed, 1 termination,
+  1 unreachable). Nineteen goals and Typed-model separation hypotheses remain
+  unresolved, so the strict proof gate fails. Retain all function/RTE/frame/
+  termination/initialization obligations; this is not a FIPS-equivalence proof.
+- Add a portable AES known-answer fixture using the four fixed NIST SP 800-38A
+  F.1.5 ECB blocks, one fixed key and valid disjoint buffers. Its native target
+  links the actual C core directly even in assembly-enabled builds and checks
+  all 64 output bytes. Keep assertions active after caller `-DNDEBUG` and reject
+  direct assertion-disabled builds; the compile-only control changed from exit
+  0 to the expected exit 1. GCC 14 and Clang 22 pass the actual Make target
+  with strict warnings and non-recovering UBSan. No format or crypto behavior
+  changes are made by this test.
+- Add `test-frama-aes-nist` with Frama-C 29.0, GCC 14.3.0 and `gcc_x86_64`:
+  zero alarms/warnings, four valid loop properties, seven valid preconditions,
+  64 reached `__FC_assert` calls and a returning main; 160/160 statements in
+  five analyzed functions out of 27. Analyze actual C function bodies without
+  automatic builtin substitution. Reject an incorrect expected byte even when
+  Eva exits 0 with zero alarms but prunes main after an invalid assert
+  precondition. These are fixed-vector results, not arbitrary-key AES/FIPS,
+  side-channel or whole-program verification. Require a real 120-second
+  deadline plus five-second kill grace, with `FRAMA_TIMEOUT` override; fail on
+  missing tools, diagnostics, execution failure or incomplete/unproved output.
+- Include the native AES fixture and 24 synthetic supervisor controls in
+  `check`. The wrapper tests diagnostic, status, body/reachability and assertion
+  count handling; its mock supervisor verifies deadline arguments but imposes
+  no deadline and does not analyze AES. Default `check` therefore needs neither
+  Frama-C nor GNU timeout.
+- Record GCC 14 `test-all` with `WITH_JASMIN=1 WITH_SDK=0 WITH_PQBOX=0` passing
+  in an isolated VM on a frozen 247-file snapshot, including the portable AES
+  fixture and regenerated runtime assembly. Its 14 explicit skips remain
+  untested. Later warning-scan wrapper, Makefile and documentation changes were
+  not in this run; it is not a full GCC248 suite result.
+- Record Clang 22 `test-all` with the same feature flags passing in a disposable
+  VM on the frozen 248-file source, with 15 explicit skips. OpenSSL ML-KEM
+  interoperability was not run because that guest lacked an `openssl`
+  executable; the three earlier GCC247 interoperability passes remain separate.
+  These ordinary VM suites are not globally ASan/UBSan-instrumented builds.
+- Validate the portable GUI frontend on a frozen 248-file snapshot in a
+  disposable Linux x86_64 VM: fresh GCC 14.3.0 CLI, Python 3.12.12,
+  PyQt6 6.9.1/Qt 6.9.2, 39/39 offscreen workflows and a level-9 `.zupt` with
+  thirteen exact frontend files verified and extracted byte-for-byte. The
+  matching CLI stays outside the bundle. In-tree SDK 15/0, static checks 9/0
+  and metadata 50/0/6 pass; seven unavailable checks remain explicit. This is
+  not a native DEB/RPM/Guix install, subsequent-documentation validation or a
+  signed release artifact.
+- Record the source-only scanner and 40/40 adversarial cases passing on a
+  frozen 248-file snapshot including 17 existing Markdown documents, with
+  zero archives and unchanged source bytes/modes. Source screening ran before
+  compilation; the later documentation reconciliation requires another source
+  audit before release, not relabeling frozen VM inputs.
+- Repeat the actual host Make gates on the frozen 248-file source with GCC 14
+  and Clang 22:
+  strict UBSan native AES, both mock supervisors and five-source Jasmin
+  compile/safety/CT/DOIT/lowering/correspondence pass, including 1,026 AES block
+  and 1,539 AES4 oracle cases per compiler. The actual fixed-vector Frama-C
+  Eva gate passes with zero alarms, four valid loop properties, seven valid
+  preconditions and 64 reached byte checks. The license inventory gate also
+  passes. These selected results do not close broader WP, platform, package
+  or signature gates.
+- Reject warning-scanner errors in the Jasmin source gate instead of treating
+  them as absence of warnings. Preserve the scanner's status and stop before
+  downstream work. Add `test-jasmin-source-wrapper` to `check` with four mock
+  controls for no warning, warning, error 2 and simulated unavailable status
+  127. These orchestration-only controls do not execute or prove Jasmin
+  analysis; analysis commands and criteria remain unchanged.
+- Validate ANS4 metadata and all lane lengths with integer bounds before
+  forming source pointers or allocating a decode table. Preserve the block
+  format and successful decode lengths. Add exact-sized native fixtures for
+  truncated metadata and oversized lanes, and a Frama-C 29.0 Eva gate that
+  rejects alarms, incomplete analysis, external preprocessor warnings and
+  execution failures. Test the gate's diagnostic handling separately with
+  synthetic results; those controls are not formal verification of the codec.
+- Keep the legacy MAC accumulator reduction entirely unsigned, including
+  full-width results from the optional assembly comparison. The existing
+  2,000-case F-06 regression now passes with the assembly path and
+  non-recovering UBSan after exposing signed overflow in the old reduction.
+  Both legacy MAC candidates and their wire format are unchanged.
+- Correct the Jasmin AES source's second key-element index and 128-bit
+  destination store. Require compiler-managed stack zeroization and explicit
+  constant-time contracts in the four selected sources. Add source analysis
+  and generated AES tests against NIST and OpenSSL, without treating these
+  selected checks as verification of the complete application.
+- Replace the hand-written AES4 runtime with Jasmin 2026.09.0 output from its
+  executable source, including explicit loop termination. The parameterized
+  safety analysis declares pointer/count roles and remains conditional on
+  caller allocation and alias requirements. Keep the earlier unparameterized
+  analysis that reached its 120-second limit as historical blocked evidence.
+- Regenerate all five runtime assemblies with Jasmin 2026.09.0 and record
+  source hashes. Require the exact global function at `.text` start, no
+  relocations and matching instruction sections against fresh generation.
+  GCC 14 and Clang 22 pass the five-source compile/safety/CT/DOIT/lowering
+  gate, 1,026 AES block oracle cases and 1,539 AES4 oracle cases per compiler.
+  Check fifteen single-block and sixteen AES4 stack-wipe stores. The AES4
+  frame is 256 bytes (240 round-key bytes and 16 counter bytes), with a maximum
+  264-byte RSP descent under the x86_64 SysV ABI alignment. These correctness
+  checks make no throughput claim and do not prove register erasure or every
+  caller.
+- Validate the current C and generated-assembly callers with non-recovering
+  UBSan: GCC 14 and Clang 22 each pass 16 vectors and 2,000 F-06 round trips
+  with `WITH_JASMIN=0` and `1`, with no accepted altered MACs in any profile.
+- Make `test-jasmin-source`, `test-frama-ans-decode-bounds` and
+  `test-frama-aes-nist` prerequisites of `release-check` on the documented
+  x86_64 Linux maintainer host. Keep these
+  tool-dependent analyses outside distribution-friendly `check` and `test-all`.
+  The broader Frama-C/WP and final distribution gates remain incomplete.
+- Initialize the real CPU detector in the cryptographic vector and F-06 tests
+  and report the selected AES path. Previously these binaries kept the CPU
+  feature global at zero and covered only C AES despite an assembly-enabled
+  build. Preserve the existing vector values, 2,000 trials and rejection rules.
+- Release prepared ANS4 tables when its combined lane-buffer allocation fails.
+  Propagate Huffman tree allocation failures as `VVH_ERR_NOMEM` instead of
+  continuing with an empty code table. Add deterministic fault injection for
+  the five ANS4 allocations reached by the fixture and all three Huffman tree
+  allocations in both encoders, plus successful byte-exact round trips.
+- Require exact lengths for native hybrid, ML-KEM-only, SDK and PQBOX recipient
+  envelopes. Reject empty SDK ciphertexts and oversized lengths before copying.
+  In the libvuptsdk adapter, treat provider output pointers and lengths as owned
+  only after a successful return: wipe the fixed 32-byte session key, release
+  successful outputs with the provider deallocator, and do not traverse
+  undocumented error outputs. Add real SDK-adapter boundary tests with a
+  controlled provider, fixed-envelope PQBOX parser tests, and native
+  encoder/decoder round trips. PQBOX remains disabled and unapproved for release
+  packages until libpqvaptvupt's exact failure-output ownership and length
+  contract has been reviewed and tested.
+- Make the SDK KDF-transparency gate compile the enabled adapter with the same
+  `SDK_CPPFLAGS` and `SDK_LDLIBS` accepted by the build. A configured provider
+  can no longer be reported as a missing-dependency skip after compiling the
+  disabled stub branch. The controlled provider confirms dispatch,
+  deterministic output and a cost floor; it does not prove Argon2id or memory
+  hardness.
+- Fetch the Fedora source recipe from the Git tag snapshot instead of a
+  public release tarball. Reproducible tarballs remain private RPM/OBS build
+  inputs; the public source bundle remains `.zupt`.
+- Tear down partially started compression workers and use the existing
+  sequential fallback; cover failures after zero, one and two workers.
+- Make the malformed-archive harness fail on sanitizer diagnostics, process
+  signals and execution errors rather than accepting them as parser rejection.
+- Give each format-fuzz run a private temporary directory under `TMPDIR` and
+  create mutation inputs exclusively with owner-only permissions. Check file
+  and directory cleanup instead of reporting success after a cleanup failure.
+  Stop at the first fatal result and retain its input for replay; distinguish
+  incomplete or missing input from a complete retained file. Add regressions
+  for isolation, permissions, exact retained bytes, successful cleanup,
+  invalid temporary roots and child/cleanup failures. The archive format and
+  CLI are unchanged. Use non-sensitive seeds and preserve findings before
+  tearing down a disposable test environment.
+- Require normal status 1 and the intended diagnostic for installed-smoke
+  rejection cases. Check every CLI call for sanitizer output and print raw
+  failures before cleanup. Add real-CLI delegating regressions for abnormal
+  statuses, unrelated errors, POSIX signals and synthetic sanitizer findings
+  to `make check`; the controls do not substitute for sanitizer execution.
+- Give timing comparators the same balanced input preparation and add matched
+  controls, deterministic statistics regressions and an explicit inconclusive
+  status. Preserve the cryptographic primitive and existing thresholds; retain
+  the original aggregate criterion and also require the matched-ratio median.
+- Calibrate the timing regression against its deliberate early-exit comparator,
+  retaining libc `memcmp` as a diagnostic rather than assuming it exposes a
+  strong 32-byte signal. Keep the 400/0.20 thresholds and all matched-run checks;
+  add weak-control, aggregation and deliberately leaky-target regressions.
+  The 1088-byte results remain informational, and earlier failed or inconclusive
+  measurements are not reclassified by this change of method.
+- Run SHA-NI and incremental HMAC fixtures with the selected compiler and
+  build flags, keeping SHA-NI-specific flags local to that translation unit.
+  Reject a failed or signalled SHA-NI test even if its output claims success
+  or a hardware skip; cover compiler selection and exit handling separately.
+- Extend codec unit tests with exact-sized nonempty truncated inputs, insufficient
+  output capacities, misaligned buffers, damaged checksums and NULL parameter
+  rejection. Cover ten 4 KiB text/random mode and v2-option combinations without
+  changing the codec or archive grammar; zero-length cases use a one-byte
+  non-NULL allocation. These are bounded regressions, not
+  exhaustive malformed-input coverage or release approval.
+- Build both decompression fuzz targets from the complete codec source set and
+  exercise those recipes from `make check`. Make their input and archive setup
+  fail closed on I/O errors, remove temporary extraction trees without following
+  symlinks, and cover valid, truncated, short-write and cleanup paths with GCC
+  and Clang. Preserve compiler and analyzer failures in the static-analysis gate
+  instead of allowing an empty diagnostic stream to mask a failed tool.
+- Release only after the required gates pass; do not publish a candidate or
+  known-issues prerelease.
 
 ## [5.2.9] — 2026-09-06 — VaptVupt 2.65.11 compatibility refresh
+
+Official release: [downloads and checksums](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
+Português do Brasil: [resumo da versão 5.2.9](README.pt-BR.md#versão-oficial-529).
 
 - Update the bundled VaptVupt codec from 2.65.3 to tag `v2.65.11` at
   `1cc78bce90619dbf97e0ed1ad449c3c4f6329041` while preserving Zupt's
@@ -873,9 +2144,9 @@ remains readable (proof matrix below).
 - **Ratio gate verified on identical inputs**: archives produced by the
   shipped 3.8.0 binary and by 4.0.0 are byte-identical in size for
   text/source/redundant (Δ 0.00 %); see BENCHMARKS.md §1.
-- Brings the canonical, **CBMC-formally-verified BCJ filters**
-  (upstream v2.56.0) with automatic ELF/PE/Mach-O detection (v2.55.0),
-  enabled for levels ≥ 3.
+- Brings the upstream v2.56.0 BCJ filters with automatic ELF/PE/Mach-O
+  detection (v2.55.0), enabled for levels ≥ 3, and covers them with functional
+  regressions. This repository retains no reproducible CBMC proof artifact.
 - Codec release string is now single-sourced (`ZUPT_CODEC_RELEASE`).
 
 ### F-16 — data-loss defect in ≤ 3.8.0 BCJ encoding (pre-existing, fixed)
@@ -1019,8 +2290,8 @@ and method stated for every table:
   edges out VaptVupt-L9 on text/binary).
 - A clear statement that the codec is **not** the reason to use VaptVupt
   — the value is the combination of PQ-hybrid encryption, Argon2id,
-  per-block authenticated encryption, and formally-verified
-  constant-time crypto.
+  per-block authenticated encryption, and constant-time-intended helpers with
+  timing regressions and documented compiler/platform limits.
 
 ### Honesty notes baked into the document
 
@@ -1265,9 +2536,9 @@ never measured.
   short-circuit or branch, branch-free 0/non-zero → 1/0 fold. The v1.6
   strict decrypt path and the F-08 AIT check now both call it, so the
   property lives in exactly one place. (The v1.4/v1.5 legacy path keeps
-  the formally-verified Jasmin `zupt_mac_verify_ct`; its non-Jasmin C
-  fallback and the carefully-tuned F-06 two-candidate fold are left
-  intact.)
+  the optional Jasmin-generated `zupt_mac_verify_ct`; no reproducible proof
+  artifact is retained here. Its non-Jasmin C fallback and the carefully-tuned
+  F-06 two-candidate fold are left intact.)
 - **A dudect-style timing test** (`tests/test_ct_timing.c`, after
   Reparaz–Balasch–Verbauwhede, DATE 2017). It times the compare over two
   input classes — a fixed tag vs an identical copy (FIX) and vs a random
@@ -4205,12 +5476,12 @@ the github-old → github-new migration sprint) deleted as obsolete.
   `libzuptsdk-dev 2.0.0` installed
 
 
-## [2.2.2] god-tier audit — bug #16 (block-swap attack) fix
+## [2.2.2] project security review — bug #16 (block-swap attack) fix
 
-Independent formal cryptographic audit (using the then-current two-pass
-methodology) discovered a critical authenticated-encryption flaw in the
-shipped 2.2.2 binary. Investigation, root-cause, fix, regression test, and
-final verification documented below.
+A project source review using the then-current two-pass methodology discovered
+a critical authenticated-encryption flaw in the shipped 2.2.2 binary.
+Investigation, root cause, fix, regression test, and final verification are
+documented below. This was not an independent audit or certification.
 
 ### Bug #16 — CRITICAL: Block-swap attack on encrypted archives
 
@@ -4310,11 +5581,11 @@ Combined zupt + SDK            279 tests + 751k fuzz iters
 
 | Sprint | Bugs | Severity range |
 |---|---|---|
-| v2.2.1 (audit 1) | 6 | low to high |
-| v2.2.2 (audit 2) | 4 | low to medium |
-| v2.2.2 (formal audit 3) | 4 | low to high (Zip Slip) |
-| v2.2.2 (sprint 4) | 1 | critical (silent extract) |
-| v2.2.2 (god-tier audit) | 1 | **critical** (block-swap AEAD) |
+| v2.2.1 (project review 1) | 6 | low to high |
+| v2.2.2 (project review 2) | 4 | low to medium |
+| v2.2.2 (project review 3) | 4 | low to high (Zip Slip) |
+| v2.2.2 (project review 4) | 1 | critical (silent extract) |
+| v2.2.2 (project security review) | 1 | **critical** (block-swap AEAD) |
 | **Total** | **16** | all fixed and regression-tested |
 
 ### Known limitation accepted
@@ -4327,11 +5598,11 @@ say "checksum mismatch". This is documented in SECURITY.md and is
 acceptable because dedup is opt-in and not the default.
 
 
-## [2.2.2] formal audit pass — 2026-04-27 (no version bump)
+## [2.2.2] project security review pass — 2026-04-27 (no version bump)
 
-Post-release formal cryptographic audit by senior cryptographic engineering
-review. Two security-relevant bugs and two robustness bugs found and fixed.
-Version stays at 2.2.2; this is hardening of the same release.
+A post-release project security review found and fixed two security-relevant
+bugs and two robustness bugs. Version stays at 2.2.2; this is hardening of the
+same release, not an independent audit or certification.
 
 ### Bugs found and fixed
 
@@ -4403,10 +5674,10 @@ Compile-tested with `-Wpedantic` under GCC. Win32 code paths verified via
 ### Documentation updates
 
 - `SECURITY.md`: new "Threat model" and "Path traversal mitigation" sections
-- `AUDIT.md`: 2026-04-27 formal audit entry with cumulative test table
-- `README.md`: Security section bumped with audit confirmation
+- `AUDIT.md`: 2026-04-27 project review entry with cumulative test table
+- `README.md`: Security section updated with the project review summary
 - `doc/zupt.1`: SECURITY section mentions path-traversal protection
-- the then-current formal-audit methodology document
+- the then-current source-review methodology document
 
 ## [2.2.2] — 2026-04-27
 
@@ -4494,7 +5765,7 @@ Audit-driven hardening release. Six bugs found by code review and fixed; new aud
 
 2. **Unchecked `fwrite` in extract path** (`src/zupt_format.c`, six call sites: 1529, 1611, 1631, 1660, 1689, 1699). On a full disk or write error, the extractor reported success while files were corrupt. Each `fwrite` now checks the return; partial writes set the per-file `berr` flag, and the solid-file path returns `ZUPT_ERR_IO`. Found by reading the extract path with the question "what happens if the disk fills mid-extract?"
 
-3. **`mac_key` derived as a copy of `enc_key`** (`src/zupt_crypto_sdk.c`). The keyring's `mac_key` slot was filled with the same 32 bytes as `enc_key`. SDK-mode AEAD doesn't actually use this slot — block authentication runs through the libzuptsdk path — but if any legacy fall-through ever read `mac_key`, it would have used the encryption key as a MAC key. Both keys are now derived from the session key via SHA3-256 with domain-separation strings (`"ZUPT-SDK-ENC-KEY"`, `"ZUPT-SDK-MAC-KEY"`).
+3. **`mac_key` derived as a copy of `enc_key`** (`src/zupt_crypto_sdk.c`). The keyring's `mac_key` slot was filled with the same 32 bytes as `enc_key`, even though ZUPT's shared payload pipeline uses that key for HMAC-SHA256. Both payload keys are now derived from the SDK-wrapped session secret via SHA3-256 with domain-separation strings (`"ZUPT-SDK-ENC-KEY"`, `"ZUPT-SDK-MAC-KEY"`).
 
 4. **Length-overflow in LZ decoder** (`src/zupt_lz.c:33`). `lz_read_extra` accumulated a length value with no upper bound. A crafted block with many `0xFF` extension bytes could overflow `size_t`, wrapping back to a small value that passed the subsequent `op + match_len > dst_len` check, then the inner copy loop ran for many iterations. Capped accumulation at 2^32 with explicit overflow return; both call sites check.
 
@@ -4561,7 +5832,7 @@ zuptsdk integration release. Replaces zupt's legacy hybrid combiner (XOR+SHA3-51
 | HPKE binding | None | RFC 9180 §5 context (suite + AAD bound) |
 | Anti-fault decap | None | Double ML-KEM decap + CT compare |
 | Password KDF | PBKDF2-SHA256 | Argon2id (RFC 9106 OWASP minimums) |
-| AEAD | AES-256-CTR + HMAC-SHA256 | XChaCha20-Poly1305 (default) |
+| Payload protection | AES-256-CTR + HMAC-SHA256 | AES-256-CTR + HMAC-SHA256 |
 | Test coverage | 9 tests | 9 + 11 SDK = 20 + inherited 169 SDK tests |
 
 ### Backward compatibility

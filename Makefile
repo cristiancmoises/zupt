@@ -7,6 +7,7 @@
 #   make V=1            Verbose: show every command line
 #   make install        Install to /usr/local (override with PREFIX=/usr)
 #   make check          Run the source-only distribution test suite
+#   make check-gui      Run Qt archive workflows with the built CLI
 #   make test-all       Run the extended upstream test suite
 #   make test-asan      Build with AddressSanitizer + UBSan
 #   make test-asan-run  Execute the sanitizer smoke test
@@ -29,6 +30,8 @@ ARFLAGS        ?= rcs
 RANLIB         ?= ranlib
 STRIP          ?= strip
 PKG_CONFIG     ?= pkg-config
+PYTHON         ?= python3
+CARGO          ?= cargo
 ASFLAGS        ?=
 
 # GNU make has a built-in ARFLAGS=rv. Use archive creation flags by default,
@@ -193,8 +196,8 @@ ifneq ($(filter x86_64 amd64 i386 i486 i586 i686,$(TARGET_CPU)),)
 endif
 
 # Optional textual assembly is disabled by default so every
-# compiler/architecture has the audited C fallback. Four files are jasminc
-# outputs and zupt_aes_ctr4.s is separately identified as hand-written. When
+# compiler/architecture has the portable C fallback. All five files are
+# pinned jasminc outputs; regeneration is checked by test-jasmin-source. When
 # requested, the compiler driver assembles them while preserving cross-target
 # and sysroot settings.
 WITH_JASMIN ?= 0
@@ -233,8 +236,13 @@ ALL_OBJS      = $(ZUPT_OBJS) $(VV_SIMD_OBJS) $(VV_PLAIN_OBJS)
 
 .DELETE_ON_ERROR:
 .PHONY: all clean install uninstall test test-all release-check test-asan test-asan-run \
-        test-vectors test-f06 test-vv fuzz-build fuzz-format fuzz-format-run \
-        help audit-licenses source-audit dist check
+        test-vectors test-f06 test-vv test-aes-nist test-frama-aes-nist test-frama-aes-nist-wrapper \
+        test-huffman-estimator test-ans-allocation test-ans-decode-bounds test-entropy-literal-limit test-frama-ans-decode-bounds test-frama-ans-decode-bounds-wrapper test-jasmin-source test-jasmin-source-wrapper test-jasmin-wipe-checker test-huffman-allocation \
+        test-frama-ans-reader test-frama-ans-frequencies test-frama-ans-logarithm test-frama-ans-reader-wrapper \
+        test-frama-ans-log-bounds test-frama-ans-log-bounds-wrapper \
+        test-sdk-adapter test-sdk-build-flags test-pqbox-envelope test-native-envelope test-native-key-read-errors \
+        test-kdf-transparency test-kdf-transparency-harness fuzz-build fuzz-format fuzz-format-run \
+        help audit-licenses source-audit dist test-dist-source-state test-quick-harness test-packaging-failures check check-gui
 
 all: $(TARGET)
 
@@ -467,8 +475,9 @@ source-audit:
 	}
 	$(Q)bash "$(SOURCE_AUDIT)"
 
+dist: SHELL := bash
 dist:
-	$(Q)set -eu; \
+	$(Q)set -euo pipefail; \
 	export LC_ALL=C; \
 	umask 022; \
 	unset TAR_OPTIONS; \
@@ -477,11 +486,16 @@ dist:
 	case "$(SOURCE_DATE_EPOCH)" in *[!0-9]*) echo "ERROR: SOURCE_DATE_EPOCH must be an integer" >&2; exit 1;; esac; \
 	test -f "$(SOURCE_AUDIT)" || { echo "ERROR: source-only scanner not found: $(SOURCE_AUDIT)" >&2; exit 1; }; \
 	git rev-parse --verify 'HEAD^{commit}' >/dev/null; \
-	git rev-parse --verify 'HEAD^{tree}' >/dev/null; \
+	dist_tree=$$(git rev-parse --verify 'HEAD^{tree}'); \
+	status=$$(git status --porcelain --untracked-files=normal); \
+	test -z "$$status" || { \
+		echo "ERROR: dist requires a clean committed source tree" >&2; \
+		exit 1; \
+	}; \
 	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/zupt-dist.XXXXXXXX"); \
 	trap 'rm -rf -- "$$tmp"' EXIT HUP INT TERM; \
 	git archive --format=tar --mtime="@$(SOURCE_DATE_EPOCH)" \
-		--prefix="$(DIST_NAME)/" 'HEAD^{tree}' | \
+		--prefix="$(DIST_NAME)/" "$$dist_tree" | \
 		$(GZIP) $(GZIPFLAGS) > "$$tmp/$(DIST_NAME).tar.gz"; \
 	bash "$(SOURCE_AUDIT)" --archive "$$tmp/$(DIST_NAME).tar.gz"; \
 	mkdir -p "$$(dirname "$(DIST_TARBALL)")"; \
@@ -499,6 +513,37 @@ dist:
 	printf '\n  Reproducible source tarball:\n    %s\n    sha256: %s\n    bytes: %s\n' \
 		"$(DIST_TARBALL)" "$$digest" "$$bytes"
 
+test-dist-source-state:
+	$(Q)bash tests/test_dist_source_state.sh
+
+test-quick-harness:
+	$(Q)bash tests/test_quick_harness.sh
+
+.PHONY: test-threaded-harness
+check: test-threaded-harness
+test-threaded-harness: tests/test_threaded.sh tests/test_threaded_harness.sh
+	$(Q)bash tests/test_threaded_harness.sh
+
+# Optional migration checks; never a dependency of the C CLI or distro check.
+.PHONY: test-rust-varint audit-rust-varint
+test-rust-varint:
+	$(Q)CC="$(CC)" CPPFLAGS="$(CPPFLAGS)" CFLAGS="$(CFLAGS)" \
+		LDFLAGS="$(LDFLAGS)" LDLIBS="$(LDLIBS)" CARGO="$(CARGO)" \
+		bash tests/test_rust_varint.sh
+
+audit-rust-varint:
+	$(Q)CARGO="$(CARGO)" bash tests/test_rust_varint.sh --audit
+
+test-packaging-failures:
+	$(Q)$(PYTHON) -B tests/test_package_publication.py
+	$(Q)bash tests/test_deb_packaging_failures.sh
+	$(Q)bash tests/test_rpm_packaging_failures.sh
+
+.PHONY: test-ci-credentials
+check: test-ci-credentials
+test-ci-credentials: tests/test_ci_credentials.py .github/workflows/ci.yml
+	$(Q)$(PYTHON) -B tests/test_ci_credentials.py
+
 # ═══════════════════════════════════════════════════════════════════
 # CLEAN
 # ═══════════════════════════════════════════════════════════════════
@@ -507,6 +552,8 @@ clean:
 	$(Q)rm -f $(PROGRAM) $(PROGRAM).exe $(LEGACY_PROGRAM) $(LEGACY_PROGRAM).exe $(MANPAGE_GZ) \
 		zupt_asan \
 		test_vectors test_f06 test_vaptvupt \
+		test_ans_allocation$(EXEEXT) test_ans_decode_bounds$(EXEEXT) test_aes_nist$(EXEEXT) test_huffman_allocation$(EXEEXT) test_entropy_literal_limit$(EXEEXT) \
+		test_sdk_adapter$(EXEEXT) test_pqbox_envelope$(EXEEXT) test_native_envelope$(EXEEXT) test_native_key_read_errors$(EXEEXT) \
 		fuzz_decompress fuzz_vv_decompress tests/fuzz_format \
 		*.gcda *.gcno *.profraw *.profdata \
 		src/*.o src/*.gcda src/*.gcno jasmin/*.o jasmin/*.gcda jasmin/*.gcno \
@@ -524,22 +571,39 @@ clean:
 
 test: check
 
-test-all: check
+# Qt is a separate dependency, not part of the distro-safe CLI check target.
+# Explicit GUI validation must fail if a binding or the workflow is broken.
+check-gui: $(TARGET)
+	$(Q)QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 \
+		ZUPT_BIN="$(CURDIR)/$(TARGET)" $(PYTHON) tests/test_gui_workflows.py
+
+test-all: check test-kdf-transparency
 	$(Q)bash tests/regression.sh ./$(TARGET)
 	$(Q)sh tests/test_threaded.sh ./$(TARGET)
 	$(Q)sh tests/test_pq.sh ./$(TARGET)
 	$(Q)bash tests/test_dedup_props.sh ./$(TARGET)
-	$(Q)bash tests/test_ct_timing.sh
-	$(Q)bash tests/test_codec_exact_size.sh
+	$(Q)$(MAKE) test-ct-timing
+	$(Q)$(MAKE) test-codec-exact-size
 	$(Q)bash tests/test_mlkem_fips203.sh
 	$(Q)bash tests/test_sdk.sh
 	$(Q)bash tests/test_pqbox.sh
 	$(Q)bash tests/test_audit.sh
-	$(Q)bash tests/test_kdf_transparency.sh
+
+.PHONY: test-codec-exact-size test-codec-exact-size-wrapper
+test-codec-exact-size:
+	$(Q)CC="$(CC)" CPPFLAGS="$(CPPFLAGS) $(PROJECT_CPPFLAGS)" \
+		CFLAGS="$(CFLAGS) $(PROJECT_CFLAGS)" \
+		VV_CAST_ALIGN_FLAGS="$(CLANG_CAST_ALIGN_FLAGS)" \
+		LDFLAGS="$(LDFLAGS) $(PROJECT_LDFLAGS)" \
+		LDLIBS="$(LDLIBS) $(PROJECT_LDLIBS)" \
+		bash tests/test_codec_exact_size.sh
+
+test-codec-exact-size-wrapper:
+	$(Q)MAKE="$(MAKE)" bash tests/test_codec_exact_size_wrapper.sh
 
 # Release-only gates need a committed Git checkout and packaging metadata.
 # Keep them out of downstream %check, which intentionally has no dist rebuild.
-release-check: test-all audit-licenses
+release-check: test-all audit-licenses test-dist-source-state test-quick-harness test-packaging-failures test-jasmin-source test-jasmin-wipe-checker test-frama-ans-decode-bounds test-frama-ans-reader test-frama-ans-frequencies test-frama-ans-logarithm test-frama-ans-log-bounds test-frama-aes-nist test-portable-gui
 	$(Q)$(MAKE) sdk-test
 	$(Q)bash tests/test_static_analysis.sh
 	$(Q)bash tests/test_packaging_syntax.sh
@@ -565,15 +629,17 @@ release-check: test-all audit-licenses
 #   - Doesn't depend on tools that may be absent in the build chroot
 #     (no python3 PyYAML, no ruby, no dpkg-parsechangelog)
 #   - Doesn't depend on multi-threading that's flaky under emulation
-#     (skips test_threaded.sh and test_pq.sh's MT subset)
+#     (skips real test_threaded.sh codec work and test_pq.sh's MT subset;
+#      the synthetic threaded-harness process controls still run)
 #   - Covers the source-only CLI, archive safety, HMAC/integrity regressions,
 #     codec checks and cryptographic primitive vectors
 #   - Verifies cryptographic primitives against NIST/RFC vectors
 #
 # This is the recommended target for OBS %check sections.
 
-check: $(TARGET) test-vectors test-f06 test-vv
+check: $(TARGET) test-vectors test-f06 test-vv test-aes-nist test-frama-aes-nist-wrapper test-huffman-estimator test-ans-allocation test-ans-decode-bounds test-entropy-literal-limit test-frama-ans-decode-bounds-wrapper test-frama-ans-reader-wrapper test-frama-ans-log-bounds-wrapper test-jasmin-source-wrapper test-jasmin-wipe-checker test-huffman-allocation test-sdk-adapter test-sdk-build-flags test-pqbox-envelope test-native-envelope test-fuzz-harness test-fuzz-build test-fuzz-build-wrapper test-static-analysis-harness test-worker-start test-windows-thread-start test-ct-timing-harness test-sha256-shani test-hmac-incremental test-crypto-test-wrappers test-codec-exact-size-wrapper test-kdf-transparency-harness test-installed-smoke-harness
 	$(Q)sh tests/run_quick.sh ./$(TARGET)
+	$(Q)bash tests/test_quick_harness.sh
 	$(Q)bash tests/test_path_traversal.sh ./$(TARGET)
 	$(Q)bash tests/test_arg_order.sh ./$(TARGET)
 	$(Q)bash tests/test_password_sources.sh ./$(TARGET)
@@ -594,10 +660,9 @@ check: $(TARGET) test-vectors test-f06 test-vv
 	$(Q)bash tests/test_dedup_nonce.sh ./$(TARGET)
 	$(Q)bash tests/test_gui_branding.sh ./$(TARGET)
 	$(Q)bash tests/test_help_consistency.sh ./$(TARGET)
+	$(Q)sh tests/test_suite_reporting.sh
 	$(Q)bash tests/test_benchmark_temp_safety.sh ./$(TARGET)
 	$(Q)bash tests/test_vv_decode_slack.sh ./$(TARGET)
-	$(Q)bash tests/test_sha256_shani.sh
-	$(Q)bash tests/test_hmac_incremental.sh
 	$(Q)bash tests/test_completions_manpage.sh
 	$(Q)bash tests/test_source_only.sh
 	$(Q)./test_vectors
@@ -605,6 +670,11 @@ check: $(TARGET) test-vectors test-f06 test-vv
 	@echo "  ═════════════════════════════════════════"
 	@echo "  All executed distro-safe checks passed (see SKIP lines above)."
 	@echo "  ═════════════════════════════════════════"
+
+.PHONY: test-vv-decode-slack-harness
+check: test-vv-decode-slack-harness
+test-vv-decode-slack-harness: tests/test_vv_decode_slack.sh tests/test_vv_decode_slack_harness.sh
+	$(Q)bash tests/test_vv_decode_slack_harness.sh
 
 TEST_CRYPTO_SOURCES = src/zupt_sha256.c src/zupt_sha256_shani.c \
 	src/zupt_crypto.c src/zupt_aes256.c src/zupt_xxh.c src/zupt_keccak.c \
@@ -617,6 +687,38 @@ test-vectors: tests/test_vectors.c $(HEADERS) $(TEST_CRYPTO_OBJS) $(JAZZ_O)
 		tests/test_vectors.c $(TEST_CRYPTO_OBJS) $(JAZZ_O) \
 		-o test_vectors $(FEATURE_LDLIBS) $(PROJECT_LDLIBS) $(LDLIBS)
 
+test-native-envelope: tests/test_native_envelope.c $(HEADERS) $(TEST_CRYPTO_OBJS) $(JAZZ_O)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(LDFLAGS) $(PROJECT_LDFLAGS) \
+		tests/test_native_envelope.c $(TEST_CRYPTO_OBJS) $(JAZZ_O) \
+		-o test_native_envelope$(EXEEXT) \
+		$(FEATURE_LDLIBS) $(PROJECT_LDLIBS) $(LDLIBS)
+	$(Q)set -eu; test_dir=$$(mktemp -d); \
+		trap 'rm -rf "$$test_dir"' EXIT HUP INT TERM; \
+		./test_native_envelope$(EXEEXT) "$$test_dir"
+
+check: test-native-key-read-errors
+test-native-key-read-errors: tests/test_native_key_read_errors.c $(HEADERS) $(TEST_CRYPTO_OBJS) $(JAZZ_O)
+ifeq ($(strip $(TARGET_MACHINE)),)
+	@echo "FAIL: cannot determine compiler target for native key read fault injection" >&2; exit 1
+else ifeq ($(strip $(TARGET_MACHINE)),unknown)
+	@echo "FAIL: unknown compiler target for native key read fault injection" >&2; exit 1
+else ifneq ($(findstring android,$(TARGET_MACHINE)),)
+	@echo "SKIP: native key read fault injection requires GNU/Linux cookie streams and fopen wrapping"
+else ifneq ($(findstring linux,$(TARGET_MACHINE)),)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(LDFLAGS) $(PROJECT_LDFLAGS) \
+		tests/test_native_key_read_errors.c $(TEST_CRYPTO_OBJS) $(JAZZ_O) \
+		-Wl,--wrap=fopen -Wl,--wrap=fread -Wl,--wrap=fgetc -Wl,--wrap=fclose \
+		-o test_native_key_read_errors$(EXEEXT) \
+		$(FEATURE_LDLIBS) $(PROJECT_LDLIBS) $(LDLIBS)
+	$(Q)set -eu; test_dir=$$(mktemp -d); \
+		trap 'rm -rf "$$test_dir"' EXIT HUP INT TERM; \
+		./test_native_key_read_errors$(EXEEXT) "$$test_dir"
+else
+	@echo "SKIP: native key read fault injection requires GNU/Linux cookie streams and fopen wrapping"
+endif
+
 # F-06 regression — HMAC accept-on-disjoint-bits (ZUPT 2.2.5).
 # Inherits $(CFLAGS) so ZUPT_USE_JASMIN is defined on x86_64 (exercising
 # the original buggy path). Links the same crypto modules as test-vectors
@@ -628,6 +730,9 @@ test-f06: tests/test_f06_hmac.c $(HEADERS) $(TEST_CRYPTO_OBJS) $(JAZZ_O)
 		$(FEATURE_LDLIBS) $(PROJECT_LDLIBS) $(LDLIBS)
 	$(Q)./test_f06
 
+test-sdk-build-flags:
+	$(Q)MAKE="$(MAKE)" CC="$(CC)" bash tests/test_sdk_build_flags.sh
+
 # VAPTVUPT: VaptVupt codec unit tests
 TEST_VV_OBJS = $(VV_SIMD_OBJS) $(VV_PLAIN_OBJS) src/zupt_xxh.o src/zupt_cpuid.o
 test-vv: tests/test_vaptvupt.c $(HEADERS) $(TEST_VV_OBJS)
@@ -636,21 +741,243 @@ test-vv: tests/test_vaptvupt.c $(HEADERS) $(TEST_VV_OBJS)
 		-o test_vaptvupt $(PROJECT_LDLIBS) $(LDLIBS)
 	$(Q)./test_vaptvupt
 
+test-huffman-estimator:
+	$(Q)CC="$(CC)" CPPFLAGS="$(CPPFLAGS)" \
+		CFLAGS="$(CFLAGS) $(PROJECT_CFLAGS)" \
+		VV_ANS_CFLAGS="$(CLANG_CAST_ALIGN_FLAGS)" \
+		LDFLAGS="$(LDFLAGS) $(PROJECT_LDFLAGS)" LDLIBS="$(LDLIBS)" \
+		sh tests/test_huffman_estimator.sh
+
+test-ans-allocation: tests/test_ans_allocation.c src/vv_ans.c $(HEADERS) src/vv_huffman.o
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(CLANG_CAST_ALIGN_FLAGS) $(LDFLAGS) $(PROJECT_LDFLAGS) \
+		tests/test_ans_allocation.c src/vv_huffman.o -o test_ans_allocation$(EXEEXT) \
+		$(PROJECT_LDLIBS) $(LDLIBS)
+	$(Q)./test_ans_allocation$(EXEEXT)
+
+test-ans-decode-bounds: tests/test_ans_decode_bounds.c src/vv_ans.o src/vv_huffman.o $(HEADERS)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		-UNDEBUG $(LDFLAGS) $(PROJECT_LDFLAGS) \
+		tests/test_ans_decode_bounds.c src/vv_ans.o src/vv_huffman.o \
+		-o test_ans_decode_bounds$(EXEEXT) $(PROJECT_LDLIBS) $(LDLIBS)
+	$(Q)./test_ans_decode_bounds$(EXEEXT)
+	@echo "PASS: ANS4 rejects invalid metadata and decodes exact-sized literal and match tails"
+
+test-entropy-literal-limit: tests/test_entropy_literal_limit.c $(HEADERS) $(TEST_VV_OBJS)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(LDFLAGS) $(PROJECT_LDFLAGS) tests/test_entropy_literal_limit.c $(TEST_VV_OBJS) \
+		-Wl,--wrap=malloc -Wl,--wrap=free -o test_entropy_literal_limit$(EXEEXT) \
+		$(PROJECT_LDLIBS) $(LDLIBS)
+	$(Q)./test_entropy_literal_limit$(EXEEXT)
+
+test-frama-ans-decode-bounds:
+	$(Q)sh tests/test_frama_ans_decode_bounds.sh
+
+test-frama-ans-decode-bounds-wrapper:
+	$(Q)sh tests/test_frama_ans_decode_bounds_wrapper.sh
+
+test-frama-ans-reader:
+	$(Q)sh tests/test_frama_ans_reader.sh
+
+test-frama-ans-frequencies:
+	$(Q)sh tests/test_frama_ans_reader.sh frequency
+
+test-frama-ans-logarithm:
+	$(Q)sh tests/test_frama_ans_reader.sh logarithm
+
+test-frama-ans-reader-wrapper:
+	$(Q)sh tests/test_frama_ans_reader_wrapper.sh
+
+test-frama-ans-log-bounds:
+	$(Q)sh tests/test_frama_ans_log_bounds.sh
+
+test-frama-ans-log-bounds-wrapper:
+	$(Q)sh tests/test_frama_ans_log_bounds_wrapper.sh
+
+test-aes-nist: tests/test_aes_nist.c src/zupt_aes256.c $(HEADERS)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(LDFLAGS) $(PROJECT_LDFLAGS) -UNDEBUG \
+		tests/test_aes_nist.c src/zupt_aes256.c -o test_aes_nist$(EXEEXT) \
+		$(PROJECT_LDLIBS) $(LDLIBS)
+	$(Q)./test_aes_nist$(EXEEXT)
+	@echo "PASS: portable AES, four NIST F.1.5 blocks, 64 byte assertions"
+
+test-frama-aes-nist:
+	$(Q)sh tests/test_frama_aes_nist.sh
+
+test-frama-aes-nist-wrapper:
+	$(Q)sh tests/test_frama_aes_nist_wrapper.sh
+
+test-jasmin-source:
+	$(Q)CC="$(CC)" CPPFLAGS="$(CPPFLAGS) $(PROJECT_CPPFLAGS)" \
+		CFLAGS="$(CFLAGS) $(PROJECT_CFLAGS)" ASFLAGS="$(ASFLAGS)" LDFLAGS="$(LDFLAGS)" \
+		LDLIBS="$(LDLIBS)" sh tests/test_jasmin_source.sh
+
+test-jasmin-source-wrapper:
+	$(Q)sh tests/test_jasmin_source_wrapper.sh
+
+test-jasmin-wipe-checker:
+	$(Q)sh tests/test_jasmin_wipe_checker.sh
+
+test-huffman-allocation: tests/test_huffman_allocation.c src/vv_huffman.c $(HEADERS)
+	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(LDFLAGS) $(PROJECT_LDFLAGS) \
+		tests/test_huffman_allocation.c -o test_huffman_allocation$(EXEEXT) \
+		$(PROJECT_LDLIBS) $(LDLIBS)
+	$(Q)./test_huffman_allocation$(EXEEXT)
+
+test-sdk-adapter: tests/test_sdk_adapter.c src/zupt_crypto_sdk.c \
+                  tests/sdk_adapter_stubs/zuptsdk.h \
+                  tests/sdk_adapter_stubs/zuptsdk_easy.h include/zupt.h
+	$(Q)$(CC) -Itests/sdk_adapter_stubs $(CPPFLAGS) $(PROJECT_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) -Werror -DZUPT_WITH_SDK \
+		$(LDFLAGS) $(PROJECT_LDFLAGS) tests/test_sdk_adapter.c \
+		-o test_sdk_adapter$(EXEEXT) $(PROJECT_LDLIBS) $(LDLIBS)
+	$(Q)./test_sdk_adapter$(EXEEXT)
+
+test-pqbox-envelope: tests/test_pqbox_envelope.c src/zupt_crypto_pqbox.c \
+                     tests/fixtures/pqbox/pqvaptvupt.h $(HEADERS)
+	$(Q)$(CC) -Itests/fixtures/pqbox $(CPPFLAGS) $(PROJECT_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) -Werror -DZUPT_WITH_PQBOX \
+		$(LDFLAGS) $(PROJECT_LDFLAGS) tests/test_pqbox_envelope.c \
+		src/zupt_crypto_pqbox.c -o test_pqbox_envelope$(EXEEXT) \
+		$(PROJECT_LDLIBS) $(LDLIBS)
+	$(Q)set -eu; test_dir=$$(mktemp -d); \
+		trap 'rm -rf "$$test_dir"' EXIT HUP INT TERM; \
+		./test_pqbox_envelope$(EXEEXT) "$$test_dir"
+
+.PHONY: test-fuzz-harness test-fuzz-build test-fuzz-build-wrapper test-static-analysis-harness
+test-fuzz-harness:
+	$(Q)CC="$(CC)" CPPFLAGS="$(CPPFLAGS) $(PROJECT_CPPFLAGS)" \
+		CFLAGS="$(CFLAGS) $(PROJECT_CFLAGS)" \
+		LDFLAGS="$(LDFLAGS) $(PROJECT_LDFLAGS)" LDLIBS="$(LDLIBS)" \
+		sh tests/test_fuzz_format_harness.sh
+
+test-fuzz-build: $(TARGET)
+	$(Q)CC="$(CC)" CPPFLAGS="$(CPPFLAGS)" CFLAGS="$(CFLAGS)" \
+		LDFLAGS="$(LDFLAGS)" LDLIBS="$(LDLIBS)" MAKE="$(MAKE)" FUZZ_TEST_CLI="$(CURDIR)/$(TARGET)" \
+		sh tests/test_fuzz_build.sh
+
+test-fuzz-build-wrapper:
+	$(Q)sh tests/test_fuzz_build_wrapper.sh
+
+test-static-analysis-harness:
+	$(Q)sh tests/test_static_analysis_harness.sh
+
+.PHONY: test-disk-ioctl-abi test-disk-ioctl-abi-wrapper test-worker-start test-windows-thread-start
+check: test-disk-ioctl-abi test-disk-ioctl-abi-wrapper
+
+test-disk-ioctl-abi:
+	$(Q)CC="$(CC)" CPPFLAGS="$(CPPFLAGS) $(PROJECT_CPPFLAGS)" \
+		CFLAGS="$(CFLAGS) $(PROJECT_CFLAGS)" \
+		LDFLAGS="$(LDFLAGS) $(PROJECT_LDFLAGS)" LDLIBS="$(LDLIBS)" \
+		sh tests/test_disk_ioctl_abi.sh
+
+test-disk-ioctl-abi-wrapper:
+	$(Q)sh tests/test_disk_ioctl_abi_wrapper.sh
+
+.PHONY: test-atomic-output-probe
+check: test-atomic-output-probe
+test-atomic-output-probe:
+	$(Q)bash tests/test_atomic_archive_output_probe.sh
+
+.PHONY: test-legacy-disk-compiler
+check: test-legacy-disk-compiler
+test-legacy-disk-compiler:
+	$(Q)bash tests/test_legacy_disk_5_2_1_compiler.sh
+
+# Exercise distro PIE flags even when the caller leaves LDFLAGS empty.
+test-worker-start: $(TARGET)
+	$(Q)CC="$(CC)" CPPFLAGS="$(CPPFLAGS) $(PROJECT_CPPFLAGS)" \
+		CFLAGS="$(CFLAGS) $(PROJECT_CFLAGS)" \
+		LDFLAGS="$(LDFLAGS) $(PROJECT_LDFLAGS) -Wl,-pie" LDLIBS="$(LDLIBS)" \
+		sh tests/test_partial_worker_start.sh ./$(TARGET)
+
+.PHONY: test-worker-allocation
+check: test-worker-allocation
+test-worker-allocation:
+	$(Q)CC="$(CC)" CPPFLAGS="$(CPPFLAGS)" CFLAGS="$(CFLAGS)" \
+		LDFLAGS="$(LDFLAGS)" LDLIBS="$(LDLIBS)" MAKE="$(MAKE)" \
+		bash tests/test_worker_allocation.sh
+
+test-windows-thread-start:
+	$(Q)CC="$(CC)" CPPFLAGS="$(CPPFLAGS) $(PROJECT_CPPFLAGS)" \
+		CFLAGS="$(CFLAGS) $(PROJECT_CFLAGS)" \
+		LDFLAGS="$(LDFLAGS) $(PROJECT_LDFLAGS)" LDLIBS="$(LDLIBS)" \
+		sh tests/test_windows_thread_start.sh
+
+.PHONY: test-sha256-shani test-hmac-incremental test-crypto-test-wrappers
+test-sha256-shani:
+	$(Q)CC="$(CC)" CPPFLAGS="$(CPPFLAGS) $(PROJECT_CPPFLAGS)" \
+		CFLAGS="$(CFLAGS) $(PROJECT_CFLAGS)" \
+		SHANI_CFLAGS="$(CLANG_CAST_ALIGN_FLAGS)" \
+		LDFLAGS="$(LDFLAGS) $(PROJECT_LDFLAGS)" LDLIBS="$(LDLIBS)" \
+		bash tests/test_sha256_shani.sh
+
+test-hmac-incremental:
+	$(Q)CC="$(CC)" CPPFLAGS="$(CPPFLAGS) $(PROJECT_CPPFLAGS)" \
+		CFLAGS="$(CFLAGS) $(PROJECT_CFLAGS)" \
+		SHANI_CFLAGS="$(CLANG_CAST_ALIGN_FLAGS)" \
+		LDFLAGS="$(LDFLAGS) $(PROJECT_LDFLAGS)" LDLIBS="$(LDLIBS)" \
+		bash tests/test_hmac_incremental.sh
+
+test-crypto-test-wrappers:
+	$(Q)bash tests/test_crypto_test_wrappers.sh
+
+.PHONY: test-installed-smoke-harness
+test-installed-smoke-harness: $(TARGET) scripts/test-installed-zupt.sh tests/test_installed_smoke_harness.sh
+	$(Q)bash tests/test_installed_smoke_harness.sh ./$(TARGET)
+
+.PHONY: test-portable-gui test-installed-docs
+check: test-installed-docs
+test-installed-docs: scripts/check-installed-docs.py tests/test_installed_docs.py
+	$(Q)$(PYTHON) -B tests/test_installed_docs.py
+
+test-portable-gui: $(TARGET) packaging/build-portable-gui.sh tests/test_portable_gui.py scripts/check-source-only.sh
+	$(Q)PYTHONDONTWRITEBYTECODE=1 ZUPT_BIN="$(abspath $(TARGET))" \
+		$(PYTHON) tests/test_portable_gui.py
+
+test-kdf-transparency:
+	$(Q)CC="$(CC)" SDK_CPPFLAGS="$(SDK_CPPFLAGS)" SDK_LDLIBS="$(SDK_LDLIBS)" \
+		bash tests/test_kdf_transparency.sh
+
+test-kdf-transparency-harness:
+	+$(Q)CC="$(CC)" MAKE="$(MAKE)" \
+		sh tests/test_kdf_transparency_harness.sh
+
+.PHONY: test-ct-timing-harness test-ct-timing
+test-ct-timing-harness:
+	$(Q)CC="$(CC)" CPPFLAGS="$(CPPFLAGS) $(PROJECT_CPPFLAGS)" \
+		CFLAGS="$(CFLAGS) $(PROJECT_CFLAGS)" \
+		SHANI_CFLAGS="$(CLANG_CAST_ALIGN_FLAGS)" \
+		LDFLAGS="$(LDFLAGS) $(PROJECT_LDFLAGS)" LDLIBS="$(LDLIBS)" \
+		sh tests/test_ct_timing_harness.sh
+
+test-ct-timing:
+	$(Q)CC="$(CC)" CPPFLAGS="$(CPPFLAGS) $(PROJECT_CPPFLAGS)" \
+		CFLAGS="$(CFLAGS) $(PROJECT_CFLAGS)" \
+		SHANI_CFLAGS="$(CLANG_CAST_ALIGN_FLAGS)" \
+		LDFLAGS="$(LDFLAGS) $(PROJECT_LDFLAGS)" LDLIBS="$(LDLIBS)" \
+		bash tests/test_ct_timing.sh
+
 ASAN_BUILD_DIR = build/asan
 ASAN_CFLAGS ?= -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined
 ASAN_LDFLAGS ?= -fsanitize=address,undefined
 ASAN_OBJS = $(patsubst src/%.c,$(ASAN_BUILD_DIR)/%.o,$(SOURCES))
+ASAN_CAST_ALIGN_OBJS = $(patsubst src/%.o,$(ASAN_BUILD_DIR)/%.o,$(CLANG_CAST_ALIGN_OBJS))
 
 $(ASAN_BUILD_DIR):
 	$(Q)mkdir -p "$@"
 
 $(ASAN_BUILD_DIR)/zupt_sha256_shani.o: src/zupt_sha256_shani.c $(HEADERS) | $(ASAN_BUILD_DIR)
 	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
-		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) $(SHANI_FLAGS) -c -o $@ $<
+		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) $(SHANI_FLAGS) \
+		$(CLANG_CAST_ALIGN_FLAGS) -c -o $@ $<
 
 $(ASAN_BUILD_DIR)/vv_%.o: src/vv_%.c $(HEADERS) | $(ASAN_BUILD_DIR)
 	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
-		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) -c -o $@ $<
+		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) \
+		$(if $(filter $@,$(ASAN_CAST_ALIGN_OBJS)),$(CLANG_CAST_ALIGN_FLAGS)) -c -o $@ $<
 
 $(ASAN_BUILD_DIR)/vaptvupt_api.o: src/vaptvupt_api.c $(HEADERS) | $(ASAN_BUILD_DIR)
 	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
@@ -722,22 +1049,28 @@ test-asan-run: test-asan
 # AFL++ fuzzing harnesses (requires afl-clang-fast). Compile every source with
 # instrumentation while retaining translation-unit-local ISA flags.
 AFL_CC ?= afl-clang-fast
+AFL_CLANG_CAST_ALIGN_FLAGS :=
+ifneq ($(findstring clang,$(shell $(AFL_CC) --version 2>/dev/null | head -n 1)),)
+  AFL_CLANG_CAST_ALIGN_FLAGS := -Wno-cast-align
+endif
 FUZZ_BUILD_DIR = build/fuzz
 FUZZ_SOURCES = $(filter-out src/zupt_main.c,$(SOURCES))
 FUZZ_OBJS = $(patsubst src/%.c,$(FUZZ_BUILD_DIR)/%.o,$(FUZZ_SOURCES))
-FUZZ_VV_OBJS = $(addprefix $(FUZZ_BUILD_DIR)/,vv_encoder.o vv_decoder.o \
-	vv_ans.o vv_huffman.o vv_simd.o zupt_xxh.o zupt_cpuid.o)
+FUZZ_VV_OBJS = $(patsubst src/%.c,$(FUZZ_BUILD_DIR)/%.o,$(VV_SOURCES))
+FUZZ_CAST_ALIGN_OBJS = $(patsubst src/%.o,$(FUZZ_BUILD_DIR)/%.o,$(CLANG_CAST_ALIGN_OBJS))
 
 $(FUZZ_BUILD_DIR):
 	$(Q)mkdir -p "$@"
 
 $(FUZZ_BUILD_DIR)/zupt_sha256_shani.o: src/zupt_sha256_shani.c $(HEADERS) | $(FUZZ_BUILD_DIR)
 	$(Q)$(AFL_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
-		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) $(SHANI_FLAGS) -c -o $@ $<
+		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) $(SHANI_FLAGS) \
+		$(AFL_CLANG_CAST_ALIGN_FLAGS) -c -o $@ $<
 
 $(FUZZ_BUILD_DIR)/vv_%.o: src/vv_%.c $(HEADERS) | $(FUZZ_BUILD_DIR)
 	$(Q)$(AFL_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(FEATURE_CPPFLAGS) \
 		$(CFLAGS) $(PROJECT_CFLAGS) $(ASAN_CFLAGS) $(VV_WARNING_FLAGS) \
+		$(if $(filter $@,$(FUZZ_CAST_ALIGN_OBJS)),$(AFL_CLANG_CAST_ALIGN_FLAGS)) \
 		$(if $(filter $(FUZZ_BUILD_DIR)/vv_decoder.o,$@),$(VV_DECODER_WARNING_FLAGS)) -c -o $@ $<
 
 $(FUZZ_BUILD_DIR)/vaptvupt_api.o: src/vaptvupt_api.c $(HEADERS) | $(FUZZ_BUILD_DIR)
@@ -772,9 +1105,14 @@ help:
 	@echo "  make              Build zupt binary"
 	@echo "  make V=1          Build with verbose output"
 	@echo "  make check        Distro-safe source-only test suite"
+	@echo "  make test-ci-credentials  CI credential gate failure-path regressions (Git/Bash/Python)"
+	@echo "  make test-portable-gui  Portable GUI .zupt packaging regressions (no Qt)"
+	@echo "  make test-packaging-failures  DEB/RPM tool-failure regressions (no native build)"
 	@echo "  make test-all     Complete runtime suite; unavailable integrations SKIP"
 	@echo "  make release-check Runtime, static, packaging, source and dist gates"
 	@echo "  make test-vv      VaptVupt codec unit tests"
+	@echo "  make test-rust-varint  Optional C/Rust scalar compatibility tests (Rust 1.93+)"
+	@echo "  make audit-rust-varint Optional Rust formatting and Clippy checks"
 	@echo "  make test-asan    Build with AddressSanitizer"
 	@echo "  make fuzz-build   Build AFL++ fuzzing harnesses"
 	@echo "  make dist         Reproducible, audited source archive"

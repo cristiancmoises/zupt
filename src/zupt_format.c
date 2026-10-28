@@ -663,13 +663,13 @@ zupt_error_t write_enc_header(FILE *out, zupt_archive_header_t *hdr,
         if (!opts->quiet)
             fprintf(stderr, "  Encryption: AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)\n\n");
     } else if (opts->sdk_mode && opts->pq_mode) {
-        /* ─── SDK V2 PQ MODE (libvuptsdk: HKDF combiner + commitment + HPKE) ─── */
+        /* ─── SDK V2 PQ RECIPIENT MODE ─── */
         hdr->global_flags |= ZUPT_FLAG_PQ_HYBRID;
 
         uint8_t enc_hdr_buf[1500];
         size_t enc_hdr_len = 0;
         if (!opts->quiet)
-            fprintf(stderr, "  PQ key encapsulation via libvuptsdk (HKDF-SHA3 + commitment + HPKE)...\n");
+            fprintf(stderr, "  PQ recipient envelope via libvuptsdk SDK-v2...\n");
         if (zupt_sdk_hybrid_encrypt_init(&opts->keyring, opts->keyfile,
                                           enc_hdr_buf, &enc_hdr_len) != 0) {
             fprintf(stderr, "Error: SDK PQ key encapsulation failed.\n");
@@ -689,8 +689,10 @@ zupt_error_t write_enc_header(FILE *out, zupt_archive_header_t *hdr,
         if (zupt_write_archive_header(out, hdr) != 0) return ZUPT_ERR_IO;
         fseeko(out, 0, SEEK_END);
 
-        if (!opts->quiet)
-            fprintf(stderr, "  Encryption: SDK-v2 PQ Hybrid + XChaCha20-Poly1305 (commitment + HPKE)\n\n");
+        if (!opts->quiet) {
+            fprintf(stderr, "  Recipient envelope: libvuptsdk SDK-v2\n");
+            fprintf(stderr, "  Payload protection: AES-256-CTR + HMAC-SHA256\n\n");
+        }
     } else if (opts->pqonly_mode) {
         /* ─── FULL POST-QUANTUM MODE (ML-KEM-768 only, no X25519) ─── */
         hdr->global_flags |= ZUPT_FLAG_PQ_HYBRID;   /* generic PQ indicator; enc_type distinguishes */
@@ -1221,6 +1223,38 @@ static int zupt_canonical_output_root(const char *path, int create,
     return 1;
 }
 
+static int zupt_open_directory_at(int parent_fd, const char *path,
+                                  int extra_flags) {
+    int common_flags = O_DIRECTORY | O_CLOEXEC | extra_flags;
+    int descriptor = openat(parent_fd, path, O_RDONLY | common_flags);
+
+    /* Reading a directory is not required to traverse it. Preserve a readable
+     * descriptor when possible (the publisher can fsync it), but fall back to
+     * a search-only handle when an ancestor grants execute without read. */
+    if (descriptor < 0 && errno == EACCES) {
+#if defined(O_SEARCH)
+        descriptor = openat(parent_fd, path, O_SEARCH | common_flags);
+#elif defined(O_PATH)
+        descriptor = openat(parent_fd, path, O_PATH | common_flags);
+#endif
+    }
+    if (descriptor < 0) return -1;
+
+    struct stat status;
+    if (fstat(descriptor, &status) != 0) {
+        int saved_errno = errno;
+        close(descriptor);
+        errno = saved_errno;
+        return -1;
+    }
+    if (!S_ISDIR(status.st_mode)) {
+        close(descriptor);
+        errno = ENOTDIR;
+        return -1;
+    }
+    return descriptor;
+}
+
 /* Open every component of the canonical output root relative to a pinned
  * descriptor.  Symlinks created or exchanged after canonicalization are
  * rejected, and a trailing slash is treated like the same path without it. */
@@ -1231,8 +1265,8 @@ static int zupt_open_output_root(const char *path, int create) {
     size_t root_len = strlen(root);
     if (root_len >= ZUPT_MAX_PATH) { errno = ENAMETOOLONG; return -1; }
 
-    int current_fd = open(root[0] == '/' ? "/" : ".",
-                          O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    int current_fd = zupt_open_directory_at(
+        AT_FDCWD, root[0] == '/' ? "/" : ".", 0);
     if (current_fd < 0) return -1;
 
     char copy[ZUPT_MAX_PATH];
@@ -1252,8 +1286,8 @@ static int zupt_open_output_root(const char *path, int create) {
                 mkdirat(current_fd, component, 0755) != 0 && errno != EEXIST) {
                 close(current_fd); return -1;
             }
-            int next_fd = openat(current_fd, component,
-                                 O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+            int next_fd = zupt_open_directory_at(current_fd, component,
+                                                 O_NOFOLLOW);
             if (next_fd < 0) { close(current_fd); return -1; }
             close(current_fd);
             current_fd = next_fd;
@@ -1641,8 +1675,8 @@ static int zupt_safe_fopen_output(const char *dir, const char *entry,
                 close(parent_fd);
                 return 0;
             }
-            int next_fd = openat(parent_fd, component,
-                                 O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+            int next_fd = zupt_open_directory_at(parent_fd, component,
+                                                 O_NOFOLLOW);
             if (next_fd < 0) { close(parent_fd); return 0; }
             close(parent_fd);
             parent_fd = next_fd;
@@ -5192,7 +5226,7 @@ zupt_error_t zupt_archive_info(const char *path) {
                 printf("  Post-quantum:  YES (ML-KEM-768 only, no classical layer)\n");
                 break;
             case ZUPT_ENC_PQ_SDK_V2:
-                printf("  Post-quantum:  YES (ML-KEM-768 + X25519, SDK v2 + HPKE)\n");
+                printf("  Post-quantum:  YES (libvuptsdk SDK-v2 recipient envelope)\n");
                 break;
             case ZUPT_ENC_PQ_BOX_V1:
                 printf("  Post-quantum:  YES (ML-KEM-768 + X25519, sealed box)\n");

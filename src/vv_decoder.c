@@ -52,11 +52,12 @@ static size_t read_ext_len(const uint8_t **pp, const uint8_t *end) {
 
 #if VV_INLINE_AVX2
 
+/* These intrinsics accept byte-aligned addresses, not aligned vector pointers. */
 static inline void wcopy16(uint8_t *d, const uint8_t *s) {
-    _mm_storeu_si128((__m128i *)d, _mm_loadu_si128((const __m128i *)s));
+    _mm_storeu_si128((void *)d, _mm_loadu_si128((const void *)s));
 }
 static inline void wcopy32(uint8_t *d, const uint8_t *s) {
-    _mm256_storeu_si256((__m256i *)d, _mm256_loadu_si256((const __m256i *)s));
+    _mm256_storeu_si256((void *)d, _mm256_loadu_si256((const void *)s));
 }
 
 /* Match copy with offset >= 32: 32-byte chunks, NO over-copy at tail */
@@ -560,6 +561,10 @@ static vv_error_t decode_block_huffman(
     uint16_t huff_sz   = (uint16_t)(data[2] | (data[3] << 8));
 
     if (4 + (size_t)huff_sz > data_len) return VV_ERR_CORRUPT;
+    /* Every literal is copied into this block's output.  Rejecting an
+     * impossible count before allocating keeps malformed frames from
+     * exercising entropy work or heap storage they cannot use. */
+    if ((size_t)lit_count > decomp_size) return VV_ERR_CORRUPT;
 
     /* Huffman-decode all literals */
     uint8_t *lit_buf = (uint8_t *)malloc((size_t)lit_count + 16);
@@ -598,6 +603,7 @@ static vv_error_t decode_block_ans(
     uint16_t ans_sz    = (uint16_t)(data[2] | (data[3] << 8));
 
     if (4 + (size_t)ans_sz > data_len) return VV_ERR_CORRUPT;
+    if ((size_t)lit_count > decomp_size) return VV_ERR_CORRUPT;
 
     /* ANS-decode all literals */
     uint8_t *lit_buf = (uint8_t *)malloc((size_t)lit_count + 16);
@@ -634,6 +640,7 @@ static vv_error_t decode_block_ans4(
     uint16_t ans_sz    = (uint16_t)(data[2] | (data[3] << 8));
 
     if (4 + (size_t)ans_sz > data_len) return VV_ERR_CORRUPT;
+    if ((size_t)lit_count > decomp_size) return VV_ERR_CORRUPT;
 
     uint8_t *lit_buf = (uint8_t *)malloc((size_t)lit_count + 16);
     if (!lit_buf) return VV_ERR_NOMEM;
@@ -668,6 +675,7 @@ static vv_error_t decode_block_ctx(
     uint16_t ans_sz    = (uint16_t)(data[2] | (data[3] << 8));
 
     if (4 + (size_t)ans_sz > data_len) return VV_ERR_CORRUPT;
+    if ((size_t)lit_count > decomp_size) return VV_ERR_CORRUPT;
 
     uint8_t *lit_buf = (uint8_t *)malloc((size_t)lit_count + 16);
     if (!lit_buf) return VV_ERR_NOMEM;

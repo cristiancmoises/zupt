@@ -78,7 +78,8 @@ typedef struct {
 
 /* Create parallel context. mode: 0=compress, 1=decompress.
  * keyring may be NULL if encryption is not active.
- * Returns NULL on allocation failure. */
+ * Returns NULL on allocation or worker-start failure. A non-NULL context has
+ * a running worker for every slot. */
 zpar_ctx_t *zpar_create(int nthreads, uint32_t block_size, int mode,
                          const zupt_keyring_t *keyring);
 

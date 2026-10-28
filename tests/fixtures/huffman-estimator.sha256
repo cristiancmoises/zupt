@@ -1,0 +1,7 @@
+# Complete little-endian transcript: histogram inputs + actual length bytes,
+# followed by actual public v1/v2 sequence bytes (including compatibility APIs).
+# Baseline commit: 8b5e92215dcd2b20c856d4ea84d48477d2716e6f
+# Baseline src/vv_ans.c blob: acef05438189e123667a0003ae8111f2207e97dd
+# Captured before the early-return fix using GCC 14.3.0, -O2, no ISA flags.
+# 391 histograms; 160 streams; literal formats 0/1/3/4 all exercised.
+ebfd1ed0ed2cb1240a75323351ea8da66dbaadaa4e8249fa310fdda3bec4b138

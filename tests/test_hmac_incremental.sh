@@ -15,18 +15,25 @@ else
     SHANI=""
 fi
 
-TMP=$(mktemp -d)
-if gcc -Iinclude -Isrc -Wall -Wextra -Werror $SHANI -O2 -std=c11 \
+TMP=$(mktemp -d) || exit 1
+trap 'rm -rf -- "$TMP"' EXIT HUP INT TERM
+# Keep SHA-NI ISA/Clang alignment flags out of the other translation units.
+# Flag lists use the same intentional whitespace splitting as make recipes.
+# shellcheck disable=SC2086
+if "${CC:-cc}" ${CPPFLAGS:-} -D_DEFAULT_SOURCE -Iinclude -Isrc \
+       ${CFLAGS:--O2} -Wall -Wextra -Werror -std=c11 $SHANI \
+       ${SHANI_CFLAGS:-} -c src/zupt_sha256_shani.c -o "$TMP/shani.o" 2>"$TMP/cc.log" &&
+   "${CC:-cc}" ${CPPFLAGS:-} -D_DEFAULT_SOURCE -Iinclude -Isrc \
+       ${CFLAGS:--O2} -Wall -Wextra -Werror -std=c11 ${LDFLAGS:-} \
        tests/test_hmac_incremental.c \
-       src/zupt_sha256.c src/zupt_sha256_shani.c src/zupt_crypto.c \
+       src/zupt_sha256.c src/zupt_crypto.c \
        src/zupt_aes256.c src/zupt_xxh.c src/zupt_keccak.c \
        src/zupt_x25519.c src/zupt_mlkem.c src/zupt_cpuid.c src/zupt_mlock.c \
-       -o "$TMP/t" -lm 2>"$TMP/cc.log"; then
+       "$TMP/shani.o" -o "$TMP/t" -lm ${LDLIBS:-} 2>>"$TMP/cc.log"; then
     "$TMP/t"; rc=$?
 else
     echo "  ✗ incremental-HMAC test failed to compile"
-    head -15 "$TMP/cc.log" | sed 's/^/    /'
+    sed 's/^/    /' "$TMP/cc.log"
     rc=1
 fi
-rm -rf "$TMP"
 exit $rc

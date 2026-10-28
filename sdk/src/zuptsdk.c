@@ -71,6 +71,9 @@ static char *zsdk_strdup(const char *s) {
 
 static ZSDK_THREAD_LOCAL char g_err_detail[512] = {0};
 
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((format(printf, 4, 5)))
+#endif
 static int zsdk_set_error(int code, const char *file, int line, const char *fmt, ...) {
     char msg[400] = {0};
     if (fmt) {
@@ -150,7 +153,7 @@ static int zsdk_apply_privkey(zupt_options_t *zopts, const zuptsdk_privkey_t *sk
  * Forward struct definitions (must come before helper functions)
  * ════════════════════════════════════════════════════════════════════════ */
 
-struct zuptsdk_pubkey  { char *path; };
+struct zuptsdk_pubkey  { char *path; int owns_path; };
 struct zuptsdk_privkey { char *path; };
 
 struct zuptsdk_keypair {
@@ -499,21 +502,32 @@ static void zsdk_wipe_options_secrets(zupt_options_t *zopts) {
  * ════════════════════════════════════════════════════════════════════════ */
 
 static int zsdk_tmp_path(char *out, size_t cap, const char *prefix) {
+    int n;
+    if (cap) out[0] = '\0';
 #ifdef _WIN32
     char tmpdir[MAX_PATH];
-    GetTempPathA(MAX_PATH, tmpdir);
-    snprintf(out, cap, "%s%s_%lx_%lx", tmpdir, prefix,
+    DWORD len = GetTempPathA(MAX_PATH, tmpdir);
+    if (len == 0 || len >= MAX_PATH) {
+        errno = len ? ENAMETOOLONG : EIO;
+        return ZSDK_FAIL(ZUPTSDK_ERR_IO, "temporary path directory unavailable or too long");
+    }
+    n = snprintf(out, cap, "%s%s_%lx_%lx", tmpdir, prefix,
              (unsigned long)GetCurrentProcessId(), (unsigned long)GetTickCount());
 #else
     const char *tmpdir = getenv("TMPDIR");
     if (!tmpdir) tmpdir = "/tmp";
     uint8_t r[8];
     zupt_random_bytes(r, 8);
-    snprintf(out, cap, "%s/%s_%d_%02x%02x%02x%02x%02x%02x%02x%02x",
+    n = snprintf(out, cap, "%s/%s_%d_%02x%02x%02x%02x%02x%02x%02x%02x",
              tmpdir, prefix, (int)getpid(),
              r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7]);
 #endif
-    return 0;
+    if (n < 0 || (size_t)n >= cap) {
+        if (cap) out[0] = '\0';
+        if (n >= 0) errno = ENAMETOOLONG;
+        return ZSDK_FAIL(ZUPTSDK_ERR_IO, "temporary path formatting failed or path too long");
+    }
+    return ZUPTSDK_OK;
 }
 
 int zuptsdk_keypair_generate(zuptsdk_ctx_t *ctx, zuptsdk_keypair_t **kp_out) {
@@ -524,21 +538,33 @@ int zuptsdk_keypair_generate(zuptsdk_ctx_t *ctx, zuptsdk_keypair_t **kp_out) {
     if (!kp) return ZSDK_FAIL(ZUPTSDK_ERR_NO_MEMORY, "keypair alloc");
 
     char priv_buf[512], pub_buf[512];
-    zsdk_tmp_path(priv_buf, sizeof(priv_buf), "zsdk_priv");
-    zsdk_tmp_path(pub_buf,  sizeof(pub_buf),  "zsdk_pub");
+    int rc = zsdk_tmp_path(priv_buf, sizeof(priv_buf), "zsdk_priv");
+    if (rc == ZUPTSDK_OK)
+        rc = zsdk_tmp_path(pub_buf, sizeof(pub_buf), "zsdk_pub");
+    if (rc != ZUPTSDK_OK) { zsdk_free_internal(kp); return rc; }
 
-    if (zupt_hybrid_keygen(priv_buf) != 0) {
+    int priv_created = 0, pub_created = 0;
+    if (zupt_hybrid_keygen_created(priv_buf, &priv_created) != 0) {
+        int saved_errno = errno;
+        if (priv_created) unlink(priv_buf);
         zsdk_free_internal(kp);
+        errno = saved_errno;
         return ZSDK_FAIL(ZUPTSDK_ERR_CRYPTO_FAIL, "hybrid_keygen failed");
     }
-    if (zupt_hybrid_export_pubkey(priv_buf, pub_buf) != 0) {
+    if (zupt_hybrid_export_pubkey_created(priv_buf, pub_buf, &pub_created) != 0) {
+        int saved_errno = errno;
+        if (pub_created) unlink(pub_buf);
         unlink(priv_buf);
         zsdk_free_internal(kp);
+        errno = saved_errno;
         return ZSDK_FAIL(ZUPTSDK_ERR_CRYPTO_FAIL, "export_pubkey failed");
     }
     kp->priv_path = zsdk_strdup(priv_buf);
     kp->pub_path  = zsdk_strdup(pub_buf);
     if (!kp->priv_path || !kp->pub_path) {
+        /* Both files exist even when their path allocations failed. */
+        if (!kp->priv_path) unlink(priv_buf);
+        if (!kp->pub_path) unlink(pub_buf);
         zuptsdk_keypair_destroy(kp);
         return ZSDK_FAIL(ZUPTSDK_ERR_NO_MEMORY, "path strdup");
     }
@@ -582,14 +608,17 @@ static int zsdk_copy_file(const char *src, const char *dst, mode_t mode) {
     uint8_t buf[4096];
     size_t n;
     int rc = ZUPTSDK_OK;
-    while ((n = fread(buf, 1, sizeof(buf), fi)) > 0) {
-        if (fwrite(buf, 1, n, fo) != n) {
-            rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "write %s", dst);
+    for (;;) {
+        n = fread(buf, 1, sizeof(buf), fi);
+        /* A partial read can deliver bytes and set the error indicator. */
+        int read_failed = ferror(fi);
+        if (read_failed) rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "read %s", src);
+        if (n && fwrite(buf, 1, n, fo) != n) {
+            if (rc == ZUPTSDK_OK) rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "write %s", dst);
             break;
         }
+        if (read_failed || !n || feof(fi)) break;
     }
-    if (rc == ZUPTSDK_OK && ferror(fi))
-        rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "read %s", src);
     zuptsdk_secure_zero(buf, sizeof(buf));
     if (fclose(fi) != 0 && rc == ZUPTSDK_OK)
         rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "close %s", src);
@@ -647,7 +676,10 @@ int zuptsdk_pubkey_load(const char *path, zuptsdk_pubkey_t **key_out) {
 
 void zuptsdk_pubkey_destroy(zuptsdk_pubkey_t *key) {
     if (!key) return;
-    if (key->path) zsdk_free_internal(key->path);
+    if (key->path) {
+        if (key->owns_path) unlink(key->path);
+        zsdk_free_internal(key->path);
+    }
     zsdk_free_internal(key);
 }
 
@@ -656,13 +688,20 @@ int zuptsdk_privkey_get_public(const zuptsdk_privkey_t *priv,
     if (!priv || !priv->path || !pub_out)
         return ZSDK_FAIL(ZUPTSDK_ERR_INVALID_ARG, "NULL parameter");
     char tmp[512];
-    zsdk_tmp_path(tmp, sizeof(tmp), "zsdk_pub");
-    if (zupt_hybrid_export_pubkey(priv->path, tmp) != 0)
+    int rc = zsdk_tmp_path(tmp, sizeof(tmp), "zsdk_pub");
+    if (rc != ZUPTSDK_OK) return rc;
+    int created = 0;
+    if (zupt_hybrid_export_pubkey_created(priv->path, tmp, &created) != 0) {
+        int saved_errno = errno;
+        if (created) unlink(tmp);
+        errno = saved_errno;
         return ZSDK_FAIL(ZUPTSDK_ERR_CRYPTO_FAIL, "export_pubkey failed");
+    }
     zuptsdk_pubkey_t *k = (zuptsdk_pubkey_t *)zsdk_calloc(1, sizeof(*k));
     if (!k) { unlink(tmp); return ZSDK_FAIL(ZUPTSDK_ERR_NO_MEMORY, "pubkey alloc"); }
     k->path = zsdk_strdup(tmp);
     if (!k->path) { unlink(tmp); zsdk_free_internal(k); return ZSDK_FAIL(ZUPTSDK_ERR_NO_MEMORY, "path"); }
+    k->owns_path = 1;
     *pub_out = k;
     return ZUPTSDK_OK;
 }
@@ -670,6 +709,73 @@ int zuptsdk_privkey_get_public(const zuptsdk_privkey_t *priv,
 /* ════════════════════════════════════════════════════════════════════════
  * Compress / extract
  * ════════════════════════════════════════════════════════════════════════ */
+
+/* Publish the buffer only after all file operations, including close, succeed. */
+static int zsdk_read_file(const char *path, uint8_t **data_out, size_t *size_out) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return ZSDK_FAIL(ZUPTSDK_ERR_IO, "open %s", path);
+
+    int rc = ZUPTSDK_OK;
+    uint8_t *buf = NULL;
+    size_t size = 0, capacity = 0;
+    if (fseek(f, 0, SEEK_END) != 0) {
+        rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "seek end %s", path);
+        goto close;
+    }
+    long end = ftell(f);
+    if (end < 0) {
+        rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "tell %s", path);
+        goto close;
+    }
+    if ((uintmax_t)end > (uintmax_t)SIZE_MAX) {
+        rc = ZSDK_FAIL(ZUPTSDK_ERR_TOO_LARGE, "file size %s", path);
+        goto close;
+    }
+    size = (size_t)end;
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "seek start %s", path);
+        goto close;
+    }
+    /* Empty files must not depend on the allocator's malloc(0) policy. */
+    capacity = size ? size : 1;
+    buf = (uint8_t *)zsdk_malloc(capacity);
+    if (!buf) {
+        rc = ZSDK_FAIL(ZUPTSDK_ERR_NO_MEMORY, "file buffer %s", path);
+        goto close;
+    }
+    if (fread(buf, 1, size, f) != size || ferror(f))
+        rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "read %s", path);
+
+close:
+    if (fclose(f) != 0 && rc == ZUPTSDK_OK)
+        rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "close %s", path);
+    if (rc != ZUPTSDK_OK) {
+        if (buf) zuptsdk_secure_zero(buf, capacity);
+        zsdk_free_internal(buf);
+        return rc;
+    }
+    *data_out = buf;
+    *size_out = size;
+    return ZUPTSDK_OK;
+}
+
+static int zsdk_write_private_stage(const char *path, const uint8_t *data,
+                                     size_t size) {
+    int created = 0;
+    FILE *stream = zupt_private_staging_open_new(path, &created);
+    if (!stream) {
+        int rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "create %s", path);
+        if (created) unlink(path);
+        return rc;
+    }
+    int rc = ZUPTSDK_OK;
+    if (fwrite(data, 1, size, stream) != size)
+        rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "write %s", path);
+    if (fclose(stream) != 0 && rc == ZUPTSDK_OK)
+        rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "close %s", path);
+    if (rc != ZUPTSDK_OK) unlink(path);
+    return rc;
+}
 
 int zuptsdk_compress_files(zuptsdk_ctx_t *ctx,
                            const zuptsdk_options_t *opts,
@@ -691,7 +797,8 @@ int zuptsdk_compress_files(zuptsdk_ctx_t *ctx,
     if (rc != ZUPTSDK_OK) { zsdk_wipe_options_secrets(&zopts); return rc; }
 
     char tmp[512];
-    zsdk_tmp_path(tmp, sizeof(tmp), "zsdk_arc");
+    rc = zsdk_tmp_path(tmp, sizeof(tmp), "zsdk_arc");
+    if (rc != ZUPTSDK_OK) { zsdk_wipe_options_secrets(&zopts); return rc; }
 
     /* Build arc/disk path arrays */
     const char **arc_paths  = (const char **)zsdk_calloc(file_count, sizeof(char *));
@@ -720,23 +827,18 @@ int zuptsdk_compress_files(zuptsdk_ctx_t *ctx,
         return ZSDK_FAIL(zsdk_map_zupt_error(err), "compress failed (zupt_err=%d)", err);
     }
 
-    /* Slurp tmp file into output buffer */
-    FILE *f = fopen(tmp, "rb");
-    if (!f) { unlink(tmp); return ZSDK_FAIL(ZUPTSDK_ERR_IO, "reopen archive"); }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz <= 0) { fclose(f); unlink(tmp); return ZSDK_FAIL(ZUPTSDK_ERR_IO, "empty archive"); }
-
-    uint8_t *buf = (uint8_t *)zsdk_malloc((size_t)sz);
-    if (!buf) { fclose(f); unlink(tmp); return ZSDK_FAIL(ZUPTSDK_ERR_NO_MEMORY, "archive buf"); }
-    size_t got = fread(buf, 1, (size_t)sz, f);
-    fclose(f);
+    uint8_t *buf = NULL;
+    size_t size = 0;
+    rc = zsdk_read_file(tmp, &buf, &size);
     unlink(tmp);
-    if (got != (size_t)sz) { zsdk_free_internal(buf); return ZSDK_FAIL(ZUPTSDK_ERR_IO, "short read"); }
+    if (rc != ZUPTSDK_OK) return rc;
+    if (!size) {
+        zsdk_free_internal(buf);
+        return ZSDK_FAIL(ZUPTSDK_ERR_IO, "empty archive");
+    }
 
     *archive_out = buf;
-    *archive_sz  = (size_t)sz;
+    *archive_sz  = size;
     return ZUPTSDK_OK;
 }
 
@@ -752,24 +854,21 @@ int zuptsdk_compress_buffer(zuptsdk_ctx_t *ctx,
         return ZSDK_FAIL(ZUPTSDK_ERR_INVALID_ARG, "NULL parameter");
 
     char tmp_in[512];
-    zsdk_tmp_path(tmp_in, sizeof(tmp_in), "zsdk_in");
-    FILE *f = fopen(tmp_in, "wb");
-    if (!f) return ZSDK_FAIL(ZUPTSDK_ERR_IO, "create temp input");
-    if (fwrite(data, 1, data_sz, f) != data_sz) {
-        fclose(f); unlink(tmp_in);
-        return ZSDK_FAIL(ZUPTSDK_ERR_IO, "write temp input");
-    }
-    fclose(f);
+    int rc = zsdk_tmp_path(tmp_in, sizeof(tmp_in), "zsdk_in");
+    if (rc != ZUPTSDK_OK) return rc;
+    rc = zsdk_write_private_stage(tmp_in, data, data_sz);
+    if (rc != ZUPTSDK_OK) return rc;
 
     zupt_options_t zopts;
     zsdk_apply_options(&zopts, opts, ctx);
-    int rc = zsdk_apply_password(&zopts, password);
+    rc = zsdk_apply_password(&zopts, password);
     if (rc != ZUPTSDK_OK) { zsdk_wipe_options_secrets(&zopts); unlink(tmp_in); return rc; }
     rc = zsdk_apply_pubkey(&zopts, recipient_pk);
     if (rc != ZUPTSDK_OK) { zsdk_wipe_options_secrets(&zopts); unlink(tmp_in); return rc; }
 
     char tmp_arc[512];
-    zsdk_tmp_path(tmp_arc, sizeof(tmp_arc), "zsdk_arc");
+    rc = zsdk_tmp_path(tmp_arc, sizeof(tmp_arc), "zsdk_arc");
+    if (rc != ZUPTSDK_OK) { zsdk_wipe_options_secrets(&zopts); unlink(tmp_in); return rc; }
 
     const char *arc_paths[1]  = { logical_name };
     const char *disk_paths[1] = { tmp_in };
@@ -783,21 +882,9 @@ int zuptsdk_compress_buffer(zuptsdk_ctx_t *ctx,
         return ZSDK_FAIL(zsdk_map_zupt_error(err), "compress (zupt_err=%d)", err);
     }
 
-    f = fopen(tmp_arc, "rb");
-    if (!f) { unlink(tmp_arc); return ZSDK_FAIL(ZUPTSDK_ERR_IO, "reopen archive"); }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    uint8_t *buf = (uint8_t *)zsdk_malloc((size_t)sz);
-    if (!buf) { fclose(f); unlink(tmp_arc); return ZSDK_FAIL(ZUPTSDK_ERR_NO_MEMORY, "archive buf"); }
-    size_t got = fread(buf, 1, (size_t)sz, f);
-    fclose(f);
+    rc = zsdk_read_file(tmp_arc, archive_out, archive_sz);
     unlink(tmp_arc);
-    if (got != (size_t)sz) { zsdk_free_internal(buf); return ZSDK_FAIL(ZUPTSDK_ERR_IO, "short read"); }
-
-    *archive_out = buf;
-    *archive_sz  = (size_t)sz;
-    return ZUPTSDK_OK;
+    return rc;
 }
 
 int zuptsdk_extract_to_dir(zuptsdk_ctx_t *ctx,
@@ -809,18 +896,14 @@ int zuptsdk_extract_to_dir(zuptsdk_ctx_t *ctx,
         return ZSDK_FAIL(ZUPTSDK_ERR_INVALID_ARG, "NULL parameter");
 
     char tmp[512];
-    zsdk_tmp_path(tmp, sizeof(tmp), "zsdk_arc");
-    FILE *f = fopen(tmp, "wb");
-    if (!f) return ZSDK_FAIL(ZUPTSDK_ERR_IO, "write temp archive");
-    if (fwrite(archive, 1, archive_sz, f) != archive_sz) {
-        fclose(f); unlink(tmp);
-        return ZSDK_FAIL(ZUPTSDK_ERR_IO, "write archive");
-    }
-    fclose(f);
+    int rc = zsdk_tmp_path(tmp, sizeof(tmp), "zsdk_arc");
+    if (rc != ZUPTSDK_OK) return rc;
+    rc = zsdk_write_private_stage(tmp, archive, archive_sz);
+    if (rc != ZUPTSDK_OK) return rc;
 
     zupt_options_t zopts;
     zsdk_apply_options(&zopts, NULL, ctx);
-    int rc = zsdk_apply_password(&zopts, password);
+    rc = zsdk_apply_password(&zopts, password);
     if (rc != ZUPTSDK_OK) { zsdk_wipe_options_secrets(&zopts); unlink(tmp); return rc; }
     rc = zsdk_apply_privkey(&zopts, recipient_sk);
     if (rc != ZUPTSDK_OK) { zsdk_wipe_options_secrets(&zopts); unlink(tmp); return rc; }
@@ -842,11 +925,12 @@ int zuptsdk_extract_buffer(zuptsdk_ctx_t *ctx,
         return ZSDK_FAIL(ZUPTSDK_ERR_INVALID_ARG, "NULL parameter");
 
     char tmpdir[512];
-    zsdk_tmp_path(tmpdir, sizeof(tmpdir), "zsdk_x");
+    int rc = zsdk_tmp_path(tmpdir, sizeof(tmpdir), "zsdk_x");
+    if (rc != ZUPTSDK_OK) return rc;
     if (zupt_mkdir(tmpdir) != 0)
         return ZSDK_FAIL(ZUPTSDK_ERR_IO, "mkdir %s", tmpdir);
 
-    int rc = zuptsdk_extract_to_dir(ctx, archive, archive_sz, tmpdir, password, recipient_sk);
+    rc = zuptsdk_extract_to_dir(ctx, archive, archive_sz, tmpdir, password, recipient_sk);
     if (rc != ZUPTSDK_OK) { rmdir(tmpdir); return rc; }
 
     /* Find the single file in tmpdir */
@@ -883,23 +967,10 @@ int zuptsdk_extract_buffer(zuptsdk_ctx_t *ctx,
         return ZSDK_FAIL(ZUPTSDK_ERR_BAD_ARCHIVE, "no extracted file");
     }
 
-    FILE *f = fopen(fpath, "rb");
-    if (!f) { unlink(fpath); rmdir(tmpdir); return ZSDK_FAIL(ZUPTSDK_ERR_IO, "open extracted"); }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    uint8_t *buf = (uint8_t *)zsdk_malloc((size_t)sz);
-    if (!buf) { fclose(f); unlink(fpath); rmdir(tmpdir); return ZSDK_FAIL(ZUPTSDK_ERR_NO_MEMORY, "data buf"); }
-    if (fread(buf, 1, (size_t)sz, f) != (size_t)sz) {
-        fclose(f); unlink(fpath); rmdir(tmpdir); zsdk_free_internal(buf);
-        return ZSDK_FAIL(ZUPTSDK_ERR_IO, "read extracted");
-    }
-    fclose(f);
+    rc = zsdk_read_file(fpath, data_out, data_sz);
     unlink(fpath);
     rmdir(tmpdir);
-    *data_out = buf;
-    *data_sz  = (size_t)sz;
-    return ZUPTSDK_OK;
+    return rc;
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -907,19 +978,34 @@ int zuptsdk_extract_buffer(zuptsdk_ctx_t *ctx,
  * ════════════════════════════════════════════════════════════════════════ */
 
 static int zsdk_drain_to_file(zuptsdk_read_fn input, void *ud, const char *path) {
-    FILE *f = fopen(path, "wb");
-    if (!f) return ZSDK_FAIL(ZUPTSDK_ERR_IO, "create %s", path);
+    int created = 0;
+    FILE *f = zupt_private_staging_open_new(path, &created);
+    if (!f) {
+        int rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "create %s", path);
+        if (created) unlink(path);
+        return rc;
+    }
     uint8_t buf[65536];
     int64_t n;
+    int rc = ZUPTSDK_OK;
     while ((n = input(ud, buf, sizeof(buf))) > 0) {
+        if (n > (int64_t)sizeof(buf)) {
+            rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "read callback returned %lld for %zu-byte buffer",
+                           (long long)n, sizeof(buf));
+            break;
+        }
         if (fwrite(buf, 1, (size_t)n, f) != (size_t)n) {
-            fclose(f); return ZSDK_FAIL(ZUPTSDK_ERR_IO, "write %s", path);
+            rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "write %s", path);
+            break;
         }
     }
+    if (rc == ZUPTSDK_OK && n < 0)
+        rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "read callback returned %lld", (long long)n);
     zuptsdk_secure_zero(buf, sizeof(buf));
-    fclose(f);
-    if (n < 0) return ZSDK_FAIL(ZUPTSDK_ERR_IO, "read callback returned %lld", (long long)n);
-    return ZUPTSDK_OK;
+    if (fclose(f) != 0 && rc == ZUPTSDK_OK)
+        rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "close %s", path);
+    if (rc != ZUPTSDK_OK) unlink(path);
+    return rc;
 }
 
 static int zsdk_pump_from_file(zuptsdk_write_fn output, void *ud, const char *path) {
@@ -928,12 +1014,26 @@ static int zsdk_pump_from_file(zuptsdk_write_fn output, void *ud, const char *pa
     uint8_t buf[65536];
     size_t n;
     int rc = ZUPTSDK_OK;
-    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
-        int64_t w = output(ud, buf, n);
-        if (w != (int64_t)n) { rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "write callback short %lld", (long long)w); break; }
+    for (;;) {
+        n = fread(buf, 1, sizeof(buf), f);
+        int read_errno = errno;
+        int read_failed = ferror(f);
+        int64_t w = n ? output(ud, buf, n) : 0;
+        /* A callback can change errno or the thread-local SDK diagnostic. */
+        if (read_failed) {
+            errno = read_errno;
+            rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "read %s", path);
+            break;
+        }
+        if (n && w != (int64_t)n) {
+            rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "write callback short %lld", (long long)w);
+            break;
+        }
+        if (!n || feof(f)) break;
     }
     zuptsdk_secure_zero(buf, sizeof(buf));
-    fclose(f);
+    if (fclose(f) != 0 && rc == ZUPTSDK_OK)
+        rc = ZSDK_FAIL(ZUPTSDK_ERR_IO, "close %s", path);
     return rc;
 }
 
@@ -949,11 +1049,13 @@ int zuptsdk_compress_stream(zuptsdk_ctx_t *ctx,
         return ZSDK_FAIL(ZUPTSDK_ERR_INVALID_ARG, "NULL parameter");
 
     char in_tmp[512], arc_tmp[512];
-    zsdk_tmp_path(in_tmp,  sizeof(in_tmp),  "zsdk_in");
-    zsdk_tmp_path(arc_tmp, sizeof(arc_tmp), "zsdk_arc");
+    int rc = zsdk_tmp_path(in_tmp, sizeof(in_tmp), "zsdk_in");
+    if (rc != ZUPTSDK_OK) return rc;
+    rc = zsdk_tmp_path(arc_tmp, sizeof(arc_tmp), "zsdk_arc");
+    if (rc != ZUPTSDK_OK) return rc;
 
-    int rc = zsdk_drain_to_file(input, input_ud, in_tmp);
-    if (rc != ZUPTSDK_OK) { unlink(in_tmp); return rc; }
+    rc = zsdk_drain_to_file(input, input_ud, in_tmp);
+    if (rc != ZUPTSDK_OK) return rc;
 
     zupt_options_t zopts;
     zsdk_apply_options(&zopts, opts, ctx);
@@ -988,22 +1090,19 @@ int zuptsdk_decompress_stream(zuptsdk_ctx_t *ctx,
         return ZSDK_FAIL(ZUPTSDK_ERR_INVALID_ARG, "NULL parameter");
 
     char arc_tmp[512];
-    zsdk_tmp_path(arc_tmp, sizeof(arc_tmp), "zsdk_arc");
-    int rc = zsdk_drain_to_file(input, input_ud, arc_tmp);
-    if (rc != ZUPTSDK_OK) { unlink(arc_tmp); return rc; }
+    int rc = zsdk_tmp_path(arc_tmp, sizeof(arc_tmp), "zsdk_arc");
+    if (rc != ZUPTSDK_OK) return rc;
+    rc = zsdk_drain_to_file(input, input_ud, arc_tmp);
+    if (rc != ZUPTSDK_OK) return rc;
 
-    /* Read into memory, call buffer extract */
-    FILE *f = fopen(arc_tmp, "rb");
-    if (!f) { unlink(arc_tmp); return ZSDK_FAIL(ZUPTSDK_ERR_IO, "reopen archive"); }
-    fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
-    uint8_t *abuf = (uint8_t *)zsdk_malloc((size_t)sz);
-    if (!abuf) { fclose(f); unlink(arc_tmp); return ZSDK_FAIL(ZUPTSDK_ERR_NO_MEMORY, "archive buf"); }
-    size_t got = fread(abuf, 1, (size_t)sz, f);
-    fclose(f); unlink(arc_tmp);
-    if (got != (size_t)sz) { zsdk_free_internal(abuf); return ZSDK_FAIL(ZUPTSDK_ERR_IO, "short read"); }
+    uint8_t *abuf = NULL;
+    size_t archive_sz = 0;
+    rc = zsdk_read_file(arc_tmp, &abuf, &archive_sz);
+    unlink(arc_tmp);
+    if (rc != ZUPTSDK_OK) return rc;
 
     uint8_t *data = NULL; size_t data_sz = 0;
-    rc = zuptsdk_extract_buffer(ctx, abuf, (size_t)sz, password, recipient_sk, &data, &data_sz);
+    rc = zuptsdk_extract_buffer(ctx, abuf, archive_sz, password, recipient_sk, &data, &data_sz);
     zsdk_free_internal(abuf);
     if (rc != ZUPTSDK_OK) return rc;
 
@@ -1025,14 +1124,14 @@ int zuptsdk_verify(zuptsdk_ctx_t *ctx,
     if (!archive || !archive_sz)
         return ZSDK_FAIL(ZUPTSDK_ERR_INVALID_ARG, "NULL parameter");
     char tmp[512];
-    zsdk_tmp_path(tmp, sizeof(tmp), "zsdk_v");
-    FILE *f = fopen(tmp, "wb");
-    if (!f) return ZSDK_FAIL(ZUPTSDK_ERR_IO, "write temp archive");
-    fwrite(archive, 1, archive_sz, f); fclose(f);
+    int rc = zsdk_tmp_path(tmp, sizeof(tmp), "zsdk_v");
+    if (rc != ZUPTSDK_OK) return rc;
+    rc = zsdk_write_private_stage(tmp, archive, archive_sz);
+    if (rc != ZUPTSDK_OK) return rc;
 
     zupt_options_t zopts;
     zsdk_apply_options(&zopts, NULL, ctx);
-    int rc = zsdk_apply_password(&zopts, password);
+    rc = zsdk_apply_password(&zopts, password);
     if (rc != ZUPTSDK_OK) { zsdk_wipe_options_secrets(&zopts); unlink(tmp); return rc; }
     rc = zsdk_apply_privkey(&zopts, recipient_sk);
     if (rc != ZUPTSDK_OK) { zsdk_wipe_options_secrets(&zopts); unlink(tmp); return rc; }

@@ -63,6 +63,11 @@ typedef struct {
 vva_error_t vva_encode(const uint8_t *src, size_t src_len,
                        uint8_t *dst, size_t dst_cap, size_t *dst_len);
 
+/*@
+  requires src_consumed != \null;
+  requires src_len == 0 || \valid_read(src + (0 .. src_len - 1));
+  requires dst_cap == 0 || \valid(dst + (0 .. dst_cap - 1));
+*/
 vva_error_t vva_decode(const uint8_t *src, size_t src_len,
                        uint8_t *dst, size_t dst_cap,
                        size_t num_literals, size_t *src_consumed);
@@ -71,6 +76,11 @@ vva_error_t vva_decode(const uint8_t *src, size_t src_len,
 vva_error_t vva_encode4(const uint8_t *src, size_t src_len,
                         uint8_t *dst, size_t dst_cap, size_t *dst_len);
 
+/*@
+  requires src_consumed != \null;
+  requires src_len == 0 || \valid_read(src + (0 .. src_len - 1));
+  requires dst_cap == 0 || \valid(dst + (0 .. dst_cap - 1));
+*/
 vva_error_t vva_decode4(const uint8_t *src, size_t src_len,
                         uint8_t *dst, size_t dst_cap,
                         size_t num_literals, size_t *src_consumed);

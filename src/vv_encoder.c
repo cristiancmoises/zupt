@@ -183,8 +183,9 @@ static inline int32_t extend_match(const uint8_t *a, const uint8_t *b,
     }
 #if VV_ENC_AVX2
     while (len + 32 <= max_len) {
-        __m256i va = _mm256_loadu_si256((const __m256i *)(a + len));
-        __m256i vb = _mm256_loadu_si256((const __m256i *)(b + len));
+        /* Match positions are byte-aligned; use the unaligned load interface. */
+        __m256i va = _mm256_loadu_si256((const void *)(a + len));
+        __m256i vb = _mm256_loadu_si256((const void *)(b + len));
         __m256i eq = _mm256_cmpeq_epi8(va, vb);
         uint32_t mask = ~(uint32_t)_mm256_movemask_epi8(eq);
         if (mask) return len + (int32_t)vv_ctz32(mask);

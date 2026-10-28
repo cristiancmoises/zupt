@@ -27,7 +27,7 @@ F() { echo "  ✗ $1"; FAIL=$((FAIL+1)); }
 echo "SHA-256 SHA-NI hardware path"
 
 # ── 1. Round-constant equivalence (host-independent) ──
-python3 - <<'PYEOF'
+if python3 - <<'PYEOF'
 import re, sys
 scalar = open('src/zupt_sha256.c').read()
 m = re.search(r'static const uint32_t K\[64\]\s*=\s*\{(.*?)\};', scalar, re.S)
@@ -41,7 +41,7 @@ for hi, lo in kpairs:
     recon += [lo_u & 0xFFFFFFFF, (lo_u>>32)&0xFFFFFFFF, hi_u & 0xFFFFFFFF, (hi_u>>32)&0xFFFFFFFF]
 sys.exit(0 if (len(ks)==64 and recon==ks) else 1)
 PYEOF
-if [ $? -eq 0 ]; then
+then
     P "SHA-NI round constants bit-identical to scalar K[] (64/64)"
 else
     F "SHA-NI round constants DIFFER from scalar K[] table"
@@ -64,29 +64,42 @@ fi
 # ── 4. Compile + execute the C correctness test ──
 ARCH=$(uname -m)
 if [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "i686" ]; then
-    SHANI_CFLAGS="-msha -mssse3 -msse4.1"
+    SHANI_FLAGS="-msha -mssse3 -msse4.1"
 else
-    SHANI_CFLAGS=""
+    SHANI_FLAGS=""
 fi
-TMP=$(mktemp -d)
-if gcc -Iinclude -Isrc -Wall -Wextra -Werror $SHANI_CFLAGS -O2 -std=c11 \
-       tests/test_sha256_shani.c src/zupt_sha256.c src/zupt_sha256_shani.c src/zupt_cpuid.c \
-       -o "$TMP/t" 2>"$TMP/cc.log"; then
-    P "SHA-NI test compiles clean (-Werror $SHANI_CFLAGS)"
-    OUT=$("$TMP/t")
-    echo "$OUT" | sed 's/^/    /'
-    if echo "$OUT" | grep -q "failed (skipped"; then
+TMP=$(mktemp -d) || exit 1
+trap 'rm -rf -- "$TMP"' EXIT HUP INT TERM
+# Keep the ISA and existing Clang alignment policy local to the SHA-NI TU.
+# Flag lists use the same intentional whitespace splitting as make recipes.
+# shellcheck disable=SC2086
+if "${CC:-cc}" ${CPPFLAGS:-} -D_DEFAULT_SOURCE -Iinclude -Isrc \
+       ${CFLAGS:--O2} -Wall -Wextra -Werror -std=c11 $SHANI_FLAGS \
+       ${SHANI_CFLAGS:-} -c src/zupt_sha256_shani.c -o "$TMP/shani.o" 2>"$TMP/cc.log" &&
+   "${CC:-cc}" ${CPPFLAGS:-} -D_DEFAULT_SOURCE -Iinclude -Isrc \
+       ${CFLAGS:--O2} -Wall -Wextra -Werror -std=c11 ${LDFLAGS:-} \
+       tests/test_sha256_shani.c src/zupt_sha256.c src/zupt_cpuid.c "$TMP/shani.o" \
+       ${LDLIBS:-} -o "$TMP/t" 2>>"$TMP/cc.log"; then
+    P "SHA-NI test compiles clean with selected compiler and flags"
+    if "$TMP/t" >"$TMP/run.log" 2>&1; then
+        child_rc=0
+    else
+        child_rc=$?
+    fi
+    sed 's/^/    /' "$TMP/run.log"
+    if [ "$child_rc" -ne 0 ]; then
+        F "SHA-NI C test exited with status $child_rc"
+    elif grep -qE '^ *SHA-NI: 0 passed, 0 failed \(skipped' "$TMP/run.log"; then
         echo "    (host lacks SHA-NI — execution-level checks deferred to SHA-NI hardware)"
-    elif echo "$OUT" | grep -qE "SHA-NI: [0-9]+ passed, 0 failed$"; then
-        P "SHA-NI path executes correctly (NIST vectors + scalar agreement)"
+    elif grep -qE '^ *SHA-NI: [1-9][0-9]* passed, 0 failed$' "$TMP/run.log"; then
+        P "SHA-NI path executes correctly (known digests + streaming agreement)"
     else
         F "SHA-NI C test reported failures"
     fi
 else
     F "SHA-NI test failed to compile"
-    head -10 "$TMP/cc.log" | sed 's/^/    /'
+    sed 's/^/    /' "$TMP/cc.log"
 fi
-rm -rf "$TMP"
 
 echo ""
 echo "  ───────────────────────────────────────"

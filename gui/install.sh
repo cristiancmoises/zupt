@@ -72,18 +72,24 @@ for source_file in \
     "$repo_root/LICENSE" \
     "$repo_root/LICENSE-AGPL-3.0" \
     "$script_dir/LICENSE-GUI" \
-    "$script_dir/assets/README.md"; do
+    "$script_dir/assets/README.md" \
+    "$repo_root/docs/USER_GUIDE.md" \
+    "$repo_root/docs/GUIA_USUARIO.pt-BR.md" \
+    "$repo_root/SECURITY.md" \
+    "$repo_root/DISTRIBUTION.md"; do
     [[ -f $source_file ]] || die "required source file is missing: $source_file"
 done
 
 stage_bindir=$destdir$bindir
 stage_libexecdir=$destdir$libexecdir
 stage_datadir=$destdir$datadir
+stage_docdir=$stage_datadir/doc/zupt-gui
 install -d -- "$stage_bindir" "$stage_libexecdir" \
     "$stage_datadir/applications" \
     "$stage_datadir/icons/hicolor/256x256/apps" \
     "$stage_datadir/man/man1" \
-    "$stage_datadir/licenses/zupt-gui"
+    "$stage_datadir/licenses/zupt-gui" \
+    "$stage_docdir/docs"
 
 install -m 0644 -- "$script_dir/src/zupt_gui.py" "$stage_libexecdir/zupt_gui.py"
 install -m 0644 -- "$script_dir/packaging/zupt-gui.desktop" \
@@ -100,6 +106,10 @@ install -m 0644 -- "$script_dir/LICENSE-GUI" \
     "$stage_datadir/licenses/zupt-gui/LICENSE-GUI"
 install -m 0644 -- "$script_dir/assets/README.md" \
     "$stage_datadir/licenses/zupt-gui/ASSET-PROVENANCE.md"
+install -m 0644 -- "$repo_root/docs/USER_GUIDE.md" \
+    "$repo_root/docs/GUIA_USUARIO.pt-BR.md" "$stage_docdir/docs/"
+install -m 0644 -- "$repo_root/SECURITY.md" "$repo_root/DISTRIBUTION.md" \
+    "$stage_docdir/"
 
 # Quote the installed module path for a POSIX shell without embedding DESTDIR.
 quoted_libexec=${libexecdir//\'/\'\\\'\'}

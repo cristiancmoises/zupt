@@ -1,9 +1,8 @@
-/* zupt_crypto_sdk.c — SDK-backed crypto for zupt v2.2+ archives.
+/* zupt_crypto_sdk.c — SDK-backed key setup for zupt v2.2+ archives.
  *
- * Replaces the legacy zupt_crypto.c hybrid path (XOR+SHA3-512 combiner) with
- * libvuptsdk's HKDF-SHA3-256 combiner + key commitment + HPKE binding +
- * anti-fault decap. Per-block AEAD switches from AES-256-CTR + HMAC-SHA256
- * to XChaCha20-Poly1305 (default) or AES-256-SIV (nonce-misuse-resistant).
+ * The SDK supplies password key derivation and recipient session-key wrapping.
+ * ZUPT payload blocks continue to use the shared AES-256-CTR + HMAC-SHA256
+ * pipeline, so enabling this adapter does not change their wire format.
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
@@ -16,12 +15,21 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The keyring layout zupt uses for legacy AES-CTR+HMAC stays as-is for
- * compatibility with non-SDK code paths (block formatting, etc.). The SDK
- * path stores its own session key in the keyring's enc_key slot and sets
- * a flag so block read/write routes through the SDK AEAD path. */
+/* Derive the same independent encryption and MAC keys consumed by the shared
+ * block path. The SDK adapter changes key setup, not payload processing. */
 
 extern void zupt_random_bytes(uint8_t *buf, size_t len);
+
+enum {
+    ZUPT_SDK_ENVELOPE_PREFIX_SIZE = 5,
+    ZUPT_SDK_ENVELOPE_MAX_SIZE = 1500,
+};
+
+static void sdk_release_session_key(uint8_t *secret) {
+    if (!secret) return;
+    zuptsdk_secure_zero(secret, 32);
+    zuptsdk_free(secret);
+}
 
 /* ─────────────────────────────────────────────────────────────────────
  * SDK keypair generation
@@ -44,20 +52,17 @@ out:
 }
 
 /* ─────────────────────────────────────────────────────────────────────
- * SDK encrypt-init: generates session key via SDK, writes SDK v2 header
+ * SDK encrypt-init: generates a session secret and wraps it with the SDK
  * into the archive's encryption header block.
  *
  * Layout written to enc_hdr buffer:
  *   [1B]    enc_type = ZUPT_ENC_PQ_SDK_V2
  *   [4B LE] sdk_hdr_len (u32)
- *   [N]     sdk_hdr (1408 bytes for v2)
- *   [16B]   wrapped_session_key (encrypted to recipient via SDK easy_encrypt)
- *   [16B]   wrap_tag
+ *   [N]     opaque SDK blob wrapping a 32-byte session secret
  *
- * Approach: we ask the SDK to encrypt a 32-byte random session key to the
- * recipient's pubkey. The SDK produces a self-contained blob (header + ct).
- * We embed the entire blob in our encryption header and use the recovered
- * session key as the per-archive AEAD key.
+ * ZUPT generates the secret and asks the SDK to wrap it for the recipient.
+ * The opaque result is embedded in the encryption header. Both sides derive
+ * the payload encryption and MAC keys from the recovered secret.
  * ───────────────────────────────────────────────────────────────────── */
 int zupt_sdk_hybrid_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
                                   uint8_t *enc_hdr, size_t *enc_hdr_len) {
@@ -68,18 +73,19 @@ int zupt_sdk_hybrid_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
     /* Encrypt the session key to the recipient using SDK easy API */
     uint8_t *blob = NULL;
     size_t blob_sz = 0;
+    int result = -1;
     int rc = zuptsdk_easy_encrypt(pubkeyfile, session_key, 32, &blob, &blob_sz);
-    if (rc != 0 || !blob) {
-        zupt_secure_wipe(session_key, 32);
-        return -1;
+    if (rc != 0) {
+        /* Error outputs have no documented ownership contract. */
+        blob = NULL;
+        goto out;
     }
+    if (!blob || blob_sz == 0) goto out;
 
     /* Layout: [1B type][4B blob_sz LE][blob] */
-    if (1 + 4 + blob_sz > 1500) {
-        free(blob);
-        zupt_secure_wipe(session_key, 32);
-        return -1;
-    }
+    if (blob_sz > ZUPT_SDK_ENVELOPE_MAX_SIZE -
+                      ZUPT_SDK_ENVELOPE_PREFIX_SIZE)
+        goto out;
 
     enc_hdr[0] = ZUPT_ENC_PQ_SDK_V2;
     enc_hdr[1] =  blob_sz        & 0xFF;
@@ -89,10 +95,7 @@ int zupt_sdk_hybrid_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
     memcpy(enc_hdr + 5, blob, blob_sz);
     *enc_hdr_len = 5 + blob_sz;
 
-    /* Set up keyring with session key. Split into enc_key + mac_key via
-     * domain-separated SHA3 to avoid key reuse if any legacy code path
-     * reads mac_key (defense in depth — SDK path doesn't actually use
-     * mac_key for AEAD, but legacy fall-throughs would). */
+    /* Derive the independent keys used by the shared AES-CTR and HMAC path. */
     extern void zupt_sha3_256(const uint8_t *in, size_t inlen, uint8_t out[32]);
     uint8_t kdf_buf[32 + 16];
     memcpy(kdf_buf, session_key, 32);
@@ -108,9 +111,11 @@ int zupt_sdk_hybrid_encrypt_init(zupt_keyring_t *kr, const char *pubkeyfile,
     kr->active = 1;
     kr->canary_tail = ZUPT_CANARY;
 
-    free(blob);
+    result = 0;
+out:
+    if (blob) zuptsdk_free(blob);
     zupt_secure_wipe(session_key, 32);
-    return 0;
+    return result;
 }
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -125,8 +130,13 @@ int zupt_sdk_hybrid_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
                      | ((uint32_t)enc_hdr[2] <<  8)
                      | ((uint32_t)enc_hdr[3] << 16)
                      | ((uint32_t)enc_hdr[4] << 24);
-    if (blob_sz > enc_hdr_len - 5) return -1;
-    if (blob_sz > 1500) return -1;
+    if ((size_t)blob_sz != enc_hdr_len - ZUPT_SDK_ENVELOPE_PREFIX_SIZE)
+        return -1;
+    if (blob_sz == 0)
+        return -1;
+    if (blob_sz > ZUPT_SDK_ENVELOPE_MAX_SIZE -
+                      ZUPT_SDK_ENVELOPE_PREFIX_SIZE)
+        return -1;
 
     const uint8_t *blob = enc_hdr + 5;
 
@@ -134,7 +144,10 @@ int zupt_sdk_hybrid_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
     uint8_t *session_key = NULL;
     size_t session_key_sz = 0;
     int rc = zuptsdk_easy_decrypt(privkeyfile, blob, blob_sz, &session_key, &session_key_sz);
-    if (rc != 0 || !session_key || session_key_sz != 32) {
+    /* Error outputs have no documented ownership or length contract. */
+    if (rc != 0)
+        return -1;
+    if (!session_key || session_key_sz != 32) {
         if (session_key) zuptsdk_free(session_key);
         return -1;
     }
@@ -149,14 +162,13 @@ int zupt_sdk_hybrid_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
     zupt_secure_wipe(kdf_buf, sizeof(kdf_buf));
 
     kr->canary_head = ZUPT_CANARY;
-    /* base_nonce will be overwritten per-block by the legacy path; in SDK
-     * mode each block uses its own SDK-generated nonce. */
+    /* Each payload package stores a fresh nonce generated by ZUPT's shared
+     * encryption routine, so this recipient mode does not use base_nonce. */
     kr->iterations = 0;
     kr->active = 1;
     kr->canary_tail = ZUPT_CANARY;
 
-    zuptsdk_secure_zero(session_key, 32);
-    zuptsdk_free(session_key);
+    sdk_release_session_key(session_key);
     return 0;
 }
 

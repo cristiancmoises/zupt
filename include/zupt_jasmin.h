@@ -4,10 +4,10 @@
  * ZUPT — optional x86_64 crypto assembly declarations
  * Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-or-later
  *
- * Four declarations below correspond to checked-in jasminc output. The
- * zupt_aes256_ctr4 implementation is separately identified hand-written
- * assembly matching an algorithm-only .jazz description. These functions
- * replace C fallbacks when built with -DZUPT_USE_JASMIN.
+ * All five declarations correspond to checked-in Jasmin 2026.09.0 output.
+ * The source gate checks regeneration, exported symbols and modeled safety
+ * under caller preconditions. These functions replace C fallbacks when
+ * built with -DZUPT_USE_JASMIN. A .s build alone is not formal proof.
  *
  * Calling convention: System V AMD64 ABI.
  * Pointer args passed in RDI, RSI, RDX, RCX, R8, R9.
@@ -26,7 +26,7 @@
 extern uint64_t zupt_mac_verify_ct(const void *expected, const void *actual);
 
 /* JASMIN PATH: CT-intended conditional select (4×u64 masked select).
- * if cond==0: copies a→out. if cond!=0: copies b→out.
+ * cond must be 0 or 1: copies a→out for 0 and b→out for 1.
  * Replaces cmov in zupt_mlkem768_decaps(). */
 extern void zupt_ct_select_32(void *out, const void *a,
                                const void *b, uint64_t cond);
@@ -41,7 +41,8 @@ extern void zupt_fe_cswap(void *a, void *b, uint64_t cond);
 /* JASMIN PATH: AES-256 single-block encrypt via AES-NI.
  * out = AES-256-ECB(key, ctr) XOR in.
  * FIX v2.0.0: Stack offset bug resolved — round keys at correct
- * 16-byte aligned offsets. Requires AES-NI (checked via CPUID).
+ * 16-byte aligned offsets. Requires AES-NI and OS-enabled AVX; the C
+ * wrapper checks both before dispatch.
  *
  * Args (System V ABI):
  *   out_ptr (RDI): destination for 16-byte result
@@ -52,10 +53,16 @@ extern void zupt_fe_cswap(void *a, void *b, uint64_t cond);
 extern void zupt_aes256_blk(void *out, const void *in,
                               const void *key, const void *ctr);
 
-/* HAND-WRITTEN ASSEMBLY PATH: AES-256-CTR 4-block pipeline via AES-NI.
- * Processes nblocks×16 bytes with 4-way interleaving.
- * Counter is updated in-place (big-endian increment in bytes [8..15]).
- * Requires AES-NI. Falls back to zupt_aes256_blk for remaining 1-3 blocks.
+/* JASMIN PATH: AES-256-CTR pipeline with four interleaved AES lanes.
+ * Encrypt nblocks*16 bytes; handle 1-3 remaining blocks with the same
+ * expanded schedule. Increment only ctr[8..15], big-endian modulo 2^64,
+ * and preserve ctr[0..7]. Requires AES-NI and OS-enabled AVX.
+ * For positive nblocks: key is readable for 32 bytes, ctr writable for 16,
+ * and in/out readable/writable for nblocks*16 bytes. All spans must be live,
+ * valid and nonwrapping, with nblocks <= SIZE_MAX/16. Input/output may be
+ * identical or disjoint, not partly overlapping. Counter must be disjoint
+ * from key/input/output; key must be disjoint from writable output.
+ * Zero blocks touch no caller memory. No pointers or schedule are retained.
  *
  * Args: out(RDI), in(RSI), key(RDX), ctr(RCX), nblocks(R8)
  */

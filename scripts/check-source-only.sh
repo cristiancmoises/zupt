@@ -502,7 +502,8 @@ run_archive_command() {
         ) &
         watchdog_pid=$!
         if wait "$command_pid"; then status=0; else status=$?; fi
-        kill "$watchdog_pid" 2>/dev/null || true
+        # Reap the watchdog after its current polling/grace sleep finishes.
+        # Killing only its shell would leave that foreground child unwaited.
         wait "$watchdog_pid" 2>/dev/null || true
         return "$status"
     fi
@@ -535,13 +536,18 @@ archive_declared_bytes() {
 }
 
 extracted_regular_bytes() {
-    local root=$1 file size total=0 max_bytes=$((MAX_ARCHIVE_KIB * 1024))
+    local root=$1 file size entries total=0 max_bytes=$((MAX_ARCHIVE_KIB * 1024))
+    entries=$(mktemp "$AUDIT_TMP/expanded-files.XXXXXXXX") || return 4
+    if ! find -P "$root" -type f -print0 >"$entries"; then
+        return 4
+    fi
     while IFS= read -r -d '' file; do
-        size=$(LC_ALL=C wc -c <"$file" | tr -d '[:space:]')
+        # Conditional callers disable errexit throughout this function.
+        size=$(LC_ALL=C wc -c <"$file" | tr -d '[:space:]') || return 2
         [[ $size =~ ^[0-9]+$ ]] || return 2
         ((size <= max_bytes - total)) || return 3
         total=$((total + size))
-    done < <(find -P "$root" -type f -print0)
+    done <"$entries"
     printf '%s\n' "$total"
 }
 
@@ -696,7 +702,12 @@ scan_archive() {
     if actual_bytes=$(extracted_regular_bytes "$extract_dir"); then
         :
     else
-        fail_path "$scope" "$logical" 'archive expanded-size limit exceeded'
+        status=$?
+        case $status in
+            3) fail_path "$scope" "$logical" 'archive expanded-size limit exceeded' ;;
+            4) fail_path "$scope" "$logical" 'archive file enumeration failed' ;;
+            *) fail_path "$scope" "$logical" 'archive expanded sizes cannot be accounted safely' ;;
+        esac
         return
     fi
     if ((actual_bytes > declared_bytes)); then
@@ -744,7 +755,7 @@ scan_regular() {
 
 scan_tree() {
     local tree=$1 scope=$2 depth=${3:-0} prefix=${4:-}
-    local path relative logical target resolved canonical_tree
+    local path relative logical target resolved canonical_tree entries
 
     if [[ ! -d $tree ]]; then
         fail_path "$scope" "$tree" 'tree does not exist'
@@ -754,6 +765,17 @@ scan_tree() {
         fail_path "$scope" "$tree" 'cannot canonicalize audit root'
         return
     }
+    # Complete enumeration before scanning; process substitutions hide a
+    # producer's failure and can otherwise admit an incomplete source list.
+    entries=$(mktemp "$AUDIT_TMP/tree-files.XXXXXXXX") || {
+        fail_path "$scope" "$tree" 'tree enumeration failed'
+        return
+    }
+    if ! find -P "$tree" -path "$tree/.git" -prune -o \
+            \( -type f -o -type l -o \( ! -type d \) \) -print0 >"$entries"; then
+        fail_path "$scope" "$tree" 'tree enumeration failed'
+        return
+    fi
     while IFS= read -r -d '' path; do
         relative=${path#"$tree"/}
         logical=$relative
@@ -774,14 +796,21 @@ scan_tree() {
         else
             fail_path "$scope" "$logical" 'unsupported special filesystem entry'
         fi
-    done < <(find -P "$tree" -path "$tree/.git" -prune -o \
-        \( -type f -o -type l -o \( ! -type d \) \) -print0)
+    done <"$entries"
 }
 
 scan_index() {
-    local repo=$1 record metadata logical mode object stage blob target
+    local repo=$1 record metadata logical mode object stage blob target entries
     local serial=0
 
+    entries=$(mktemp "$AUDIT_TMP/index-entries.XXXXXXXX") || {
+        fail_path tracked "$repo" 'Git index enumeration failed'
+        return
+    }
+    if ! git -C "$repo" ls-files --stage -z >"$entries"; then
+        fail_path tracked "$repo" 'Git index enumeration failed'
+        return
+    fi
     while IFS= read -r -d '' record; do
         metadata=${record%%$'\t'*}
         logical=${record#*$'\t'}
@@ -807,7 +836,7 @@ scan_index() {
             160000) fail_path tracked "$logical" 'Git submodule entry is not source-only' ;;
             *) fail_path tracked "$logical" 'unsupported Git index mode' ;;
         esac
-    done < <(git -C "$repo" ls-files --stage -z)
+    done <"$entries"
 }
 
 scan_git_archive() {

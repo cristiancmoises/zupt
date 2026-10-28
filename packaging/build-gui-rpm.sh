@@ -27,6 +27,9 @@ for command_name in make python3 rpmbuild rpm rpm2cpio cpio tar sha256sum; do
     command -v -- "$command_name" >/dev/null 2>&1 || \
         die "required command not found: $command_name"
 done
+# The suffix requires a directory, so a substituted FIFO cannot block this open.
+exec {dist_fd}<"$dist_dir/."
+python3 scripts/publish-package.py --check-directory "$dist_fd" "$dist_dir"
 
 jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1')}
 work=$(mktemp -d "${TMPDIR:-/tmp}/zupt-gui-rpm.XXXXXXXX")
@@ -39,6 +42,7 @@ cleanup() {
     make -C "$repo_root" clean >/dev/null 2>&1 || true
     chmod -R u+rwX "$work" 2>/dev/null || true
     rm -rf -- "$work"
+    exec {dist_fd}<&-
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -57,6 +61,9 @@ install -m 0644 README.pt-BR.md DOCUMENTACAO.pt-BR.md "$tree/"
 install -m 0644 LICENSE LICENSE-AGPL-3.0 "$tree/"
 install -m 0644 gui/LICENSE-GUI "$tree/LICENSE-GUI"
 install -m 0644 gui/assets/README.md "$tree/ASSET-PROVENANCE.md"
+install -d -- "$tree/docs"
+install -m 0644 docs/USER_GUIDE.md docs/GUIA_USUARIO.pt-BR.md "$tree/docs/"
+install -m 0644 SECURITY.md DISTRIBUTION.md "$tree/"
 
 source_epoch=${SOURCE_DATE_EPOCH:-$(sed -n '1p' .source-date-epoch 2>/dev/null || true)}
 [[ $source_epoch =~ ^[0-9]+$ ]] || die 'SOURCE_DATE_EPOCH is not available'
@@ -106,6 +113,7 @@ chmod 0755 %{buildroot}%{_bindir}/zupt-gui
 %files
 %license LICENSE LICENSE-AGPL-3.0 LICENSE-GUI
 %doc README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md ASSET-PROVENANCE.md
+%doc docs SECURITY.md DISTRIBUTION.md
 %{_bindir}/zupt-gui
 %{_datadir}/zupt-gui/zupt_gui.py
 %{_datadir}/applications/zupt-gui.desktop
@@ -120,36 +128,48 @@ EOF
 
 rpmbuild --define "_topdir $top" -ba "$top/SPECS/zupt-gui.spec"
 
-mapfile -t main_rpms < <(find "$top/RPMS" -type f -name "zupt-gui-$version-*.noarch.rpm" -print | sort)
-mapfile -t source_rpms < <(find "$top/SRPMS" -type f -name "zupt-gui-$version-*.src.rpm" -print | sort)
+find "$top/RPMS" -type f -name "zupt-gui-$version-*.noarch.rpm" -print | sort > "$work/main-rpms.txt"
+mapfile -t main_rpms < "$work/main-rpms.txt"
+find "$top/SRPMS" -type f -name "zupt-gui-$version-*.src.rpm" -print | sort > "$work/source-rpms.txt"
+mapfile -t source_rpms < "$work/source-rpms.txt"
 [[ ${#main_rpms[@]} -eq 1 ]] || die "expected one GUI RPM, found ${#main_rpms[@]}"
 [[ ${#source_rpms[@]} -eq 1 ]] || die "expected one GUI source RPM, found ${#source_rpms[@]}"
 
 main_rpm=${main_rpms[0]}
 source_rpm=${source_rpms[0]}
-[[ $(rpm -qp --qf '%{NAME}' "$main_rpm") == zupt-gui ]] || \
+metadata=$(rpm -qp --qf '%{NAME}' "$main_rpm")
+[[ $metadata == zupt-gui ]] || \
     die 'GUI binary RPM name metadata is not zupt-gui'
-[[ $(rpm -qp --qf '%{VERSION}' "$main_rpm") == "$version" ]] || \
+metadata=$(rpm -qp --qf '%{VERSION}' "$main_rpm")
+[[ $metadata == "$version" ]] || \
     die 'GUI binary RPM version metadata does not match the release'
-[[ $(rpm -qp --qf '%{RELEASE}' "$main_rpm") == 1 ]] || \
+metadata=$(rpm -qp --qf '%{RELEASE}' "$main_rpm")
+[[ $metadata == 1 ]] || \
     die 'GUI binary RPM release metadata is not 1'
-[[ $(rpm -qp --qf '%{SOURCEPACKAGE}' "$main_rpm") == '(none)' ]] || \
+metadata=$(rpm -qp --qf '%{SOURCEPACKAGE}' "$main_rpm")
+[[ $metadata == '(none)' ]] || \
     die 'GUI binary RPM is marked as a source package'
-[[ $(rpm -qp --qf '%{SOURCERPM}' "$main_rpm") == "$(basename -- "$source_rpm")" ]] || \
+metadata=$(rpm -qp --qf '%{SOURCERPM}' "$main_rpm")
+[[ $metadata == "$(basename -- "$source_rpm")" ]] || \
     die 'GUI binary RPM does not reference the matching source RPM'
-[[ $(rpm -qp --qf '%{NAME}' "$source_rpm") == zupt-gui ]] || \
+metadata=$(rpm -qp --qf '%{NAME}' "$source_rpm")
+[[ $metadata == zupt-gui ]] || \
     die 'GUI source RPM name metadata is not zupt-gui'
-[[ $(rpm -qp --qf '%{VERSION}' "$source_rpm") == "$version" ]] || \
+metadata=$(rpm -qp --qf '%{VERSION}' "$source_rpm")
+[[ $metadata == "$version" ]] || \
     die 'GUI source RPM version metadata does not match the release'
-[[ $(rpm -qp --qf '%{RELEASE}' "$source_rpm") == 1 ]] || \
+metadata=$(rpm -qp --qf '%{RELEASE}' "$source_rpm")
+[[ $metadata == 1 ]] || \
     die 'GUI source RPM release metadata is not 1'
-[[ $(rpm -qp --qf '%{SOURCEPACKAGE}' "$source_rpm") == 1 ]] || \
+metadata=$(rpm -qp --qf '%{SOURCEPACKAGE}' "$source_rpm")
+[[ $metadata == 1 ]] || \
     die 'GUI source RPM is not marked as a source package'
-[[ $(rpm -qp --qf '%{SOURCERPM}' "$source_rpm") == '(none)' ]] || \
+metadata=$(rpm -qp --qf '%{SOURCERPM}' "$source_rpm")
+[[ $metadata == '(none)' ]] || \
     die 'GUI source RPM unexpectedly references another source RPM'
-mapfile -t source_members < <(rpm -qpl "$source_rpm" | sort)
+rpm -qpl "$source_rpm" | sort > "$work/source-members.txt"
+mapfile -t source_members < "$work/source-members.txt"
 expected_source_members=("zupt-gui-${version}.tar.gz" zupt-gui.spec)
-mapfile -t expected_source_members < <(printf '%s\n' "${expected_source_members[@]}" | sort)
 [[ ${#source_members[@]} -eq 2 && \
     ${source_members[*]} == "${expected_source_members[*]}" ]] || \
     die 'GUI source RPM payload is not the exact Source0/spec pair'
@@ -161,16 +181,12 @@ if grep -Eq '(^/usr/bin/vaptvupt-gui$|\.(o|obj|a|so|so\.[^/]+|dll|dylib|exe)$)' 
     die 'forbidden compatibility alias or compiled artifact in GUI RPM'
 fi
 (cd -- "$extract" && rpm2cpio "$main_rpm" | cpio -idm --quiet)
+python3 scripts/check-installed-docs.py "$repo_root" "$extract" zupt-gui
 PYTHONDONTWRITEBYTECODE=1 python3 - <<PY
 from pathlib import Path
 p = Path("$extract/usr/share/zupt-gui/zupt_gui.py")
 compile(p.read_text(encoding="utf-8"), str(p), "exec")
 PY
 
-for artifact in "$main_rpm" "$source_rpm"; do
-    destination=$dist_dir/$(basename -- "$artifact")
-    [[ ! -e $destination ]] || die "refusing to overwrite existing output: $destination"
-    cp -- "$artifact" "$destination"
-    sha256sum "$destination"
-done
+python3 scripts/publish-package.py "$dist_fd" "$dist_dir" "$main_rpm" "$source_rpm"
 printf 'PASS: built and content-validated GUI RPM and source RPM in %s\n' "$dist_dir"

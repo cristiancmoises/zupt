@@ -6,14 +6,14 @@
 # Builds and runs tests/test_kdf_transparency.c against a system libvuptsdk.
 
 set -u
-SDK_CFLAGS=${SDK_CFLAGS:-}
-SDK_LIBS=${SDK_LIBS:-}
-if [ -z "$SDK_CFLAGS$SDK_LIBS" ] && command -v pkg-config >/dev/null 2>&1 && \
+SDK_CPPFLAGS=${SDK_CPPFLAGS:-}
+SDK_LDLIBS=${SDK_LDLIBS:-}
+if [ -z "$SDK_CPPFLAGS$SDK_LDLIBS" ] && command -v pkg-config >/dev/null 2>&1 && \
    pkg-config --exists libvuptsdk; then
-    SDK_CFLAGS=$(pkg-config --cflags libvuptsdk)
-    SDK_LIBS=$(pkg-config --libs libvuptsdk)
+    SDK_CPPFLAGS=$(pkg-config --cflags libvuptsdk)
+    SDK_LDLIBS=$(pkg-config --libs libvuptsdk)
 fi
-if [ -z "$SDK_LIBS" ]; then
+if [ -z "$SDK_LDLIBS" ]; then
     echo "  SKIP: system libvuptsdk development package unavailable"
     exit 0
 fi
@@ -27,12 +27,12 @@ fi
 
 TMP=$(mktemp -d)
 # shellcheck disable=SC2086 # SDK flags intentionally expand to compiler words.
-if "${CC:-cc}" -Iinclude -Isrc $SDK_CFLAGS -Wall -Wextra -Werror $SHANI -O2 -std=c11 \
+if "${CC:-cc}" -Iinclude -Isrc -DZUPT_WITH_SDK $SDK_CPPFLAGS -Wall -Wextra -Werror $SHANI -O2 -std=c11 \
        tests/test_kdf_transparency.c \
        src/zupt_crypto_sdk.c src/zupt_crypto.c src/zupt_sha256.c src/zupt_sha256_shani.c \
        src/zupt_aes256.c src/zupt_xxh.c src/zupt_keccak.c src/zupt_x25519.c \
        src/zupt_mlkem.c src/zupt_cpuid.c src/zupt_mlock.c \
-       $SDK_LIBS -lm \
+       $SDK_LDLIBS -lm \
        -o "$TMP/t" 2>"$TMP/cc.log"; then
     "$TMP/t"; rc=$?
 else

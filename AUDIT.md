@@ -34,6 +34,205 @@ choice on supported x86_64 compiler targets. Generated files must record their
 compiler provenance; hand-written files must not be represented as compiler
 output.
 
+## Current formal evidence, reviewed 2026-10-28
+
+The 2026-10-24 UTC runs of all six maintained Frama-C targets pass on the
+frozen 294-file source after the five ANS guard corrections: decoder bounds,
+reader, frequencies, logarithm, logarithm bounds and fixed-vector AES. The
+tools are Frama-C 29.0, GCC 14.3.0, Why3 1.7.2 and recognized Z3 4.12.2.
+Each target retains its own model, caller assumptions and exact result
+checks; these conditional results do not prove the whole application.
+
+The 2026-10-27 UTC ordinary Jasmin 2026.09.0 repeat on the same source
+passes compilation, safety, CT, DOIT, lowering and generated/runtime
+instruction comparisons for all five selected sources. Seven tools/libraries
+match the pinned package members. Two environment rejections, four warning
+controls, seventeen wipe controls, 1,026 AES/OpenSSL blocks and 1,539 CTR4
+cases pass. This is selected source qualification under the documented
+preconditions, not whole-program verification, final-package acceptance or
+the separate `WITH_JASMIN=1` application integration check. Raw logs and
+source/tool integrity checks are retained. Later documentation edits are
+outside the measured snapshot.
+
+## Local precommit checks, 2026-10-28
+
+On the subsequent 294-file source snapshot, the actual static-analysis script
+passes nine checks with GCC 14.3.0; its three optional cppcheck scans are
+`NOT RUN` because cppcheck is absent. Distribution-state controls pass 17
+cases, publication tests pass 21, and DEB/RPM helper controls pass 20/55.
+The source-policy scan passes over 294 files and zero archives. Source, tool
+and supervisor integrity checks pass before and after execution. Package
+helpers use tool doubles; these results do not qualify native installations.
+Later documentation and signing-key instructions are outside that snapshot.
+
+## ANS exact-output bounds
+
+Five sequence-copy guards now compare the remaining destination length before
+forming wide-copy pointers. API and frame grammar are unchanged. The retained
+three malformed metadata fixtures and five exact-output sequence cases pass
+`test-frama-ans-decode-bounds`: Frama-C 29.0, production scalar path,
+`gcc_x86_64`, 558/983 statements in 16/95 functions, zero alarms and 63 valid
+preconditions with zero unknowns or invalids. Six exact fixture witnesses
+exclude allocation-only or pruned-success approvals. All 82 synthetic result
+controls pass. Restoring only the four old match guards in a private control
+produces four invalid-pointer alarms and the Makefile target rejects it.
+
+The analysis uses Frama-C libc models and raw-literal sequences with
+single-symbol sequence tables. It is not a general decoder, Huffman or SIMD
+proof; native and sanitizer runtime checks remain separate. Reproduction
+commands and assumptions are in the [English guide](docs/USER_GUIDE.md#ans-exact-output-bounds)
+and [Portuguese guide](docs/GUIA_USUARIO.pt-BR.md#limites-ans-com-saída-de-tamanho-exato).
+The corrected 294-file source passed strict GCC 14.3.0 and Clang 22.1.8
+`test-all` plus the in-tree SDK, license and symbol targets on 2026-10-27 UTC.
+Both compilers also passed focused native and scalar/AVX2 ANS exact-output
+ASan/LSan/UBSan tests. A separate GCC `WITH_JASMIN=1` build passed the full
+suite and SDK targets with verified `Jasmin AES-NI` vector dispatch. Each
+profile records 15 explicit skips and passed isolation, real sanitizer
+negatives, diagnostic and source/input-integrity checks. No product stage
+recorded OOM, a PID-limit event or a surviving descendant. These are bounded
+self-review results; full `release-check` and final-package acceptance remain
+pending. The guides record reproduction commands, omissions and retained
+earlier image/time-limit failures.
+
+The following earlier full-suite results predate these five guard changes.
+Full `release-check` and final-package acceptance remain separate requirements.
+
+## Earlier GCC and GUI runtime checks, 2026-10-23
+
+On 2026-10-23 UTC, the actual strict GCC 14.3.0 `test-all` passes on a frozen
+294-file source snapshot in the disposable 2-CPU/2-GiB VM. Its 15 explicit
+skips cover native Windows, privileged devices, unavailable shell/manual
+tools, the Clang-specific ABI model and optional external integrations.
+The run includes 81 ASan exact-size cases, 1,024 BCJ bijections, byte-exact
+BCJ L5/L9 round trips, timing regression and three ML-KEM/OpenSSL comparisons.
+The ordinary CLI is not wholly instrumented by that ASan test.
+
+A separate VM passes 64 current GUI tests, 33 historical reference tests and
+six bootstrap controls with PySide6/Shiboken6/Qt 6.9.2. The compiler is kept
+outside this smaller guest: a bounded compile-only namespace produces the
+byte-identical CLI and sanitizer controls, which execute only in the VM.
+All 16 isolation controls, three real sanitizer negatives, ordered completion
+records, diagnostic gates and source/input checks pass. The target envelope
+remains 768 MiB, 16 tasks and 512 MiB of scratch space.
+
+The old Qt inputs are absent. A full Qt image hit the existing 128-MiB file
+limit before VM creation; that failed attempt remains recorded. The smaller
+runtime image fits without increasing any limit or dropping runtime library
+dependencies. An earlier comparison against a decoder predating the current
+literal bounds also failed; the corrected private reference tests only the
+cast changes and retains all four bounds. No executable project code changed.
+These are automated self-review results, not an independent audit. Final
+documentation follows the runtime snapshot. Fresh Clang repetition, broader
+formal review, full `release-check` and final-package acceptance remain pending.
+
+## ANS frequency-validation checks
+
+`make test-frama-ans-frequencies` is a required `release-check` dependency.
+The 2026-10-22 Frama-C 29.0/recognized Z3 4.12.2 run passes 23 exact WP JSON
+goals, including three unsigned-overflow conditions, under initialized,
+readable and separated-input assumptions. The guarded annotations do not
+change the C body or replace caller analysis in other profiles. Reader and
+metadata gates retain their previous exact results. A private acceptance
+mutation is rejected with one unproved postcondition; that is not a solver
+counterexample or proof of caller safety.
+
+Strict scalar GCC 14.3.0/Clang 22.1.8 tests pass eight new frequency vectors
+and 80 synthetic reporting controls. The direct 79,560-state ANS suite and
+eight vectors also pass ASan/LSan/UBSan in the bounded disposable VM, with
+real negatives and exact source/object/ordered-completion checks. Separate
+CLI/SDK/interoperability checks pass in their stated profiles. A private
+16-bit accumulator mutation passes old tests and fails the new wrap case.
+See the English/PT-BR user guides for reproduction commands and assumptions.
+Final documentation is outside these runtime snapshots. These checks do not
+establish general ANS caller safety or qualify full suites, final packages,
+the complete program or production release. The earlier 14-unknown count is
+historical, not a refreshed inventory of today's tree.
+
+The subsequent decode-table test checks 16,785,408 entries over all 4,097
+frequency splits between symbols 0/255 and a uniform 256-symbol table. Strict
+scalar GCC/Clang and bounded-VM ASan/LSan/UBSan runs pass; a targeted private
+width mutation passes old tests and fails the expanded test. The private WP
+table experiment is not adopted: 109 valid JSON goals, 17 timeouts and three
+`memset`/Typed-model warnings remain. A dependent postcondition marked valid
+does not discharge unproved loop invariants. These are proof gaps, not 17
+confirmed vulnerabilities. The new runtime coverage is finite-family
+characterization, not a general table, caller or complete-decoder proof.
+
+## Bounded ANS logarithm proof
+
+`make test-frama-ans-logarithm` is now a required `release-check` dependency.
+It analyzes the original shift-based `ilog2`, not the rejected division
+variant. Guarded annotations require an input below 4096 and establish zero
+handling, result range 0–11 and the exact power-of-two interval for each
+positive input. They do not change the helper's runtime behavior or impose a
+new public caller contract. Callers outside this bounded profile still need
+their own analysis.
+
+Frama-C 29.0, Why3 1.7.2 and recognized Z3 4.12.2 pass all 50 exact JSON
+goals and the 52/52 console summary. The redundant OR-bound loop invariant
+exposes WP's existing mask/addition relation. Its establishment and
+preservation are separately proved through the native bit-range tactic;
+neither is assumed. Raw scripts and JSON remain in the gate output.
+An intentionally false postcondition is rejected with analyzer status zero
+but gate status one. Reader and frequency profiles retain their 30 and 23
+exact valid goals.
+
+The result validator now rejects non-integer, zero or multiple `subgoals`
+when a row claims just one proved goal. The actual two-line omission fails
+nine of 132 synthetic controls; the corrected gate passes all 132 with GCC
+and Clang. These controls reject an unknown mask invariant even while the
+postcondition rows remain valid. Synthetic reports are not C proofs.
+
+Strict GCC 14.3.0 and Clang 22.1.8 `check` plus installed-CLI functional smoke
+pass on the integrated 294-file snapshot, with 11 and 10 explicit skips.
+Each run first rejects a real fatal UBSan overflow control. This qualifies
+the contained UBSan fuzz-build checks, not a fully instrumented CLI or new
+ASan/LSan campaign. Skips cover native Windows, five external-SDK cases,
+privileged loop devices, unavailable zsh/fish/manual tools and, for GCC only,
+the Clang-specific bionic model. GCC preprocessing remains byte-identical
+across default/frequency/logarithm profiles. Scalar whole `-O2 -g0` objects
+match baseline with each selected compiler, GCC and Clang.
+Runtime C, API, ABI and wire format are unchanged. Table construction,
+general callers, whole-program correctness, complete `test-all`/
+`release-check`, platform packages and production approval remain separate.
+Final documentation is outside the runtime snapshot. See the EN/PT-BR user
+guides for the commands and exact proof assumptions.
+
+## Earlier 2026-10-23 qualification repeat
+
+The ordinary Jasmin 2026.09.0 source gate passes again on the captured
+294-file source snapshot. The five safety/constant-time/DOIT analysis groups
+and regenerated/runtime instruction comparisons pass, as do 1,026 AES block
+cases and 1,539 AES4 cases. Three executables and four APRON libraries match
+the retained hash-pinned package members. Two exact environment rejection
+controls, four synthetic warning-screen controls and seventeen wipe-checker
+controls also pass. The namespace retains two-CPU affinity, 1 GiB per-process
+address space, 120 CPU seconds, a 125+5 second outer deadline and 128 MiB
+scratch. These are not aggregate cgroup quotas. No tools were installed.
+This repeat is not new UBSan coverage, application integration, a fresh
+upstream signature audit, a C caller proof or final-package qualification.
+
+At that earlier checkpoint, the ANS floor-log investigation remained private
+and incomplete. A bounded
+division-by-two variant passes 48 exact WP JSON goals (50/50 console), but
+its GCC whole object differs from the maintained shift variant under the
+same `-O2 -g0` profile. It was not adopted. A deliberately false postcondition
+is rejected by the exact-result gate despite analyzer exit zero. Object
+inequality alone is neither a functional failure nor a measured performance
+regression. The maintained C, API and wire format remain unchanged.
+
+With the original shift restored, scalar GCC/Clang ANS tests pass again,
+including the 79,560-state reader and 16,785,408 table entries. Preprocessed
+C and whole objects match the baseline in their stated comparison profiles.
+The private reporting extension passes 120 synthetic controls; those test
+the supervisor, not the C theorem, and are not a new published proof gate.
+At that snapshot the stronger shift-based proof still timed out on bit-mask
+reasoning, so no experimental annotations or refactorings were adopted.
+The later bounded proof above resolves this helper profile only.
+Historical results remain separate; these checks do not close general table
+or caller obligations, full release checks, packages or production approval.
+Final documentation is outside these runtime snapshots.
+
 ## Source-only review
 
 The 5.2.10 baseline retains the source-only boundary introduced in 5.2.2, which

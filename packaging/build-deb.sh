@@ -29,11 +29,14 @@ dist_dir=${DIST_DIR:-${TMPDIR:-/tmp}/zupt-release}
 mkdir -p -- "$dist_dir"
 dist_dir=$(cd -- "$dist_dir" && pwd -P)
 output=$dist_dir/zupt_${version}_${arch}.deb
-[[ ! -e $output ]] || die "refusing to overwrite existing output: $output"
+[[ ! -e $output && ! -L $output ]] || die "refusing to overwrite existing output: $output"
 
-for command_name in make dpkg dpkg-deb readelf sha256sum; do
+for command_name in make python3 dpkg dpkg-deb readelf sha256sum; do
     command -v -- "$command_name" >/dev/null 2>&1 || die "required command not found: $command_name"
 done
+# The suffix requires a directory, so a substituted FIFO cannot block this open.
+exec {dist_fd}<"$dist_dir/."
+python3 scripts/publish-package.py --check-directory "$dist_fd" "$dist_dir"
 run_checks=${RUN_CHECKS:-1}
 [[ $run_checks == 0 || $run_checks == 1 ]] || die 'RUN_CHECKS must be 0 or 1'
 if [[ $run_checks == 1 ]]; then
@@ -49,6 +52,7 @@ cleanup() {
     make -C "$repo_root" clean >/dev/null 2>&1 || true
     chmod -R u+rwX "$work" 2>/dev/null || true
     rm -rf -- "$work"
+    exec {dist_fd}<&-
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -66,11 +70,12 @@ binary=$stage/usr/bin/zupt
 [[ -x $binary ]] || die 'staged /usr/bin/zupt is missing'
 [[ ! -e $stage/usr/bin/vaptvupt ]] || die 'legacy /usr/bin/vaptvupt must not be packaged'
 
-if readelf -d "$binary" 2>/dev/null | grep -Eq '(RPATH|RUNPATH)'; then
-    readelf -d "$binary" | grep -E '(RPATH|RUNPATH)' >&2
+dynamic_section=$(readelf -d "$binary")
+if grep -Eq '(RPATH|RUNPATH)' <<< "$dynamic_section"; then
+    grep -E '(RPATH|RUNPATH)' <<< "$dynamic_section" >&2
     die 'staged executable contains RPATH/RUNPATH'
 fi
-if readelf -d "$binary" 2>/dev/null | grep -Eqi '(vendor/|libvuptsdk|libpqvaptvupt)'; then
+if grep -Eqi '(vendor/|libvuptsdk|libpqvaptvupt)' <<< "$dynamic_section"; then
     die 'staged executable references a vendored optional library'
 fi
 
@@ -91,6 +96,9 @@ for document in THREAT_MODEL.md NOTICE THIRD-PARTY-NOTICES.md LICENSE-AGPL-3.0 L
     [[ ! -f $document ]] || install -m 0644 "$document" "$docdir/"
 done
 install -m 0644 LICENSE "$docdir/copyright"
+install -d -- "$docdir/docs"
+install -m 0644 docs/USER_GUIDE.md docs/GUIA_USUARIO.pt-BR.md "$docdir/docs/"
+install -m 0644 DISTRIBUTION.md "$docdir/"
 
 mkdir -p -- "$work/debian" "$stage/DEBIAN"
 if [[ -n ${DEB_DEPENDS:-} ]]; then
@@ -133,8 +141,8 @@ fi
 
 mkdir -p -- "$extract"
 dpkg-deb --extract "$package_tmp" "$extract"
+python3 scripts/check-installed-docs.py "$repo_root" "$extract" zupt
 bash scripts/test-installed-zupt.sh "$extract/usr/bin/zupt"
 
-mv -- "$package_tmp" "$output"
-sha256sum "$output"
+python3 scripts/publish-package.py "$dist_fd" "$dist_dir" "$package_tmp"
 printf 'PASS: built and extracted-package-tested %s\n' "$output"

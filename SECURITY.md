@@ -85,10 +85,25 @@ The 5.2.10 default is `WITH_SDK=0 WITH_PQBOX=0`:
 - `WITH_PQBOX=1` independently enables the libpqvaptvupt sealed-box mode using
   its separately installed system development package.
 
+The SDK integration supplies password derivation or recipient wrapping. ZUPT
+still protects payload blocks with AES-256-CTR + HMAC-SHA256; the optional SDK
+does not route payload blocks through a different AEAD implementation.
+
 Neither library is committed as a precompiled artifact, and no build path
 downloads it. A missing requested dependency is a build error. Security
 properties of these optional libraries are outside the source-only CLI audit
 unless their exact source package and version are reviewed separately.
+Numeric versions are not treated as capability evidence: a provider may omit
+the easy API even when its base ABI is newer. Provider-enabled validation must
+compile and link every required symbol and then run against the exact reviewed
+provider source. The controlled libvuptsdk provider covers SDK ownership,
+cleanup, envelope handling, dispatch and a deterministic timing floor; it does
+not prove Argon2id, memory hardness or the external provider's implementation.
+The PQBOX double covers fixed-envelope parsing only. The libvuptsdk adapter
+consumes output pointers and lengths only after a successful return. PQBOX
+remains disabled and is not approved for release packages until the exact
+libpqvaptvupt failure-output ownership and length contract has been reviewed and
+tested against that implementation.
 
 The in-repository SDK adapter saves copied keys through the core atomic output
 publisher. POSIX permissions are applied to its already-open temporary
@@ -192,10 +207,16 @@ does not protect against:
 
 Archive entry paths reject traversal, absolute paths, control characters,
 Windows alternate streams/device names, and ambiguous trailing dot/space
-components. POSIX extraction resolves each parent relative to a pinned file
-descriptor with no-follow semantics after canonicalizing the user-selected
-output root once; symlinks below that root remain forbidden. Windows resolves
-each parent and temporary
+components. On systems that provide `O_SEARCH` or `O_PATH`, POSIX compression
+inputs, archive files opened for reading, archive output and extraction accept
+searchable but non-readable ancestors. Compression-input, output-root and
+extraction-root walks prefer readable directory descriptors and fall back to a
+search-only handle only when an ancestor grants search but not read access.
+Those walks pin every opened ancestor; component-by-component no-follow and
+directory-type checks remain in force, and symlinks below the selected root
+remain forbidden. Archive files opened for reading use normal POSIX traversal
+and are then held by the open stream. This access guarantee is POSIX-specific.
+Windows resolves each parent and temporary
 file relative to a directory handle and performs the final no-replace rename by
 handle, so a checked path is not looked up again through a mutable junction or
 reparse point. An existing destination leaf is never overwritten.

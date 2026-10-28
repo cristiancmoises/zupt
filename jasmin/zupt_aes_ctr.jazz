@@ -5,10 +5,10 @@
  * CT-REQUIRED: designed without intended secret-dependent branches or memory
  * access. Compiled and microarchitectural timing is not proven here.
  *
- * FIX v2.0.0: replaced `stack u128[15] rk` with 15 individual
- * `stack u128` variables. The array form uses byte-offset indexing
- * in jasminc (rk.[1] → [rsp+1] instead of [rsp+16]), producing
- * incorrect round key loads. Individual variables avoid the issue.
+ * Array indexing with [] scales by the element width; .[] is a byte offset.
+ * The second u128 key element therefore uses key[1], not key.[1].
+ * Stack zeroization is a compiler contract; ordinary assignments to dead
+ * round-key variables would be removed during compilation.
  */
 
 inline fn key_expand_even(reg u128 t0, reg u128 assist) -> reg u128 {
@@ -38,6 +38,8 @@ inline fn key_expand_odd(reg u128 t0, reg u128 t1) -> reg u128 {
     return t1;
 }
 
+#[ct = "public * secret * secret * public -> ()",
+  stackzero = "unrolled", stackzerosize = u128]
 export fn zupt_aes256_blk(
     reg u64 out_ptr,
     reg ptr u128[1] in_blk,
@@ -49,7 +51,7 @@ export fn zupt_aes256_blk(
     reg u128 t0 t1 assist b data;
 
     t0 = key.[0];
-    t1 = key.[1];
+    t1 = key[1];
     rk0 = t0;
     rk1 = t1;
 
@@ -112,12 +114,5 @@ export fn zupt_aes256_blk(
 
     data = in_blk.[0];
     b ^= data;
-    [out_ptr + 0] = b;
-
-    reg u128 wipe;
-    wipe = rk0; wipe ^= wipe;
-    rk0 = wipe; rk1 = wipe; rk2 = wipe; rk3 = wipe;
-    rk4 = wipe; rk5 = wipe; rk6 = wipe; rk7 = wipe;
-    rk8 = wipe; rk9 = wipe; rk10 = wipe; rk11 = wipe;
-    rk12 = wipe; rk13 = wipe; rk14 = wipe;
+    [:u128 out_ptr + 0] = b;
 }

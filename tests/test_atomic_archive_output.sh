@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 
 bin=${1:-./zupt}
+cc=${CC:-cc}
 repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 case "$bin" in
     /*) ;;
@@ -10,12 +11,114 @@ case "$bin" in
 esac
 surgery="$repo_root/tests/archive_surgery.py"
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/zupt-atomic-output.XXXXXX")
-trap 'rm -rf "$tmp"' EXIT
+search_only_parent=
+search_only_entry_parent=
+cleanup() {
+    if [[ -n $search_only_entry_parent && -d $search_only_entry_parent ]]; then
+        chmod u+rwx "$search_only_entry_parent" 2>/dev/null || true
+    fi
+    if [[ -n $search_only_parent && -d $search_only_parent ]]; then
+        chmod u+rwx "$search_only_parent" 2>/dev/null || true
+    fi
+    rm -rf "$tmp"
+}
+trap cleanup EXIT
 
 fail() {
     printf 'FAIL: %s\n' "$*" >&2
     exit 1
 }
+
+search_only_probe_log() {
+    local log=$1 scan_status
+    if cat "$log"; then :; else exit "$?"; fi
+    if grep -aEq 'AddressSanitizer|LeakSanitizer|UndefinedBehaviorSanitizer|runtime error:' "$log"; then
+        printf 'FAIL: search-only directory capability probe emitted a sanitizer diagnostic\n' >&2
+        exit 2
+    else
+        scan_status=$?
+        if [[ $scan_status != 1 ]]; then exit "$scan_status"; fi
+    fi
+}
+
+search_only_probe() {
+    local status expected_marker completions scan_status
+    local -a cc_command probe_cppflags probe_cflags probe_ldflags probe_ldlibs
+    read -r -a cc_command <<<"$cc"
+    read -r -a probe_cppflags <<<"${CPPFLAGS:-}"
+    read -r -a probe_cflags <<<"${CFLAGS:-}"
+    read -r -a probe_ldflags <<<"${LDFLAGS:-}"
+    read -r -a probe_ldlibs <<<"${LDLIBS:-}"
+    ((${#cc_command[@]} > 0)) || fail 'CC does not name a compiler'
+    if cat > "$tmp/search-only-open-probe.c" <<'EOF'
+#define _GNU_SOURCE 1
+#include <fcntl.h>
+#include <stdio.h>
+int main(void) {
+#if defined(O_SEARCH) || defined(O_PATH)
+    puts("search-only directory capability: supported");
+    return 0;
+#else
+    puts("search-only directory capability: unsupported");
+    return 1;
+#endif
+}
+EOF
+    then :; else exit "$?"; fi
+    if "${cc_command[@]}" ${probe_cppflags[@]+"${probe_cppflags[@]}"} \
+        ${probe_cflags[@]+"${probe_cflags[@]}"} \
+        -std=c11 -Wall -Wextra -Werror "$tmp/search-only-open-probe.c" \
+        ${probe_ldflags[@]+"${probe_ldflags[@]}"} \
+        ${probe_ldlibs[@]+"${probe_ldlibs[@]}"} -o "$tmp/search-only-open-probe" \
+        > "$tmp/search-only-compile.log" 2>&1
+    then
+        search_only_probe_log "$tmp/search-only-compile.log"
+    else
+        status=$?
+        if cat "$tmp/search-only-compile.log"; then :; else exit "$?"; fi
+        printf 'FAIL: could not compile the search-only directory capability probe (exit %s)\n' "$status" >&2
+        exit "$status"
+    fi
+    if "$tmp/search-only-open-probe" > "$tmp/search-only-run.log" 2>&1; then
+        status=0
+    else
+        status=$?
+    fi
+    search_only_probe_log "$tmp/search-only-run.log"
+    case $status in
+        0) expected_marker='search-only directory capability: supported' ;;
+        1) expected_marker='search-only directory capability: unsupported' ;;
+        *) printf 'FAIL: search-only directory capability probe exited %s\n' "$status" >&2; exit "$status" ;;
+    esac
+    if completions=$(grep -aFxc "$expected_marker" "$tmp/search-only-run.log"); then
+        if [[ $completions != 1 ]]; then
+            printf 'FAIL: ambiguous search-only directory capability completion\n' >&2
+            exit 2
+        fi
+    else
+        scan_status=$?
+        printf 'FAIL: probe exited %s without its search-only capability completion\n' "$status" >&2
+        if [[ $scan_status != 1 ]]; then exit "$scan_status"; fi
+        exit 2
+    fi
+    if completions=$(grep -aExc 'search-only directory capability: (supported|unsupported)' "$tmp/search-only-run.log"); then
+        if [[ $completions != 1 ]]; then
+            printf 'FAIL: contradictory search-only directory capability completions\n' >&2
+            exit 2
+        fi
+    else
+        scan_status=$?
+        printf 'FAIL: could not verify search-only directory capability completion\n' >&2
+        if [[ $scan_status != 1 ]]; then exit "$scan_status"; fi
+        exit 2
+    fi
+    return "$status"
+}
+
+# Fast compiler/probe controls do not invoke or replace the product CLI.
+if [[ ${2:-} == --probe-only ]]; then
+    if search_only_probe; then exit 0; else exit "$?"; fi
+fi
 
 command -v python3 >/dev/null 2>&1 || fail 'python3 is required'
 
@@ -136,6 +239,79 @@ case "$(uname -s)" in
         printf 'atomic archive output Windows subset: PASS\n'
         exit 0
         ;;
+esac
+
+# Unix permits traversal through an execute-only directory, but POSIX systems
+# do not all expose a search-only open flag. Probe the same feature macros as
+# the product source, then exercise this guarantee only where it is available.
+if search_only_probe; then
+    search_only_probe_status=0
+else
+    search_only_probe_status=$?
+fi
+case $search_only_probe_status in
+0)
+    search_only_parent="$tmp/search-only-parent"
+    mkdir -p "$search_only_parent/owned"
+    printf 'searchable input payload\n' > \
+        "$search_only_parent/owned/searchable-input.txt"
+    chmod 0311 "$search_only_parent"
+    if [[ -r $search_only_parent ]]; then
+        printf 'SKIP: effective user can read the execute-only ancestor\n'
+    else
+        [[ -x $search_only_parent && -w $search_only_parent/owned ]] ||
+            fail 'execute-only ancestor fixture has unexpected permissions'
+        "$bin" compress -s "$search_only_parent/owned/archive.zupt" \
+            "$search_only_parent/owned/searchable-input.txt" \
+            >/dev/null 2>&1 ||
+            fail 'compression rejected input or output below a searchable ancestor'
+        "$bin" test "$search_only_parent/owned/archive.zupt" \
+            >/dev/null 2>&1 ||
+            fail 'archive below a searchable, non-readable ancestor is invalid'
+        "$bin" extract -o "$search_only_parent/owned/extracted" \
+            "$search_only_parent/owned/archive.zupt" >/dev/null 2>&1 ||
+            fail 'extraction rejected a searchable, non-readable ancestor'
+        extracted_search_file=$(find "$search_only_parent/owned/extracted" \
+            -type f -name searchable-input.txt -print -quit)
+        [[ -n $extracted_search_file ]] ||
+            fail 'extraction below a searchable ancestor omitted the payload'
+        cmp "$search_only_parent/owned/searchable-input.txt" \
+            "$extracted_search_file" ||
+            fail 'extraction below a searchable ancestor changed the payload'
+
+        mkdir -p "$search_only_parent/owned/archive-input/nested"
+        printf 'search-only entry payload\n' > \
+            "$search_only_parent/owned/archive-input/nested/file.txt"
+        (cd "$search_only_parent/owned" &&
+            "$bin" compress -s search-only-entry.zupt archive-input \
+                >/dev/null 2>&1) ||
+            fail 'could not create the search-only entry-parent fixture'
+        mkdir -p \
+            "$search_only_parent/owned/preexisting-output/archive-input/nested"
+        search_only_entry_parent="$search_only_parent/owned/preexisting-output/archive-input"
+        chmod 0311 "$search_only_entry_parent"
+        if [[ -r $search_only_entry_parent ]]; then
+            printf 'SKIP: effective user can read the execute-only entry parent\n'
+        else
+            "$bin" extract \
+                -o "$search_only_parent/owned/preexisting-output" \
+                "$search_only_parent/owned/search-only-entry.zupt" \
+                >/dev/null 2>&1 ||
+                fail 'extraction rejected a pre-existing searchable entry parent'
+            cmp "$search_only_parent/owned/archive-input/nested/file.txt" \
+                "$search_only_parent/owned/preexisting-output/archive-input/nested/file.txt" ||
+                fail 'extraction below a searchable entry parent changed the payload'
+        fi
+        chmod 0700 "$search_only_entry_parent"
+    fi
+    chmod 0700 "$search_only_parent"
+    ;;
+1)
+    printf 'SKIP: platform exposes neither O_SEARCH nor O_PATH\n'
+    ;;
+*)
+    fail "search-only directory capability probe exited $search_only_probe_status"
+    ;;
 esac
 
 printf 'hardlinked input must survive\n' > "$tmp/self-hard-input"

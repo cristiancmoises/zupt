@@ -320,8 +320,9 @@ vaptvupt (3.5.0-1) UNRELEASED; urgency=medium
     into a measured one and a regression guard (a future early-return
     refactor fails the t-test). No cryptographic-correctness change, no
     wire-format change (v1.6). F-09 byte sweep 0/1827, F-06 HMAC fuzz
-    0/2000. The formally-verified Jasmin zupt_mac_verify_ct path for the
-    v1.4/v1.5 legacy compare is unchanged.
+    0/2000. The optional Jasmin-generated zupt_mac_verify_ct path for the
+    v1.4/v1.5 legacy compare is unchanged; this package retains no reproducible
+    proof artifact for it.
 
  -- Cristian Cezar Moisés <sac@securityops.co>  Sun, 01 Jun 2026 14:30:00 +0000
 

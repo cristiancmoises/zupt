@@ -153,8 +153,8 @@ static inline uint16_t reverse_bits(uint16_t code, int len) {
  *   4. Limit max depth to VVH_MAX_CODE_LEN (15)
  * ═══════════════════════════════════════════════════════════════ */
 
-static void build_code_lengths(const uint32_t freq[VVH_SYMBOLS],
-                                uint8_t lengths[VVH_SYMBOLS]) {
+static int build_code_lengths(const uint32_t freq[VVH_SYMBOLS],
+                               uint8_t lengths[VVH_SYMBOLS]) {
     /* Collect non-zero symbols, sort by frequency */
     int sym_idx[VVH_SYMBOLS];
     uint32_t sym_freq[VVH_SYMBOLS];
@@ -169,9 +169,9 @@ static void build_code_lengths(const uint32_t freq[VVH_SYMBOLS],
         }
     }
 
-    if (n == 0) return;
-    if (n == 1) { lengths[sym_idx[0]] = 1; return; }
-    if (n == 2) { lengths[sym_idx[0]] = 1; lengths[sym_idx[1]] = 1; return; }
+    if (n == 0) return 1;
+    if (n == 1) { lengths[sym_idx[0]] = 1; return 1; }
+    if (n == 2) { lengths[sym_idx[0]] = 1; lengths[sym_idx[1]] = 1; return 1; }
 
     /* Insertion sort by frequency ascending (n ≤ 256, fast enough) */
     for (int i = 1; i < n; i++) {
@@ -191,7 +191,7 @@ static void build_code_lengths(const uint32_t freq[VVH_SYMBOLS],
     size_t total = 2u * (unsigned)n - 1u;
     uint32_t *nf = (uint32_t *)calloc(total, sizeof(uint32_t));
     int16_t *par = (int16_t *)malloc(total * sizeof(int16_t));
-    if (!nf || !par) { free(nf); free(par); return; }
+    if (!nf || !par) { free(nf); free(par); return 0; }
 
     /* Initialize leaf nodes */
     for (int i = 0; i < n; i++) {
@@ -229,7 +229,7 @@ static void build_code_lengths(const uint32_t freq[VVH_SYMBOLS],
 
     /* Compute depths */
     uint8_t *dep = (uint8_t *)calloc(total, 1);
-    if (!dep) { free(nf); free(par); return; }
+    if (!dep) { free(nf); free(par); return 0; }
     dep[total - 1] = 0;
     for (int i = (int)total - 2; i >= 0; i--)
         dep[i] = dep[par[i]] + 1;
@@ -244,7 +244,7 @@ static void build_code_lengths(const uint32_t freq[VVH_SYMBOLS],
     int max_d = 0;
     for (int i = 0; i < VVH_SYMBOLS; i++)
         if (lengths[i] > max_d) max_d = lengths[i];
-    if (max_d <= VVH_MAX_CODE_LEN) return;
+    if (max_d <= VVH_MAX_CODE_LEN) return 1;
 
     /* Count symbols per depth */
     int bl_count[32];
@@ -301,6 +301,8 @@ static void build_code_lengths(const uint32_t freq[VVH_SYMBOLS],
     for (int d = 1; d <= VVH_MAX_CODE_LEN && si < ns; d++)
         for (int c = 0; c < bl_count[d] && si < ns; c++)
             lengths[sorted[si++].sym] = (uint8_t)d;
+
+    return 1;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -338,9 +340,10 @@ static void assign_canonical_codes(const uint8_t lengths[VVH_SYMBOLS],
  * BUILD ENCODER TABLE
  * ═══════════════════════════════════════════════════════════════ */
 
-static void build_enc_table(const uint32_t freq[VVH_SYMBOLS],
-                             vvh_enc_table_t *enc) {
-    build_code_lengths(freq, enc->lengths);
+static int build_enc_table(const uint32_t freq[VVH_SYMBOLS],
+                           vvh_enc_table_t *enc) {
+    if (!build_code_lengths(freq, enc->lengths))
+        return 0;
 
     uint16_t canonical[VVH_SYMBOLS];
     assign_canonical_codes(enc->lengths, canonical);
@@ -352,6 +355,8 @@ static void build_enc_table(const uint32_t freq[VVH_SYMBOLS],
         else
             enc->codes[i] = 0;
     }
+
+    return 1;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -460,9 +465,9 @@ vvh_error_t vvh_encode(const uint8_t *src, size_t src_len,
 
     /* Build encode table */
     vvh_enc_table_t enc;
-    build_enc_table(freq, &enc);
+    if (!build_enc_table(freq, &enc))
+        return VVH_ERR_NOMEM;
 
-    /* Check: any symbols with length 0 that appear in input? (shouldn't happen) */
     /* Write header */
     size_t hdr_sz = write_header(enc.lengths, dst, dst_cap);
     if (hdr_sz == 0) return VVH_ERR_OVERFLOW;
@@ -530,7 +535,8 @@ vvh_error_t vvh_encode4(const uint8_t *src, size_t src_len,
 
     /* ─── 2. Build encode table (shared across all 4 streams) ─── */
     vvh_enc_table_t enc;
-    build_enc_table(freq, &enc);
+    if (!build_enc_table(freq, &enc))
+        return VVH_ERR_NOMEM;
 
     /* ─── 3. Write code-length header ─── */
     size_t hdr_sz = write_header(enc.lengths, dst, dst_cap);
@@ -616,6 +622,24 @@ static void release_decode_table(vvh_dec_table_t *dec, const void *workspace) {
     if (!workspace) free(dec);
 }
 
+static int huff_payload_can_hold_literals(const uint8_t lengths[VVH_SYMBOLS],
+                                          size_t num_literals,
+                                          size_t payload_bytes)
+{
+    unsigned min_len = VVH_MAX_CODE_LEN + 1U;
+    for (int i = 0; i < VVH_SYMBOLS; i++) {
+        if (lengths[i] && lengths[i] < min_len)
+            min_len = lengths[i];
+    }
+    if (min_len > VVH_MAX_CODE_LEN ||
+        num_literals > SIZE_MAX / (size_t)min_len)
+        return 0;
+
+    size_t needed_bits = num_literals * (size_t)min_len;
+    size_t needed_bytes = needed_bits / 8U + (needed_bits % 8U != 0);
+    return needed_bytes <= payload_bytes;
+}
+
 static vvh_error_t vvh_decode_impl(const uint8_t *src, size_t src_len,
                        uint8_t *dst, size_t dst_cap,
                        size_t num_literals, size_t *src_consumed,
@@ -636,6 +660,12 @@ static vvh_error_t vvh_decode_impl(const uint8_t *src, size_t src_len,
     for (int i = 0; i < VVH_SYMBOLS; i++)
         if (lengths[i] > 0) { has_sym = 1; break; }
     if (!has_sym) return VVH_ERR_CORRUPT;
+
+    /* A canonical code consumes at least its shortest declared length.  Do
+     * this inexpensive envelope check before reserving the decode table. */
+    if (!huff_payload_can_hold_literals(lengths, num_literals,
+                                        src_len - hdr_sz))
+        return VVH_ERR_CORRUPT;
 
     /* Caller-owned table storage avoids a per-block allocation. */
     vvh_dec_table_t *dec = workspace ? workspace :
@@ -752,6 +782,9 @@ static vvh_error_t vvh_decode4_impl(const uint8_t *src, size_t src_len,
     if (s1 > streams_total) return VVH_ERR_CORRUPT;
     if (s2 > streams_total - s1) return VVH_ERR_CORRUPT;
     if (s3 > streams_total - s1 - s2) return VVH_ERR_CORRUPT;
+
+    if (!huff_payload_can_hold_literals(lengths, num_literals, streams_total))
+        return VVH_ERR_CORRUPT;
     size_t s0 = streams_total - s1 - s2 - s3;
     /* All streams must be non-zero unless num_literals < 4 (degenerate) */
     if (num_literals >= 4) {

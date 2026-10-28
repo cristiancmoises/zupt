@@ -34,8 +34,9 @@ services reconstruct `zupt-5.2.10.tar.gz` inside the build environment, which
 matches `Source0` in the spec.
 
 This source policy does not prohibit separately built release-page packages.
-The upstream 5.2.10 release uses verified, unencrypted `.zupt` source and Linux
-archives, plus only DEB/RPM/SRPM packages that were freshly built and tested.
+The planned upstream 5.2.10 release will use verified, unencrypted `.zupt`
+source and Linux archives, plus only DEB/RPM/SRPM packages that were freshly
+built and tested.
 The OBS `Source0` tarball remains an internal build input rather than a new
 public release download. Windows, macOS and GUI binaries require independent
 fresh builds and are not promised by these recipes. AppImage and bare

@@ -1,7 +1,14 @@
 # ZUPT GUI
 
-The ZUPT GUI is a Python/Qt front end for the ZUPT 5.2.10 command-line
-program. It starts the CLI as a subprocess; compression, archive parsing, and
+[English installation guide](../INSTALL.md#gui) |
+[Português do Brasil](../DOCUMENTACAO.pt-BR.md#interface-gráfica)
+
+The ZUPT GUI is a Python/Qt front end for the command-line program.
+Version 5.2.10 is in development; the official published version remains
+[5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
+The earlier 5.2.10 delivery was withdrawn. The instructions for its planned
+packages below do not identify available official downloads.
+The GUI starts the CLI as a subprocess; compression, archive parsing, and
 cryptography remain in the C program.
 
 The canonical project repository is
@@ -50,11 +57,49 @@ For noninteractive checks:
 ```sh
 python3 gui/src/zupt_gui.py --version
 python3 gui/src/zupt_gui.py --selftest
+make WITH_SDK=0 WITH_PQBOX=0 check-gui
 ```
 
-The first command does not prove that a full desktop session works. Test the
+`check-gui` requires an installed Qt binding and fails if it is missing or
+broken. It exercises real VaptVupt archive creation, metadata, verification,
+and byte-exact extraction, including missing/wrong/correct passwords, widget
+reuse, GUI-thread callbacks, startup cancellation and closing a live operation.
+It uses synthetic files and dummy passwords in a temporary directory. Normal
+test completion is required; a forced GUI exit is not a passing result.
+`make check` remains the separate CLI-only distribution gate.
+
+The same suite tests unavailable module specs, missing loaders, and a missing
+source-version macro by rerunning the real test bootstrap. These cases require
+explicit errors; invalid specs must be rejected before module creation. They
+do not replace the real GUI/CLI workflow checks above.
+
+GUI operations have a monotonic 7200-second execution deadline measured before
+the CLI child is spawned, including startup time and blocked output reads. The
+standard-library watchdog thread starts before process creation and waits for
+the launch attempt to return or raise before handling expiry. Backups lasting
+longer than two hours are terminated and reported as failures. The wait after EOF
+uses only the remaining budget. The launch wait is released before cancelling
+and joining the watchdog, before child cleanup and completion. Cancellation,
+deadline expiry and read errors attempt to stop the direct child, wait up to
+five seconds and close its output
+pipe. Each cleanup step is attempted even if an earlier one fails; cleanup
+failure is reported as an operation failure. Diagnostics include only the
+watchdog/cleanup stage and exception type, not arguments. Cleanup is best effort:
+failed termination or waiting cannot guarantee reaping. The deadline cannot
+forcibly interrupt blocked process creation and does not cover descendants
+retaining the output pipe or uninterruptible OS operations. Tests cover real
+silent/progress children, EOF without exit, remaining wait budget, watchdog
+failures and exit/cancellation races.
+
+The version and selftest commands do not prove that a full desktop session works. Test the
 actual windows and archive operations on every platform for which a GUI package
 is published.
+
+The GUI replaces values following `-p` and `--password` with `[redacted]` in
+its command log. The real subprocess arguments are unchanged: the password
+still appears in the child process arguments. This change does not protect
+against local process inspection; the CLI's `--pass-file`, `--pass-fd` and
+`--password-prompt` interfaces avoid that exposure outside the GUI.
 
 ## Functions
 
@@ -78,24 +123,49 @@ the current user. Review the script and its destination paths before running
 it. File-manager menus and file associations differ across desktops and
 operating systems and must be tested on the target system.
 
+The installer also places the English and pt-BR user guides under
+`PREFIX/share/doc/zupt-gui/docs/`, with `SECURITY.md` and `DISTRIBUTION.md`
+in the parent documentation directory. A `DATADIR` override changes the
+`share` location. Use `--destdir` to inspect a temporary installation without
+modifying the host. `bash tests/test_packaging_syntax.sh` checks the actual
+staged bytes and modes, custom paths and rejection of missing guides; it
+does not build or approve a native package. Links to source headers and
+test scripts still require the source checkout.
+
 ## Packaged GUI builds
 
-These recipes describe optional GUI outputs. They are not promised release
-assets; publication requires fresh package and installed off-screen GUI/CLI
-integration gates:
+The planned 5.2.10 GUI delivery is limited to the following formats.
+None is approved for publication until its fresh package and installed
+off-screen GUI/CLI integration gates pass:
 
 - `zupt-gui_5.2.10_all.deb`;
 - `zupt-gui-5.2.10-1.noarch.rpm`;
 - `zupt-gui-5.2.10-1.src.rpm`;
-- `zupt-gui-5.2.10-portable.zip`.
+- `zupt-gui-5.2.10-portable.zupt`.
 
 The DEB/RPM packages install the Python/Qt source and depend on the matching
-`zupt` CLI package. The portable ZIP contains source, launchers, icons, licenses,
-and provenance only; it bundles no Python, Qt, CLI, or compiled runtime. Its
-gate scans the assembled and extracted trees, enforces an exact safe-member
+`zupt` CLI package. The portable `.zupt` contains source, launchers, icons,
+licenses, provenance, bilingual guides and linked policies; it bundles no Python, Qt, CLI, or compiled
+runtime. Its gate scans the assembled and extracted trees, enforces an exact safe-member
 allowlist, and runs the extracted launcher off-screen against the tested CLI.
 An absent artifact did not pass its gate and must not be inferred from another
 format's result.
+
+After verifying the signed inventory and checksums as described in
+[INSTALL.md](../INSTALL.md#planned-5210-bundles-and-verification), use a trusted
+desktop Zupt decoder and a new extraction directory:
+
+```sh
+zupt test zupt-gui-5.2.10-portable.zupt
+zupt extract -o gui-check zupt-gui-5.2.10-portable.zupt
+ZUPT_BIN=/absolute/path/to/verified/zupt \
+  bash gui-check/zupt-gui-5.2.10-portable/zupt-gui.sh
+```
+
+Use an external Python/Qt environment and a CLI from the same release.
+Extraction restores file contents, not executable permissions; invoke the
+shell launcher through `bash` instead of changing permissions recursively.
+Historical 5.2.9 packages retain their original formats and extraction tools.
 
 GUI AppImage, AppDir and Flatpak bundles, and Windows/macOS GUI installers are
 not promoted by the upstream 5.2.10 release gates.

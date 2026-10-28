@@ -6,6 +6,7 @@
  * Compare 32 bytes as 4 × u64 — no byte-level access needed.
  */
 
+#[ct = "public * public -> secret"]
 export fn zupt_mac_verify_ct(
     reg u64 expected_ptr,
     reg u64 actual_ptr)

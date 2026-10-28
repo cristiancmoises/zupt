@@ -30,6 +30,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
 
 int main(void) {
     /* Read fuzzed input from stdin */
@@ -40,7 +41,9 @@ int main(void) {
     size_t total = 0;
     while (total < cap) {
         ssize_t n = read(0, buf + total, cap - total);
-        if (n <= 0) break;
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0) { perror("fuzz input read"); free(buf); return 1; }
+        if (n == 0) break;
         total += (size_t)n;
     }
 

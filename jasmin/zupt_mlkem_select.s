@@ -1,42 +1,43 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2026 Cristian Cezar Moisés
-# Generated from jasmin/zupt_mlkem_select.jazz by jasminc.
-	.intel_syntax noprefix
+# Generated from jasmin/zupt_mlkem_select.jazz by Jasmin compiler 2026.09.0.
+# Source SHA256: 2ff9bf26e5358594777a2fd79d0a43f4ac00aa56dcd976d2db5989aa35471c82
+	.att_syntax
 	.text
 	.p2align	5
 	.global	zupt_ct_select_32
 	.type	zupt_ct_select_32, %function
 zupt_ct_select_32:
-	mov 	rax, 0
-	sub 	rax, rcx
-	mov 	rcx, qword ptr[rsi]
-	mov 	r8, qword ptr[rdx]
-	mov 	r9, rcx
-	xor 	r9, r8
-	and 	r9, rax
-	xor 	rcx, r9
-	mov 	qword ptr[rdi], rcx
-	mov 	rcx, qword ptr[rsi + 8]
-	mov 	r8, qword ptr[rdx + 8]
-	mov 	r9, rcx
-	xor 	r9, r8
-	and 	r9, rax
-	xor 	rcx, r9
-	mov 	qword ptr[rdi + 8], rcx
-	mov 	rcx, qword ptr[rsi + 16]
-	mov 	r8, qword ptr[rdx + 16]
-	mov 	r9, rcx
-	xor 	r9, r8
-	and 	r9, rax
-	xor 	rcx, r9
-	mov 	qword ptr[rdi + 16], rcx
-	mov 	rcx, qword ptr[rsi + 24]
-	mov 	r8, qword ptr[rdx + 24]
-	mov 	r9, rcx
-	xor 	r9, r8
-	and 	r9, rax
-	xor 	rcx, r9
-	mov 	qword ptr[rdi + 24], rcx
+	movq	$0, %rax
+	subq	%rcx, %rax
+	movq	(%rsi), %rcx
+	movq	(%rdx), %r8
+	movq	%rcx, %r9
+	xorq	%r8, %r9
+	andq	%rax, %r9
+	xorq	%r9, %rcx
+	movq	%rcx, (%rdi)
+	movq	8(%rsi), %rcx
+	movq	8(%rdx), %r8
+	movq	%rcx, %r9
+	xorq	%r8, %r9
+	andq	%rax, %r9
+	xorq	%r9, %rcx
+	movq	%rcx, 8(%rdi)
+	movq	16(%rsi), %rcx
+	movq	16(%rdx), %r8
+	movq	%rcx, %r9
+	xorq	%r8, %r9
+	andq	%rax, %r9
+	xorq	%r9, %rcx
+	movq	%rcx, 16(%rdi)
+	movq	24(%rsi), %rcx
+	movq	24(%rdx), %r8
+	movq	%rcx, %r9
+	xorq	%r8, %r9
+	andq	%rax, %r9
+	xorq	%r9, %rcx
+	movq	%rcx, 24(%rdi)
 	ret
-	.ident	"Jasmin Compiler 2026.03.0"
+	.ident	"Jasmin Compiler 2026.09.0"
 	.section	".note.GNU-stack", "", %progbits

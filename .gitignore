@@ -42,6 +42,7 @@ __pycache__/
 /dist/
 /out/
 /target/
+/rust/varint/target/
 /sdk/build/
 /cmake-build-*/
 CMakeCache.txt

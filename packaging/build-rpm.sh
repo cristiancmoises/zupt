@@ -30,9 +30,12 @@ dist_dir=${DIST_DIR:-${TMPDIR:-/tmp}/zupt-release}
 mkdir -p -- "$dist_dir"
 dist_dir=$(cd -- "$dist_dir" && pwd -P)
 
-for command_name in make git rpmbuild rpm rpm2cpio cpio date readelf sha256sum tar; do
+for command_name in make python3 git rpmbuild rpm rpm2cpio cpio date readelf sha256sum tar; do
     command -v -- "$command_name" >/dev/null 2>&1 || die "required command not found: $command_name"
 done
+# The suffix requires a directory, so a substituted FIFO cannot block this open.
+exec {dist_fd}<"$dist_dir/."
+python3 scripts/publish-package.py --check-directory "$dist_fd" "$dist_dir"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/zupt-rpm.XXXXXXXX")
 top=$work/rpmbuild
@@ -43,6 +46,7 @@ mkdir -p -- "$top/BUILD" "$top/BUILDROOT" "$top/RPMS" "$top/SOURCES" \
 cleanup() {
     chmod -R u+rwX "$work" 2>/dev/null || true
     rm -rf -- "$work"
+    exec {dist_fd}<&-
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -71,38 +75,50 @@ cat >> "$top/SPECS/zupt.spec" <<EOF
 EOF
 rpmbuild --define "_topdir $top" -ba "$top/SPECS/zupt.spec"
 
-mapfile -t main_rpms < <(find "$top/RPMS" -type f -name "zupt-${version}-*.rpm" \
-    ! -name '*-debuginfo-*' ! -name '*-debugsource-*' -print | sort)
+find "$top/RPMS" -type f -name "zupt-${version}-*.rpm" \
+    ! -name '*-debuginfo-*' ! -name '*-debugsource-*' -print | sort > "$work/main-rpms.txt"
+mapfile -t main_rpms < "$work/main-rpms.txt"
 [[ ${#main_rpms[@]} -eq 1 ]] || die "expected one main RPM, found ${#main_rpms[@]}"
 main_rpm=${main_rpms[0]}
 
-mapfile -t source_rpms < <(find "$top/SRPMS" -type f -name "zupt-${version}-*.src.rpm" -print | sort)
+find "$top/SRPMS" -type f -name "zupt-${version}-*.src.rpm" -print | sort > "$work/source-rpms.txt"
+mapfile -t source_rpms < "$work/source-rpms.txt"
 [[ ${#source_rpms[@]} -eq 1 ]] || die "expected one source RPM, found ${#source_rpms[@]}"
 source_rpm=${source_rpms[0]}
 
-[[ $(rpm -qp --qf '%{NAME}' "$main_rpm") == zupt ]] || \
+metadata=$(rpm -qp --qf '%{NAME}' "$main_rpm")
+[[ $metadata == zupt ]] || \
     die 'binary RPM name metadata is not zupt'
-[[ $(rpm -qp --qf '%{VERSION}' "$main_rpm") == "$version" ]] || \
+metadata=$(rpm -qp --qf '%{VERSION}' "$main_rpm")
+[[ $metadata == "$version" ]] || \
     die 'binary RPM version metadata does not match the release'
-[[ $(rpm -qp --qf '%{RELEASE}' "$main_rpm") == 0 ]] || \
+metadata=$(rpm -qp --qf '%{RELEASE}' "$main_rpm")
+[[ $metadata == 0 ]] || \
     die 'binary RPM release metadata is not 0'
-[[ $(rpm -qp --qf '%{SOURCEPACKAGE}' "$main_rpm") == '(none)' ]] || \
+metadata=$(rpm -qp --qf '%{SOURCEPACKAGE}' "$main_rpm")
+[[ $metadata == '(none)' ]] || \
     die 'binary RPM is marked as a source package'
-[[ $(rpm -qp --qf '%{SOURCERPM}' "$main_rpm") == "$(basename -- "$source_rpm")" ]] || \
+metadata=$(rpm -qp --qf '%{SOURCERPM}' "$main_rpm")
+[[ $metadata == "$(basename -- "$source_rpm")" ]] || \
     die 'binary RPM does not reference the matching source RPM'
-[[ $(rpm -qp --qf '%{NAME}' "$source_rpm") == zupt ]] || \
+metadata=$(rpm -qp --qf '%{NAME}' "$source_rpm")
+[[ $metadata == zupt ]] || \
     die 'source RPM name metadata is not zupt'
-[[ $(rpm -qp --qf '%{VERSION}' "$source_rpm") == "$version" ]] || \
+metadata=$(rpm -qp --qf '%{VERSION}' "$source_rpm")
+[[ $metadata == "$version" ]] || \
     die 'source RPM version metadata does not match the release'
-[[ $(rpm -qp --qf '%{RELEASE}' "$source_rpm") == 0 ]] || \
+metadata=$(rpm -qp --qf '%{RELEASE}' "$source_rpm")
+[[ $metadata == 0 ]] || \
     die 'source RPM release metadata is not 0'
-[[ $(rpm -qp --qf '%{SOURCEPACKAGE}' "$source_rpm") == 1 ]] || \
+metadata=$(rpm -qp --qf '%{SOURCEPACKAGE}' "$source_rpm")
+[[ $metadata == 1 ]] || \
     die 'source RPM is not marked as a source package'
-[[ $(rpm -qp --qf '%{SOURCERPM}' "$source_rpm") == '(none)' ]] || \
+metadata=$(rpm -qp --qf '%{SOURCERPM}' "$source_rpm")
+[[ $metadata == '(none)' ]] || \
     die 'source RPM unexpectedly references another source RPM'
-mapfile -t source_members < <(rpm -qpl "$source_rpm" | sort)
+rpm -qpl "$source_rpm" | sort > "$work/source-members.txt"
+mapfile -t source_members < "$work/source-members.txt"
 expected_source_members=("zupt-${version}.tar.gz" zupt.spec)
-mapfile -t expected_source_members < <(printf '%s\n' "${expected_source_members[@]}" | sort)
 [[ ${#source_members[@]} -eq 2 && \
     ${source_members[*]} == "${expected_source_members[*]}" ]] || \
     die 'source RPM payload is not the exact Source0/spec pair'
@@ -119,36 +135,33 @@ if grep -q '^/usr/local/' "$work/contents.txt"; then
 fi
 
 (cd -- "$extract" && rpm2cpio "$main_rpm" | cpio -idm --quiet)
+python3 scripts/check-installed-docs.py "$repo_root" "$extract" zupt
 binary=$extract/usr/bin/zupt
 [[ -x $binary ]] || die 'RPM does not contain executable /usr/bin/zupt'
-if ! readelf -h "$binary" 2>/dev/null | grep -Eq 'Type:[[:space:]]+DYN'; then
+elf_header=$(readelf -h "$binary")
+if ! grep -Eq 'Type:[[:space:]]+DYN' <<< "$elf_header"; then
     die 'RPM executable is not a position-independent executable (PIE)'
 fi
-if ! readelf -W -l "$binary" 2>/dev/null | grep -q 'GNU_RELRO'; then
+program_headers=$(readelf -W -l "$binary")
+if ! grep -q 'GNU_RELRO' <<< "$program_headers"; then
     die 'RPM executable lacks a GNU_RELRO segment'
 fi
-stack_segment=$(readelf -W -l "$binary" 2>/dev/null | grep 'GNU_STACK' || true)
+stack_segment=$(grep 'GNU_STACK' <<< "$program_headers") || \
+    die 'RPM executable has a missing or executable GNU_STACK segment'
 [[ -n $stack_segment && $stack_segment != *RWE* ]] || \
     die 'RPM executable has a missing or executable GNU_STACK segment'
-if readelf -d "$binary" 2>/dev/null | grep -Eq '(RPATH|RUNPATH)'; then
-    readelf -d "$binary" | grep -E '(RPATH|RUNPATH)' >&2
+dynamic_section=$(readelf -d "$binary")
+if grep -Eq '(RPATH|RUNPATH)' <<< "$dynamic_section"; then
+    grep -E '(RPATH|RUNPATH)' <<< "$dynamic_section" >&2
     die 'RPM executable contains RPATH/RUNPATH'
 fi
-if readelf -d "$binary" 2>/dev/null | grep -Eqi '(vendor/|libvuptsdk|libpqvaptvupt)'; then
+if grep -Eqi '(vendor/|libvuptsdk|libpqvaptvupt)' <<< "$dynamic_section"; then
     die 'RPM executable references a vendored optional library'
 fi
 bash scripts/test-installed-zupt.sh "$binary"
 
 artifacts=("$main_rpm" "$source_rpm")
-for artifact in "${artifacts[@]}"; do
-    destination=$dist_dir/$(basename -- "$artifact")
-    [[ ! -e $destination ]] || die "refusing to overwrite existing output: $destination"
-done
-for artifact in "${artifacts[@]}"; do
-    destination=$dist_dir/$(basename -- "$artifact")
-    cp -- "$artifact" "$destination"
-    sha256sum "$destination"
-done
+python3 scripts/publish-package.py "$dist_fd" "$dist_dir" "${artifacts[@]}"
 
 printf 'PASS: built and extracted-package-tested %s\n' "$dist_dir/$(basename -- "$main_rpm")"
 printf 'PASS: built source RPM %s\n' "$dist_dir/$(basename -- "$source_rpm")"

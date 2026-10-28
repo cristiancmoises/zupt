@@ -22,7 +22,7 @@ not enable `--pq-sdk` or the libvuptsdk-backed Argon2id path in `zupt`.
 - **Streaming I/O** — read/write callbacks for sockets, pipes, encrypted volumes
 - **Secure memory** — mlock-backed buffers for passwords and keys, zeroed on destroy
 - **Optional assembly path** — textual Jasmin sources on supported x86_64 builds
-- **Per-context state** — no globals; safe to use from any thread on distinct contexts
+- **Per-context operations** — concurrent calls use distinct contexts; allocator hooks are process-wide
 - **Custom allocator hooks** — supply your own malloc/free
 
 ## Quick start (C)
@@ -96,7 +96,7 @@ git clone https://github.com/cristiancmoises/zupt
 cd zupt
 make            # builds the portable CLI (WITH_JASMIN=0 by default)
 make sdk        # builds libzuptsdk.so.1.0.0 + libzuptsdk.a + zuptsdk.pc
-make sdk-test   # runs C roundtrip suite (15 tests)
+make sdk-test   # SDK runtime tests and focused regression groups
 sudo make sdk-install PREFIX=/usr/local
 ```
 
@@ -104,6 +104,126 @@ This SDK is built from source via `make sdk`; the previously vendored prebuilt
 `vendor/zuptsdk/libzuptsdk.so` has been removed from the tree. Build output is
 written below the ignored `sdk/build/` directory and is never part of Git or an
 upstream source archive.
+
+The in-tree SDK shares the CLI's `WITH_JASMIN` selection: on supported x86_64
+targets, `WITH_JASMIN=1` enables the checked-in assembly and its C call sites in
+both builds. The SDK receives only the assembly-selection macro, without the
+CLI's external SDK/PQBOX provider definitions or libraries. The public ABI and
+archive format are unchanged.
+
+Assembly selection and symbol references do not establish hardware AES
+dispatch. Normal SDK calls do not initialize the internal CPU feature state,
+so SDK AES operations retain the portable C path. SDK hardware AES dispatch
+is not qualified by these build checks.
+
+### Check SDK build flags
+
+```sh
+make test-sdk-build-flags
+```
+
+This target is required by `check` and `sdk-test`. Its 25 controls inspect GNU
+make recipes for caller `CPPFLAGS`, assembly selection on/off across SDK object
+rules, and isolation from external CLI provider flags and libraries. The target
+uses dry runs with an x86_64 target model; it does not compile code, execute
+assembly, or establish target CPU support.
+
+Test the compiled SDK separately on supported x86_64 targets, cleaning before
+each feature profile because make does not track compiler or flag changes as
+object dependencies:
+
+```sh
+make clean
+make CC=gcc WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 \
+  SDK_BUILD_DIR=build/sdk-gcc-c CFLAGS='-O2 -g -Werror' sdk-test sdk-verify-symbols
+make clean
+make CC=gcc WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=1 \
+  SDK_BUILD_DIR=build/sdk-gcc-jasmin CFLAGS='-O2 -g -Werror' sdk-test sdk-verify-symbols
+```
+
+Repeat with `CC=clang` in a clean checkout to check that compiler. These commands
+run the SDK tests and export checks; AES-NI dispatch requires separate evidence.
+
+### Audit the callback interface
+
+Run `make sdk-test-stream-errors` for the focused callback tests. They cover
+byte-exact compression/decompression, read errors after partial output,
+short/negative callback returns, input lengths greater than the supplied
+buffer, close failures, cleanup, and preservation of the first error. A read
+callback must return at most `max_bytes`. Stream failures can leave a prefix
+with the output callback; callers must discard that output when the operation
+returns an error.
+
+The stream interface currently uses temporary files; decompression also buffers
+the archive and extracted data in memory. It is not an incremental decoder.
+These tests require a libc with `fopencookie` and a linker with `--wrap` support.
+They are separate from the optional external `libvuptsdk` integration.
+
+Use a caller-owned private temporary directory (`0700` on POSIX) and trusted
+parent directories for SDK operations. `TMPDIR` selects that directory on
+POSIX. A process that can replace entries in the chosen temporary parent can
+also interfere with later reopen/cleanup operations; exclusive file creation
+alone does not protect against that directory owner.
+
+`make sdk-test-temp-paths` checks temporary-name formatting failures and real
+directory hierarchies that exceed the internal path buffer. All public callers
+reject a failed/truncated name with `ZUPTSDK_ERR_IO` before using that name.
+The 26 checks include fixture validation and final allocation cleanup; they
+verify foreign-file bytes/identity, output pointers, callbacks and descriptors.
+Nested failures also clean up staging files already owned by the operation.
+Windows directory-query checks do not constitute native Windows qualification.
+
+`make sdk-test-staging` checks all five public staging paths. It verifies
+owner-only mode and close-on-exec under `umask 000`, preservation of existing
+regular files/symlinks/hardlinks, descriptor cleanup, and errors from permission
+setup, stdio conversion, writing and closing. The staging opener shares the
+key-file writer's exclusive creation and Windows protected-DACL construction;
+it retains the original handle through stdio conversion.
+
+`make sdk-test-file-reads` checks file sizing, seek/read/close and allocation
+failures through the real buffer/file and decompression-stream APIs. A failure
+does not publish a buffer or invoke the decompression output callback. The
+tests check cleanup, wiping incomplete buffers, first-error preservation when
+closing also fails, and valid empty files with a zero-allocation-rejecting
+allocator. Returned buffers must still be released with `zuptsdk_free()`.
+
+`make sdk-test-key-ownership` checks generated-key cleanup after allocation
+failure and repeated public-key export/destruction. Generated files are owned
+by their SDK handles; destroying a loaded key handle never removes the
+caller-owned file. Files saved with `zuptsdk_keypair_save_*()` also remain
+caller-owned. These POSIX tests preserve bytes and inode identity of colliding
+regular files, symlinks and hardlinks. They do not cover every core key-write
+failure or native Windows behavior.
+
+`make sdk-test-read-stop` covers 18 key-copy and archive-readback cases. Reads
+stop after EOF or error even if `fread` returned a positive byte count. The
+output callback receives that prefix once; a read failure remains the reported
+cause if delivery or close also fails. A callback's nested failed SDK call must
+not replace the outer read diagnostic. Tests check exact delivered bytes,
+positive short returns, destination bytes/inode identity and temporary cleanup.
+Discard partial callback output whenever the operation returns an error.
+
+`make sdk-test-key-write-errors` runs 74 checks for SDK temporary key generation
+and public-key export. Internal creation flags distinguish owned partial files
+from failures before creation and from regular-file/symlink/hardlink collisions.
+The SDK removes its own failed outputs and preserves the first error even when
+close, unlink or a custom allocator changes `errno`. The existing CLI key
+writer deliberately retains incomplete or synchronization-uncertain files for
+the user to inspect; its signatures, output format and behavior stay unchanged.
+These tests exercise POSIX cleanup, not native Windows deletion or DACLs.
+
+Use separate build directories to compare compilers and sanitizers:
+
+```sh
+make CC=gcc SDK_BUILD_DIR=build/sdk-gcc CFLAGS='-O2 -g -Werror' sdk-test sdk-verify-symbols
+make CC=clang SDK_BUILD_DIR=build/sdk-ubsan \
+  CFLAGS='-O1 -g -Werror -fsanitize=undefined -fno-sanitize-recover=all' \
+  sdk-test sdk-verify-symbols
+```
+
+See the [English audit guide](../docs/USER_GUIDE.md#sdk-callback-tests) and
+[instruções em português](../docs/GUIA_USUARIO.pt-BR.md#testes-de-callbacks-do-sdk)
+for scope and reproduction details.
 
 The wrapper and application portions are AGPL-3.0-or-later. The library also
 incorporates the bundled VaptVupt codec sources identified as
@@ -150,7 +270,12 @@ Do not link against internal `zupt_*` symbols even if you find them in the stati
 - Concurrent calls on **distinct contexts** are safe (MT-Safe).
 - Concurrent calls on the **same context** are not safe.
 
-For parallel work, create one context per worker thread.
+For parallel work, create one context per worker thread. Allocator hooks are
+global: install them with `zuptsdk_set_allocator()` before any other
+`zuptsdk_*` call, and do not change them after first use or concurrently with
+SDK operations. Passing NULL to restore libc allocation is also valid only
+before first use. Custom hooks must support the application's concurrent calls.
+Error details use thread-local storage; internal CPU feature state is shared.
 
 ## Memory ownership
 

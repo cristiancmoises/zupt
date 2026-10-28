@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2025-2026 Cristian Cezar Moisés
-# ZUPT v2.0.0 — Comprehensive Regression Test Suite
+# ZUPT comprehensive regression test suite
 # Covers: normal, solid, encrypted, edge cases, VaptVupt codec
 # Run: sh tests/regression.sh
 
@@ -39,7 +39,7 @@ check_roundtrip() {
 mkdir -p "$T"
 echo ""
 echo "═══════════════════════════════════════════════════════"
-echo "  ZUPT v0.5.1 Regression Test Suite"
+echo "  ZUPT Regression Test Suite"
 echo "═══════════════════════════════════════════════════════"
 echo ""
 $ZUPT version 2>&1 | head -1

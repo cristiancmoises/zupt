@@ -30,6 +30,10 @@
  *   zupt disk restore -p secret archive.zupt /dev/sda1
  */
 #define _GNU_SOURCE
+/* bionic documents this opt-out for code taking ioctl's address. */
+#if defined(__linux__) && !defined(BIONIC_IOCTL_NO_SIGNEDNESS_OVERLOAD)
+#define BIONIC_IOCTL_NO_SIGNEDNESS_OVERLOAD
+#endif
 #include "zupt.h"
 #include "zupt_internal.h"
 #include "zupt_cpuid.h"
@@ -56,6 +60,11 @@
   #ifdef __linux__
     #include <sys/ioctl.h>
     #include <linux/fs.h>  /* BLKGETSIZE64 */
+    /* libc declares the request as int or unsigned long.  Preserve the UAPI
+     * value for the latter and its Linux command bits for the former. */
+    #define ZUPT_BLKGETSIZE64_REQUEST \
+        _Generic(&ioctl, int (*)(int, int, ...): (int)BLKGETSIZE64, \
+                 default: BLKGETSIZE64)
   #endif
   #ifdef __APPLE__
     #include <sys/disk.h>  /* DKIOCGETBLOCKCOUNT, DKIOCGETBLOCKSIZE */
@@ -136,7 +145,7 @@ static int64_t get_device_size(FILE *stream) {
   #ifdef __linux__
     if (S_ISBLK(st.st_mode)) {
         uint64_t sz = 0;
-        if (ioctl(fd, BLKGETSIZE64, &sz) == 0) return (int64_t)sz;
+        if (ioctl(fd, ZUPT_BLKGETSIZE64_REQUEST, &sz) == 0) return (int64_t)sz;
         return -1;
     }
   #endif
@@ -437,7 +446,7 @@ static int disk_restore_target_capacity(int descriptor,
 #ifdef __linux__
     if (S_ISBLK(info->st_mode)) {
         uint64_t bytes = 0;
-        if (ioctl(descriptor, BLKGETSIZE64, &bytes) == 0 && bytes > 0) {
+        if (ioctl(descriptor, ZUPT_BLKGETSIZE64_REQUEST, &bytes) == 0 && bytes > 0) {
             *capacity = bytes;
             return 1;
         }

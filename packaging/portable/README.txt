@@ -24,6 +24,10 @@ Contents
   CHANGELOG.md           Release history and current compatibility notes.
   README.pt-BR.md        Brazilian Portuguese project overview.
   DOCUMENTACAO.pt-BR.md  Brazilian Portuguese operational guidance.
+  docs/USER_GUIDE.md     English command, restoration and test reference.
+  docs/GUIA_USUARIO.pt-BR.md  The same reference in Brazilian Portuguese.
+  SECURITY.md            Security reporting and validation boundaries.
+  DISTRIBUTION.md        Package, dependency and release policy.
 
 Requirements
 ------------
@@ -36,8 +40,14 @@ Requirements
 Running
 -------
   Windows:  zupt-gui.bat
-  macOS:    zupt-gui.command
-  POSIX:    ./zupt-gui.sh
+  macOS:    bash zupt-gui.command
+  POSIX:    bash zupt-gui.sh
+
+The .zupt format restores file contents but does not restore executable permissions.
+Run these commands from the verified extracted bundle directory. For the macOS
+Finder launcher, use `chmod u+x zupt-gui.command` on that verified file before
+opening it in Finder. Do not change permissions recursively. The Windows batch
+launcher does not need a Unix executable bit.
 
 The launchers set ZUPT_BIN when a local command is present. The GUI then
 checks `zupt version`, discovers native and optional capabilities, and
@@ -54,6 +64,13 @@ Troubleshooting
 
 The old user-facing command name is not installed by this bundle. The `.zupt`
 archive extension remains unchanged for format compatibility.
+
+The guides remain under docs/ so the links in README.pt-BR.md also work offline.
+Their SECURITY/DISTRIBUTION links resolve to policies in the bundle root;
+source headers and test scripts still require a source checkout.
+Consulte docs/GUIA_USUARIO.pt-BR.md para comandos, restauração e testes em pt-BR.
+As políticas referenciadas acompanham os guias; links para headers e scripts
+de teste ainda exigem o checkout das fontes.
 
 Current GUI source license: AGPL-3.0-or-later. Published historical revisions
 include MIT grants for the exact material covered by their notices; see

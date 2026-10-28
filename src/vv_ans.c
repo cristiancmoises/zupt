@@ -25,8 +25,49 @@
 #define ANS_LOG  VVA_TABLE_LOG
 #define NSYM     VVA_MAX_SYMBOL
 
+#ifdef VV_ANS_LOG_WP
+/*@
+  requires v < ANS_L;
+  assigns \nothing;
+  ensures result_range: 0 <= \result < ANS_LOG;
+  ensures zero: \old(v) == 0 ==> \result == 0;
+  ensures exact_0: \result == 0 ==> 0 <= \old(v) < 2;
+  ensures exact_1: \result == 1 ==> 2 <= \old(v) < 4;
+  ensures exact_2: \result == 2 ==> 4 <= \old(v) < 8;
+  ensures exact_3: \result == 3 ==> 8 <= \old(v) < 16;
+  ensures exact_4: \result == 4 ==> 16 <= \old(v) < 32;
+  ensures exact_5: \result == 5 ==> 32 <= \old(v) < 64;
+  ensures exact_6: \result == 6 ==> 64 <= \old(v) < 128;
+  ensures exact_7: \result == 7 ==> 128 <= \old(v) < 256;
+  ensures exact_8: \result == 8 ==> 256 <= \old(v) < 512;
+  ensures exact_9: \result == 9 ==> 512 <= \old(v) < 1024;
+  ensures exact_10: \result == 10 ==> 1024 <= \old(v) < 2048;
+  ensures exact_11: \result == 11 ==> 2048 <= \old(v) < 4096;
+*/
+#endif
 static inline int ilog2(uint32_t v) {
     int r = 0;
+#ifdef VV_ANS_LOG_WP
+    /*@
+      loop invariant range: 0 <= r < ANS_LOG;
+      loop invariant zero: \at(v,Pre) == 0 ==> r == 0;
+      loop invariant mask_or_bound: (4294967294 | v) <= 4294967295;
+      loop invariant case0: r == 0 ==> v == \at(v,Pre) && v < 4096;
+      loop invariant case1: r == 1 ==> 2 * v <= \at(v,Pre) < 2 * (v + 1) && 1 <= v < 2048;
+      loop invariant case2: r == 2 ==> 4 * v <= \at(v,Pre) < 4 * (v + 1) && 1 <= v < 1024;
+      loop invariant case3: r == 3 ==> 8 * v <= \at(v,Pre) < 8 * (v + 1) && 1 <= v < 512;
+      loop invariant case4: r == 4 ==> 16 * v <= \at(v,Pre) < 16 * (v + 1) && 1 <= v < 256;
+      loop invariant case5: r == 5 ==> 32 * v <= \at(v,Pre) < 32 * (v + 1) && 1 <= v < 128;
+      loop invariant case6: r == 6 ==> 64 * v <= \at(v,Pre) < 64 * (v + 1) && 1 <= v < 64;
+      loop invariant case7: r == 7 ==> 128 * v <= \at(v,Pre) < 128 * (v + 1) && 1 <= v < 32;
+      loop invariant case8: r == 8 ==> 256 * v <= \at(v,Pre) < 256 * (v + 1) && 1 <= v < 16;
+      loop invariant case9: r == 9 ==> 512 * v <= \at(v,Pre) < 512 * (v + 1) && 1 <= v < 8;
+      loop invariant case10: r == 10 ==> 1024 * v <= \at(v,Pre) < 1024 * (v + 1) && 1 <= v < 4;
+      loop invariant case11: r == 11 ==> 2048 * v <= \at(v,Pre) < 2048 * (v + 1) && 1 <= v < 2;
+      loop assigns v, r;
+      loop variant ANS_LOG - r;
+    */
+#endif
     while (v >>= 1) r++;
     return r;
 }
@@ -61,6 +102,14 @@ static inline size_t ans_bw_flush(ans_bw_t *w) {
 
 typedef struct { uint64_t a; int n; const uint8_t *s; size_t p, l; } ans_br_t;
 
+/*@
+  requires \valid(r);
+  assigns r->a, r->n, r->p \from \nothing;
+  assigns r->s \from s;
+  assigns r->l \from l;
+  ensures r->a == 0 && r->n == 0 && r->p == 0;
+  ensures r->s == s && r->l == l;
+*/
 static inline void ans_br_init(ans_br_t *r, const uint8_t *s, size_t l) {
     r->a = 0; r->n = 0; r->s = s; r->p = 0; r->l = l;
 }
@@ -79,7 +128,9 @@ static inline void ans_br_fill(ans_br_t *r) {
      *
      * Fallback loop handles end-of-stream where we can't load 8 bytes. */
     if (r->n <= 56) {
-        if (VV_LIKELY(r->p + 8 <= r->l)) {
+        /* p <= l throughout the reader's lifetime. Subtract before comparing
+         * so an exhausted position near SIZE_MAX cannot wrap into a load. */
+        if (VV_LIKELY(r->l - r->p >= 8)) {
             uint64_t bytes;
             memcpy(&bytes, r->s + r->p, 8);
             int k = (64 - r->n) >> 3;          /* whole bytes to add */
@@ -97,13 +148,30 @@ static inline void ans_br_fill(ans_br_t *r) {
         }
     }
 }
+/*@
+  requires \valid(r);
+  requires \initialized(&r->a);
+  requires \initialized(&r->n);
+  requires 0 <= r->n <= 64;
+  requires 0 <= nb <= 32;
+  assigns r->a, r->n;
+  ensures 0 <= r->n <= 64;
+  ensures r->n == (\old(r->n) >= nb ? \old(r->n) - nb : 0);
+  ensures r->a == (\old(r->a) >> nb);
+  ensures \result == (uint32_t)(\old(r->a) & (uint64_t)(((uint64_t)1 << nb) - 1));
+*/
+static inline uint32_t ans_br_take(ans_br_t *r, int nb) {
+    uint32_t v = (uint32_t)(r->a & ((1ULL << nb) - 1));
+    r->a >>= nb;
+    /* A lane can end with implicit zero bits. Preserve that extension, but
+     * count only buffered bits so repeated reads cannot underflow n. */
+    r->n = r->n >= nb ? r->n - nb : 0;
+    return v;
+}
 static inline uint32_t ans_br_read(ans_br_t *r, int nb) {
     if (!nb) return 0;
     if (r->n < nb) ans_br_fill(r);
-    uint32_t v = (uint32_t)(r->a & ((1ULL << nb) - 1));
-    r->a >>= nb;
-    r->n -= nb;
-    return v;
+    return ans_br_take(r, nb);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -237,12 +305,27 @@ static void build_dec(const uint16_t norm[NSYM], const uint8_t sp[ANS_L],
  * directly in dec[].symbol and fill the remaining fields in a second pass.
  * The second pass remains state-ordered, preserving the exact occurrence
  * rank (and therefore baseline/nbits) used by build_dec(). */
-static void build_dec_direct(const uint16_t norm[NSYM],
-                             vva_dec_entry_t dec[ANS_L]) {
+/*@
+  requires \valid_read(norm + (0 .. NSYM - 1));
+  requires \valid(dec + (0 .. ANS_L - 1));
+  assigns dec[0 .. ANS_L - 1];
+*/
+static int build_dec_direct(const uint16_t norm[NSYM],
+                            vva_dec_entry_t dec[ANS_L]) {
     const uint32_t step = (ANS_L >> 1) + (ANS_L >> 3) + 3;
     uint32_t pos = 0;
+    size_t filled = 0;
     int8_t nbmax_tab[NSYM];
     int16_t lowcnt_tab[NSYM];
+
+    /* Keep the table fully initialized even when a caller supplies a
+     * malformed frequency vector. The normal decoder validates the total
+     * first, but this guard makes the helper safe for every internal caller
+     * and gives analysis tools a concrete initialization boundary. */
+    memset(dec, 0, ANS_L * sizeof(*dec));
+    /* Keep the per-symbol initialization separate in Eva, without
+     * expanding the nested table-spreading loop. */
+    /*@ loop unroll NSYM; */
     for (int s = 0; s < NSYM; s++) {
         uint16_t f = norm[s];
         if (f == 0 || f == (uint16_t)ANS_L) {
@@ -255,17 +338,22 @@ static void build_dec_direct(const uint16_t norm[NSYM],
             lowcnt_tab[s] = (int16_t)((1 << (flg + 1)) - (int)f);
         }
         for (int i = 0; i < f; i++) {
+            if (filled >= ANS_L) return 0;
             dec[pos].symbol = (uint8_t)s;
             pos = (pos + step) & (ANS_L - 1);
+            filled++;
         }
     }
+    if (filled != ANS_L) return 0;
 
     uint16_t occ[NSYM];
     memset(occ, 0, sizeof(occ));
     for (int x = 0; x < ANS_L; x++) {
         uint8_t s = dec[x].symbol;
-        int k = occ[s]++;
-        int nb_max = nbmax_tab[s];
+        size_t symbol = (size_t)s;
+        if (symbol >= NSYM) return 0;
+        int k = occ[symbol]++;
+        int nb_max = nbmax_tab[symbol];
         vva_dec_entry_t entry;
         entry.symbol = s;
         if (nb_max == 0) {
@@ -274,7 +362,7 @@ static void build_dec_direct(const uint16_t norm[NSYM],
             dec[x] = entry;
             continue;
         }
-        int low_count = lowcnt_tab[s];
+        int low_count = lowcnt_tab[symbol];
         if (k < low_count) {
             entry.nbits = (uint8_t)nb_max;
             entry.baseline = (uint16_t)((uint32_t)k << nb_max);
@@ -286,6 +374,7 @@ static void build_dec_direct(const uint16_t norm[NSYM],
         }
         dec[x] = entry;
     }
+    return 1;
 }
 
 #ifdef VV_ANS_TEST_HOOKS
@@ -295,7 +384,7 @@ int vva_test_build_dec_direct_equivalence(const uint16_t norm[NSYM]) {
     vva_dec_entry_t direct[ANS_L];
     spread_symbols(norm, spread);
     build_dec(norm, spread, reference);
-    build_dec_direct(norm, direct);
+    if (!build_dec_direct(norm, direct)) return 0;
     return memcmp(reference, direct, sizeof(reference)) == 0;
 }
 #endif
@@ -438,7 +527,14 @@ static size_t write_hdr_v2(const uint16_t norm[NSYM], uint8_t *d, size_t cap) {
     return sz;
 }
 
+/*@
+  requires len == 0 || \valid_read(s + (0 .. len - 1));
+  requires \valid(norm + (0 .. NSYM - 1));
+  assigns norm[0 .. NSYM - 1];
+  ensures \result <= len;
+*/
 static size_t read_hdr_v2(const uint8_t *s, size_t len, uint16_t norm[NSYM]) {
+    if (!s || !norm) return 0;
     memset(norm, 0, NSYM * sizeof(uint16_t));
     if (len < 1) return 0;
 
@@ -455,8 +551,9 @@ static size_t read_hdr_v2(const uint8_t *s, size_t len, uint16_t norm[NSYM]) {
         int count = s[1];
         size_t sz = 2 + 3 * (size_t)count;
         if (sz > len) return 0;
-        int p = 2;
+        size_t p = 2;
         for (int i = 0; i < count; i++) {
+            if (p > len || len - p < 3) return 0;
             int sym = s[p++];
             norm[sym] = (uint16_t)(s[p] | (s[p + 1] << 8));
             p += 2;
@@ -469,8 +566,11 @@ static size_t read_hdr_v2(const uint8_t *s, size_t len, uint16_t norm[NSYM]) {
         int max_sym = s[1];
         size_t sz = 2 + 2 * (size_t)(max_sym + 1);
         if (sz > len) return 0;
-        for (int i = 0; i <= max_sym; i++)
-            norm[i] = (uint16_t)(s[2 + 2 * i] | (s[2 + 2 * i + 1] << 8));
+        for (int i = 0; i <= max_sym; i++) {
+            size_t off = 2 + 2 * (size_t)i;
+            if (off > len || len - off < 2) return 0;
+            norm[i] = (uint16_t)(s[off] | (s[off + 1] << 8));
+        }
         return sz;
     }
 
@@ -483,8 +583,11 @@ static size_t read_hdr_v2(const uint8_t *s, size_t len, uint16_t norm[NSYM]) {
         int max_sym = s[0];
         size_t sz = 1 + 2 * (size_t)(max_sym + 1);
         if (sz <= len) {
-            for (int i = 0; i <= max_sym; i++)
-                norm[i] = (uint16_t)(s[1 + 2 * i] | (s[1 + 2 * i + 1] << 8));
+            for (int i = 0; i <= max_sym; i++) {
+                size_t off = 1 + 2 * (size_t)i;
+                if (off > len || len - off < 2) return 0;
+                norm[i] = (uint16_t)(s[off] | (s[off + 1] << 8));
+            }
             return sz;
         }
     }
@@ -495,14 +598,37 @@ static size_t read_hdr_v2(const uint8_t *s, size_t len, uint16_t norm[NSYM]) {
 /* Every decode-table slot must be initialized before it can be indexed.
  * Wire frequencies are untrusted: an underfull table leaves spread slots
  * uninitialized, and an overfull table destroys the ANS state mapping. */
+#ifdef VV_ANS_FREQUENCY_WP
+/* The isolated WP profile checks this helper under explicit caller assumptions;
+ * other analyses must establish their own caller properties from the body. */
+/*@
+  requires \valid_read(norm + (0 .. NSYM - 1));
+  requires \initialized(norm + (0 .. NSYM - 1));
+  requires \valid(single);
+  requires \separated(norm + (0 .. NSYM - 1), single);
+  assigns *single;
+  ensures 0 <= \result <= NSYM;
+  ensures \result > 0 ==> (\forall integer j; 0 <= j < NSYM ==> norm[j] <= ANS_L);
+*/
+#endif
 static int validated_symbol_count(const uint16_t norm[NSYM], int *single) {
     uint32_t total = 0;
-    int count = 0;
+    unsigned int count = 0;
+#ifdef VV_ANS_FREQUENCY_WP
+    /*@
+      loop invariant 0 <= i <= NSYM;
+      loop invariant 0 <= total <= 65535 * i;
+      loop invariant 0 <= count <= i;
+      loop invariant \forall integer j; 0 <= j < i ==> norm[j] <= total;
+      loop assigns i, total, count, *single;
+      loop variant NSYM - i;
+    */
+#endif
     for (int i = 0; i < NSYM; i++) {
         total += norm[i];
         if (norm[i]) { count++; *single = i; }
     }
-    return total == ANS_L ? count : 0;
+    return total == ANS_L ? (int)count : 0;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -632,7 +758,10 @@ static vva_error_t vva_decode_impl(const uint8_t *src, size_t src_len,
                        uint8_t *dst, size_t dst_cap,
                        size_t num_literals, size_t *src_consumed,
                        vva_dec_entry_t *workspace) {
+    if (!src_consumed || (!src && src_len) || (!dst && dst_cap))
+        return VVA_ERR_PARAM;
     if (!num_literals) { *src_consumed = 0; return VVA_OK; }
+    if (!src || !dst) return VVA_ERR_PARAM;
     if (num_literals > dst_cap) return VVA_ERR_OVERFLOW;
 
     uint16_t norm[NSYM];
@@ -648,14 +777,19 @@ static vva_error_t vva_decode_impl(const uint8_t *src, size_t src_len,
         return VVA_OK;
     }
 
+    /* A multi-symbol stream needs an in-range initial state before a
+     * decode table can be useful. Single-symbol headers above need none. */
+    if (src_len - hdr < 2) return VVA_ERR_CORRUPT;
+    uint32_t state = (uint32_t)src[hdr] | ((uint32_t)src[hdr + 1] << 8);
+    if (state >= (uint32_t)ANS_L) return VVA_ERR_CORRUPT;
+
     vva_dec_entry_t *dec = workspace ? workspace :
         (vva_dec_entry_t *)malloc(ANS_L * sizeof(*dec));
     if (!dec) { return VVA_ERR_NOMEM; }
-    build_dec_direct(norm, dec);
-
-    if (hdr + 2 > src_len) { release_literal_table(dec, workspace); return VVA_ERR_CORRUPT; }
-    uint32_t state = (uint32_t)src[hdr] | ((uint32_t)src[hdr + 1] << 8);
-    if (state >= (uint32_t)ANS_L) { release_literal_table(dec, workspace); return VVA_ERR_CORRUPT; }
+    if (!build_dec_direct(norm, dec)) {
+        release_literal_table(dec, workspace);
+        return VVA_ERR_CORRUPT;
+    }
 
     ans_br_t r;
     ans_br_init(&r, src + hdr + 2, src_len - hdr - 2);
@@ -665,14 +799,9 @@ static vva_error_t vva_decode_impl(const uint8_t *src, size_t src_len,
         if (r.n < ANS_LOG) ans_br_fill(&r);
         vva_dec_entry_t e = dec[state];
         dst[i] = e.symbol;
-        /* PERF: the fill above guarantees r.n >= ANS_LOG >= e.nbits, so the
-         * fill-check inside ans_br_read() is redundant here — read inline
-         * and skip it (one fewer branch per symbol). Byte-identical to
-         * ans_br_read(): same mask/shift/decrement. */
-        int nb = e.nbits;
-        uint32_t bits = (uint32_t)(r.a & (((uint64_t)1 << nb) - 1));
-        r.a >>= nb;
-        r.n -= nb;
+        /* Refill once per symbol; consumption also handles an exhausted
+         * lane without requiring a second refill check. */
+        uint32_t bits = ans_br_take(&r, e.nbits);
         state = (uint32_t)e.baseline + bits;
         if (state >= (uint32_t)ANS_L) { release_literal_table(dec, workspace); return VVA_ERR_CORRUPT; }
     }
@@ -731,7 +860,10 @@ vva_error_t vva_encode4(const uint8_t *src, size_t src_len,
      * (saves 3 mallocs per vva_encode4 call). Each lane gets its own
      * region at offset (lane * lane_cap). */
     uint8_t *all_bs = (uint8_t *)malloc(lane_cap * 4);
-    if (!all_bs) return VVA_ERR_NOMEM;
+    if (!all_bs) {
+        free_all(&t);
+        return VVA_ERR_NOMEM;
+    }
     for (int i = 0; i < 4; i++) bs_bufs[i] = all_bs + (size_t)i * lane_cap;
 
     /* PERF: allocate pairs buffer ONCE, sized for the largest lane.
@@ -826,7 +958,10 @@ static vva_error_t vva_decode4_impl(const uint8_t *src, size_t src_len,
                         uint8_t *dst, size_t dst_cap,
                         size_t num_literals, size_t *src_consumed,
                         vva_dec_entry_t *workspace) {
+    if (!src_consumed || (!src && src_len) || (!dst && dst_cap))
+        return VVA_ERR_PARAM;
     if (!num_literals) { *src_consumed = 0; return VVA_OK; }
+    if (!src || !dst) return VVA_ERR_PARAM;
     if (num_literals > dst_cap) return VVA_ERR_OVERFLOW;
 
     uint16_t norm[NSYM];
@@ -842,22 +977,16 @@ static vva_error_t vva_decode4_impl(const uint8_t *src, size_t src_len,
         return VVA_OK;
     }
 
-    /* Build shared decode table */
-    vva_dec_entry_t *dec = workspace ? workspace :
-        (vva_dec_entry_t *)malloc(ANS_L * sizeof(*dec));
-    if (!dec) { return VVA_ERR_NOMEM; }
-    build_dec_direct(norm, dec);
-
     /* Read 4 states (2B) + 4 bitstream sizes (4B) */
+    if (hdr > src_len || src_len - hdr < 24) return VVA_ERR_CORRUPT;
     const uint8_t *p = src + hdr;
-    if (p + 8 + 16 > src + src_len) { release_literal_table(dec, workspace); return VVA_ERR_CORRUPT; }
 
     uint32_t s[4];
     size_t bsz[4];
     for (int i = 0; i < 4; i++) {
         s[i] = (uint32_t)p[0] | ((uint32_t)p[1] << 8);
         p += 2;
-        if (s[i] >= (uint32_t)ANS_L) { release_literal_table(dec, workspace); return VVA_ERR_CORRUPT; }
+        if (s[i] >= (uint32_t)ANS_L) return VVA_ERR_CORRUPT;
     }
     for (int i = 0; i < 4; i++) {
         bsz[i] = (size_t)p[0] | ((size_t)p[1] << 8)
@@ -865,14 +994,30 @@ static vva_error_t vva_decode4_impl(const uint8_t *src, size_t src_len,
         p += 4;
     }
 
+    /* Check all spans before forming lane pointers or allocating tables.
+     * Malformed sizes must never move a pointer beyond the source object. */
+    size_t offset = hdr + 24;
+    for (int i = 0; i < 4; i++) {
+        if (bsz[i] > src_len - offset) return VVA_ERR_CORRUPT;
+        offset += bsz[i];
+    }
+
+    /* Build shared decode table */
+    vva_dec_entry_t *dec = workspace ? workspace :
+        (vva_dec_entry_t *)malloc(ANS_L * sizeof(*dec));
+    if (!dec) { return VVA_ERR_NOMEM; }
+    if (!build_dec_direct(norm, dec)) {
+        release_literal_table(dec, workspace);
+        return VVA_ERR_CORRUPT;
+    }
+
     /* Set up 4 independent bit readers */
     ans_br_t r[4];
-    const uint8_t *bp = p;
+    offset = hdr + 24;
     for (int i = 0; i < 4; i++) {
-        if (bp + bsz[i] > src + src_len) { release_literal_table(dec, workspace); return VVA_ERR_CORRUPT; }
-        ans_br_init(&r[i], bp, bsz[i]);
+        ans_br_init(&r[i], src + offset, bsz[i]);
         ans_br_fill(&r[i]);
-        bp += bsz[i];
+        offset += bsz[i];
     }
 
     /* ─── 4-way interleaved decode hot loop ───
@@ -896,28 +1041,19 @@ static vva_error_t vva_decode4_impl(const uint8_t *src, size_t src_len,
         dst[out_pos + 3] = e3.symbol;
         out_pos += 4;
 
-        /* 4 state updates — use results from lookups above.
-         * PERF: each fill above guarantees r[i].n >= ANS_LOG >= e.nbits,
-         * so ans_br_read's internal fill-check is redundant; inline the
-         * read (mask/shift/decrement) and skip it. Byte-identical.
-         * SECURITY: validate each updated state < ANS_L before it is used
-         * to index dec[] in the next iteration (and the tail). The
-         * single-state path has always done this; the 4-way path did not,
-         * which let a corrupt ANS4 stream drive s[i] out of range and read
-         * past dec[] (OOB read found under UBSan on corrupt input). On a
-         * VALID stream states are always in range, so this never triggers
-         * and decode output is unchanged. */
+        /* Refill each lane once, preserving zero extension at EOF. Check
+         * every updated state before the next table lookup or scalar tail. */
         if (r[0].n < ANS_LOG) ans_br_fill(&r[0]);
-        { int nb=e0.nbits; uint32_t b=(uint32_t)(r[0].a & (((uint64_t)1<<nb)-1)); r[0].a>>=nb; r[0].n-=nb; s[0]=(uint32_t)e0.baseline+b; }
+        s[0] = (uint32_t)e0.baseline + ans_br_take(&r[0], e0.nbits);
 
         if (r[1].n < ANS_LOG) ans_br_fill(&r[1]);
-        { int nb=e1.nbits; uint32_t b=(uint32_t)(r[1].a & (((uint64_t)1<<nb)-1)); r[1].a>>=nb; r[1].n-=nb; s[1]=(uint32_t)e1.baseline+b; }
+        s[1] = (uint32_t)e1.baseline + ans_br_take(&r[1], e1.nbits);
 
         if (r[2].n < ANS_LOG) ans_br_fill(&r[2]);
-        { int nb=e2.nbits; uint32_t b=(uint32_t)(r[2].a & (((uint64_t)1<<nb)-1)); r[2].a>>=nb; r[2].n-=nb; s[2]=(uint32_t)e2.baseline+b; }
+        s[2] = (uint32_t)e2.baseline + ans_br_take(&r[2], e2.nbits);
 
         if (r[3].n < ANS_LOG) ans_br_fill(&r[3]);
-        { int nb=e3.nbits; uint32_t b=(uint32_t)(r[3].a & (((uint64_t)1<<nb)-1)); r[3].a>>=nb; r[3].n-=nb; s[3]=(uint32_t)e3.baseline+b; }
+        s[3] = (uint32_t)e3.baseline + ans_br_take(&r[3], e3.nbits);
 
         if (VV_UNLIKELY((s[0] | s[1] | s[2] | s[3]) >= (uint32_t)ANS_L)) {
             release_literal_table(dec, workspace); return VVA_ERR_CORRUPT;
@@ -934,7 +1070,7 @@ static vva_error_t vva_decode4_impl(const uint8_t *src, size_t src_len,
         s[lane] = (uint32_t)e.baseline + ans_br_read(&r[lane], e.nbits);
     }
 
-    *src_consumed = (size_t)(bp - src);
+    *src_consumed = offset;
     release_literal_table(dec, workspace);
     return VVA_OK;
 }
@@ -1242,17 +1378,20 @@ vva_error_t vva_encode_ctx(const uint8_t *src, size_t src_len,
 vva_error_t vva_decode_ctx(const uint8_t *src, size_t src_len,
                            uint8_t *dst, size_t dst_cap,
                            size_t num_literals, size_t *src_consumed) {
+    if (!src_consumed || (!src && src_len) || (!dst && dst_cap))
+        return VVA_ERR_PARAM;
     if (!num_literals) { *src_consumed = 0; return VVA_OK; }
+    if (!src || !dst) return VVA_ERR_PARAM;
     if (num_literals > dst_cap) return VVA_ERR_OVERFLOW;
 
     const uint8_t *p = src;
     const uint8_t *end = src + src_len;
 
     /* Read global table */
-    if (p + 2 > end) return VVA_ERR_CORRUPT;
+    if ((size_t)(end - p) < 2) return VVA_ERR_CORRUPT;
     size_t global_sz = (size_t)p[0] | ((size_t)p[1] << 8);
     p += 2;
-    if (p + global_sz > end) return VVA_ERR_CORRUPT;
+    if (global_sz > (size_t)(end - p)) return VVA_ERR_CORRUPT;
 
     uint16_t global_norm[NSYM];
     size_t ghdr = read_hdr_v2(p, global_sz, global_norm);
@@ -1265,7 +1404,7 @@ vva_error_t vva_decode_ctx(const uint8_t *src, size_t src_len,
     if (!global_np) return VVA_ERR_CORRUPT;
 
     /* Read inherited bitmap */
-    if (p + 32 > end) return VVA_ERR_CORRUPT;
+    if ((size_t)(end - p) < 32) return VVA_ERR_CORRUPT;
     uint8_t inherited[32];
     memcpy(inherited, p, 32);
     p += 32;
@@ -1301,11 +1440,11 @@ vva_error_t vva_decode_ctx(const uint8_t *src, size_t src_len,
     for (int c = 0; c < NSYM; c++) {
         if (inherited[c / 8] & (1u << (c % 8))) continue;
 
-        if (p + 3 > end) goto ctx_dec_fail;
+        if ((size_t)(end - p) < 3) goto ctx_dec_fail;
         int ctx_id = *p++;
         size_t tsz = (size_t)p[0] | ((size_t)p[1] << 8);
         p += 2;
-        if (p + tsz > end) goto ctx_dec_fail;
+        if (tsz > (size_t)(end - p)) goto ctx_dec_fail;
 
         uint16_t cnorm[NSYM];
         size_t chdr = read_hdr_v2(p, tsz, cnorm);
@@ -1343,7 +1482,7 @@ vva_error_t vva_decode_ctx(const uint8_t *src, size_t src_len,
                            * later bounds check. */
 
     /* Read 256 initial states */
-    if (p + 512 > end) goto ctx_dec_fail;
+    if ((size_t)(end - p) < 512) goto ctx_dec_fail;
     uint16_t ctx_states[NSYM];
     for (int c = 0; c < NSYM; c++) {
         ctx_states[c] = (uint16_t)(p[0] | (p[1] << 8));
@@ -1725,8 +1864,11 @@ static void est_huff_lengths(const uint32_t freq[NSYM], uint8_t len[NSYM]) {
         len[s] = 0;
         if (freq[s]) leaf_sym[n++] = s;
     }
-    if (n == 0) return;
-    if (n == 1) { len[leaf_sym[0]] = 1; return; }
+    /* Make the multi-symbol lower bound explicit for range analysis. */
+    if (n < 2) {
+        if (n == 1) len[leaf_sym[0]] = 1;
+        return;
+    }
 
     /* Leaves sorted ascending by freq (insertion sort, n ≤ 256). */
     for (int i = 1; i < n; i++) {
@@ -2492,14 +2634,15 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
                                               const uint8_t *dst_base,
                                               const uint32_t *ml_base_tab,
                                               uint32_t max_offset) {
+    if (max_offset == 0 || max_offset > (1u << 24)) return VVA_ERR_CORRUPT;
     const uint8_t *p = src, *end = src + src_len;
 
     /* Read literal section: [4B lit_count] [1B lit_fmt] [4B lit_enc_len] */
-        if (p + 9 > end) return VVA_ERR_CORRUPT;
+        if ((size_t)(end - p) < 9) return VVA_ERR_CORRUPT;
     size_t total_lits = (size_t)p[0]|((size_t)p[1]<<8)|((size_t)p[2]<<16)|((size_t)p[3]<<24); p += 4;
     uint8_t lit_fmt = *p++;
     size_t lit_enc_len = (size_t)p[0]|((size_t)p[1]<<8)|((size_t)p[2]<<16)|((size_t)p[3]<<24); p += 4;
-        if (p + lit_enc_len > end) return VVA_ERR_CORRUPT;
+        if ((size_t)(end - p) < lit_enc_len) return VVA_ERR_CORRUPT;
 
     /* SPRINT 90 SECURITY FIX (DoS hardening - companion to the
      * iteration-count bound):
@@ -2517,76 +2660,29 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
      * but dst_cap is sufficient to prevent runaway decode work). */
     if (VV_UNLIKELY(total_lits > dst_cap)) return VVA_ERR_CORRUPT;
 
-    /* Decode literals based on format byte */
-    /* SPRINT 126: one allocation for the literal buffer AND the decode
-     * tables (previously 2 mallocs; the table section was itself fused
-     * from 4 in Sprint 125). The table space (48 KB) is reserved
-     * unconditionally up front so the whole block scratch is a single
-     * malloc/free — its exact use is decided at table-build below. */
-    size_t lit_sec = (total_lits + 16 + 7) & ~(size_t)7;
-    size_t tab_sec = 3 * (ANS_L * sizeof(vva_dec_entry_t));
-    uint8_t *lit_buf = (uint8_t *)malloc(lit_sec + tab_sec);
-    if (!lit_buf) return VVA_ERR_NOMEM;
-    /* The sequence tables are built only after literal decoding returns.
-     * Reuse that region for the literal table first: the 48 KiB section
-     * accommodates both the ANS and Huffman workspaces, avoiding a nested
-     * allocation while keeping the literal bytes in their own section. */
-    void *literal_workspace = lit_buf + lit_sec;
+    /* Every declared literal needs encoded source bytes.  Reject an empty
+     * literal section before reserving the shared literal/table workspace;
+     * otherwise malformed S/T blocks repeatedly allocate scratch only to
+     * fail on their missing trailing structure. */
+    if (VV_UNLIKELY(total_lits != 0 && lit_enc_len == 0))
+        return VVA_ERR_CORRUPT;
 
-    if (total_lits > 0 && lit_enc_len > 0) {
-        vva_error_t lerr = VVA_ERR_CORRUPT;
-        size_t lit_consumed = 0;
-
-        if (lit_fmt == 1) {
-            /* ANS 4-way interleaved */
-            lerr = vva_decode4_with_workspace(p, lit_enc_len, lit_buf, total_lits,
-                                total_lits, &lit_consumed, literal_workspace, tab_sec);
-        } else if (lit_fmt == 2) {
-            /* ANS single-stream */
-            lerr = vva_decode_with_workspace(p, lit_enc_len, lit_buf, total_lits,
-                               total_lits, &lit_consumed, literal_workspace, tab_sec);
-        } else if (lit_fmt == 3) {
-            /* SPRINT 71 (v2.46): Huffman-coded literals within SEQ. */
-            vvh_error_t herr = vvh_decode_with_workspace(p, lit_enc_len, lit_buf,
-                                           total_lits, total_lits,
-                                           &lit_consumed, literal_workspace, tab_sec);
-            lerr = (herr == VVH_OK) ? VVA_OK : VVA_ERR_CORRUPT;
-        } else if (lit_fmt == 4) {
-            /* SPRINT 104 (v2.47): 4-stream interleaved Huffman literals.
-             * Faster decode (1.8-2.2× via ILP across 4 independent
-             * streams). Same ratio as lit_fmt=3 modulo +10B header. */
-            vvh_error_t herr = vvh_decode4_with_workspace(p, lit_enc_len, lit_buf,
-                                            total_lits, total_lits,
-                                            &lit_consumed, literal_workspace, tab_sec);
-            lerr = (herr == VVH_OK) ? VVA_OK : VVA_ERR_CORRUPT;
-        } else {
-            /* Raw literals (lit_fmt == 0) */
-            if (lit_enc_len >= total_lits) {
-                memcpy(lit_buf, p, total_lits);
-                lerr = VVA_OK;
-            }
-        }
-        if (lerr != VVA_OK) { free(lit_buf); return VVA_ERR_CORRUPT; }
-    }
+    /* The fixed literal header does not make a complete sequence payload.
+     * Validate and read the following match count before reserving decoder
+     * scratch so truncated inputs cannot create allocator churn. */
+    const uint8_t *lit_data = p;
     p += lit_enc_len;
+    if ((size_t)(end - p) < 4) return VVA_ERR_CORRUPT;
+    size_t match_count = (size_t)p[0]|((size_t)p[1]<<8)|
+                         ((size_t)p[2]<<16)|((size_t)p[3]<<24);
+    p += 4;
+    if (VV_UNLIKELY(match_count > dst_cap)) return VVA_ERR_CORRUPT;
 
-    /* Read match count (4B) */
-        if (p + 4 > end) { free(lit_buf); return VVA_ERR_CORRUPT; }
-    size_t match_count = (size_t)p[0]|((size_t)p[1]<<8)|((size_t)p[2]<<16)|((size_t)p[3]<<24); p += 4;
-
-    /* SPRINT 90 SECURITY FIX: bound match_count against dst_cap.
-     * Each match contributes ≥ min_match (3 or 4) bytes of output, so
-     * match_count cannot exceed dst_cap / min_match. Use dst_cap as a
-     * generous upper bound — anything larger is corrupt input that
-     * would cause the decode loop's max_iters check to trigger anyway,
-     * but bounding here prevents wasteful work and oversized
-     * allocations. */
-    if (VV_UNLIKELY(match_count > dst_cap)) { free(lit_buf); return VVA_ERR_CORRUPT; }
-
+    /* Validate sequence metadata before reserving literal/table scratch. */
     /* Read ML table header */
-        if (p + 2 > end) { free(lit_buf); return VVA_ERR_CORRUPT; }
+    if ((size_t)(end - p) < 2) return VVA_ERR_CORRUPT;
     size_t ml_hdr_sz = (size_t)p[0] | ((size_t)p[1] << 8); p += 2;
-        if (p + ml_hdr_sz > end) { free(lit_buf); return VVA_ERR_CORRUPT; }
+    if (ml_hdr_sz > (size_t)(end - p)) return VVA_ERR_CORRUPT;
 
     uint16_t norm_ml[NSYM];
     memset(norm_ml, 0, sizeof(norm_ml));
@@ -2594,9 +2690,9 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
     p += ml_hdr_sz;
 
     /* Read OF table header */
-        if (p + 2 > end) { free(lit_buf); return VVA_ERR_CORRUPT; }
+    if ((size_t)(end - p) < 2) return VVA_ERR_CORRUPT;
     size_t of_hdr_sz = (size_t)p[0] | ((size_t)p[1] << 8); p += 2;
-        if (p + of_hdr_sz > end) { free(lit_buf); return VVA_ERR_CORRUPT; }
+    if (of_hdr_sz > (size_t)(end - p)) return VVA_ERR_CORRUPT;
 
     uint16_t norm_of[NSYM];
     memset(norm_of, 0, sizeof(norm_of));
@@ -2604,9 +2700,9 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
     p += of_hdr_sz;
 
     /* Read LL table header */
-        if (p + 2 > end) { free(lit_buf); return VVA_ERR_CORRUPT; }
+    if ((size_t)(end - p) < 2) return VVA_ERR_CORRUPT;
     size_t ll_hdr_sz = (size_t)p[0] | ((size_t)p[1] << 8); p += 2;
-        if (p + ll_hdr_sz > end) { free(lit_buf); return VVA_ERR_CORRUPT; }
+    if (ll_hdr_sz > (size_t)(end - p)) return VVA_ERR_CORRUPT;
 
     uint16_t norm_ll[NSYM];
     memset(norm_ll, 0, sizeof(norm_ll));
@@ -2639,30 +2735,69 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
         for (int s = 0; s < NSYM; s++) {
             sum_ml += norm_ml[s]; sum_of += norm_of[s]; sum_ll += norm_ll[s];
             if (s >= VVA_OF_CODES && VV_UNLIKELY(norm_of[s])) {
-                free(lit_buf); return VVA_ERR_CORRUPT;
+                return VVA_ERR_CORRUPT;
             }
             if (s >= VVA_ML_CODES && VV_UNLIKELY(norm_ml[s] | norm_ll[s])) {
-                free(lit_buf); return VVA_ERR_CORRUPT;
+                return VVA_ERR_CORRUPT;
             }
         }
         if (VV_UNLIKELY(sum_ll != ANS_L && (total_lits > 0 || match_count > 0))) {
-            free(lit_buf); return VVA_ERR_CORRUPT;
+            return VVA_ERR_CORRUPT;
         }
         if (VV_UNLIKELY(match_count > 0 && (sum_ml != ANS_L || sum_of != ANS_L))) {
-            free(lit_buf); return VVA_ERR_CORRUPT;
+            return VVA_ERR_CORRUPT;
         }
     }
 
     /* Read initial states */
-        if (p + 6 > end) { free(lit_buf); return VVA_ERR_CORRUPT; }
+    if ((size_t)(end - p) < 6) return VVA_ERR_CORRUPT;
     uint32_t state_ml = (uint32_t)p[0] | ((uint32_t)p[1] << 8); p += 2;
     uint32_t state_of = (uint32_t)p[0] | ((uint32_t)p[1] << 8); p += 2;
     uint32_t state_ll = (uint32_t)p[0] | ((uint32_t)p[1] << 8); p += 2;
 
     /* Read sequence bitstream (4B size) */
-        if (p + 4 > end) { free(lit_buf); return VVA_ERR_CORRUPT; }
+    if ((size_t)(end - p) < 4) return VVA_ERR_CORRUPT;
     size_t seq_bs_len = (size_t)p[0]|((size_t)p[1]<<8)|((size_t)p[2]<<16)|((size_t)p[3]<<24); p += 4;
-        if (p + seq_bs_len > end) { free(lit_buf); return VVA_ERR_CORRUPT; }
+    if (seq_bs_len > (size_t)(end - p)) return VVA_ERR_CORRUPT;
+
+    if (total_lits == 0 && match_count == 0) {
+        *dst_len = 0;
+        return VVA_OK;
+    }
+
+    /* Literal decoding and sequence decoding use this table region in
+     * succession, so one allocation owns both sets of scratch storage. */
+    size_t lit_sec = (total_lits + 16 + 7) & ~(size_t)7;
+    size_t tab_sec = 3 * (ANS_L * sizeof(vva_dec_entry_t));
+    uint8_t *lit_buf = (uint8_t *)malloc(lit_sec + tab_sec);
+    if (!lit_buf) return VVA_ERR_NOMEM;
+    void *literal_workspace = lit_buf + lit_sec;
+
+    if (total_lits > 0 && lit_enc_len > 0) {
+        vva_error_t lerr = VVA_ERR_CORRUPT;
+        size_t lit_consumed = 0;
+        if (lit_fmt == 1) {
+            lerr = vva_decode4_with_workspace(lit_data, lit_enc_len, lit_buf, total_lits,
+                                total_lits, &lit_consumed, literal_workspace, tab_sec);
+        } else if (lit_fmt == 2) {
+            lerr = vva_decode_with_workspace(lit_data, lit_enc_len, lit_buf, total_lits,
+                               total_lits, &lit_consumed, literal_workspace, tab_sec);
+        } else if (lit_fmt == 3) {
+            vvh_error_t herr = vvh_decode_with_workspace(lit_data, lit_enc_len, lit_buf,
+                                           total_lits, total_lits,
+                                           &lit_consumed, literal_workspace, tab_sec);
+            lerr = (herr == VVH_OK) ? VVA_OK : VVA_ERR_CORRUPT;
+        } else if (lit_fmt == 4) {
+            vvh_error_t herr = vvh_decode4_with_workspace(lit_data, lit_enc_len, lit_buf,
+                                            total_lits, total_lits,
+                                            &lit_consumed, literal_workspace, tab_sec);
+            lerr = (herr == VVH_OK) ? VVA_OK : VVA_ERR_CORRUPT;
+        } else if (lit_enc_len >= total_lits) {
+            memcpy(lit_buf, lit_data, total_lits);
+            lerr = VVA_OK;
+        }
+        if (lerr != VVA_OK) { free(lit_buf); return VVA_ERR_CORRUPT; }
+    }
 
     /* Build ML, OF, and LL decode tables.
      *
@@ -2751,7 +2886,6 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
      * requirement, not after 16 MiB. */
     enum { SAFEZONE_MAX_RUN    = 65535 };     /* litlen or matchlen */
     enum { SAFEZONE_MAX_SEQ_WRITE = 2 * SAFEZONE_MAX_RUN };
-    if (max_offset == 0 || max_offset > (1u << 24)) return VVA_ERR_CORRUPT;
     int has_output_safe_zone = dst_cap >= SAFEZONE_MAX_SEQ_WRITE;
     uint8_t *op_safe_end = has_output_safe_zone
                            ? op_end - SAFEZONE_MAX_SEQ_WRITE : dst;
@@ -2862,9 +2996,9 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
              *
              * Safe to over-read lit_buf beyond lit_pos+litlen (slack).
              * Safe to over-write op beyond op+litlen as long as
-             * op + 16 ≤ op_end; for the last few sequences in a block
-             * that may not hold, so fall back to memcpy there. */
-            if (VV_LIKELY(litlen <= 16 && op + 16 <= op_end)) {
+             * at least 16 bytes remain. Check the remaining length before
+             * forming a pointer that could exceed the output object. */
+            if (VV_LIKELY(litlen <= 16 && (size_t)(op_end - op) >= 16)) {
                 memcpy(op, lit_buf + lit_pos, 16);
             } else {
                 memcpy(op, lit_buf + lit_pos, litlen);
@@ -2968,9 +3102,9 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
                  * path. For matchlen < 4, the 16-byte overwrite
                  * corrupts bytes that a subsequent short-offset match
                  * will read. Use an exact 3-byte copy in that case. */
-                if (VV_LIKELY(matchlen >= 4 && matchlen <= 16 && d + 16 <= op_end)) {
+                if (VV_LIKELY(matchlen >= 4 && matchlen <= 16 && (size_t)(op_end - d) >= 16)) {
                     memcpy(d, s, 16);
-                } else if (matchlen == 3 && d + 16 <= op_end) {
+                } else if (matchlen == 3 && (size_t)(op_end - d) >= 16) {
                     d[0] = s[0]; d[1] = s[1]; d[2] = s[2];
                 } else {
                     size_t rem = matchlen;
@@ -2989,9 +3123,9 @@ vva_error_t vva_decode_sequences_impl(const uint8_t *src, size_t src_len,
                  * match reads from d[3..] and sees the overshoot bytes.
                  * Gate the fast path on matchlen ≥ 4 to preserve v1
                  * behavior while making v2 correct. */
-                if (VV_LIKELY(matchlen >= 4 && matchlen <= 8 && d + 8 <= op_end)) {
+                if (VV_LIKELY(matchlen >= 4 && matchlen <= 8 && (size_t)(op_end - d) >= 8)) {
                     uint64_t v; memcpy(&v, s, 8); memcpy(d, &v, 8);
-                } else if (matchlen <= 8 && d + 8 <= op_end) {
+                } else if (matchlen <= 8 && (size_t)(op_end - d) >= 8) {
                     /* matchlen == 3 path: copy exactly 3 bytes without
                      * overshooting. One 4-byte read covers all three
                      * source bytes and is safe since offset ≥ 8 (the

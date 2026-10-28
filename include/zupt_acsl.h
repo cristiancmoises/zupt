@@ -4,8 +4,10 @@
  * ZUPT — ACSL Custom Predicates for Frama-C/WP
  * Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-or-later
  *
- * Usage: frama-c -wp -wp-rte -wp-model Typed+Cast
+ * Usage: frama-c -wp -wp-rte -wp-model Typed+int
  *        -cpp-extra-args="-Iinclude -Isrc" src/zupt_crypto.c
+ * Review the Typed model's separation hypotheses for the actual callers.
+ * ConstantTimeCompare below describes initialization, not a timing property.
  */
 #ifndef ZUPT_ACSL_H
 #define ZUPT_ACSL_H
@@ -28,7 +30,7 @@
   @   \forall integer i; 0 <= i < n ==> \at(k[i],L) == 0;
   @
   @ predicate ValidKey{L}(uint8_t *k, size_t n) =
-  @   ValidBuffer{L}(k, n) && n == 32;
+  @   ValidBuffer{L}(k, n) && n == (size_t)32;
   @
   @ predicate ConstantTimeCompare{L}(uint8_t *a, uint8_t *b,
   @   size_t n) =
@@ -36,7 +38,7 @@
   @   \initialized(\at(a+i,L)) && \initialized(\at(b+i,L));
   @
   @ predicate MACValid{L}(uint8_t *mac) =
-  @   ValidBuffer{L}(mac, 32);
+  @   ValidBuffer{L}(mac, (size_t)32);
 */
 #endif /* __FRAMAC__ */
 

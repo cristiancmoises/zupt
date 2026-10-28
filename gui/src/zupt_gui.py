@@ -11,34 +11,79 @@ not installed. PyQt6 is the default available package on Debian/Ubuntu
 without requiring pip; PySide6 ships with broader signal/slot semantics
 but the API surface used here is portable between the two.
 """
-import sys, os, re, subprocess, shutil
+
+import codecs
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 # Try PySide6, fall back to PyQt6. The two have nearly-identical APIs;
 # the only adjustment needed is Signal/pyqtSignal naming, handled below.
 try:
+    from PySide6.QtCore import QEvent, QObject, QThread, QTimer, Signal
+    from PySide6.QtGui import QColor, QIcon, QPalette
     from PySide6.QtWidgets import (
-        QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-        QLabel, QPushButton, QLineEdit, QComboBox, QFileDialog,
-        QTextEdit, QProgressBar, QTabWidget, QFrame, QCheckBox,
-        QSpinBox, QMessageBox, QStatusBar, QScrollArea
+        QApplication,
+        QCheckBox,
+        QComboBox,
+        QFileDialog,
+        QFrame,
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QMainWindow,
+        QMessageBox,
+        QPlainTextEdit,
+        QProgressBar,
+        QPushButton,
+        QScrollArea,
+        QSpinBox,
+        QStatusBar,
+        QTabWidget,
+        QVBoxLayout,
+        QWidget,
     )
-    from PySide6.QtCore import Qt, Signal, QObject, QThread, QTimer, QEvent
-    from PySide6.QtGui import QPalette, QColor, QIcon, QPixmap
+
     QT_BINDING = "PySide6"
 except ImportError:
+    # Check the preferred binding's real types without merging Qt class identities.
+    if TYPE_CHECKING:
+        raise
     try:
+        from PyQt6.QtCore import QEvent, QObject, QThread, QTimer
+        from PyQt6.QtCore import pyqtSignal as Signal
+        from PyQt6.QtGui import QColor, QIcon, QPalette
         from PyQt6.QtWidgets import (
-            QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-            QLabel, QPushButton, QLineEdit, QComboBox, QFileDialog,
-            QTextEdit, QProgressBar, QTabWidget, QFrame, QCheckBox,
-            QSpinBox, QMessageBox, QStatusBar, QScrollArea
+            QApplication,
+            QCheckBox,
+            QComboBox,
+            QFileDialog,
+            QFrame,
+            QHBoxLayout,
+            QLabel,
+            QLineEdit,
+            QMainWindow,
+            QMessageBox,
+            QPlainTextEdit,
+            QProgressBar,
+            QPushButton,
+            QScrollArea,
+            QSpinBox,
+            QStatusBar,
+            QTabWidget,
+            QVBoxLayout,
+            QWidget,
         )
-        from PyQt6.QtCore import Qt, pyqtSignal as Signal, QObject, QThread, QTimer, QEvent
-        from PyQt6.QtGui import QPalette, QColor, QIcon, QPixmap
+
         QT_BINDING = "PyQt6"
     except ImportError:
-        if sys.stderr is not None:   # None under PyInstaller --windowed
+        if sys.stderr is not None:  # None under PyInstaller --windowed
             sys.stderr.write(
                 "ERROR: zupt-gui requires PySide6 or PyQt6. Install one of:\n"
                 "  Debian/Ubuntu:  sudo apt install python3-pyqt6\n"
@@ -62,12 +107,15 @@ except ImportError:
 
 _DISCOVERY_LOG = []
 
+
 def _discovery_log(msg):
     _DISCOVERY_LOG.append(msg)
     # Echo to stderr if ZUPT_DEBUG or its renamed-era alias is set.
-    if ((os.environ.get("ZUPT_DEBUG") or os.environ.get("VAPTVUPT_DEBUG"))
-            and sys.stderr is not None):   # None under PyInstaller --windowed
+    if (
+        os.environ.get("ZUPT_DEBUG") or os.environ.get("VAPTVUPT_DEBUG")
+    ) and sys.stderr is not None:  # None under PyInstaller --windowed
         sys.stderr.write(f"  [discovery] {msg}\n")
+
 
 def _is_runnable(path):
     """A path is runnable if it's a file, executable, and exits 0 on `version`."""
@@ -79,10 +127,19 @@ def _is_runnable(path):
     # Liveness check — catches missing shared libraries, broken rpath,
     # ABI mismatch, etc. 3-second cap so we never hang the GUI startup.
     try:
-        r = subprocess.run([p, "version"], capture_output=True, stdin=subprocess.DEVNULL, timeout=3)
+        r = subprocess.run(
+            [p, "version"],
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            timeout=3,
+            check=False,
+        )
         if r.returncode != 0:
             err = r.stderr.decode("utf-8", errors="replace").strip()
-            return False, f"exit {r.returncode}: {err.splitlines()[0] if err else 'no stderr'}"
+            return (
+                False,
+                f"exit {r.returncode}: {err.splitlines()[0] if err else 'no stderr'}",
+            )
         return True, "OK"
     except FileNotFoundError:
         return False, "FileNotFoundError on exec"
@@ -90,6 +147,7 @@ def _is_runnable(path):
         return False, "timeout (3s) on `version` — binary hung"
     except OSError as e:
         return False, f"OSError: {e}"
+
 
 def _find_zupt():
     # 1. Explicit env override
@@ -128,16 +186,21 @@ def _find_zupt():
     #    scenario reported against v2.4.8.
     common = [
         # Canonical name
-        "/usr/local/bin/zupt", "/usr/bin/zupt",
-        "/opt/zupt/bin/zupt", "/opt/homebrew/bin/zupt",
+        "/usr/local/bin/zupt",
+        "/usr/bin/zupt",
+        "/opt/zupt/bin/zupt",
+        "/opt/homebrew/bin/zupt",
         # Renamed-era compatibility name
-        "/usr/local/bin/vaptvupt", "/usr/bin/vaptvupt",
-        "/opt/vaptvupt/bin/vaptvupt", "/opt/homebrew/bin/vaptvupt",
+        "/usr/local/bin/vaptvupt",
+        "/usr/bin/vaptvupt",
+        "/opt/vaptvupt/bin/vaptvupt",
+        "/opt/homebrew/bin/vaptvupt",
         # Termux (Android) install path
         "/data/data/com.termux/files/usr/bin/zupt",
         "/data/data/com.termux/files/usr/bin/vaptvupt",
         # Flatpak sandbox runtime path
-        "/app/bin/zupt", "/app/bin/vaptvupt",
+        "/app/bin/zupt",
+        "/app/bin/vaptvupt",
     ]
     for path in common:
         ok, reason = _is_runnable(path)
@@ -150,6 +213,7 @@ def _find_zupt():
     #    that doesn't work.
     _discovery_log("FAILED: no runnable zupt/vaptvupt binary found")
     return "zupt"
+
 
 ZUPT_CLI = _find_zupt()
 
@@ -169,14 +233,22 @@ ZUPT_CLI = _find_zupt()
 # also appears inside the parenthetical "formerly zupt; renamed".
 # We now use a strict regex anchored at the start of the line.
 
-_VERSION_RE = re.compile(r'^(?:vaptvupt|zupt)\s+(\d+\.\d+\.\d+(?:[._A-Za-z0-9-]*)?)')
+_VERSION_RE = re.compile(r"^(?:vaptvupt|zupt)\s+(\d+\.\d+\.\d+(?:[._A-Za-z0-9-]*)?)")
+
 
 def _get_version():
     short = "zupt (not found)"
     number = "?"
     full = ""
     try:
-        r = subprocess.run([ZUPT_CLI, "version"], capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=5)
+        r = subprocess.run(
+            [ZUPT_CLI, "version"],
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            timeout=5,
+            check=False,
+        )
         if r.returncode == 0:
             full = r.stdout.strip()
             lines = full.split("\n")
@@ -184,11 +256,13 @@ def _get_version():
             m = _VERSION_RE.match(short)
             if m:
                 number = m.group(1)
-    except Exception:
-        pass
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        return short, number, full
     return short, number, full
 
+
 ZUPT_VER_SHORT, ZUPT_VER_NUMBER, ZUPT_VER_FULL = _get_version()
+
 
 # ── Detect build capabilities from `version` (and `help` as fallback) ──
 #
@@ -223,15 +297,24 @@ def _get_caps():
             pqonly = True
     if not pqonly:
         try:
-            h = subprocess.run([ZUPT_CLI, "help"], capture_output=True, stdin=subprocess.DEVNULL, text=True, timeout=5)
+            h = subprocess.run(
+                [ZUPT_CLI, "help"],
+                capture_output=True,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                timeout=5,
+                check=False,
+            )
             txt = (h.stdout or "") + (h.stderr or "")
             if "--pq-only" in txt:
                 pqonly = True
-        except Exception:
-            pass
+        except (OSError, subprocess.SubprocessError, UnicodeError):
+            return sdk, pqbox, pqonly, default_kdf
     return sdk, pqbox, pqonly, default_kdf
 
+
 SDK_AVAILABLE, PQBOX_AVAILABLE, PQONLY_AVAILABLE, DEFAULT_KDF = _get_caps()
+
 
 # Post-quantum recipient modes offered in the UI, keyed to CLI flags.
 #   token -> (label, keygen-flag-list, compress/extract-flag)
@@ -245,27 +328,36 @@ def pq_mode_options(include_auto=False):
     if PQONLY_AVAILABLE:
         opts.append(("Full PQ — ML-KEM-768 only", "pqonly"))
     if SDK_AVAILABLE:
-        opts.append(("SDK v2 — HKDF + commitment + HPKE", "sdk"))
+        opts.append(("SDK v2 — system libvuptsdk", "sdk"))
     if PQBOX_AVAILABLE:
         opts.append(("PQ sealed box — system libpqvaptvupt", "box"))
     return opts
 
+
 # token -> (extra keygen flags, encrypt/decrypt flag)
 _PQ_FLAG = {
-    "pq":     ([],           "--pq"),
+    "pq": ([], "--pq"),
     "pqonly": (["--pq-only"], "--pq-only"),
-    "sdk":    (["--sdk"],     "--pq-sdk"),
-    "box":   (["--box"],     "--pq-box"),
+    "sdk": (["--sdk"], "--pq-sdk"),
+    "box": (["--box"], "--pq-box"),
 }
+
 
 def _archive_info_text(archive):
     """Return the `info` output for an archive (no password/key needed), or ""."""
     try:
-        r = subprocess.run([ZUPT_CLI, "info", archive], capture_output=True,
-                           stdin=subprocess.DEVNULL, text=True, timeout=15)
+        r = subprocess.run(
+            [ZUPT_CLI, "info", archive],
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            timeout=15,
+            check=False,
+        )
         return (r.stdout or "") + (r.stderr or "")
-    except Exception:
+    except (OSError, subprocess.SubprocessError, UnicodeError):
         return ""
+
 
 def _detect_archive_pq(archive):
     """Inspect an archive's `info` and return the matching PQ token, or None."""
@@ -274,11 +366,12 @@ def _detect_archive_pq(archive):
         return "box"
     if "ml-kem-768 only" in low or "no classical" in low:
         return "pqonly"
-    if "sdk v2" in low or "hpke" in low:
+    if "sdk v2" in low or "sdk-v2" in low or "hpke" in low:
         return "sdk"
     if "ml-kem-768" in low or "hybrid" in low or "x25519" in low:
         return "pq"
     return None
+
 
 def _detect_archive_enc(archive):
     """Detect how an archive is protected, reading only its header (`info`, no
@@ -294,7 +387,7 @@ def _detect_archive_enc(archive):
     encrypted = None
     for line in low.splitlines():
         if "encrypted:" in line:
-            encrypted = ("yes" in line)
+            encrypted = "yes" in line
             break
     if encrypted is False:
         return "none", "not encrypted"
@@ -302,23 +395,31 @@ def _detect_archive_enc(archive):
         return "box", "PQ sealed box (system libpqvaptvupt)"
     if "ml-kem-768 only" in low or "no classical" in low:
         return "pqonly", "full post-quantum (ML-KEM-768)"
-    if "sdk v2" in low or "hpke" in low:
-        return "sdk", "SDK v2 (HKDF + HPKE)"
+    if "sdk v2" in low or "sdk-v2" in low or "hpke" in low:
+        return "sdk", "SDK-v2 recipient envelope (system libvuptsdk)"
     if "ml-kem-768" in low or "hybrid" in low or "x25519" in low:
         return "pq", "hybrid post-quantum (ML-KEM-768 + X25519)"
     if encrypted:
         return "password", "password (AES-256)"
     return "unknown", "unknown"
 
+
 # ── Find icon file ──
 def _find_icon():
-    here = Path(getattr(sys, '_MEIPASS', Path(__file__).parent))
-    for p in [here/"assets/zupt.ico", here/"assets/zupt-icon.png", here/"assets/zupt.png",
-              here.parent/"assets/zupt.ico", here.parent/"assets/zupt-icon.png",
-              Path("/usr/share/icons/hicolor/256x256/apps/zupt-gui.png"),
-              Path("/usr/share/zupt-gui/assets/zupt-icon.png")]:
-        if p.is_file(): return str(p)
+    here = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+    for p in [
+        here / "assets/zupt.ico",
+        here / "assets/zupt-icon.png",
+        here / "assets/zupt.png",
+        here.parent / "assets/zupt.ico",
+        here.parent / "assets/zupt-icon.png",
+        Path("/usr/share/icons/hicolor/256x256/apps/zupt-gui.png"),
+        Path("/usr/share/zupt-gui/assets/zupt-icon.png"),
+    ]:
+        if p.is_file():
+            return str(p)
     return None
+
 
 ICON_PATH = _find_icon()
 
@@ -356,7 +457,7 @@ QPushButton#green:hover { border-color: #00c868; background: #0a2818; }
 QPushButton#amber { color: #d0a020; border-color: #2a2010; background: #181200; }
 QPushButton#amber:hover { border-color: #d0a020; background: #201800; }
 QPushButton#small { padding: 8px 14px; font-size: 11px; }
-QTextEdit {
+QPlainTextEdit {
     background: #060c10; color: #608898; border: 1px solid #1a2a30;
     border-radius: 6px; padding: 10px;
     font-family: "JetBrains Mono", "Cascadia Code", "SF Mono", monospace; font-size: 11px;
@@ -371,18 +472,48 @@ QStatusBar { background: #050a0e; color: #3a5868; font-size: 11px; border-top: 1
 QFrame#sep { background: #1a2a30; max-height: 1px; }
 """
 
+
 def run_zupt(args, timeout=30):
     try:
-        r = subprocess.run([ZUPT_CLI]+list(args), capture_output=True, text=True,
-                           stdin=subprocess.DEVNULL, timeout=timeout)
+        r = subprocess.run(
+            [ZUPT_CLI] + list(args),
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=timeout,
+            check=False,
+        )
         return r.returncode, r.stdout, r.stderr
-    except FileNotFoundError: return -1, "", f"zupt not found: {ZUPT_CLI}\n\nDiscovery log:\n" + "\n".join(_DISCOVERY_LOG[-10:])
-    except subprocess.TimeoutExpired: return -1, "", "Timed out"
+    except FileNotFoundError:
+        return (
+            -1,
+            "",
+            f"zupt not found: {ZUPT_CLI}\n\nDiscovery log:\n"
+            + "\n".join(_DISCOVERY_LOG[-10:]),
+        )
+    except subprocess.TimeoutExpired:
+        return -1, "", "Timed out"
+
+
+def _display_args(args):
+    """Redact password values for display without changing the child argv."""
+    display = []
+    password_value = False
+    for arg in args:
+        if password_value:
+            display.append("[redacted]")
+            password_value = False
+        else:
+            display.append(arg)
+            password_value = arg in ("-p", "--password")
+    return " ".join(display)
+
 
 class Worker(QObject):
     done = Signal(int, str, str)
     log = Signal(str)
     pct = Signal(int)
+    _TIMEOUT_SECONDS = 7200
 
     # The CLI paints live progress as "\r  <path> [#####     ]  42%" frames —
     # carriage returns only, no newline until 100%. A line-based reader yields
@@ -391,31 +522,83 @@ class Worker(QObject):
     _PCT_RE = re.compile(r"(\d{1,3})%\s*$")
 
     def __init__(self, args):
-        super().__init__(); self.args = args; self.proc = None; self._cancelled = False
+        super().__init__()
+        self.args = args
+        self.proc = None
+        self._cancelled = False
+
     def run(self):
-        self.log.emit(f"$ {Path(ZUPT_CLI).name} {' '.join(self.args)}")
+        self.log.emit(f"$ {Path(ZUPT_CLI).name} {_display_args(self.args)}")
+        proc = None
+        code, err = -1, ""
+        watchdog, watchdog_started = None, False
+        deadline_expired = False
+        deadline_errors = []
+        launch_ready = threading.Event()
         try:
-            # stdin=DEVNULL: the CLI prompts on a terminal for some inputs
-            # (e.g. bare -p); a child that reads stdin inherited from the GUI's
-            # terminal would block forever. /dev/null makes prompts fail fast.
-            # stderr is merged into stdout so ONE stream carries everything
-            # (the CLI's human output is on stderr; stdout is empty) — no
-            # second pipe that could fill while we drain the first.
+            deadline = time.monotonic() + self._TIMEOUT_SECONDS
+
+            def expire():
+                nonlocal deadline_expired
+                launch_ready.wait()
+                if proc is None:
+                    return
+                try:
+                    if proc.poll() is not None or self._cancelled:
+                        return
+                except Exception as exc:
+                    deadline_errors.append(f"deadline poll: {type(exc).__name__}")
+                    return
+                deadline_expired = True
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass  # Exited after poll.
+                except Exception as exc:
+                    deadline_errors.append(f"deadline terminate: {type(exc).__name__}")
+
+            # The worker's event loop is blocked in read1, so a Qt timer cannot
+            # enforce this deadline. Reserve the timer thread before the CLI
+            # can consume the process's thread budget. Its callback waits for
+            # launch to finish; it cannot interrupt Popen itself.
+            try:
+                watchdog = threading.Timer(max(0, deadline - time.monotonic()), expire)
+                watchdog.daemon = True
+                watchdog.start()
+                watchdog_started = True
+            except Exception as exc:
+                raise RuntimeError(f"deadline start: {type(exc).__name__}") from None
+            # stdin=DEVNULL makes terminal prompts fail rather than hang. Merge
+            # stderr into stdout so no second pipe can fill while we read.
             self.proc = proc = subprocess.Popen(
-                [ZUPT_CLI]+self.args, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-            if self._cancelled:   # cancel() ran before Popen finished (see below)
+                [ZUPT_CLI] + self.args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+            )
+            launch_ready.set()
+            if self._cancelled:  # cancel() ran before Popen finished (see below)
                 proc.kill()
+            output = proc.stdout
+            if output is None:
+                raise RuntimeError("CLI output pipe unavailable")
+            read1 = getattr(output, "read1", None)
+            if not callable(read1):
+                raise TypeError("CLI output reader unavailable")
             lines = []
             buf = ""
+            decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
             last_pct = -1
             while True:
                 # read1: return whatever bytes are available (>=1) instead of
                 # blocking for a full buffer — required for live \r progress.
-                chunk = proc.stdout.read1(65536)
+                chunk = read1(65536)
+                if not isinstance(chunk, bytes):
+                    raise TypeError("CLI output reader returned non-bytes")
                 if not chunk:
                     break
-                buf += chunk.decode("utf-8", errors="replace")
+                # A pipe read can end inside a multibyte character.
+                buf += decoder.decode(chunk)
                 # Split on BOTH \n (real lines) and \r (progress frames);
                 # keep the trailing partial segment in the buffer.
                 segs = re.split(r"(\r\n|\n|\r)", buf)
@@ -427,20 +610,79 @@ class Worker(QObject):
                         if m:
                             p = min(100, int(m.group(1)))
                             if p != last_pct:
-                                last_pct = p; self.pct.emit(p)
-                        continue          # progress frames stay out of the log
+                                last_pct = p
+                                self.pct.emit(p)
+                        continue  # progress frames stay out of the log
                     if seg.strip():
-                        lines.append(seg); self.log.emit(seg)
-            proc.wait(timeout=7200)
+                        lines.append(seg)
+                        self.log.emit(seg)
+            buf += decoder.decode(b"", final=True)
+            proc.wait(timeout=max(0, deadline - time.monotonic()))
             if buf.strip() and not self._PCT_RE.search(buf):
-                lines.append(buf); self.log.emit(buf)
-            self.done.emit(proc.returncode, "", "\n".join(lines))
-        except FileNotFoundError: self.done.emit(-1, "", f"zupt not found: {ZUPT_CLI}")
-        except subprocess.TimeoutExpired: proc.kill(); self.done.emit(-1, "", "Timed out")
+                lines.append(buf)
+                self.log.emit(buf)
+            code, err = proc.returncode, "\n".join(lines)
+        except FileNotFoundError:
+            err = f"zupt not found: {ZUPT_CLI}"
+        except subprocess.TimeoutExpired:
+            # EOF after cancellation can precede a waitable exit status. The
+            # joined watchdog still reports a timeout it committed earlier.
+            if not self._cancelled:
+                err = "Timed out"
         except Exception as exc:
             # Any escape from this slot would strand the job forever (done never
             # fires -> button stays disabled; fatal under PyQt6). Always report.
-            self.done.emit(-1, "", f"{type(exc).__name__}: {exc}")
+            err = f"{type(exc).__name__}: {exc}"
+        finally:
+            # A fired callback may be waiting after Popen raised. Release it
+            # before joining, even when there is no child to clean up.
+            launch_ready.set()
+            cleanup_errors = []
+            if watchdog is not None:
+                try:
+                    watchdog.cancel()
+                except Exception as exc:
+                    cleanup_errors.append(f"deadline cancel: {type(exc).__name__}")
+                if watchdog_started:
+                    # cancel cannot stop an already-running callback. Join it
+                    # before reading its result or releasing child ownership.
+                    try:
+                        watchdog.join()
+                    except Exception as exc:
+                        cleanup_errors.append(f"deadline join: {type(exc).__name__}")
+            cleanup_errors.extend(deadline_errors)
+            if deadline_expired:
+                code = -1
+                err = f"Timed out\n{err}" if err and err != "Timed out" else "Timed out"
+            if proc is not None:
+                # done releases the job's ownership of this child. On a read
+                # failure it may still be running, so terminate and reap first.
+                try:
+                    if proc.poll() is None:
+                        try:
+                            proc.kill()
+                        except ProcessLookupError:
+                            pass  # Exited after poll.
+                except Exception as exc:
+                    cleanup_errors.append(f"terminate: {type(exc).__name__}")
+                try:
+                    proc.wait(timeout=5)
+                except Exception as exc:
+                    cleanup_errors.append(f"wait: {type(exc).__name__}")
+                if proc.stdout is not None:
+                    try:
+                        proc.stdout.close()
+                    except Exception as exc:
+                        cleanup_errors.append(f"close: {type(exc).__name__}")
+            if cleanup_errors:
+                # Exception text, especially TimeoutExpired, can include argv
+                # and passwords. Report only the failed stage and error type.
+                message = "Child cleanup failed (" + "; ".join(cleanup_errors) + ")"
+                self.log.emit(message)
+                code = -1
+                err = f"{err}\n{message}" if err else message
+        self.done.emit(code, "", err)
+
     def cancel(self):
         """Kill the child CLI process (called from the GUI thread on window
         close). run() then sees EOF/exit and finishes the thread normally.
@@ -449,56 +691,102 @@ class Worker(QObject):
         self._cancelled = True
         p = self.proc
         if p is not None and p.poll() is None:
-            try: p.kill()
-            except OSError: pass
+            try:
+                p.kill()
+            except OSError:
+                pass
+
 
 # ── Widgets ──
 
+
 def H(text):
     lbl = QLabel(text.upper())
-    lbl.setStyleSheet("font-size:10px;font-weight:700;color:#3a5868;letter-spacing:1.5px;")
+    lbl.setStyleSheet(
+        "font-size:10px;font-weight:700;color:#3a5868;letter-spacing:1.5px;"
+    )
     return lbl
 
-def Sep():
-    f = QFrame(); f.setObjectName("sep"); f.setFixedHeight(1); return f
 
-def Log(h=150):
-    t = QTextEdit(); t.setReadOnly(True); t.setMaximumHeight(h); return t
+def Sep():
+    f = QFrame()
+    f.setObjectName("sep")
+    f.setFixedHeight(1)
+    return f
+
+
+class Log(QPlainTextEdit):
+    def __init__(self, h=150):
+        super().__init__()
+        self.setReadOnly(True)
+        self.setMaximumHeight(h)
+
+    def append(self, text: str) -> None:
+        # CLI output and archive names are data, not rich text.
+        self.appendPlainText(text)
+
 
 def PwField(ph="Optional"):
-    pw = QLineEdit(); pw.setEchoMode(QLineEdit.EchoMode.Password); pw.setPlaceholderText(ph); return pw
+    pw = QLineEdit()
+    pw.setEchoMode(QLineEdit.EchoMode.Password)
+    pw.setPlaceholderText(ph)
+    return pw
+
 
 class PathField(QWidget):
     def __init__(self, ph="", mode="open", filters="All Files (*)"):
         super().__init__()
         self.mode, self.filters = mode, filters
         self.setAcceptDrops(True)
-        lay = QHBoxLayout(self); lay.setContentsMargins(0,0,0,0); lay.setSpacing(6)
-        self.edit = QLineEdit(); self.edit.setPlaceholderText(ph)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+        self.edit = QLineEdit()
+        self.edit.setPlaceholderText(ph)
         lay.addWidget(self.edit, 1)
-        btn = QPushButton("Browse"); btn.setObjectName("small"); btn.setFixedWidth(70)
-        btn.clicked.connect(self._pick); lay.addWidget(btn)
+        btn = QPushButton("Browse")
+        btn.setObjectName("small")
+        btn.setFixedWidth(70)
+        btn.clicked.connect(self._pick)
+        lay.addWidget(btn)
 
     def _pick(self):
-        if self.mode == "save": p, _ = QFileDialog.getSaveFileName(self, "Save", "", self.filters)
-        elif self.mode == "dir": p = QFileDialog.getExistingDirectory(self, "Directory")
+        if self.mode == "save":
+            p, _ = QFileDialog.getSaveFileName(self, "Save", "", self.filters)
+        elif self.mode == "dir":
+            p = QFileDialog.getExistingDirectory(self, "Directory")
         elif self.mode == "multi":
             ps, _ = QFileDialog.getOpenFileNames(self, "Select", "", self.filters)
             p = "|".join(ps) if ps else ""
-        else: p, _ = QFileDialog.getOpenFileName(self, "Open", "", self.filters)
-        if p: self.edit.setText(p)
+        else:
+            p, _ = QFileDialog.getOpenFileName(self, "Open", "", self.filters)
+        if p:
+            self.edit.setText(p)
 
-    def path(self): return self.edit.text().strip()
+    def path(self):
+        return self.edit.text().strip()
+
     def paths(self):
-        t = self.path(); return t.split("|") if "|" in t else [t] if t else []
+        t = self.path()
+        return t.split("|") if "|" in t else [t] if t else []
+
     def dragEnterEvent(self, e):
-        if e.mimeData().hasUrls(): e.acceptProposedAction()
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+
     def dropEvent(self, e):
         ps = [u.toLocalFile() for u in e.mimeData().urls() if u.toLocalFile()]
-        if ps: self.edit.setText("|".join(ps) if self.mode == "multi" else ps[0])
+        if ps:
+            self.edit.setText("|".join(ps) if self.mode == "multi" else ps[0])
+
 
 def scrollable(w):
-    sa = QScrollArea(); sa.setWidgetResizable(True); sa.setWidget(w); sa.setFrameShape(QFrame.Shape.NoFrame); return sa
+    sa = QScrollArea()
+    sa.setWidgetResizable(True)
+    sa.setWidget(w)
+    sa.setFrameShape(QFrame.Shape.NoFrame)
+    return sa
+
 
 class _Job(QObject):
     """Controller for one async CLI run.
@@ -513,27 +801,29 @@ class _Job(QObject):
     in the EMITTING thread regardless of the requested connection type — even an
     explicit Qt.QueuedConnection — because a bare functor has no receiver QObject
     to give it thread affinity (verified empirically). Those closures then
-    touched QProgressBar / QPushButton / QTextEdit internals from the worker
+    touched QProgressBar / QPushButton / log widget internals from the worker
     thread: cross-thread QWidget access, which is undefined behaviour and crashed
     the app under real X11/Wayland rendering ("the app closes when I compress").
     It only survived offscreen tests, which tolerate the race. Bound methods of a
     GUI-thread QObject are the fix."""
+
     def __init__(self, parent, cmd, btn, log, progress, ok_msg="Done.", fail_msg=None):
         super().__init__(parent)
         self._parent = parent
         self.btn, self.log, self.progress = btn, log, progress
         self.ok_msg, self.fail_msg = ok_msg, fail_msg
-        self.thread = QThread(self)          # QThread object lives in GUI thread
-        self.worker = Worker(cmd)            # no parent — it moves to self.thread
-        self.worker.moveToThread(self.thread)
+        self._thread = QThread(self)  # QThread object lives in GUI thread
+        self.worker = Worker(cmd)  # no parent — it moves to self._thread
+        self.worker.moveToThread(self._thread)
         self.worker.log.connect(self.on_log)
         self.worker.pct.connect(self.on_pct)
         self.worker.done.connect(self.on_done)
-        self.thread.finished.connect(self.on_finished)
-        self.thread.started.connect(self.worker.run)
+        self._thread.finished.connect(self.worker.deleteLater)
+        self._thread.finished.connect(self.on_finished)
+        self._thread.started.connect(self.worker.run)
 
     def start(self):
-        self.thread.start()
+        self._thread.start()
 
     def on_log(self, line):
         self.log.append(line)
@@ -552,35 +842,45 @@ class _Job(QObject):
             self.log.append("\n" + self.ok_msg)
         else:
             self.log.append("\n" + (self.fail_msg or f"Failed (exit {code})."))
-        self.thread.quit()
+        self._thread.quit()
 
     def on_finished(self):
         # Runs on the GUI thread AFTER the QThread has emitted finished(); the
         # wait() joins the last native teardown so dropping the last Python ref
         # can't collect a still-running QThread (that aborts with "QThread:
         # Destroyed while thread is still running").
-        self.thread.wait()
+        self._thread.wait()
         try:
             self._parent._jobs.remove(self)
         except (AttributeError, ValueError):
             pass
+        self.deleteLater()
 
     def cancel_and_join(self, ms=3000):
         """GUI thread: kill the child CLI and join the worker thread."""
         self.worker.cancel()
-        self.thread.quit()
-        return self.thread.wait(ms)
+        self._thread.quit()
+        return self._thread.wait(ms)
 
 
-def run_async(parent, cmd, btn, log, progress=None, info=None,
-              ok_msg="Done.", fail_msg=None, clear=True):
+def run_async(
+    parent,
+    cmd,
+    btn,
+    log,
+    progress=None,
+    info=None,
+    ok_msg="Done.",
+    fail_msg=None,
+    clear=True,
+):
     if clear:
         log.clear()
     if info:  # e.g. an auto-detect note; appended AFTER the clear so it survives
         log.append(info)
     btn.setEnabled(False)
     if progress:
-        progress.setRange(0, 0)   # indeterminate until the CLI reports a %
+        progress.setRange(0, 0)  # indeterminate until the CLI reports a %
         progress.setValue(0)
         progress.show()
     # Keep a LIST of live jobs on the parent. Tabs with more than one action
@@ -594,13 +894,17 @@ def run_async(parent, cmd, btn, log, progress=None, info=None,
     parent._jobs.append(job)
     job.start()
 
+
 # ── Tabs ──
+
 
 class KeysTab(QWidget):
     def __init__(self):
         super().__init__()
         inner = QWidget()
-        v = QVBoxLayout(inner); v.setContentsMargins(24,24,24,24); v.setSpacing(10)
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(24, 24, 24, 24)
+        v.setSpacing(10)
 
         v.addWidget(QLabel("Generate or export post-quantum keys (ML-KEM-768)."))
         v.addWidget(Sep())
@@ -611,9 +915,11 @@ class KeysTab(QWidget):
         self._modes = pq_mode_options()
         for label, _tok in self._modes:
             self.mode.addItem(label)
-        self.mode.setToolTip("Hybrid (--pq) is recommended. Full PQ (--pq-only) drops the\n"
-                             "classical X25519 layer for PQ-only compliance postures. Both use\n"
-                             "in-tree crypto and work on every build.")
+        self.mode.setToolTip(
+            "Hybrid (--pq) is recommended. Full PQ (--pq-only) drops the\n"
+            "classical X25519 layer for PQ-only compliance postures. Both use\n"
+            "in-tree crypto and work on every build."
+        )
         v.addWidget(self.mode)
         v.addWidget(Sep())
 
@@ -622,46 +928,62 @@ class KeysTab(QWidget):
         v.addWidget(QLabel("Writes a private key and its matching public key."))
 
         v.addWidget(H("Private key output"))
-        self.gen_priv = PathField("e.g. ~/zupt_private.key", "save", "Key (*.key);;All (*)")
+        self.gen_priv = PathField(
+            "e.g. ~/zupt_private.key", "save", "Key (*.key);;All (*)"
+        )
         v.addWidget(self.gen_priv)
         v.addWidget(H("Public key output"))
-        self.gen_pub = PathField("e.g. ~/zupt_public.key", "save", "Key (*.key);;All (*)")
+        self.gen_pub = PathField(
+            "e.g. ~/zupt_public.key", "save", "Key (*.key);;All (*)"
+        )
         v.addWidget(self.gen_pub)
 
         self.gen_btn = QPushButton("Generate Keypair")
         self.gen_btn.clicked.connect(self._generate)
         v.addWidget(self.gen_btn)
-        self.gen_log = Log(120); v.addWidget(self.gen_log)
+        self.gen_log = Log(120)
+        v.addWidget(self.gen_log)
 
         v.addWidget(Sep())
 
         # Section 2: Export public key from existing private key
         v.addWidget(H("Export public key from private key"))
-        v.addWidget(QLabel("Extract the public key from an existing private key file "
-                           "(uses the key type selected above)."))
+        v.addWidget(
+            QLabel(
+                "Extract the public key from an existing private key file "
+                "(uses the key type selected above)."
+            )
+        )
 
         v.addWidget(H("Existing private key"))
         self.exp_priv = PathField("Select private key", "open", "Key (*.key);;All (*)")
         v.addWidget(self.exp_priv)
 
         v.addWidget(H("Public key output"))
-        self.exp_pub = PathField("e.g. ~/zupt_public.key", "save", "Key (*.key);;All (*)")
+        self.exp_pub = PathField(
+            "e.g. ~/zupt_public.key", "save", "Key (*.key);;All (*)"
+        )
         v.addWidget(self.exp_pub)
 
         self.exp_btn = QPushButton("Export Public Key")
         self.exp_btn.setObjectName("green")
         self.exp_btn.clicked.connect(self._export)
         v.addWidget(self.exp_btn)
-        self.exp_log = Log(100); v.addWidget(self.exp_log)
+        self.exp_log = Log(100)
+        v.addWidget(self.exp_log)
 
         v.addStretch()
-        lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0); lay.addWidget(scrollable(inner))
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(scrollable(inner))
 
     def _token(self):
         return self._modes[self.mode.currentIndex()][1]
 
     def _default_pub(self, priv):
-        return (priv.rsplit(".", 1)[0] + "_public.key") if "." in priv else priv + ".pub"
+        return (
+            (priv.rsplit(".", 1)[0] + "_public.key") if "." in priv else priv + ".pub"
+        )
 
     def _generate(self):
         p = self.gen_priv.path() or str(Path.home() / "zupt_private.key")
@@ -670,19 +992,30 @@ class KeysTab(QWidget):
         self.gen_pub.edit.setText(pub)
         tok = self._token()
         kflags, _ = _PQ_FLAG[tok]
-        self.gen_log.clear(); self.gen_btn.setEnabled(False)
+        self.gen_log.clear()
+        self.gen_btn.setEnabled(False)
         if tok == "sdk":
             # SDK keygen writes the private key and <priv>.pub in one step.
             code, _, err = run_zupt(["keygen", "--sdk", "-o", p])
             self.gen_log.append(err.strip())
-            self.gen_log.append(f"\nPrivate key:  {p}\nPublic key:   {p}.pub" if code == 0 else "\nFailed.")
+            self.gen_log.append(
+                f"\nPrivate key:  {p}\nPublic key:   {p}.pub"
+                if code == 0
+                else "\nFailed."
+            )
         else:
             code, _, err = run_zupt(["keygen"] + kflags + ["-o", p])
             self.gen_log.append(err.strip())
             if code == 0:
-                c2, _, e2 = run_zupt(["keygen", "--pub"] + kflags + ["-o", pub, "-k", p])
+                c2, _, e2 = run_zupt(
+                    ["keygen", "--pub"] + kflags + ["-o", pub, "-k", p]
+                )
                 self.gen_log.append(e2.strip())
-                self.gen_log.append(f"\nPrivate key:  {p}\nPublic key:   {pub}" if c2 == 0 else "\nFailed to export public key.")
+                self.gen_log.append(
+                    f"\nPrivate key:  {p}\nPublic key:   {pub}"
+                    if c2 == 0
+                    else "\nFailed to export public key."
+                )
             else:
                 self.gen_log.append("\nFailed.")
         self.gen_btn.setEnabled(True)
@@ -690,12 +1023,16 @@ class KeysTab(QWidget):
     def _export(self):
         priv = self.exp_priv.path()
         pub = self.exp_pub.path()
-        if not priv: QMessageBox.warning(self, "ZUPT", "Select the private key file."); return
+        if not priv:
+            QMessageBox.warning(self, "ZUPT", "Select the private key file.")
+            return
         if not pub:
-            pub = self._default_pub(priv); self.exp_pub.edit.setText(pub)
+            pub = self._default_pub(priv)
+            self.exp_pub.edit.setText(pub)
         tok = self._token()
         kflags, _ = _PQ_FLAG[tok]
-        self.exp_log.clear(); self.exp_btn.setEnabled(False)
+        self.exp_log.clear()
+        self.exp_btn.setEnabled(False)
         code, _, err = run_zupt(["keygen", "--pub"] + kflags + ["-o", pub, "-k", priv])
         self.exp_log.append(err.strip())
         self.exp_log.append(f"\nPublic key:  {pub}" if code == 0 else "\nFailed.")
@@ -706,59 +1043,114 @@ class CompressTab(QWidget):
     def __init__(self, initial=None):
         super().__init__()
         inner = QWidget()
-        v = QVBoxLayout(inner); v.setContentsMargins(24,24,24,24); v.setSpacing(10)
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(24, 24, 24, 24)
+        v.setSpacing(10)
         v.addWidget(QLabel("Compress files into an encrypted .zupt archive."))
         v.addWidget(Sep())
         v.addWidget(H("Source files / directory"))
-        self.src = PathField("Drop files here or browse", "multi"); v.addWidget(self.src)
+        self.src = PathField("Drop files here or browse", "multi")
+        v.addWidget(self.src)
         v.addWidget(H("Output archive"))
-        self.dst = PathField("e.g. backup.zupt", "save", "ZUPT archive (*.zupt);;All (*)"); v.addWidget(self.dst)
-        row = QHBoxLayout(); row.setSpacing(16)
+        self.dst = PathField(
+            "e.g. backup.zupt", "save", "ZUPT archive (*.zupt);;All (*)"
+        )
+        v.addWidget(self.dst)
+        row = QHBoxLayout()
+        row.setSpacing(16)
         for label, widget in [("Codec", self._mk_codec()), ("Level", self._mk_level())]:
-            c = QVBoxLayout(); c.addWidget(H(label)); c.addWidget(widget); row.addLayout(c)
-        c = QVBoxLayout(); c.addWidget(H("Options"))
-        self.dedup = QCheckBox("Dedup"); self.solid = QCheckBox("Solid")
-        oh = QHBoxLayout(); oh.addWidget(self.dedup); oh.addWidget(self.solid); oh.addStretch()
-        c.addLayout(oh); row.addLayout(c)
-        v.addLayout(row); v.addWidget(Sep())
-        enc = QHBoxLayout(); enc.setSpacing(16)
-        pw = QVBoxLayout(); pw.addWidget(H("Password")); self.pw = PwField("AES-256"); pw.addWidget(self.pw); enc.addLayout(pw)
-        pq = QVBoxLayout(); pq.addWidget(H("PQ public key")); self.pq = PathField("Optional .key", filters="Key (*.key *.pub);;All (*)"); pq.addWidget(self.pq); enc.addLayout(pq)
-        mode_box = QVBoxLayout(); mode_box.addWidget(H("PQ mode"))
+            c = QVBoxLayout()
+            c.addWidget(H(label))
+            c.addWidget(widget)
+            row.addLayout(c)
+        c = QVBoxLayout()
+        c.addWidget(H("Options"))
+        self.dedup = QCheckBox("Dedup")
+        self.solid = QCheckBox("Solid")
+        oh = QHBoxLayout()
+        oh.addWidget(self.dedup)
+        oh.addWidget(self.solid)
+        oh.addStretch()
+        c.addLayout(oh)
+        row.addLayout(c)
+        v.addLayout(row)
+        v.addWidget(Sep())
+        enc = QHBoxLayout()
+        enc.setSpacing(16)
+        pw = QVBoxLayout()
+        pw.addWidget(H("Password"))
+        self.pw = PwField("AES-256")
+        pw.addWidget(self.pw)
+        enc.addLayout(pw)
+        pq = QVBoxLayout()
+        pq.addWidget(H("PQ public key"))
+        self.pq = PathField("Optional .key", filters="Key (*.key *.pub);;All (*)")
+        pq.addWidget(self.pq)
+        enc.addLayout(pq)
+        mode_box = QVBoxLayout()
+        mode_box.addWidget(H("PQ mode"))
         self.pqmode = QComboBox()
         self._pqmodes = pq_mode_options()
         for label, _tok in self._pqmodes:
             self.pqmode.addItem(label)
-        self.pqmode.setToolTip("Applies when a PQ public key is set. Must match the key type\n"
-                               "you generated. Hybrid (--pq) is recommended.")
-        mode_box.addWidget(self.pqmode); mode_box.addStretch(); enc.addLayout(mode_box)
+        self.pqmode.setToolTip(
+            "Applies when a PQ public key is set. Must match the key type\n"
+            "you generated. Hybrid (--pq) is recommended."
+        )
+        mode_box.addWidget(self.pqmode)
+        mode_box.addStretch()
+        enc.addLayout(mode_box)
         v.addLayout(enc)
-        self.btn = QPushButton("Compress"); self.btn.clicked.connect(self._run); v.addWidget(self.btn)
-        self.progress = QProgressBar(); self.progress.setRange(0,0); self.progress.hide(); v.addWidget(self.progress)
-        self.log = Log(140); v.addWidget(self.log); v.addStretch()
-        lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0); lay.addWidget(scrollable(inner))
-        if initial: self.src.edit.setText("|".join(initial))
+        self.btn = QPushButton("Compress")
+        self.btn.clicked.connect(self._run)
+        v.addWidget(self.btn)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        self.progress.hide()
+        v.addWidget(self.progress)
+        self.log = Log(140)
+        v.addWidget(self.log)
+        v.addStretch()
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(scrollable(inner))
+        if initial:
+            self.src.edit.setText("|".join(initial))
 
     def _mk_codec(self):
-        self.codec = QComboBox(); self.codec.addItems(["AUTO","VaptVupt","LZHP","Store"]); return self.codec
+        self.codec = QComboBox()
+        self.codec.addItems(["AUTO", "VaptVupt", "LZHP", "Store"])
+        return self.codec
+
     def _mk_level(self):
-        self.level = QSpinBox(); self.level.setRange(1,9); self.level.setValue(7); return self.level
+        self.level = QSpinBox()
+        self.level.setRange(1, 9)
+        self.level.setValue(7)
+        return self.level
 
     def _run(self):
         srcs = self.src.paths()
-        if not srcs or not srcs[0]: QMessageBox.warning(self, "ZUPT", "Select files."); return
-        dst = self.dst.path() or srcs[0] + ".zupt"; self.dst.edit.setText(dst)
+        if not srcs or not srcs[0]:
+            QMessageBox.warning(self, "ZUPT", "Select files.")
+            return
+        dst = self.dst.path() or srcs[0] + ".zupt"
+        self.dst.edit.setText(dst)
         cmd = ["compress", "-l", str(self.level.value())]
         cm = {"AUTO": None, "VaptVupt": "--vv", "LZHP": "--lzhp", "Store": "-s"}
-        if cm.get(self.codec.currentText()): cmd.append(cm[self.codec.currentText()])
-        if self.dedup.isChecked(): cmd.append("--dedup")
-        if self.solid.isChecked(): cmd.append("--solid")
-        if self.pw.text(): cmd += ["-p", self.pw.text()]
+        if cm.get(self.codec.currentText()):
+            cmd.append(cm[self.codec.currentText()])
+        if self.dedup.isChecked():
+            cmd.append("--dedup")
+        if self.solid.isChecked():
+            cmd.append("--solid")
+        if self.pw.text():
+            cmd += ["-p", self.pw.text()]
         if self.pq.path():
             tok = self._pqmodes[self.pqmode.currentIndex()][1]
             _, flag = _PQ_FLAG[tok]
             cmd += [flag, self.pq.path()]
-        cmd.append(dst); cmd.extend(srcs)
+        cmd.append(dst)
+        cmd.extend(srcs)
         run_async(self, cmd, self.btn, self.log, self.progress)
 
 
@@ -766,98 +1158,189 @@ class ExtractTab(QWidget):
     def __init__(self, initial=None):
         super().__init__()
         inner = QWidget()
-        v = QVBoxLayout(inner); v.setContentsMargins(24,24,24,24); v.setSpacing(10)
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(24, 24, 24, 24)
+        v.setSpacing(10)
         v.addWidget(QLabel("Extract and decrypt a .zupt archive."))
         v.addWidget(Sep())
-        v.addWidget(H("Archive")); self.arc = PathField("Drop .zupt here", filters="ZUPT archive (*.zupt);;All (*)"); v.addWidget(self.arc)
-        v.addWidget(H("Output directory")); self.out = PathField("Same as archive", "dir"); v.addWidget(self.out)
-        enc = QHBoxLayout(); enc.setSpacing(16)
-        pw = QVBoxLayout(); pw.addWidget(H("Password")); self.pw = PwField(); pw.addWidget(self.pw); enc.addLayout(pw)
-        pq = QVBoxLayout(); pq.addWidget(H("PQ private key")); self.pq = PathField("Optional .key", filters="Key (*.key);;All (*)"); pq.addWidget(self.pq); enc.addLayout(pq)
-        mode_box = QVBoxLayout(); mode_box.addWidget(H("PQ mode"))
+        v.addWidget(H("Archive"))
+        self.arc = PathField(
+            "Drop .zupt here", filters="ZUPT archive (*.zupt);;All (*)"
+        )
+        v.addWidget(self.arc)
+        v.addWidget(H("Output directory"))
+        self.out = PathField("Same as archive", "dir")
+        v.addWidget(self.out)
+        enc = QHBoxLayout()
+        enc.setSpacing(16)
+        pw = QVBoxLayout()
+        pw.addWidget(H("Password"))
+        self.pw = PwField()
+        pw.addWidget(self.pw)
+        enc.addLayout(pw)
+        pq = QVBoxLayout()
+        pq.addWidget(H("PQ private key"))
+        self.pq = PathField("Optional .key", filters="Key (*.key);;All (*)")
+        pq.addWidget(self.pq)
+        enc.addLayout(pq)
+        mode_box = QVBoxLayout()
+        mode_box.addWidget(H("PQ mode"))
         self.pqmode = QComboBox()
         self._pqmodes = pq_mode_options(include_auto=True)
         for label, _tok in self._pqmodes:
             self.pqmode.addItem(label)
-        self.pqmode.setToolTip("Auto-detect reads the archive header (zupt info) to pick the\n"
-                               "right mode. Or choose it explicitly to match your private key.")
-        mode_box.addWidget(self.pqmode); mode_box.addStretch(); enc.addLayout(mode_box)
+        self.pqmode.setToolTip(
+            "Auto-detect reads the archive header (zupt info) to pick the\n"
+            "right mode. Or choose it explicitly to match your private key."
+        )
+        mode_box.addWidget(self.pqmode)
+        mode_box.addStretch()
+        enc.addLayout(mode_box)
         v.addLayout(enc)
-        self.btn = QPushButton("Extract"); self.btn.setObjectName("green"); self.btn.clicked.connect(self._run); v.addWidget(self.btn)
-        self.progress = QProgressBar(); self.progress.setRange(0,0); self.progress.hide(); v.addWidget(self.progress)
-        self.log = Log(140); v.addWidget(self.log); v.addStretch()
-        lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0); lay.addWidget(scrollable(inner))
-        if initial: self.arc.edit.setText(initial)
+        self.btn = QPushButton("Extract")
+        self.btn.setObjectName("green")
+        self.btn.clicked.connect(self._run)
+        v.addWidget(self.btn)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        self.progress.hide()
+        v.addWidget(self.progress)
+        self.log = Log(140)
+        v.addWidget(self.log)
+        v.addStretch()
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(scrollable(inner))
+        if initial:
+            self.arc.edit.setText(initial)
 
     def _run(self):
         arc = self.arc.path()
-        if not arc: QMessageBox.warning(self, "ZUPT", "Select an archive."); return
+        if not arc:
+            QMessageBox.warning(self, "ZUPT", "Select an archive.")
+            return
         if not os.path.isfile(arc):
-            self.log.clear(); self.log.append(f"No such file: {arc}"); return
+            self.log.clear()
+            self.log.append(f"No such file: {arc}")
+            return
         # Read the header (no credential) so we can guide the user instead of
         # letting the CLI dump a raw decrypt error for a missing password/key.
         kind, label = _detect_archive_enc(arc)
         if kind == "password" and not self.pw.text():
             self.log.clear()
-            self.log.append("This archive is password-encrypted.\n"
-                            "Enter the password above, then click Extract again.")
+            self.log.append(
+                "This archive is password-encrypted.\n"
+                "Enter the password above, then click Extract again."
+            )
             return
         if kind in ("pq", "pqonly", "sdk", "box") and not self.pq.path():
             self.log.clear()
-            self.log.append(f"This archive uses {label} encryption.\n"
-                            "Select the matching private key above, then click Extract again.")
+            self.log.append(
+                f"This archive uses {label} encryption.\n"
+                "Select the matching private key above, then click Extract again."
+            )
             return
         cmd = ["extract"]
         info = None
-        if self.out.path(): cmd += ["-o", self.out.path()]
-        if self.pw.text(): cmd += ["-p", self.pw.text()]
+        if self.out.path():
+            cmd += ["-o", self.out.path()]
+        if self.pw.text():
+            cmd += ["-p", self.pw.text()]
         if self.pq.path():
             # Prefer the header-detected mode; fall back to the dropdown for an
             # unreadable header. Auto-detect can't pick the wrong flag this way.
-            tok = kind if kind in ("pq", "pqonly", "sdk", "box") else self._pqmodes[self.pqmode.currentIndex()][1]
+            tok = (
+                kind
+                if kind in ("pq", "pqonly", "sdk", "box")
+                else self._pqmodes[self.pqmode.currentIndex()][1]
+            )
             if tok == "auto":
                 tok = _detect_archive_pq(arc) or "pq"
             _, flag = _PQ_FLAG[tok]
             info = f"[detected] {label}"
             cmd += [flag, self.pq.path()]
         cmd.append(arc)
-        run_async(self, cmd, self.btn, self.log, self.progress, info=info,
-                  ok_msg="Done.", fail_msg="Extraction failed.")
+        run_async(
+            self,
+            cmd,
+            self.btn,
+            self.log,
+            self.progress,
+            info=info,
+            ok_msg="Done.",
+            fail_msg="Extraction failed.",
+        )
 
 
 class VerifyTab(QWidget):
     def __init__(self):
         super().__init__()
         inner = QWidget()
-        v = QVBoxLayout(inner); v.setContentsMargins(24,24,24,24); v.setSpacing(10)
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(24, 24, 24, 24)
+        v.setSpacing(10)
         v.addWidget(QLabel("Verify checksums or inspect archive metadata."))
         v.addWidget(Sep())
         v.addWidget(H("Verify integrity"))
-        self.varc = PathField("Archive to verify", filters="ZUPT archive (*.zupt);;All (*)"); v.addWidget(self.varc)
-        enc = QHBoxLayout(); enc.setSpacing(16)
-        pw = QVBoxLayout(); pw.addWidget(H("Password (if encrypted)")); self.vpw = PwField("Leave empty if not encrypted"); pw.addWidget(self.vpw); enc.addLayout(pw)
-        pq = QVBoxLayout(); pq.addWidget(H("PQ private key (if post-quantum)")); self.vpq = PathField("Auto-detected; needed for --pq / --pq-only archives", filters="Key (*.key);;All (*)"); pq.addWidget(self.vpq); enc.addLayout(pq)
+        self.varc = PathField(
+            "Archive to verify", filters="ZUPT archive (*.zupt);;All (*)"
+        )
+        v.addWidget(self.varc)
+        enc = QHBoxLayout()
+        enc.setSpacing(16)
+        pw = QVBoxLayout()
+        pw.addWidget(H("Password (if encrypted)"))
+        self.vpw = PwField("Leave empty if not encrypted")
+        pw.addWidget(self.vpw)
+        enc.addLayout(pw)
+        pq = QVBoxLayout()
+        pq.addWidget(H("PQ private key (if post-quantum)"))
+        self.vpq = PathField(
+            "Auto-detected; needed for --pq / --pq-only archives",
+            filters="Key (*.key);;All (*)",
+        )
+        pq.addWidget(self.vpq)
+        enc.addLayout(pq)
         v.addLayout(enc)
         # The encryption type is read from the archive header (no PQ-mode picker
         # to get wrong): Verify auto-detects password vs hybrid vs full-PQ and
         # uses the matching flag; it only asks for the credential the archive
         # actually needs.
-        self.vbtn = QPushButton("Verify"); self.vbtn.setObjectName("amber"); self.vbtn.clicked.connect(self._verify); v.addWidget(self.vbtn)
-        self.vprogress = QProgressBar(); self.vprogress.setRange(0,0); self.vprogress.hide(); v.addWidget(self.vprogress)
-        self.vlog = Log(120); v.addWidget(self.vlog)
+        self.vbtn = QPushButton("Verify")
+        self.vbtn.setObjectName("amber")
+        self.vbtn.clicked.connect(self._verify)
+        v.addWidget(self.vbtn)
+        self.vprogress = QProgressBar()
+        self.vprogress.setRange(0, 0)
+        self.vprogress.hide()
+        v.addWidget(self.vprogress)
+        self.vlog = Log(120)
+        v.addWidget(self.vlog)
         v.addWidget(Sep())
         v.addWidget(H("Archive info (no password needed)"))
-        self.iarc = PathField("Archive to inspect", filters="ZUPT archive (*.zupt);;All (*)"); v.addWidget(self.iarc)
-        self.ibtn = QPushButton("Show Info"); self.ibtn.clicked.connect(self._info); v.addWidget(self.ibtn)
-        self.ilog = Log(140); v.addWidget(self.ilog); v.addStretch()
-        lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0); lay.addWidget(scrollable(inner))
+        self.iarc = PathField(
+            "Archive to inspect", filters="ZUPT archive (*.zupt);;All (*)"
+        )
+        v.addWidget(self.iarc)
+        self.ibtn = QPushButton("Show Info")
+        self.ibtn.clicked.connect(self._info)
+        v.addWidget(self.ibtn)
+        self.ilog = Log(140)
+        v.addWidget(self.ilog)
+        v.addStretch()
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(scrollable(inner))
 
     def _verify(self):
         arc = self.varc.path()
         if not arc:
-            QMessageBox.warning(self, "ZUPT", "Select an archive to verify."); return
+            QMessageBox.warning(self, "ZUPT", "Select an archive to verify.")
+            return
         if not os.path.isfile(arc):
-            self.vlog.clear(); self.vlog.append(f"No such file: {arc}"); return
+            self.vlog.clear()
+            self.vlog.append(f"No such file: {arc}")
+            return
         self.vlog.clear()
         # Read the header (no credential) to decide what Verify needs, so the
         # user can't pick the wrong PQ mode and doesn't get a raw decrypt error
@@ -867,14 +1350,18 @@ class VerifyTab(QWidget):
         info = None
         if kind == "password":
             if not self.vpw.text():
-                self.vlog.append("This archive is password-encrypted.\n"
-                                 "Enter the password above, then click Verify again.")
+                self.vlog.append(
+                    "This archive is password-encrypted.\n"
+                    "Enter the password above, then click Verify again."
+                )
                 return
             cmd += ["-p", self.vpw.text()]
         elif kind in ("pq", "pqonly", "sdk", "box"):
             if not self.vpq.path():
-                self.vlog.append(f"This archive uses {label} encryption.\n"
-                                 "Select the matching private key above, then click Verify again.")
+                self.vlog.append(
+                    f"This archive uses {label} encryption.\n"
+                    "Select the matching private key above, then click Verify again."
+                )
                 return
             _, flag = _PQ_FLAG[kind]
             cmd += [flag, self.vpq.path()]
@@ -882,21 +1369,32 @@ class VerifyTab(QWidget):
         elif kind == "unknown":
             # Couldn't read the header (not a .zupt? truncated?). Fall back to a
             # plain test using whatever the user supplied, and let the CLI speak.
-            if self.vpw.text(): cmd += ["-p", self.vpw.text()]
+            if self.vpw.text():
+                cmd += ["-p", self.vpw.text()]
             if self.vpq.path():
                 tok = _detect_archive_pq(arc) or "pq"
-                _, flag = _PQ_FLAG[tok]; cmd += [flag, self.vpq.path()]
+                _, flag = _PQ_FLAG[tok]
+                cmd += [flag, self.vpq.path()]
         # kind == "none": not encrypted, no credential needed.
         cmd.append(arc)
         # Run asynchronously so a large archive doesn't freeze the window.
-        run_async(self, cmd, self.vbtn, self.vlog, self.vprogress, info=info,
-                  ok_msg="All checksums passed.", fail_msg="Verification failed.")
+        run_async(
+            self,
+            cmd,
+            self.vbtn,
+            self.vlog,
+            self.vprogress,
+            info=info,
+            ok_msg="All checksums passed.",
+            fail_msg="Verification failed.",
+        )
 
     def _info(self):
         arc = self.iarc.path()
-        if not arc: return
+        if not arc:
+            return
         self.ilog.clear()
-        code, out, err = run_zupt(["info", arc])
+        _code, out, err = run_zupt(["info", arc])
         self.ilog.append(out.strip() if out.strip() else err.strip())
 
 
@@ -904,103 +1402,242 @@ class DiskTab(QWidget):
     def __init__(self):
         super().__init__()
         inner = QWidget()
-        v = QVBoxLayout(inner); v.setContentsMargins(24,24,24,24); v.setSpacing(10)
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(24, 24, 24, 24)
+        v.setSpacing(10)
         v.addWidget(QLabel("Full-disk or partition backup and restore."))
         v.addWidget(Sep())
         v.addWidget(H("Backup — source device or image"))
-        self.bsrc = PathField("/dev/sdX or disk.img"); v.addWidget(self.bsrc)
+        self.bsrc = PathField("/dev/sdX or disk.img")
+        v.addWidget(self.bsrc)
         v.addWidget(H("Backup — output archive"))
-        self.bout = PathField("backup.zupt", "save", "ZUPT archive (*.zupt);;All (*)"); v.addWidget(self.bout)
-        bopt = QHBoxLayout(); bopt.setSpacing(16)
-        oc = QVBoxLayout(); oc.addWidget(H("Options")); self.bdedup = QCheckBox("Block deduplication"); oc.addWidget(self.bdedup); bopt.addLayout(oc)
-        pc = QVBoxLayout(); pc.addWidget(H("Password")); self.bpw = PwField("Optional — AES-256"); pc.addWidget(self.bpw); bopt.addLayout(pc)
+        self.bout = PathField("backup.zupt", "save", "ZUPT archive (*.zupt);;All (*)")
+        v.addWidget(self.bout)
+        bopt = QHBoxLayout()
+        bopt.setSpacing(16)
+        oc = QVBoxLayout()
+        oc.addWidget(H("Options"))
+        self.bdedup = QCheckBox("Block deduplication")
+        oc.addWidget(self.bdedup)
+        bopt.addLayout(oc)
+        pc = QVBoxLayout()
+        pc.addWidget(H("Password"))
+        self.bpw = PwField("Optional — AES-256")
+        pc.addWidget(self.bpw)
+        bopt.addLayout(pc)
         v.addLayout(bopt)
-        self.bbtn = QPushButton("Start Backup"); self.bbtn.clicked.connect(self._backup); v.addWidget(self.bbtn)
-        self.blog = Log(100); v.addWidget(self.blog)
+        self.bbtn = QPushButton("Start Backup")
+        self.bbtn.clicked.connect(self._backup)
+        v.addWidget(self.bbtn)
+        self.blog = Log(100)
+        v.addWidget(self.blog)
         v.addWidget(Sep())
         v.addWidget(H("Restore — archive"))
-        self.rarc = PathField("backup.zupt", filters="ZUPT archive (*.zupt);;All (*)"); v.addWidget(self.rarc)
+        self.rarc = PathField("backup.zupt", filters="ZUPT archive (*.zupt);;All (*)")
+        v.addWidget(self.rarc)
         v.addWidget(H("Restore — target device or file"))
-        self.rtgt = PathField("/dev/sdX or output.img", "save"); v.addWidget(self.rtgt)
+        self.rtgt = PathField("/dev/sdX or output.img", "save")
+        v.addWidget(self.rtgt)
         v.addWidget(H("Restore — password"))
-        self.rpw = PwField("If archive is encrypted"); v.addWidget(self.rpw)
-        self.rbtn = QPushButton("Start Restore"); self.rbtn.setObjectName("green"); self.rbtn.clicked.connect(self._restore); v.addWidget(self.rbtn)
-        self.rlog = Log(100); v.addWidget(self.rlog); v.addStretch()
-        lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0); lay.addWidget(scrollable(inner))
+        self.rpw = PwField("If archive is encrypted")
+        v.addWidget(self.rpw)
+        self.rbtn = QPushButton("Start Restore")
+        self.rbtn.setObjectName("green")
+        self.rbtn.clicked.connect(self._restore)
+        v.addWidget(self.rbtn)
+        self.rlog = Log(100)
+        v.addWidget(self.rlog)
+        v.addStretch()
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(scrollable(inner))
 
     def _backup(self):
         s, o = self.bsrc.path(), self.bout.path()
-        if not s or not o: QMessageBox.warning(self, "ZUPT", "Set source and output."); return
+        if not s or not o:
+            QMessageBox.warning(self, "ZUPT", "Set source and output.")
+            return
         cmd = ["disk", "backup"]
-        if self.bdedup.isChecked(): cmd.append("--dedup")
-        if self.bpw.text(): cmd += ["-p", self.bpw.text()]
-        cmd += [o, s]; run_async(self, cmd, self.bbtn, self.blog)
+        if self.bdedup.isChecked():
+            cmd.append("--dedup")
+        if self.bpw.text():
+            cmd += ["-p", self.bpw.text()]
+        cmd += [o, s]
+        run_async(self, cmd, self.bbtn, self.blog)
 
     def _restore(self):
         a, t = self.rarc.path(), self.rtgt.path()
-        if not a or not t: QMessageBox.warning(self, "ZUPT", "Set archive and target."); return
+        if not a or not t:
+            QMessageBox.warning(self, "ZUPT", "Set archive and target.")
+            return
         SB = QMessageBox.StandardButton
-        if QMessageBox.warning(self, "Confirm", f"OVERWRITE {t}?", SB.Yes|SB.Cancel) != SB.Yes: return
+        if (
+            QMessageBox.warning(self, "Confirm", f"OVERWRITE {t}?", SB.Yes | SB.Cancel)
+            != SB.Yes
+        ):
+            return
         cmd = ["disk", "restore"]
-        if self.rpw.text(): cmd += ["-p", self.rpw.text()]
-        cmd += [a, t]; run_async(self, cmd, self.rbtn, self.rlog)
+        if self.rpw.text():
+            cmd += ["-p", self.rpw.text()]
+        cmd += [a, t]
+        run_async(self, cmd, self.rbtn, self.rlog)
 
 
 class AboutTab(QWidget):
     def __init__(self):
         super().__init__()
         inner = QWidget()
-        v = QVBoxLayout(inner); v.setContentsMargins(24,24,24,24); v.setSpacing(4)
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(24, 24, 24, 24)
+        v.setSpacing(4)
         for text, style in [
-            ("ZUPT", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
-            (ZUPT_VER_NUMBER, "color:white;font-size:28px;font-weight:800;font-family:monospace;"),
+            (
+                "ZUPT",
+                "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;",
+            ),
+            (
+                ZUPT_VER_NUMBER,
+                "color:white;font-size:28px;font-weight:800;font-family:monospace;",
+            ),
             ("", ""),
-            ("Post-quantum backup compression with ML-KEM-768: --pq hybrid", "color:#6a8898;font-size:13px;"),
-            (f"(+ X25519) or --pq-only (pure). {DEFAULT_KDF} password KDF,", "color:#6a8898;font-size:13px;"),
-            ("block deduplication, and full-disk backup.", "color:#6a8898;font-size:13px;"),
-            ("Original ZUPT name restored in 5.2.2; the .zupt extension", "color:#6a8898;font-size:13px;"),
-            ("and v1.6 version byte remain; 5.2.2 adds flag-gated records.", "color:#6a8898;font-size:13px;"),
+            (
+                "Post-quantum backup compression with ML-KEM-768: --pq hybrid",
+                "color:#6a8898;font-size:13px;",
+            ),
+            (
+                f"(+ X25519) or --pq-only (pure). {DEFAULT_KDF} password KDF,",
+                "color:#6a8898;font-size:13px;",
+            ),
+            (
+                "block deduplication, and full-disk backup.",
+                "color:#6a8898;font-size:13px;",
+            ),
+            (
+                "Original ZUPT name restored in 5.2.2; the .zupt extension",
+                "color:#6a8898;font-size:13px;",
+            ),
+            (
+                "and v1.6 version byte remain; 5.2.2 adds flag-gated records.",
+                "color:#6a8898;font-size:13px;",
+            ),
             ("", ""),
-            ("CRYPTOGRAPHIC STACK", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
-            ("ML-KEM-768     FIPS 203     Post-Quantum KEM", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("X25519         RFC 7748     Elliptic Curve DH (hybrid w/ ML-KEM)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("AES-256-CTR    FIPS 197     Symmetric Cipher (fresh per-block nonce)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("HMAC-SHA256    RFC 2104     Authentication (Encrypt-then-MAC)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("PBKDF2-SHA256  RFC 8018     Password KDF (default, 600k iterations)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("Argon2id       RFC 9106     Password KDF (WITH_SDK=1 builds only)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("SHA3-512       FIPS 202     PQ key derivation (--pq / --pq-only)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("HKDF           RFC 5869     Key Derivation Function", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("SHA3/SHAKE     FIPS 202     Hash / XOF", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("XXH64          (non-crypto) Per-block checksum (inside AEAD)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            (
+                "CRYPTOGRAPHIC STACK",
+                "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;",
+            ),
+            (
+                "ML-KEM-768     FIPS 203     Post-Quantum KEM",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
+            (
+                "X25519         RFC 7748     Elliptic Curve DH (hybrid w/ ML-KEM)",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
+            (
+                "AES-256-CTR    FIPS 197     Symmetric Cipher (fresh per-block nonce)",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
+            (
+                "HMAC-SHA256    RFC 2104     Authentication (Encrypt-then-MAC)",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
+            (
+                "PBKDF2-SHA256  RFC 8018     Password KDF (default, 600k iterations)",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
+            (
+                "Argon2id       RFC 9106     Password KDF (WITH_SDK=1 builds only)",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
+            (
+                "SHA3-512       FIPS 202     PQ key derivation (--pq / --pq-only)",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
+            (
+                "HKDF           RFC 5869     Key Derivation Function",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
+            (
+                "SHA3/SHAKE     FIPS 202     Hash / XOF",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
+            (
+                "XXH64          (non-crypto) Per-block checksum (inside AEAD)",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
             ("", ""),
-            ("COMPRESSION CODEC", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
-            ("VaptVupt LZ + ANS  2.65.13  LZ77 + tabled ANS entropy", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("AVX2 / NEON SIMD acceleration; portable scalar fallbacks", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            (
+                "COMPRESSION CODEC",
+                "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;",
+            ),
+            (
+                "VaptVupt LZ + ANS  2.65.13  LZ77 + tabled ANS entropy",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
+            (
+                "AVX2 / NEON SIMD acceleration; portable scalar fallbacks",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
             ("", ""),
-            ("CREDITS", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
-            ("ZUPT application                        Cristian Cezar Moisés", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("    License: AGPL-3.0-or-later (commercial terms may be available)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("    github.com/cristiancmoises/zupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
+            (
+                "CREDITS",
+                "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;",
+            ),
+            (
+                "ZUPT application                        Cristian Cezar Moisés",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
+            (
+                "    License: AGPL-3.0-or-later (commercial terms may be available)",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
+            (
+                "    github.com/cristiancmoises/zupt",
+                "color:#3a5868;font-size:11px;font-family:monospace;",
+            ),
             ("", ""),
-            ("VaptVupt LZ + ANS codec                 Cristian Cezar Moisés", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("    License: GPL-3.0-or-later (commercial terms may be available)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("    github.com/cristiancmoises/zupt", "color:#3a5868;font-size:11px;font-family:monospace;"),
+            (
+                "VaptVupt LZ + ANS codec                 Cristian Cezar Moisés",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
+            (
+                "    License: GPL-3.0-or-later (commercial terms may be available)",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
+            (
+                "    github.com/cristiancmoises/zupt",
+                "color:#3a5868;font-size:11px;font-family:monospace;",
+            ),
             ("", ""),
-            ("WEBSITE & CONTACT", "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;"),
-            ("https://github.com/cristiancmoises/zupt", "color:#5a7a88;font-size:12px;font-family:monospace;"),
-            ("sac@securityops.co  (commercial-terms inquiries)", "color:#5a7a88;font-size:12px;font-family:monospace;"),
+            (
+                "WEBSITE & CONTACT",
+                "color:#00dde0;font-size:10px;font-weight:700;letter-spacing:2px;font-family:monospace;",
+            ),
+            (
+                "https://github.com/cristiancmoises/zupt",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
+            (
+                "sac@securityops.co  (commercial-terms inquiries)",
+                "color:#5a7a88;font-size:12px;font-family:monospace;",
+            ),
             ("", ""),
             (ZUPT_VER_SHORT, "color:#3a5868;font-size:11px;font-family:monospace;"),
         ]:
             lbl = QLabel(text)
-            if text == "": lbl.setFixedHeight(10)
-            elif style: lbl.setStyleSheet(style)
+            if text == "":
+                lbl.setFixedHeight(10)
+            elif style:
+                lbl.setStyleSheet(style)
             v.addWidget(lbl)
         v.addStretch()
-        lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0); lay.addWidget(scrollable(inner))
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(scrollable(inner))
 
 
 # ── Main ──
+
 
 class ZuptWindow(QMainWindow):
     def __init__(self, compress_files=None, extract_file=None):
@@ -1014,17 +1651,32 @@ class ZuptWindow(QMainWindow):
         if ICON_PATH:
             self.setWindowIcon(QIcon(ICON_PATH))
 
-        central = QWidget(); self.setCentralWidget(central)
-        layout = QVBoxLayout(central); layout.setContentsMargins(0,0,0,0); layout.setSpacing(0)
+        central = QWidget()
+        self.setCentralWidget(central)
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
         # Header
-        hdr = QFrame(); hdr.setStyleSheet("background:#050a0e;border-bottom:1px solid #1a2a30;")
-        hl = QHBoxLayout(hdr); hl.setContentsMargins(20,10,20,10)
-        title = QLabel("ZUPT"); title.setStyleSheet("color:white;font-size:15px;font-weight:800;letter-spacing:3px;")
+        hdr = QFrame()
+        hdr.setStyleSheet("background:#050a0e;border-bottom:1px solid #1a2a30;")
+        hl = QHBoxLayout(hdr)
+        hl.setContentsMargins(20, 10, 20, 10)
+        title = QLabel("ZUPT")
+        title.setStyleSheet(
+            "color:white;font-size:15px;font-weight:800;letter-spacing:3px;"
+        )
         hl.addWidget(title)
-        sub = QLabel("Post-Quantum Backup"); sub.setStyleSheet("color:#3a5868;font-size:10px;font-weight:600;letter-spacing:1px;margin-left:8px;")
-        hl.addWidget(sub); hl.addStretch()
-        vl = QLabel(f"v{ZUPT_VER_NUMBER}"); vl.setStyleSheet("color:#3a5868;font-size:10px;font-family:monospace;background:#0a1018;padding:3px 10px;border-radius:4px;border:1px solid #1a2a30;")
+        sub = QLabel("Post-Quantum Backup")
+        sub.setStyleSheet(
+            "color:#3a5868;font-size:10px;font-weight:600;letter-spacing:1px;margin-left:8px;"
+        )
+        hl.addWidget(sub)
+        hl.addStretch()
+        vl = QLabel(f"v{ZUPT_VER_NUMBER}")
+        vl.setStyleSheet(
+            "color:#3a5868;font-size:10px;font-family:monospace;background:#0a1018;padding:3px 10px;border-radius:4px;border:1px solid #1a2a30;"
+        )
         hl.addWidget(vl)
         layout.addWidget(hdr)
 
@@ -1038,8 +1690,10 @@ class ZuptWindow(QMainWindow):
         self.tabs.addTab(VerifyTab(), "Verify")
         self.tabs.addTab(DiskTab(), "Disk")
         self.tabs.addTab(AboutTab(), "About")
-        if compress_files: self.tabs.setCurrentIndex(1)
-        elif extract_file: self.tabs.setCurrentIndex(2)
+        if compress_files:
+            self.tabs.setCurrentIndex(1)
+        elif extract_file:
+            self.tabs.setCurrentIndex(2)
         layout.addWidget(self.tabs)
 
         sb = QStatusBar()
@@ -1047,31 +1701,51 @@ class ZuptWindow(QMainWindow):
         self.setStatusBar(sb)
 
     def dragEnterEvent(self, e):
-        if e.mimeData().hasUrls(): e.acceptProposedAction()
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+
     def dropEvent(self, e):
         ps = [u.toLocalFile() for u in e.mimeData().urls() if u.toLocalFile()]
-        if not ps: return
+        if not ps:
+            return
         if ps[0].endswith(".zupt"):
-            self.extract_tab.arc.edit.setText(ps[0]); self.tabs.setCurrentIndex(2)
+            self.extract_tab.arc.edit.setText(ps[0])
+            self.tabs.setCurrentIndex(2)
         else:
-            self.compress_tab.src.edit.setText("|".join(ps)); self.tabs.setCurrentIndex(1)
+            self.compress_tab.src.edit.setText("|".join(ps))
+            self.tabs.setCurrentIndex(1)
 
     def closeEvent(self, e):
         # Join in-flight worker threads before the window goes away: kill each
         # child CLI process (the worker then sees EOF and finishes) and wait
         # for its QThread. Otherwise interpreter teardown collects live
         # QThreads and aborts the process instead of exiting cleanly.
-        jobs = [j for i in range(self.tabs.count())
-                for j in list(getattr(self.tabs.widget(i), "_jobs", []))]
+        jobs = [
+            j
+            for i in range(self.tabs.count())
+            for j in list(getattr(self.tabs.widget(i), "_jobs", []))
+        ]
         if jobs:
             # Aborting mid-job can be destructive (a killed `disk restore`
             # leaves the target half-written), so never do it silently.
             SB = QMessageBox.StandardButton
-            if QMessageBox.warning(
-                    self, "ZUPT",
+            if (
+                QMessageBox.warning(
+                    self,
+                    "ZUPT",
                     "An operation is still running.\nQuit and abort it?",
-                    SB.Yes | SB.Cancel) != SB.Yes:
-                e.ignore(); return
+                    SB.Yes | SB.Cancel,
+                )
+                != SB.Yes
+            ):
+                e.ignore()
+                return
+            # The modal dialog can let jobs finish and dispose their threads.
+            jobs = [
+                j
+                for i in range(self.tabs.count())
+                for j in list(getattr(self.tabs.widget(i), "_jobs", []))
+            ]
         for j in jobs:
             if not j.cancel_and_join(3000):
                 # Thread stuck past the kill (child in D-state / pipe held by a
@@ -1079,8 +1753,9 @@ class ZuptWindow(QMainWindow):
                 # with SIGABRT; exiting hard here is the clean way out.
                 if sys.stderr is not None:
                     try:
-                        sys.stderr.write("A worker did not stop in time; "
-                                         "forcing exit.\n")
+                        sys.stderr.write(
+                            "A worker did not stop in time; forcing exit.\n"
+                        )
                         sys.stderr.flush()
                     except OSError:
                         pass
@@ -1100,33 +1775,46 @@ def main():
         print(f"zupt-gui {ZUPT_VER_NUMBER}")
         return 0
     if args and args[0] in ("--help", "-h", "help"):
-        print("usage: zupt-gui [ARCHIVE.zupt | --extract ARCHIVE.zupt |\n"
-              "                     --compress FILE [FILE ...]]\n"
-              "       zupt-gui --selftest   # verify the GUI launches (no window kept)\n"
-              "       zupt-gui --version")
+        print(
+            "usage: zupt-gui [ARCHIVE.zupt | --extract ARCHIVE.zupt |\n"
+            "                     --compress FILE [FILE ...]]\n"
+            "       zupt-gui --selftest   # verify the GUI launches (no window kept)\n"
+            "       zupt-gui --version"
+        )
         return 0
 
     compress_files = extract_file = None
-    selftest = ("--selftest" in args[:1])
+    selftest = "--selftest" in args[:1]
     if args and not selftest:
-        if args[0] == "--compress" and len(args) > 1: compress_files = args[1:]
-        elif args[0] == "--extract" and len(args) > 1: extract_file = args[1]
-        elif args[0].endswith(".zupt"): extract_file = args[0]
-        else: compress_files = args
+        if args[0] == "--compress" and len(args) > 1:
+            compress_files = args[1:]
+        elif args[0] == "--extract" and len(args) > 1:
+            extract_file = args[1]
+        elif args[0].endswith(".zupt"):
+            extract_file = args[0]
+        else:
+            compress_files = args
 
     app = QApplication(sys.argv)
     app.setApplicationName("ZUPT")
-    if ICON_PATH: app.setWindowIcon(QIcon(ICON_PATH))
+    if ICON_PATH:
+        app.setWindowIcon(QIcon(ICON_PATH))
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
     pal = QPalette()
     # PyQt6 requires scoped enums (QPalette.ColorRole.Window); PySide6 supports
     # both forms but we use the scoped form for cross-binding compatibility.
     CR = QPalette.ColorRole
-    for role, c in [(CR.Window,"#0a0a0a"),(CR.WindowText,"#90acb8"),
-        (CR.Base,"#0e1820"),(CR.Text,"#c0dce8"),
-        (CR.Button,"#0a2028"),(CR.ButtonText,"#00dde0"),
-        (CR.Highlight,"#004858"),(CR.HighlightedText,"#00dde0")]:
+    for role, c in [
+        (CR.Window, "#0a0a0a"),
+        (CR.WindowText, "#90acb8"),
+        (CR.Base, "#0e1820"),
+        (CR.Text, "#c0dce8"),
+        (CR.Button, "#0a2028"),
+        (CR.ButtonText, "#00dde0"),
+        (CR.Highlight, "#004858"),
+        (CR.HighlightedText, "#00dde0"),
+    ]:
         pal.setColor(role, QColor(c))
     app.setPalette(pal)
     win = ZuptWindow(compress_files=compress_files, extract_file=extract_file)
@@ -1135,8 +1823,10 @@ def main():
         win.show()
         QTimer.singleShot(400, app.quit)
         rc = app.exec()
-        print(f"selftest OK — {QT_BINDING}: window + {win.tabs.count()} tabs built, "
-              f"event loop ran (rc={rc}); CLI={ZUPT_CLI}")
+        print(
+            f"selftest OK — {QT_BINDING}: window + {win.tabs.count()} tabs built, "
+            f"event loop ran (rc={rc}); CLI={ZUPT_CLI}"
+        )
         return rc
 
     # Center + raise + focus ONLY on X11 (xcb), where a stacking WM may place
@@ -1174,54 +1864,73 @@ def main():
     # wayland again). Nothing auto-starts jobs before the deadline, so the exec
     # cannot interrupt real work. Opt out with ZUPT_NO_XCB_FALLBACK=1.
     if app.platformName().startswith("wayland"):
+
         class _ExposeLatch(QObject):
             exposed_once = False
+
             def eventFilter(self, obj, ev):
                 if ev.type() == QEvent.Type.Expose and obj.isExposed():
                     self.exposed_once = True
                 return False
+
         latch = _ExposeLatch()
         handle = win.windowHandle()
         if handle is not None:
             handle.installEventFilter(latch)
+
         def _wayland_map_check():
             if latch.exposed_once or (handle is not None and handle.isExposed()):
                 return
-            no_fallback = (os.environ.get("ZUPT_NO_XCB_FALLBACK")
-                           or os.environ.get("VAPTVUPT_NO_XCB_FALLBACK"))
-            fallback_done = (os.environ.get("ZUPT_XCB_FALLBACK_DONE")
-                             or os.environ.get("VAPTVUPT_XCB_FALLBACK_DONE"))
-            can_fallback = (os.environ.get("DISPLAY")
-                            and sys.executable
-                            and no_fallback != "1"
-                            and fallback_done != "1")
+            no_fallback = os.environ.get("ZUPT_NO_XCB_FALLBACK") or os.environ.get(
+                "VAPTVUPT_NO_XCB_FALLBACK"
+            )
+            fallback_done = os.environ.get("ZUPT_XCB_FALLBACK_DONE") or os.environ.get(
+                "VAPTVUPT_XCB_FALLBACK_DONE"
+            )
+            can_fallback = (
+                os.environ.get("DISPLAY")
+                and sys.executable
+                and no_fallback != "1"
+                and fallback_done != "1"
+            )
             if sys.stderr is not None:
                 try:
                     sys.stderr.write(
                         "Window was not exposed within 4 s (the compositor may "
                         "never have mapped it); "
-                        + ("relaunching on XWayland (xcb)...\n" if can_fallback
-                           else "leaving the Wayland window as-is (no X11 "
-                                "fallback: DISPLAY unset, opted out, or "
-                                "already tried).\n"))
+                        + (
+                            "relaunching on XWayland (xcb)...\n"
+                            if can_fallback
+                            else "leaving the Wayland window as-is (no X11 "
+                            "fallback: DISPLAY unset, opted out, or "
+                            "already tried).\n"
+                        )
+                    )
                     sys.stderr.flush()
                 except OSError:
                     pass
             if can_fallback:
-                env = dict(os.environ, QT_QPA_PLATFORM="xcb",
-                           ZUPT_XCB_FALLBACK_DONE="1")
-                argv = (list(sys.argv) if getattr(sys, "frozen", False)
-                        else [sys.executable] + sys.argv)
+                env = dict(
+                    os.environ, QT_QPA_PLATFORM="xcb", ZUPT_XCB_FALLBACK_DONE="1"
+                )
+                argv = (
+                    list(sys.argv)
+                    if getattr(sys, "frozen", False)
+                    else [sys.executable] + sys.argv
+                )
                 try:
                     os.execve(sys.executable, argv, env)
                 except OSError as exc:
                     if sys.stderr is not None:
                         try:
-                            sys.stderr.write(f"XWayland relaunch failed ({exc});"
-                                             " window will not appear.\n")
+                            sys.stderr.write(
+                                f"XWayland relaunch failed ({exc});"
+                                " window will not appear.\n"
+                            )
                             sys.stderr.flush()
                         except OSError:
                             pass
+
         QTimer.singleShot(4000, _wayland_map_check)
 
     # A GUI blocks the launching shell, so a working launch otherwise looks like
@@ -1231,12 +1940,15 @@ def main():
     # a courtesy notice must never take the GUI down.
     if sys.stderr is not None:
         try:
-            sys.stderr.write(f"ZUPT {ZUPT_VER_NUMBER} GUI started — "
-                             f"window open (close it to exit).\n")
+            sys.stderr.write(
+                f"ZUPT {ZUPT_VER_NUMBER} GUI started — "
+                f"window open (close it to exit).\n"
+            )
             sys.stderr.flush()
         except OSError:
             pass
     return app.exec()
+
 
 if __name__ == "__main__":
     sys.exit(main())

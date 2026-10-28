@@ -357,6 +357,151 @@ static void test_frame_info_validation(void) {
     PASS();
 }
 
+static const char *check_decode_boundaries(const uint8_t *src, size_t len,
+                                         const vv_options_t *opts,
+                                         size_t *checks) {
+    size_t capacity = vv_compress_bound(len);
+    uint8_t *encoded = (uint8_t *)malloc(capacity);
+    uint8_t *exact = NULL;
+    uint8_t *output = (uint8_t *)malloc(len);
+    const char *error = "alloc";
+    if (!encoded || !output) goto done;
+    int64_t written = vv_compress(src, len, encoded, capacity, opts);
+    if (written <= 0 || (uint64_t)written > capacity) {
+        error = "compress";
+        goto done;
+    }
+    size_t size = (size_t)written;
+    exact = (uint8_t *)malloc(size);
+    if (!exact) goto done;
+    memcpy(exact, encoded, size);
+
+    /* Separate allocations end exactly at each advertised input boundary.
+     * Passing a shorter length into a compress-bound buffer would leave an
+     * input overread addressable to ASan. A zero-length input still needs a
+     * non-NULL pointer for the decoder's parameter contract. */
+    for (size_t prefix = 0; prefix < size; prefix++) {
+        uint8_t *partial = (uint8_t *)malloc(prefix ? prefix : 1);
+        if (!partial) goto done;
+        memcpy(partial, exact, prefix);
+        int64_t decoded = vv_decompress(partial, prefix, output, len);
+        free(partial);
+        if (decoded >= 0) {
+            fprintf(stderr, "(accepted prefix %zu/%zu) ", prefix, size);
+            error = "truncated frame accepted";
+            goto done;
+        }
+        (*checks)++;
+    }
+
+    const size_t capacities[] = {0, 1, len - 1};
+    for (size_t i = 0; i < sizeof(capacities) / sizeof(capacities[0]); i++) {
+        size_t cap = capacities[i];
+        uint8_t *short_out = (uint8_t *)malloc(cap ? cap : 1);
+        if (!short_out) goto done;
+        short_out[0] = 0xA5;
+        int64_t decoded = vv_decompress(exact, size, short_out, cap);
+        int zero_guard_ok = cap != 0 || short_out[0] == 0xA5;
+        free(short_out);
+        if (decoded != VV_ERR_OVERFLOW || !zero_guard_ok) {
+            error = "undersized output contract";
+            goto done;
+        }
+        (*checks)++;
+    }
+
+    for (size_t in_shift = 0; in_shift <= 1; in_shift++) {
+        for (size_t out_shift = 0; out_shift <= 1; out_shift++) {
+            uint8_t *in_base = (uint8_t *)malloc(size + in_shift);
+            uint8_t *out_base = (uint8_t *)malloc(len + out_shift);
+            if (!in_base || !out_base) {
+                free(in_base);
+                free(out_base);
+                goto done;
+            }
+            memcpy(in_base + in_shift, exact, size);
+            out_base[0] = 0xA5;
+            int64_t decoded = vv_decompress(in_base + in_shift, size,
+                                           out_base + out_shift, len);
+            int ok = decoded == (int64_t)len &&
+                     memcmp(out_base + out_shift, src, len) == 0 &&
+                     (out_shift == 0 || out_base[0] == 0xA5);
+            free(in_base);
+            free(out_base);
+            if (!ok) {
+                error = "exact/misaligned roundtrip";
+                goto done;
+            }
+            (*checks)++;
+        }
+    }
+
+    if (size < sizeof(vv_frame_footer_t)) {
+        error = "missing checksum footer";
+        goto done;
+    }
+    size_t checksum_pos = size - sizeof(vv_frame_footer_t) +
+                          offsetof(vv_frame_footer_t, checksum);
+    exact[checksum_pos] ^= 1;
+    if (vv_decompress(exact, size, output, len) != VV_ERR_CORRUPT) {
+        error = "damaged checksum accepted";
+        goto done;
+    }
+    (*checks)++;
+    error = NULL;
+done:
+    free(exact);
+    free(output);
+    free(encoded);
+    return error;
+}
+
+static void test_decode_boundaries(void) {
+    const vv_mode_t modes[] = {VV_MODE_ULTRA_FAST, VV_MODE_BALANCED,
+                              VV_MODE_EXTREME, VV_MODE_BALANCED,
+                              VV_MODE_EXTREME};
+    uint8_t data[4096];
+    size_t checks = 0, profiles = 0;
+    for (size_t mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
+        vv_options_t opts;
+        vv_default_options(&opts);
+        opts.mode = modes[mode];
+        opts.format_v2 = mode >= 3;
+        for (int random = 0; random <= 1; random++) {
+            char label[128];
+            snprintf(label, sizeof(label), "VV decode boundaries %s mode=%d v2=%d",
+                     random ? "random" : "text", opts.mode, opts.format_v2);
+            TEST(label);
+            if (random) fill_random(data, sizeof(data));
+            else fill_text(data, sizeof(data));
+            const char *error = check_decode_boundaries(data, sizeof(data),
+                                                       &opts, &checks);
+            if (error) { FAIL(error); continue; }
+            profiles++;
+            PASS();
+        }
+    }
+    fprintf(stderr, "  Decode boundary checks: %zu across %zu profiles\n",
+            checks, profiles);
+}
+
+static void test_null_parameters(void) {
+    TEST("VV NULL parameters reject with VV_ERR_PARAM");
+    uint8_t src[1] = {0}, dst[64];
+    vv_options_t opts;
+    vv_default_options(&opts);
+    if (vv_decompress(NULL, 0, dst, sizeof(dst)) != VV_ERR_PARAM ||
+        vv_decompress(src, sizeof(src), NULL, 0) != VV_ERR_PARAM ||
+        vv_decompress_flags(NULL, 0, dst, sizeof(dst), 0) != VV_ERR_PARAM ||
+        vv_decompress_flags(src, sizeof(src), NULL, 0, 0) != VV_ERR_PARAM ||
+        vv_compress(NULL, 1, dst, sizeof(dst), &opts) != VV_ERR_PARAM ||
+        vv_compress(src, sizeof(src), NULL, 0, &opts) != VV_ERR_PARAM) {
+        FAIL("parameter rejection");
+        return;
+    }
+    PASS();
+}
+
 /* ═══════════════════════════════════════════════════════════════ */
 
 int main(void) {
@@ -373,6 +518,8 @@ int main(void) {
     test_rle();                    /* Test 8 */
     test_window_log_20();          /* Test 9 */
     test_frame_info_validation();  /* Test 10 */
+    test_decode_boundaries();
+    test_null_parameters();
 
     fprintf(stderr, "\n  ═══════════════════════════════════════════════\n");
     fprintf(stderr, "  Results: %d passed, %d failed (%d total)\n\n",

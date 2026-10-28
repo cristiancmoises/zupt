@@ -9,13 +9,11 @@
  *        X25519 (RFC 7748 §6.1), ML-KEM-768 roundtrip,
  *        SHA3-256 (FIPS 202), SHAKE-128 (FIPS 202).
  *
- * Build: gcc -O2 -std=c11 -Iinclude -Isrc tests/test_vectors.c \
- *        src/zupt_sha256.c src/zupt_crypto.c src/zupt_aes256.c \
- *        src/zupt_xxh.c src/zupt_keccak.c src/zupt_x25519.c \
- *        src/zupt_mlkem.c -lm -o test_vectors
+ * Build and run: make WITH_SDK=0 WITH_PQBOX=0 test-vectors && ./test_vectors
  */
 #define _GNU_SOURCE
 #include "zupt.h"
+#include "zupt_cpuid.h"
 #include "zupt_keccak.h"
 #include "zupt_x25519.h"
 #include "zupt_mlkem.h"
@@ -44,8 +42,19 @@ static void hex2bin(const char *hex, uint8_t *bin, int len) {
 }
 
 int main(void) {
+    zupt_detect_cpu(&zupt_cpu);
+
     printf("ZUPT Cryptographic Test Vectors\n");
     printf("================================\n\n");
+
+#ifdef ZUPT_USE_JASMIN
+    printf("AES-256-CTR path: %s\n\n",
+           zupt_cpu.has_aesni && zupt_cpu.has_avx
+               ? "Jasmin AES-NI"
+               : "portable C fallback (AES-NI or AVX unavailable)");
+#else
+    printf("AES-256-CTR path: portable C fallback (Jasmin disabled)\n\n");
+#endif
 
     /* ═══ SHA-256 (FIPS 180-4) ═══ */
     printf("-- SHA-256 (FIPS 180-4) --\n");
@@ -117,10 +126,10 @@ int main(void) {
     /* ═══ AES-256-CTR (NIST SP 800-38A §F.5.5/F.5.6) ═══
      *
      * The bulk cipher. Validates zupt_aes256_ctr against the standard on
-     * whichever path the build selects: the Jasmin AES-NI assembly
-     * (zupt_aes256_ctr4 + zupt_aes256_blk) on x86_64 with -DZUPT_USE_JASMIN,
-     * or the C T-table fallback otherwise. CTR is symmetric, so the same
-     * vector checks both encrypt and decrypt.
+     * whichever path runtime dispatch selects: the Jasmin AES-NI assembly
+     * (zupt_aes256_ctr4 + zupt_aes256_blk) when the build enables it and the
+     * CPU/OS expose both AES-NI and AVX, or the C fallback otherwise. CTR is
+     * symmetric, so the same vector checks both encrypt and decrypt.
      *
      * Note on the counter: SP 800-38A increments the full 128-bit block,
      * while zupt increments the low 64 bits (top 64 fixed). The two agree

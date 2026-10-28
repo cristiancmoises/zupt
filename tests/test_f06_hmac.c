@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "zupt.h"
+#include "zupt_cpuid.h"
 
 extern uint8_t *zupt_encrypt_buffer(const zupt_keyring_t *kr,
                                     const uint8_t *plain, size_t plen,
@@ -86,7 +87,18 @@ int main(void) {
     int sanity_fails = 0;
     int roundtrip_fails = 0;
 
+    zupt_detect_cpu(&zupt_cpu);
+
     fputs("F-06 regression: 2000 trials, 1-bit HMAC tamper each\n", stderr);
+#ifdef ZUPT_USE_JASMIN
+    fprintf(stderr, "  AES-256-CTR path: %s\n",
+            zupt_cpu.has_aesni && zupt_cpu.has_avx
+                ? "Jasmin AES-NI"
+                : "portable C fallback (AES-NI or AVX unavailable)");
+#else
+    fputs("  AES-256-CTR path: portable C fallback (Jasmin disabled)\n",
+          stderr);
+#endif
 
     for (int i = 0; i < N; i++) {
         int r = run_trial((uint64_t)i);

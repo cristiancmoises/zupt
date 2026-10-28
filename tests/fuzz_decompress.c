@@ -19,11 +19,23 @@
  *   cp /tmp/fuzz_seed.zupt corpus/
  *   afl-fuzz -i corpus -o findings -- ./fuzz_decompress
  */
+#define _XOPEN_SOURCE 700
 #include "zupt.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
+#include <ftw.h>
+
+static int remove_output(const char *path, const struct stat *info,
+                         int type, struct FTW *walk)
+{
+    (void)info;
+    (void)type;
+    (void)walk;
+    return remove(path);
+}
 
 int main(void) {
     /* Read entire stdin into memory */
@@ -34,7 +46,9 @@ int main(void) {
     size_t total = 0;
     while (total < cap) {
         ssize_t n = read(0, buf + total, cap - total);
-        if (n <= 0) break;
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0) { perror("fuzz input read"); free(buf); return 1; }
+        if (n == 0) break;
         total += (size_t)n;
     }
 
@@ -44,8 +58,20 @@ int main(void) {
     char tmp_arc[] = "/tmp/zupt_fuzz_XXXXXX";
     int fd = mkstemp(tmp_arc);
     if (fd < 0) { free(buf); return 1; }
-    write(fd, buf, total);
-    close(fd);
+    size_t written = 0;
+    while (written < total) {
+        ssize_t n = write(fd, buf + written, total - written);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) {
+            perror("fuzz archive write");
+            close(fd);
+            unlink(tmp_arc);
+            free(buf);
+            return 1;
+        }
+        written += (size_t)n;
+    }
+    if (close(fd)) { perror("fuzz archive close"); unlink(tmp_arc); free(buf); return 1; }
     free(buf);
 
     /* Attempt extraction — this is where crashes happen */
@@ -54,7 +80,11 @@ int main(void) {
     opts.quiet = 1;
 
     char tmp_out[] = "/tmp/zupt_fuzz_out_XXXXXX";
-    mkdtemp(tmp_out);
+    if (!mkdtemp(tmp_out)) {
+        perror("fuzz output directory");
+        unlink(tmp_arc);
+        return 1;
+    }
 
     zupt_extract_archive(tmp_arc, tmp_out, &opts);
 
@@ -65,8 +95,10 @@ int main(void) {
     zupt_list_archive(tmp_arc, &opts);
 
     /* Cleanup */
-    unlink(tmp_arc);
-    /* Note: not recursively removing tmp_out — AFL runs are ephemeral */
-
-    return 0;
+    int failed = unlink(tmp_arc) != 0;
+    /* Each invocation owns this mkdtemp tree. Remove entries after children,
+     * and unlink symlinks themselves rather than traversing their targets. */
+    if (nftw(tmp_out, remove_output, 16, FTW_DEPTH | FTW_PHYS)) failed = 1;
+    if (failed) perror("fuzz temporary cleanup");
+    return failed;
 }

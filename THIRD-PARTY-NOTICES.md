@@ -25,7 +25,32 @@ The exact standalone source commit above is the provenance anchor for the
 prepared source. These are adapted consumer files rather than byte-identical
 copies of the canonical release. Zupt retains GPL-3.0-or-later codec notices,
 the Darwin/NetBSD secure-wipe fallback, and signed optimal-parser bounds while
-integrating the 2.65.13 matcher changes and Huffman root initialization.
+integrating the 2.65.13 matcher changes, Huffman root initialization, and
+allocation-failure hardening in the ANS4 and Huffman encoders.
+
+The 5.2.10 reader changes share bit consumption in `src/vv_ans.c`
+and saturate its buffered-bit count after exhaustion. They retain implicit
+zero extension, source-consumption rules and the existing wire grammar.
+The refill guard also compares the remaining length by subtraction under
+the reader's `p <= l` invariant, avoiding addition overflow at exhausted
+positions. A regression uses synthetic counters, not giant source objects.
+Initializer and extraction contracts, plus a local table-loop analysis
+annotation, are non-executable; count saturation and the refill guard are
+executable downstream reader changes. The helper contracts and regressions
+record conditional validation of these reader changes, not a proof of the
+complete decoder.
+
+The consumer adaptation also changes five sequence-copy guards in
+`src/vv_ans.c` to compare the remaining destination length before forming
+wide-copy pointers. It preserves the public API, frame grammar and copy-path
+selection for valid buffers. These are downstream modifications of the
+recorded 2.65.13 source, not a new canonical codec release. The upstream
+version, attribution and licensing notices remain unchanged.
+
+The ANS logarithm range fixture includes this adapted C source directly.
+It adds no replacement implementation, generated table or runtime dependency;
+the helper and codec provenance above remain unchanged. Its formal result
+covers selected helper ranges, not caller bounds or complete decoder safety.
 
 The openSUSE package truthfully declares
 `bundled(vaptvupt-codec) = 2.65.13`. No compiled codec object or library is
@@ -33,28 +58,30 @@ distributed in the source tree or source archive.
 
 ## Jasmin and textual assembly
 
-Files under `jasmin/` include AGPL-licensed `.jazz` source or algorithm
-descriptions and textual GNU assembly `.s`. The assembly is source, not an
-object file. Provenance is recorded per production unit rather than treating
-every `.s` file as generated:
+Files under `jasmin/` include AGPL-licensed `.jazz` source and textual GNU
+assembly `.s`. The assembly is source, not an object file. The five current
+production units are generated with Jasmin Compiler 2026.09.0:
+`zupt_aes_ctr`, `zupt_aes_ctr4`, `zupt_mac_verify`, `zupt_mlkem_select` and
+`zupt_x25519_fe`. Each `.s` header records its corresponding `.jazz` source
+path, SHA-256, compiler version, copyright and SPDX identifier.
 
-- `zupt_mac_verify.s`, `zupt_mlkem_select.s`, and `zupt_x25519_fe.s` identify
-  themselves as output of Jasmin Compiler 2026.03.0;
-- `zupt_aes_ctr.s` is recorded in its file header as `jasminc` output, but the
-  exact compiler version was not retained in that file, so no version stronger
-  than the repository record is asserted;
-- `zupt_aes_ctr4.s` is hand-written production assembly matching the algorithm
-  documented by `zupt_aes_ctr4.jazz`; that `.jazz` file is not compiled.
+Earlier snapshots used compiler output with older or incomplete version
+records and a hand-written `zupt_aes_ctr4.s`. The 5.2.10 development source
+replaces that four-block assembly with generated output from the executable
+`zupt_aes_ctr4.jazz`, preserving its license and copyright notices. Those
+historical implementations are not retroactively described as generated or
+formally verified.
 
-Regeneration of files identified as compiler output uses the external
-`jasminc` compiler:
+Regeneration uses the external `jasminc` compiler:
 
 - Upstream: https://github.com/jasmin-lang/jasmin
 - Compiler license: MIT
 
-The compiler itself is not bundled or redistributed. Hand-written assembly
-must not be represented as generated or formally verified merely because a
-corresponding `.jazz` description exists.
+The compiler itself is not bundled or redistributed. `test-jasmin-source`
+checks the five exported symbols and relocation-free instruction sections
+against fresh generation. Its safety and constant-time results are conditional
+on the documented caller contracts; source correspondence alone does not prove
+all C callers, complete cryptographic equivalence or a final release binary.
 
 ## Optional system libraries
 

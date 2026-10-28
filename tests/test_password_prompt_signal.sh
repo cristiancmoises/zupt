@@ -125,15 +125,21 @@ with tempfile.TemporaryDirectory(prefix="zupt-password-signal-") as work:
             environment["ZUPT_TEST_MODE"] = mode
             environment["ZUPT_TEST_SIGNAL"] = str(number)
             inherited = (event_write, ack_read)
-        def controlling_terminal():
-            os.setsid()
-            fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+        def prepare_child():
+            # The assertions below require default, unblocked signals. Build
+            # runners may ignore or block signals; exec preserves that state.
+            for handled in prompt_signals:
+                signal.signal(handled, signal.SIG_DFL)
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, prompt_signals)
+            if controlling:
+                os.setsid()
+                fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
 
         process = subprocess.Popen(
             [binary, "compress", "--password-prompt", archive, source],
             stdin=slave, stdout=slave, stderr=slave, env=environment,
             close_fds=True, pass_fds=inherited,
-            cwd=work, preexec_fn=controlling_terminal if controlling else None,
+            cwd=work, preexec_fn=prepare_child,
         )
         os.close(event_write)
         os.close(ack_read)
@@ -162,6 +168,30 @@ with tempfile.TemporaryDirectory(prefix="zupt-password-signal-") as work:
             raise SystemExit("terminal echo is disabled after interrupted prompt")
         if os.path.exists(archive):
             raise SystemExit("interrupted password prompt left an archive")
+
+    # Exercise the fixture under both inherited states rather than accepting
+    # an ordinary exit or a timeout as signal termination.
+    for inherited_state in ("ignored", "blocked"):
+        previous_actions = {number: signal.getsignal(number) for number in prompt_signals}
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, [])
+        try:
+            if inherited_state == "ignored":
+                for number in prompt_signals:
+                    signal.signal(number, signal.SIG_IGN)
+            else:
+                signal.pthread_sigmask(signal.SIG_BLOCK, prompt_signals)
+            for number in prompt_signals:
+                with child() as (process, master, slave, initial, event, ack):
+                    transcript = bytearray()
+                    wait_prompt(process, master, transcript)
+                    process.send_signal(number)
+                    assert_interrupted(process, slave, initial, number)
+                print(f"password prompt {signal.Signals(number).name} "
+                      f"child setup from {inherited_state} signals: PASS")
+        finally:
+            for number, action in previous_actions.items():
+                signal.signal(number, action)
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
 
     shim = None
     if sys.platform != "linux":

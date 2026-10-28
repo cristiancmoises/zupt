@@ -151,7 +151,7 @@ int zupt_pqbox_decrypt_init(zupt_keyring_t *kr, const char *privkeyfile,
                         | ((uint32_t)payload[2] << 8)
                         | ((uint32_t)payload[3] << 16)
                         | ((uint32_t)payload[4] << 24);
-    if (sealed_len != PQBOX_SEALED_SESSION || payload_len < 5 + (size_t)sealed_len)
+    if (sealed_len != PQBOX_SEALED_SESSION || payload_len != 5 + (size_t)sealed_len)
         return -1;
 
     uint8_t sk[PQVV_SECRETKEYBYTES] = {0};
