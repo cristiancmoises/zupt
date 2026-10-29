@@ -274,16 +274,16 @@ substitute for the Jasmin safety and constant-time tools. See
 [DISTRIBUTION.md](../DISTRIBUTION.md) and the project test scripts for the
 current command matrix.
 
-### Current formal evidence, reviewed 2026-10-28
+### Current formal evidence, reviewed 2026-10-29
 
-The 2026-10-24 UTC runs of all six maintained Frama-C targets pass on the
+The 2026-10-29 UTC repeat of all six maintained Frama-C targets passes on the
 frozen 294-file source after the five ANS guard corrections: decoder bounds,
 reader, frequencies, logarithm, logarithm bounds and fixed-vector AES. The
 tools are Frama-C 29.0, GCC 14.3.0, Why3 1.7.2 and recognized Z3 4.12.2.
 Each target retains its own model, caller assumptions and exact result
 checks; these conditional results do not prove the whole application.
 
-The 2026-10-27 UTC ordinary Jasmin 2026.09.0 repeat on the same source
+The 2026-10-29 UTC ordinary Jasmin 2026.09.0 repeat on the same source
 passes compilation, safety, CT, DOIT, lowering and generated/runtime
 instruction comparisons for all five selected sources. Seven tools/libraries
 match the pinned package members. Two environment rejections, four warning
@@ -1205,7 +1205,7 @@ For SDK operations, select a caller-owned private temporary directory through
 reopens assume other users cannot replace its entries. Exclusive creation
 alone cannot enforce that assumption in an attacker-controlled parent.
 
-The 26 temporary-path checks include real long-directory truncation, injected
+The 26 original temporary-path checks include real long-directory truncation, injected
 formatting failures at each of the 15 helper invocations, usable baseline
 fixtures and final allocation cleanup. All nine public callers must reject a
 failed/truncated name with `ZUPTSDK_ERR_IO` before using it. The tests preserve
@@ -1213,6 +1213,32 @@ foreign-file bytes and inode identity, output pointers and descriptor counts;
 compression streams must not consume input before both names are ready.
 Nested failures remove only staging files already owned by the operation.
 Windows directory-query guards still require native Windows qualification.
+
+On glibc, two additional controls verify valid checked formatting and actual
+libc rejection of an inconsistent reported destination bound. The rejection
+uses a physically sufficient buffer and requires the expected abort and libc
+diagnostic; a sanitizer failure or unrelated signal cannot pass. Interceptors
+cover plain and fortified formatting without dropping format flags or bounds.
+The first hosted 5.2.10 run exposed the missing fortified interception; it was
+a test-coverage failure, not an observed production formatting failure.
+
+On 2026-10-29, strict full SDK suites pass locally with GCC 14.3.0 and Clang
+22.1.8 in ordinary, `_FORTIFY_SOURCE=2` and `_FORTIFY_SOURCE=3` profiles,
+including all 28 temporary-path cases each. A control mutation discarding the
+forwarded bound fails the new rejection case while the original 26 still
+pass. Hosted Ubuntu and final native-package qualification remain separate.
+Use a fresh source copy for each compiler/profile:
+
+~~~sh
+make -j1 CC=gcc WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 \
+  SDK_BUILD_DIR=build/sdk-fortify3 CPPFLAGS='-D_FORTIFY_SOURCE=3' \
+  CFLAGS='-O2 -g -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wcast-align -Wstrict-prototypes -Wmissing-prototypes -Wnull-dereference -Wformat=2 -Werror' \
+  sdk-test
+~~~
+
+Repeat with `CC=clang`, with fortification level `2`, and with empty
+`CPPFLAGS` for the ordinary profile. Keep optimization enabled for glibc's
+fortification and use separate SDK build directories for distinct flags.
 
 The 18 read-stop cases exercise key copying and archive delivery through the
 output callback. They check that a positive partial `fread` with an error is

@@ -196,7 +196,8 @@ sdk-test-temp-paths: $(SDK_STATIC)
 	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isdk/include \
 		$(CFLAGS) $(PROJECT_CFLAGS) $(LDFLAGS) $(PROJECT_LDFLAGS) \
 		sdk/tests/test_sdk_temp_paths.c "$(SDK_STATIC)" \
-		-Wl,--wrap=snprintf -Wl,--wrap=zupt_random_bytes \
+		-Wl,--wrap=snprintf -Wl,--wrap=__snprintf_chk -Wl,--wrap=__vsnprintf_chk \
+		-Wl,--wrap=zupt_random_bytes \
 		-o "$(SDK_BUILD_DIR)/test_sdk_temp_paths" $(PROJECT_LDLIBS) $(LDLIBS)
 	$(Q)"$(SDK_BUILD_DIR)/test_sdk_temp_paths"
 

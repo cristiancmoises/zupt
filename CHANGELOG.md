@@ -6,6 +6,12 @@ Version 5.2.10 is being validated and is not an official release. Its earlier
 delivery was withdrawn; previous packages do not validate the corrected source.
 The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Exercise SDK temporary-path failures through glibc's fortified formatting
+  entry points, preserving the real format and destination-bound checks.
+  Retain all 26 existing cases and add valid-output and object-bound rejection
+  controls. Strict full SDK suites pass with GCC 14.3.0 and Clang 22.1.8 in
+  ordinary and explicit fortification levels 2/3; hosted Ubuntu qualification
+  remains required. Production code, compiler hardening and formats are unchanged.
 - Validate the corrected source with strict GCC/Clang full suites and in-tree
   SDK targets, plus a separate GCC `WITH_JASMIN=1` application profile. Retain
   explicit skips and earlier failed attempts; final-package and release gates

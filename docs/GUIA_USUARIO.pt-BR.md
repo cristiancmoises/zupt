@@ -277,9 +277,9 @@ de segurança e tempo constante.
 Consulte [SECURITY.md](../SECURITY.md), [DISTRIBUTION.md](../DISTRIBUTION.md)
 e os scripts de testes para a matriz vigente.
 
-### Evidência formal atual, conferida em 2026-10-28
+### Evidência formal atual, conferida em 2026-10-29
 
-Nas execuções de 2026-10-24 UTC, os seis alvos Frama-C mantidos passam na
+Na repetição de 2026-10-29 UTC, os seis alvos Frama-C mantidos passam na
 fonte congelada de 294 arquivos após as cinco correções dos guards ANS:
 limites do decodificador, leitor, frequências, logaritmo, limites do
 logaritmo e AES com vetores fixos. As ferramentas são Frama-C 29.0, GCC
@@ -287,7 +287,7 @@ logaritmo e AES com vetores fixos. As ferramentas são Frama-C 29.0, GCC
 suas hipóteses sobre os chamadores e seus checks exatos de resultado; esses
 resultados condicionais não comprovam o aplicativo completo.
 
-A repetição comum do Jasmin 2026.09.0 em 2026-10-27 UTC, na mesma fonte,
+A repetição comum do Jasmin 2026.09.0 em 2026-10-29 UTC, na mesma fonte,
 passa em compilação, safety, CT, DOIT, lowering e comparação de instruções
 geradas/mantidas para as cinco fontes selecionadas. Sete
 ferramentas/bibliotecas correspondem aos membros dos pacotes fixados. Passam
@@ -1264,7 +1264,7 @@ limpeza e as reaberturas posteriores pressupõem que outros usuários não possa
 substituir suas entradas. A criação exclusiva não garante essa condição se o
 diretório pai estiver sob controle de um atacante.
 
-Os 26 checks de caminhos temporários incluem truncamento em uma hierarquia
+Os 26 checks originais de caminhos temporários incluem truncamento em uma hierarquia
 real longa, falhas de formatação nas 15 chamadas do helper, validação dos
 fixtures e limpeza final de alocações. Os nove chamadores públicos rejeitam um
 nome inválido ou truncado com `ZUPTSDK_ERR_IO` antes de usá-lo. Os testes
@@ -1273,6 +1273,34 @@ e contagens de descritores; a compressão por stream não deve consumir entrada
 antes de preparar os dois nomes. Falhas aninhadas removem somente arquivos de
 staging já pertencentes à operação. As verificações da consulta ao diretório
 temporário no Windows ainda exigem validação nativa nessa plataforma.
+
+Na glibc, dois controles adicionais verificam a saída válida da formatação
+verificada e a rejeição real de um limite declarado de destino inconsistente.
+A rejeição usa um buffer fisicamente suficiente e exige o sinal de aborto e
+o diagnóstico esperados da libc; falhas de sanitizador ou sinais diferentes
+não contam como sucesso. Os interceptores cobrem as entradas comuns e
+fortificadas sem descartar flags de formato nem limites. A primeira execução
+hospedada da 5.2.10 revelou essa lacuna do teste, não uma falha observada da
+formatação de produção.
+
+Em 2026-10-29, as suítes completas estritas do SDK passam localmente com GCC
+14.3.0 e Clang 22.1.8 nos perfis comum, `_FORTIFY_SOURCE=2` e
+`_FORTIFY_SOURCE=3`, incluindo os 28 casos de caminhos temporários em cada
+perfil. Uma mutação de controle que descarta o limite encaminhado falha no
+novo caso de rejeição, enquanto os 26 originais ainda passam. A validação no
+Ubuntu hospedado e a dos pacotes nativos finais continuam separadas.
+Use uma cópia nova da fonte para cada compilador e perfil:
+
+~~~sh
+make -j1 CC=gcc WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 \
+  SDK_BUILD_DIR=build/sdk-fortify3 CPPFLAGS='-D_FORTIFY_SOURCE=3' \
+  CFLAGS='-O2 -g -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wcast-align -Wstrict-prototypes -Wmissing-prototypes -Wnull-dereference -Wformat=2 -Werror' \
+  sdk-test
+~~~
+
+Repita com `CC=clang`, com nível de fortificação `2` e com `CPPFLAGS` vazio
+para o perfil comum. Mantenha a otimização habilitada para a fortificação da
+glibc e use diretórios de build separados para flags diferentes.
 
 Os 18 casos de interrupção de leitura exercitam cópias de chaves e entrega de
 arquivos pelo callback de saída. Verificam que um `fread` parcial positivo com

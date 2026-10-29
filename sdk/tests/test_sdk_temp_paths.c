@@ -10,11 +10,30 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#ifdef __GLIBC__
+#include <signal.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
+#endif
 
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((format(printf, 3, 4)))
 #endif
 int __wrap_snprintf(char *, size_t, const char *, ...);
+#ifdef __GLIBC__
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((format(printf, 5, 6)))
+#endif
+int __wrap___snprintf_chk(char *, size_t, int, size_t, const char *, ...);
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((format(printf, 5, 0)))
+#endif
+int __wrap___vsnprintf_chk(char *, size_t, int, size_t, const char *, va_list);
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((format(printf, 5, 0)))
+#endif
+int __real___vsnprintf_chk(char *, size_t, int, size_t, const char *, va_list);
+#endif
 void __real_zupt_random_bytes(uint8_t *, size_t);
 void __wrap_zupt_random_bytes(uint8_t *, size_t);
 
@@ -38,7 +57,7 @@ static int cases, failures;
 
 /* snprintf errors may leave output bytes. Make those bytes name a real foreign
  * file, so merely checking a plausible output string cannot pass these tests. */
-int __wrap_snprintf(char *out, size_t cap, const char *format, ...) {
+static int inject_format_error(char *out, size_t cap, const char *format) {
     if (cap == 512 && strcmp(format, "%s/%s_%d_%02x%02x%02x%02x%02x%02x%02x%02x") == 0 &&
         ++format_calls == format_fail_at) {
         size_t n = strlen(foreign_path);
@@ -46,14 +65,46 @@ int __wrap_snprintf(char *out, size_t cap, const char *format, ...) {
         memcpy(out, foreign_path, n);
         out[n] = 0;
         errno = EILSEQ;
-        return -1;
+        return 1;
     }
+    return 0;
+}
+
+int __wrap_snprintf(char *out, size_t cap, const char *format, ...) {
+    if (inject_format_error(out, cap, format)) return -1;
     va_list args;
     va_start(args, format);
+#ifdef __GLIBC__
+    /* The plain entry point carries no object size. Preserve the active glibc
+     * format checks without passing through the wrapped checked entry again. */
+    int n = __real___vsnprintf_chk(out, cap,
+        __USE_FORTIFY_LEVEL > 1 ? __USE_FORTIFY_LEVEL - 1 : 0,
+        (size_t)-1, format, args);
+#else
     int n = vsnprintf(out, cap, format, args);
+#endif
     va_end(args);
     return n;
 }
+
+#ifdef __GLIBC__
+/* Fortified glibc builds call these entry points instead of snprintf. Keep the
+ * bounds and format checks when no formatting failure is being injected. */
+int __wrap___vsnprintf_chk(char *out, size_t cap, int flag, size_t object_size,
+                           const char *format, va_list args) {
+    if (inject_format_error(out, cap, format)) return -1;
+    return __real___vsnprintf_chk(out, cap, flag, object_size, format, args);
+}
+
+int __wrap___snprintf_chk(char *out, size_t cap, int flag, size_t object_size,
+                          const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    int n = __wrap___vsnprintf_chk(out, cap, flag, object_size, format, args);
+    va_end(args);
+    return n;
+}
+#endif
 
 void __wrap_zupt_random_bytes(uint8_t *data, size_t size) {
     if (size == 8) memset(data, 0x42, size);
@@ -81,6 +132,59 @@ static void result(const char *name, int ok) {
     if (!ok) ++failures;
     printf("%s: %s\n", ok ? "PASS" : "FAIL", name);
 }
+#ifdef __GLIBC__
+static void checked_format_controls(void) {
+    char out[32];
+    int n = __wrap___snprintf_chk(out, sizeof(out), 2, sizeof(out), "%s", "checked");
+    result("checked formatter preserves valid output", n == 7 && strcmp(out, "checked") == 0);
+
+    int descriptors[2];
+    if (pipe(descriptors) != 0) {
+        result("checked formatter enforces reported object bound", 0);
+        return;
+    }
+    pid_t child = fork();
+    if (child == 0) {
+        struct rlimit no_core = {0, 0};
+        (void)close(descriptors[0]);
+        if (dup2(descriptors[1], STDERR_FILENO) < 0 ||
+            setrlimit(RLIMIT_CORE, &no_core) != 0) _exit(90);
+        (void)close(descriptors[1]);
+        (void)alarm(5);
+        /* The backing buffer fits the text even if the reported bound is lost.
+         * Only real glibc object-bound enforcement should abort this call. */
+        (void)__wrap___snprintf_chk(out, sizeof(out), 2, 1, "%s", "abc");
+        _exit(91);
+    }
+    (void)close(descriptors[1]);
+    char diagnostic[512];
+    size_t used = 0;
+    int read_ok = 1;
+    while (child > 0 && used < sizeof(diagnostic) - 1) {
+        ssize_t count = read(descriptors[0], diagnostic + used, sizeof(diagnostic) - 1 - used);
+        if (count < 0 && errno == EINTR) continue;
+        if (count < 0) read_ok = 0;
+        if (count <= 0) break;
+        used += (size_t)count;
+    }
+    diagnostic[used] = 0;
+    if (close(descriptors[0]) != 0) read_ok = 0;
+    int status = 0;
+    pid_t waited;
+    do { waited = child > 0 ? waitpid(child, &status, 0) : -1; }
+    while (child > 0 && waited < 0 && errno == EINTR);
+    fprintf(stderr, "FORTIFY NEGATIVE CONTROL: expected glibc SIGABRT; child stderr follows\n");
+    (void)fwrite(diagnostic, 1, used, stderr);
+    if (!used || diagnostic[used - 1] != '\n') (void)fputc('\n', stderr);
+    result("checked formatter enforces reported object bound",
+        child > 0 && waited == child && read_ok && used > 0 && used < sizeof(diagnostic) - 1 &&
+        WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT &&
+        strstr(diagnostic, "buffer overflow detected") != NULL &&
+        strstr(diagnostic, "Sanitizer") == NULL &&
+        strstr(diagnostic, "runtime error:") == NULL &&
+        strstr(diagnostic, "DEADLYSIGNAL") == NULL);
+}
+#endif
 static int descriptors(void) {
     int count = 0;
     for (int fd = 0; fd < 256; ++fd)
@@ -200,6 +304,9 @@ static void run_case(enum operation operation, unsigned nth, int long_path) {
 }
 
 int main(void) {
+#ifdef __GLIBC__
+    checked_format_controls();
+#endif
     zuptsdk_allocator_t allocator = {test_malloc, test_free, test_realloc, NULL};
     if (zuptsdk_set_allocator(&allocator) != ZUPTSDK_OK) return 1;
     strcpy(root, "/tmp/zupt-sdk-temp-paths.XXXXXX");

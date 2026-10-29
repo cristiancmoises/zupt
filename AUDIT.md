@@ -34,16 +34,16 @@ choice on supported x86_64 compiler targets. Generated files must record their
 compiler provenance; hand-written files must not be represented as compiler
 output.
 
-## Current formal evidence, reviewed 2026-10-28
+## Current formal evidence, reviewed 2026-10-29
 
-The 2026-10-24 UTC runs of all six maintained Frama-C targets pass on the
+The 2026-10-29 UTC repeat of all six maintained Frama-C targets passes on the
 frozen 294-file source after the five ANS guard corrections: decoder bounds,
 reader, frequencies, logarithm, logarithm bounds and fixed-vector AES. The
 tools are Frama-C 29.0, GCC 14.3.0, Why3 1.7.2 and recognized Z3 4.12.2.
 Each target retains its own model, caller assumptions and exact result
 checks; these conditional results do not prove the whole application.
 
-The 2026-10-27 UTC ordinary Jasmin 2026.09.0 repeat on the same source
+The 2026-10-29 UTC ordinary Jasmin 2026.09.0 repeat on the same source
 passes compilation, safety, CT, DOIT, lowering and generated/runtime
 instruction comparisons for all five selected sources. Seven tools/libraries
 match the pinned package members. Two environment rejections, four warning
@@ -64,6 +64,26 @@ The source-policy scan passes over 294 files and zero archives. Source, tool
 and supervisor integrity checks pass before and after execution. Package
 helpers use tool doubles; these results do not qualify native installations.
 Later documentation and signing-key instructions are outside that snapshot.
+
+## Fortified SDK test coverage, 2026-10-29
+
+The first hosted 5.2.10 runs failed the SDK temporary-path test because
+fortified GCC calls bypassed its plain `snprintf` interceptor. The test now
+intercepts glibc's checked entry points too, preserving their format flags and
+destination bounds. No production code, compiler hardening or rejection
+criteria change. The original 26 cases remain; two glibc-only controls check
+valid output and rejection of an inconsistent reported destination bound.
+The latter uses a physically sufficient buffer, requires the expected libc
+abort and diagnostic, and rejects sanitizer errors or unrelated signals.
+
+Strict full `sdk-test` runs pass with GCC 14.3.0 and Clang 22.1.8, each with
+ordinary flags and explicit `_FORTIFY_SOURCE=2` and `3`. Each profile passes
+all 28 temporary-path cases. A private mutation that discards the forwarded
+object bound fails only the new rejection control; the original 26 still
+pass. These local results do not replace the required hosted Ubuntu rerun,
+native package tests or final release qualification. See the reproduction
+commands in the [English SDK section](docs/USER_GUIDE.md#sdk-callback-tests)
+and [Portuguese SDK section](docs/GUIA_USUARIO.pt-BR.md#testes-de-callbacks-do-sdk).
 
 ## ANS exact-output bounds
 
