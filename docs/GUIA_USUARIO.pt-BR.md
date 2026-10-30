@@ -277,9 +277,9 @@ de segurança e tempo constante.
 Consulte [SECURITY.md](../SECURITY.md), [DISTRIBUTION.md](../DISTRIBUTION.md)
 e os scripts de testes para a matriz vigente.
 
-### Evidência formal atual, conferida em 2026-10-29
+### Evidência formal atual, conferida em 2026-10-30
 
-Na repetição de 2026-10-29 UTC, os seis alvos Frama-C mantidos passam na
+Na repetição de 2026-10-30 UTC, os seis alvos Frama-C mantidos passam na
 fonte congelada de 294 arquivos após as cinco correções dos guards ANS:
 limites do decodificador, leitor, frequências, logaritmo, limites do
 logaritmo e AES com vetores fixos. As ferramentas são Frama-C 29.0, GCC
@@ -287,7 +287,7 @@ logaritmo e AES com vetores fixos. As ferramentas são Frama-C 29.0, GCC
 suas hipóteses sobre os chamadores e seus checks exatos de resultado; esses
 resultados condicionais não comprovam o aplicativo completo.
 
-A repetição comum do Jasmin 2026.09.0 em 2026-10-29 UTC, na mesma fonte,
+A repetição comum do Jasmin 2026.09.0 em 2026-10-30 UTC, na mesma fonte,
 passa em compilação, safety, CT, DOIT, lowering e comparação de instruções
 geradas/mantidas para as cinco fontes selecionadas. Sete
 ferramentas/bibliotecas correspondem aos membros dos pacotes fixados. Passam
@@ -778,6 +778,15 @@ rpm --eval '%{_prefix} %{_bindir} %{_buildshell}'
 rpmspec -P packaging/opensuse/zupt.spec
 rpmspec -q --buildrequires packaging/opensuse/zupt.spec
 ```
+
+Ambientes de build Fedora precisam de `libubsan`: a suíte mantida compila e
+executa regressões do harness com UBSan. É uma dependência de build, não um
+requisito adicional da CLI instalada. O spec openSUSE usa `%{?ext_man}` para
+o sufixo de compressão das páginas de manual da distribuição. Execute
+`bash tests/test_packaging_syntax.sh` para conferir a expansão RPM real com
+`.gz`, `.xz` e sufixo indefinido; ferramentas ausentes continuam como skips
+explícitos. O parse local não substitui os gates nativos de `spec-cleaner`,
+build e instalação.
 
 O check de 2026-10-18 usa RPM 4.20.1 instalado, arquivos Guix `rpmrc` e macros
 x86_64-linux selecionados explicitamente, alvo `x86_64-unknown-linux` e

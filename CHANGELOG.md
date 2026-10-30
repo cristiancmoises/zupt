@@ -6,6 +6,11 @@ Version 5.2.10 is being validated and is not an official release. Its earlier
 delivery was withdrawn; previous packages do not validate the corrected source.
 The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Declare the UBSan runtime as a Fedora build dependency and install it in
+  the native GUI package CI job: the maintained check suite links instrumented
+  harness regressions. Use openSUSE's optional man-page suffix macro and test
+  actual RPM expansion with gzip, xz and uncompressed paths. Retain negative
+  parser controls and require native build/install checks before release.
 - Exercise SDK temporary-path failures through glibc's fortified formatting
   entry points, preserving the real format and destination-bound checks.
   Retain all 26 existing cases and add valid-output and object-bound rejection

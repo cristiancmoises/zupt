@@ -79,6 +79,6 @@ bash scripts/check-source-only.sh --tree .
 %{_datadir}/bash-completion/completions/zupt
 %{_datadir}/zsh/site-functions/_zupt
 %{_datadir}/fish/vendor_completions.d/zupt.fish
-%{_mandir}/man1/zupt.1*
+%{_mandir}/man1/zupt.1%{?ext_man}
 
 %changelog

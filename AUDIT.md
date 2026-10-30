@@ -34,16 +34,16 @@ choice on supported x86_64 compiler targets. Generated files must record their
 compiler provenance; hand-written files must not be represented as compiler
 output.
 
-## Current formal evidence, reviewed 2026-10-29
+## Current formal evidence, reviewed 2026-10-30
 
-The 2026-10-29 UTC repeat of all six maintained Frama-C targets passes on the
+The 2026-10-30 UTC repeat of all six maintained Frama-C targets passes on the
 frozen 294-file source after the five ANS guard corrections: decoder bounds,
 reader, frequencies, logarithm, logarithm bounds and fixed-vector AES. The
 tools are Frama-C 29.0, GCC 14.3.0, Why3 1.7.2 and recognized Z3 4.12.2.
 Each target retains its own model, caller assumptions and exact result
 checks; these conditional results do not prove the whole application.
 
-The 2026-10-29 UTC ordinary Jasmin 2026.09.0 repeat on the same source
+The 2026-10-30 UTC ordinary Jasmin 2026.09.0 repeat on the same source
 passes compilation, safety, CT, DOIT, lowering and generated/runtime
 instruction comparisons for all five selected sources. Seven tools/libraries
 match the pinned package members. Two environment rejections, four warning

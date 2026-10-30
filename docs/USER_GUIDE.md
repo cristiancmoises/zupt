@@ -274,16 +274,16 @@ substitute for the Jasmin safety and constant-time tools. See
 [DISTRIBUTION.md](../DISTRIBUTION.md) and the project test scripts for the
 current command matrix.
 
-### Current formal evidence, reviewed 2026-10-29
+### Current formal evidence, reviewed 2026-10-30
 
-The 2026-10-29 UTC repeat of all six maintained Frama-C targets passes on the
+The 2026-10-30 UTC repeat of all six maintained Frama-C targets passes on the
 frozen 294-file source after the five ANS guard corrections: decoder bounds,
 reader, frequencies, logarithm, logarithm bounds and fixed-vector AES. The
 tools are Frama-C 29.0, GCC 14.3.0, Why3 1.7.2 and recognized Z3 4.12.2.
 Each target retains its own model, caller assumptions and exact result
 checks; these conditional results do not prove the whole application.
 
-The 2026-10-29 UTC ordinary Jasmin 2026.09.0 repeat on the same source
+The 2026-10-30 UTC ordinary Jasmin 2026.09.0 repeat on the same source
 passes compilation, safety, CT, DOIT, lowering and generated/runtime
 instruction comparisons for all five selected sources. Seven tools/libraries
 match the pinned package members. Two environment rejections, four warning
@@ -747,6 +747,14 @@ rpm --eval '%{_prefix} %{_bindir} %{_buildshell}'
 rpmspec -P packaging/opensuse/zupt.spec
 rpmspec -q --buildrequires packaging/opensuse/zupt.spec
 ```
+
+Fedora build environments need `libubsan`: the maintained check suite links
+and executes UBSan harness regressions. It is a build dependency, not an
+additional runtime requirement of the installed CLI. The openSUSE spec uses
+`%{?ext_man}` for the distribution's compressed man-page suffix. Run
+`bash tests/test_packaging_syntax.sh` to check actual RPM expansion with `.gz`,
+`.xz` and an undefined suffix; missing tools remain explicit skips. Local
+parser checks do not replace native `spec-cleaner`, build or installation gates.
 
 The 2026-10-18 check uses installed RPM 4.20.1 with explicitly selected Guix
 `rpmrc` and x86_64-linux macro files, target `x86_64-unknown-linux`, and private

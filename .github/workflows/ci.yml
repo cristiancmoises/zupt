@@ -513,7 +513,7 @@ jobs:
       - name: Install native build, package, audit and GUI runtime tools
         run: |
           dnf install -y \
-            binutils cpio file findutils gcc git-core gzip libarchive make \
+            binutils cpio file findutils gcc git-core gzip libarchive libubsan make \
             python3 python3-pyside6 rpm-build rpmdevtools tar unzip
       - name: Build and content-test the GUI RPM and source RPM
         run: |

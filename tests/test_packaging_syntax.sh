@@ -448,12 +448,93 @@ else
     fail 'openSUSE spec source, license, features or alias policy'
 fi
 
-if grep -Fqx '%{_mandir}/man1/zupt.1*' "$spec" && \
-   ! grep -Fq '%{?ext_man}' "$spec"; then
-    pass 'openSUSE spec accepts the installed compressed man page without distro macros'
-else
-    fail 'openSUSE spec requires a distro-specific man-page suffix macro'
+check_opensuse_manpage_suffix() (
+    set -Eeuo pipefail
+    local work suffix count
+    work=$(mktemp -d "${TMPDIR:-/tmp}/zupt-rpm-manpage.XXXXXXXX") || exit 1
+    trap 'rm -rf -- "$work"' EXIT
+    for suffix in .gz .xz ''; do
+        if [[ -n $suffix ]]; then
+            rpmspec -P --define '_mandir /usr/share/man' \
+                --define "ext_man $suffix" "$spec" \
+                > "$work/parsed" 2> "$work/errors" || {
+                cat -- "$work/errors" >&2
+                exit 1
+            }
+        else
+            rpmspec -P --define '_mandir /usr/share/man' --undefine ext_man \
+                "$spec" > "$work/parsed" 2> "$work/errors" || {
+                cat -- "$work/errors" >&2
+                exit 1
+            }
+        fi
+        count=$(grep -Fxc "/usr/share/man/man1/zupt.1$suffix" "$work/parsed") || {
+            printf 'cannot count expanded man-page path for suffix %q\n' "$suffix" >&2
+            exit 1
+        }
+        [[ $count == 1 ]] || {
+            printf 'incorrect expanded man-page path for suffix %q\n' "$suffix" >&2
+            exit 1
+        }
+    done
+)
+
+check_opensuse_parser_status() (
+    set -Eeuo pipefail
+    local work real_grep real_rpmspec control status
+    work=$(mktemp -d "${TMPDIR:-/tmp}/zupt-rpm-parser-status.XXXXXXXX") || exit 1
+    trap 'rm -rf -- "$work"' EXIT
+    real_grep=$(type -P grep) || exit 1
+    real_rpmspec=$(type -P rpmspec) || exit 1
+    [[ $real_grep == /* ]] || real_grep=$PWD/$real_grep
+    [[ $real_rpmspec == /* ]] || real_rpmspec=$PWD/$real_rpmspec
+    # Forward real output before failing, so plausible output cannot hide an
+    # unsuccessful parser or counter. Other grep invocations remain unchanged.
+    cat > "$work/grep" <<'TOOL' || exit 1
+#!/bin/sh
+"${ZUPT_TEST_REAL_GREP:?}" "$@" || exit "$?"
+if [ "${ZUPT_TEST_PARSER_CONTROL:-}" = grep ] &&
+   [ "${1:-}" = -Fxc ] && [ "${2:-}" = /usr/share/man/man1/zupt.1.gz ]; then
+    printf 'controlled grep failure after complete output\n' >&2
+    exit 73
 fi
+TOOL
+    cat > "$work/rpmspec" <<'TOOL' || exit 1
+#!/bin/sh
+"${ZUPT_TEST_REAL_RPMSPEC:?}" "$@" || exit "$?"
+if [ "${ZUPT_TEST_PARSER_CONTROL:-}" = rpmspec ]; then
+    printf 'controlled rpmspec failure after complete output\n' >&2
+    exit 73
+fi
+TOOL
+    chmod 0755 "$work/grep" "$work/rpmspec" || exit 1
+    for control in success grep rpmspec; do
+        if PATH="$work:$PATH" ZUPT_TEST_REAL_GREP="$real_grep" \
+            ZUPT_TEST_REAL_RPMSPEC="$real_rpmspec" ZUPT_TEST_PARSER_CONTROL="$control" \
+            check_opensuse_manpage_suffix > "$work/$control.out" 2> "$work/$control.err"; then
+            status=0
+        else
+            status=$?
+        fi
+        printf 'RPM helper status control: %s exit=%s\n' "$control" "$status" || exit 1
+        if [[ $control == success ]]; then
+            [[ $status == 0 && ! -s $work/$control.out && ! -s $work/$control.err ]] || exit 1
+        else
+            [[ $status == 1 ]] || {
+                printf 'RPM helper accepted %s failure after complete output\n' "$control" >&2
+                exit 1
+            }
+            grep -Fxq "controlled $control failure after complete output" \
+                "$work/$control.err" || { cat -- "$work/$control.err" >&2; exit 1; }
+            if [[ $control == grep ]]; then
+                grep -Fq 'cannot count expanded man-page path' "$work/$control.err" || {
+                    cat -- "$work/$control.err" >&2
+                    exit 1
+                }
+            fi
+        fi
+    done
+)
 
 if grep -Fq 'LICENSE-BSD-3-Clause' packaging/build-deb.sh && \
    grep -Fq 'LICENSE-CC0-1.0' packaging/build-deb.sh && \
@@ -494,10 +575,10 @@ else
 fi
 
 if command -v rpmspec >/dev/null 2>&1; then
-    if rpmspec -P "$spec" >/dev/null; then
-        pass 'openSUSE spec parses with rpmspec'
+    if check_opensuse_manpage_suffix && check_opensuse_parser_status; then
+        pass 'openSUSE spec expands man-page paths and rejects failed parser/count commands'
     else
-        fail 'openSUSE spec rpmspec parse'
+        fail 'openSUSE spec rpmspec parse or man-page expansion'
     fi
 else
     skip 'rpmspec unavailable'

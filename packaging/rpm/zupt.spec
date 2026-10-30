@@ -32,6 +32,8 @@ BuildRequires:  gcc
 BuildRequires:  git-core
 BuildRequires:  make
 BuildRequires:  glibc-devel
+# The check target builds and runs instrumented UBSan harness regressions.
+BuildRequires:  libubsan
 BuildRequires:  python3 >= 3.8
 BuildRequires:  bash
 BuildRequires:  coreutils
