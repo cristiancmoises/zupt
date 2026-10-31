@@ -274,16 +274,50 @@ substitute for the Jasmin safety and constant-time tools. See
 [DISTRIBUTION.md](../DISTRIBUTION.md) and the project test scripts for the
 current command matrix.
 
-### Current formal evidence, reviewed 2026-10-30
+### Portable check supervision and tool coverage
 
-The 2026-10-30 UTC repeat of all six maintained Frama-C targets passes on the
+The Frama-C supervisors explicitly preserve analyzer/compiler version-query
+failures before parsing the version. This addresses the missing-tool status
+failure observed in the native macOS check. Run their maintained controls:
+
+~~~sh
+make -j1 test-frama-aes-nist-wrapper test-frama-ans-decode-bounds-wrapper \
+  test-frama-ans-reader-wrapper test-frama-ans-log-bounds-wrapper
+~~~
+
+The 2026-10-31 Linux run passes 320 synthetic cases, including failed probes,
+missing tools, timeouts, incomplete reports and parser failures. Four private
+status-loss mutations are rejected. These are supervisor tests, not formal
+analysis or evidence of a successful native macOS rerun.
+
+`make test-sdk-build-flags` runs 36 SDK selection/export controls. Its generated
+tool launchers use the running Bash's absolute executable path, which must not
+contain whitespace. Installed utilities are invoked at their original quoted
+paths so MSYS can find its runtime DLLs. The isolated tool `PATH` and all
+after-output failure checks remain active. The no-`/bin` and executable-location
+models each reproduce nine failures before the fix and pass all 36 checks
+afterwards; they do not replace native Guix and Windows qualification.
+
+Previously unavailable tooling checks were also executed on 2026-10-31.
+With fish 4.9.3, zsh 5.9.2 and either mandoc 1.14.6 or groff 1.24.2,
+`bash tests/test_completions_manpage.sh` passes 23 checks without skips in
+each renderer profile. Ruby 3.4.7, Nix 2.32.8 and the pinned Guix reader
+pass the syntax checks used by `bash tests/test_packaging_syntax.sh`.
+Debian changelog parsing passes in GitHub run `41181738059`. Syntax checks
+do not establish native package installation. Optional full SDK/PQ providers
+and the privileged loop-device case remain separate requirements; the base
+SDK is not a replacement for the full provider.
+
+### Current formal evidence, reviewed 2026-10-31
+
+The 2026-10-31 UTC repeat of all six maintained Frama-C targets passes on the
 frozen 294-file source after the five ANS guard corrections: decoder bounds,
 reader, frequencies, logarithm, logarithm bounds and fixed-vector AES. The
 tools are Frama-C 29.0, GCC 14.3.0, Why3 1.7.2 and recognized Z3 4.12.2.
 Each target retains its own model, caller assumptions and exact result
 checks; these conditional results do not prove the whole application.
 
-The 2026-10-30 UTC ordinary Jasmin 2026.09.0 repeat on the same source
+The 2026-10-31 UTC ordinary Jasmin 2026.09.0 repeat on the same source
 passes compilation, safety, CT, DOIT, lowering and generated/runtime
 instruction comparisons for all five selected sources. Seven tools/libraries
 match the pinned package members. Two environment rejections, four warning

@@ -6,11 +6,27 @@ Version 5.2.10 is being validated and is not an official release. Its earlier
 delivery was withdrawn; previous packages do not validate the corrected source.
 The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Keep SDK symbol-test launchers executable inside Guix and MSYS builds:
+  generate them with the running Bash path and invoke installed utilities at
+  their original locations. Preserve the isolated tool path and all 36
+  build-flag/export checks. Both reproduced failure models pass locally;
+  native package qualification remains required.
+- Run the existing compiler/cppcheck regression in CI with cppcheck installed,
+  retaining its findings, timeout and process-failure criteria. A completed
+  native CI run is required before counting those scans as passed.
+- Preserve failed analyzer and compiler version-query statuses explicitly in
+  the Frama-C supervisors. The native macOS check exposed an older shell's
+  `errexit` status replacement. Retain all earlier controls and add failures
+  during the version queries; all 320 supervisor cases pass locally. These
+  controls do not run formal analysis; a fresh native macOS run is required.
+- Rerun previously unavailable completion/manual checks with fish, zsh,
+  mandoc and groff, and syntax checks with Ruby, Nix and Guix. Record actual
+  passes separately from unavailable optional providers and privileged tests.
 - Compile fuzz-harness fixtures before selecting the mutation directory with
   spaces. Fedora GCC 16 LTO failed while creating compiler scratch files in
   that directory. Preserve caller compiler/linker flags, UBSan and all spaced
   runtime-path checks. Local GCC 14 LTO and ordinary GCC/Clang checks pass;
-  the native Fedora package gate still needs a fresh run.
+  native Fedora and openSUSE package gates pass at commit `10a3c6f`.
 - Declare the UBSan runtime as a Fedora build dependency and install it in
   the native GUI package CI job: the maintained check suite links instrumented
   harness regressions. Use openSUSE's optional man-page suffix macro and test

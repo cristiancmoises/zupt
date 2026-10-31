@@ -277,9 +277,46 @@ de segurança e tempo constante.
 Consulte [SECURITY.md](../SECURITY.md), [DISTRIBUTION.md](../DISTRIBUTION.md)
 e os scripts de testes para a matriz vigente.
 
-### Evidência formal atual, conferida em 2026-10-30
+### Supervisão portátil dos checks e cobertura de ferramentas
 
-Na repetição de 2026-10-30 UTC, os seis alvos Frama-C mantidos passam na
+Os supervisores Frama-C preservam explicitamente as falhas da consulta de
+versão do analisador/compilador antes de interpretar a versão. Isso trata a
+falha de status de ferramenta ausente observada no check nativo do macOS.
+Execute os controles mantidos:
+
+~~~sh
+make -j1 test-frama-aes-nist-wrapper test-frama-ans-decode-bounds-wrapper \
+  test-frama-ans-reader-wrapper test-frama-ans-log-bounds-wrapper
+~~~
+
+A execução Linux de 2026-10-31 passa nos 320 casos sintéticos, incluindo
+falhas de consulta, ferramentas ausentes, timeouts, relatórios incompletos e
+falhas dos parsers. Quatro mutações privadas que perdem o status são
+rejeitadas. São testes dos supervisores, não análise formal nem evidência
+de uma nova execução nativa do macOS aprovada.
+
+`make test-sdk-build-flags` executa 36 controles de seleção/exportação do SDK.
+Os lançadores gerados usam o caminho absoluto do Bash em execução, que não
+pode conter espaços em branco. Os utilitários instalados são chamados pelos
+caminhos originais entre aspas, para que o MSYS encontre suas DLLs de runtime.
+O `PATH` isolado das ferramentas e os checks de falha após produzir saída
+continuam ativos. Os modelos sem `/bin` e de localização dos executáveis
+reproduzem nove falhas cada antes da correção e passam nos 36 checks depois;
+eles não substituem a qualificação nativa Guix e Windows.
+
+Checks de ferramentas antes indisponíveis também foram executados em
+2026-10-31. Com fish 4.9.3, zsh 5.9.2 e mandoc 1.14.6 ou groff 1.24.2,
+`bash tests/test_completions_manpage.sh` passa em 23 checks sem skips em
+cada perfil de renderização. Ruby 3.4.7, Nix 2.32.8 e o leitor Guix fixado
+passam nos checks de sintaxe usados por `bash tests/test_packaging_syntax.sh`.
+O changelog Debian passa no parser na execução GitHub `41181738059`.
+Sintaxe aprovada não comprova instalação de pacote nativo. Os provedores
+opcionais completos SDK/PQ e o caso privilegiado de dispositivo loop
+continuam separados; o SDK base não substitui o provedor completo.
+
+### Evidência formal atual, conferida em 2026-10-31
+
+Na repetição de 2026-10-31 UTC, os seis alvos Frama-C mantidos passam na
 fonte congelada de 294 arquivos após as cinco correções dos guards ANS:
 limites do decodificador, leitor, frequências, logaritmo, limites do
 logaritmo e AES com vetores fixos. As ferramentas são Frama-C 29.0, GCC
@@ -287,7 +324,7 @@ logaritmo e AES com vetores fixos. As ferramentas são Frama-C 29.0, GCC
 suas hipóteses sobre os chamadores e seus checks exatos de resultado; esses
 resultados condicionais não comprovam o aplicativo completo.
 
-A repetição comum do Jasmin 2026.09.0 em 2026-10-30 UTC, na mesma fonte,
+A repetição comum do Jasmin 2026.09.0 em 2026-10-31 UTC, na mesma fonte,
 passa em compilação, safety, CT, DOIT, lowering e comparação de instruções
 geradas/mantidas para as cinco fontes selecionadas. Sete
 ferramentas/bibliotecas correspondem aos membros dos pacotes fixados. Passam
