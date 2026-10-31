@@ -13,6 +13,8 @@ case "${0##*/}" in
     frama-log-fixture)
         if [ "${1:-}" = -version ]; then
             case "$FRAMA_LOG_CASE" in
+                probe-status) exit 23 ;;
+                probe-timeout) exit 124 ;;
                 version) printf '28.0 (Nickel)\n' ;;
                 *) printf '29.0 (Copper)\n' ;;
             esac
@@ -219,7 +221,7 @@ for test_case in clean alarm unknown invalid unknown-precondition invalid-precon
     missing-assertions duplicate-assertions missing-preconditions duplicate-preconditions \
     duplicate-clean missing-clean duplicate-alarms missing-alarms warning external-warning \
     uppercase-warning mixed-case-warning uppercase-error \
-    timeout-text incomplete empty status timeout version missing \
+    timeout-text incomplete empty status timeout version missing probe-status probe-timeout \
     scanner-error scanner-missing parser-error parser-missing; do
     total=$((total + 1))
     analyzer="$test_tmp/frama-log-fixture"
@@ -228,6 +230,8 @@ for test_case in clean alarm unknown invalid unknown-precondition invalid-precon
         clean) expected=0 ;;
         status) expected=23 ;;
         timeout) expected=124 ;;
+        probe-status) expected=23 ;;
+        probe-timeout) expected=124 ;;
         missing) analyzer="$test_tmp/no-analyzer"; expected=127 ;;
     esac
     scan_path=$PATH

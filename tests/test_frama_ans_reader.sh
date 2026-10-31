@@ -13,7 +13,7 @@ case "$profile" in
     logarithm) functions=ilog2; rte_flags=-warn-unsigned-overflow ;;
     *) printf 'ERROR: expected reader, frequency or logarithm WP profile\n' >&2; exit 2 ;;
 esac
-version=$("$frama_c" -version)
+version=$("$frama_c" -version) || exit "$?"
 case "$version" in
     '29.0'*) ;;
     *) printf 'ERROR: reader WP gate requires Frama-C 29.0, got %s\n' "$version" >&2; exit 1 ;;

@@ -79,7 +79,12 @@ emit_witness() {
 
 if [ "${0##*/}" = frama-bounds-fixture ]; then
     if [ "${1:-}" = -version ]; then
-        case "$FRAMA_BOUNDS_CASE" in version) printf '28.0 (Nickel)\n' ;; *) printf '29.0 (Copper)\n' ;; esac
+        case "$FRAMA_BOUNDS_CASE" in
+            probe-status) exit 23 ;;
+            probe-timeout) exit 124 ;;
+            version) printf '28.0 (Nickel)\n' ;;
+            *) printf '29.0 (Copper)\n' ;;
+        esac
         exit 0
     fi
     check_analyzer_arguments "$@" || { printf 'ERROR: required production scalar flags missing\n' >&2; exit 24; }
@@ -180,7 +185,7 @@ ln -s "$self" "$test_tmp/frama-bounds-fixture"
 mkdir "$test_tmp/scanner"
 ln -s "$self" "$test_tmp/scanner/grep"
 
-cases='clean unsupported-acsl-info empty incomplete version missing status alarm unknown invalid
+cases='clean unsupported-acsl-info empty incomplete version missing status probe-status probe-timeout alarm unknown invalid
 warning uppercase-warning mixed-case-warning external-warning lowercase-error uppercase-error
 mixed-case-failure timeout uppercase-timeout timed-out warning-summary pruned-body nonreturning-body
 old-profile huffman-profile missing-all-witnesses reordered-witnesses unknown-witness bare-witness
@@ -199,7 +204,12 @@ for test_case in $cases; do
     total=$((total + 1))
     analyzer="$test_tmp/frama-bounds-fixture"
     expected=1
-    case "$test_case" in clean|unsupported-acsl-info) expected=0 ;; status) expected=23 ;; missing) analyzer="$test_tmp/no-analyzer"; expected=127 ;; esac
+    case "$test_case" in
+        clean|unsupported-acsl-info) expected=0 ;;
+        status|probe-status) expected=23 ;;
+        probe-timeout) expected=124 ;;
+        missing) analyzer="$test_tmp/no-analyzer"; expected=127 ;;
+    esac
     scan_path=$PATH
     case "$test_case" in scanner-error|scanner-missing) scan_path="$test_tmp/scanner:$PATH" ;; esac
     actual=0

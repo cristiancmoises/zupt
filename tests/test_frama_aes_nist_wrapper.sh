@@ -6,6 +6,10 @@ set -eu
 
 case "${0##*/}" in
     gcc-aes-fixture)
+        case "${FRAMA_AES_CASE:-}" in
+            cc-probe-status) exit 23 ;;
+            cc-probe-timeout) exit 124 ;;
+        esac
         if [ "${FRAMA_AES_CASE:-}" = gcc-version ]; then
             printf '16.2.0\n'
         else
@@ -22,6 +26,10 @@ case "${0##*/}" in
         exec "$@" ;;
     frama-aes-fixture)
         if [ "${1:-}" = -version ]; then
+            case "$FRAMA_AES_CASE" in
+                probe-status) exit 23 ;;
+                probe-timeout) exit 124 ;;
+            esac
             if [ "$FRAMA_AES_CASE" = version ]; then
                 printf '28.0 (Nickel)\n'
             else
@@ -117,6 +125,7 @@ ln -s "$self" "$test_tmp/awk-failure/awk"
 case_count=0
 for test_case in clean alarm unknown invalid assertions warning external-warning external-error \
     incomplete status timeout version gcc-version missing missing-cc \
+    probe-status probe-timeout cc-probe-status cc-probe-timeout \
     missing-body spec-body byte-count coverage old-coverage old-assertions duplicate wrong-oracle awk-failure \
     missing-supervisor supervisor-error old-initialization-assertions old-helper-assertions \
     uppercase-warning uppercase-error mixed-warning mixed-error; do
@@ -129,6 +138,8 @@ for test_case in clean alarm unknown invalid assertions warning external-warning
         clean) expected=0 ;;
         status) expected=23 ;;
         timeout) expected=124 ;;
+        probe-status|cc-probe-status) expected=23 ;;
+        probe-timeout|cc-probe-timeout) expected=124 ;;
         missing) analyzer="$test_tmp/no-analyzer"; expected=127 ;;
         missing-cc) preprocessor="$test_tmp/no-preprocessor"; expected=127 ;;
         awk-failure) test_path="$test_tmp/awk-failure:$PATH" ;;

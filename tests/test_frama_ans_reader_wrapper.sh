@@ -7,6 +7,8 @@ set -eu
 if [ "${0##*/}" = frama-reader-fixture ]; then
     if [ "${1:-}" = -version ]; then
         case "$FRAMA_READER_CASE" in
+            probe-status) exit 23 ;;
+            probe-timeout) exit 124 ;;
             version) printf '28.0 (Nickel)\n' ;;
             *) printf '29.0 (Copper)\n' ;;
         esac
@@ -221,7 +223,7 @@ for test_case in clean zero-dot single-subgoal partial-subgoals boolean-subgoals
     wrong-prover unsuccessful-prover negative-time nan string-number duplicate-key \
     trailing-junk malformed-number truncated empty-report wrong-type missing-report \
     missing-summary duplicate-summary warning external-warning timeout-text failure-text \
-    status timeout version missing parser-missing; do
+    status timeout version missing parser-missing probe-status probe-timeout; do
     total=$((total + 1))
     analyzer="$test_tmp/frama-reader-fixture"
     parser=python3
@@ -230,6 +232,8 @@ for test_case in clean zero-dot single-subgoal partial-subgoals boolean-subgoals
         clean|zero-dot|single-subgoal) expected=0 ;;
         status) expected=23 ;;
         timeout) expected=124 ;;
+        probe-status) expected=23 ;;
+        probe-timeout) expected=124 ;;
         missing) analyzer="$test_tmp/no-analyzer"; expected=127 ;;
         parser-missing) parser="$test_tmp/no-parser"; expected=127 ;;
     esac

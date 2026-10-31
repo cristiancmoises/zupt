@@ -9,12 +9,14 @@ repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 frama_c=${FRAMA_C:-frama-c}
 cpp_cc=${FRAMA_CPP_CC:-gcc}
 deadline=${FRAMA_TIMEOUT:-timeout}
-version=$("$frama_c" -version)
+# Handle failed substitutions explicitly: older /bin/sh implementations may
+# replace their status when errexit terminates an assignment.
+version=$("$frama_c" -version) || exit "$?"
 case "$version" in
     '29.0'*) ;;
     *) printf 'ERROR: this Eva result gate requires Frama-C 29.0, got %s\n' "$version" >&2; exit 1 ;;
 esac
-version=$("$cpp_cc" -dumpfullversion)
+version=$("$cpp_cc" -dumpfullversion) || exit "$?"
 case "$version" in
     '14.3.0') ;;
     *) printf 'ERROR: this Eva preprocessing profile requires GCC 14.3.0, got %s\n' "$version" >&2; exit 1 ;;

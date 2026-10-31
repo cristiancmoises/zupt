@@ -5,7 +5,7 @@
 set -eu
 repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 frama_c=${FRAMA_C:-frama-c}
-version=$("$frama_c" -version)
+version=$("$frama_c" -version) || exit "$?"
 case "$version" in
     '29.0'*) ;;
     *) printf 'ERROR: this Eva result gate requires Frama-C 29.0, got %s\n' "$version" >&2; exit 1 ;;
