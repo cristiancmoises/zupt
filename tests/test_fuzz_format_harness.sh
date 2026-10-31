@@ -12,8 +12,6 @@ test_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT HUP INT TERM
 mkdir "$test_tmp/mutations with spaces"
-TMPDIR="$test_tmp/mutations with spaces"
-export TMPDIR
 cd "$test_root"
 
 # Deliberately use the real harness and its child-execution path.
@@ -35,6 +33,9 @@ cd "$test_root"
 "${CC:-cc}" ${CPPFLAGS:-} ${CFLAGS:--O2 -g -std=c11 -Wall -Wextra -Werror} \
     -fsanitize=undefined -fno-sanitize-recover=undefined \
     tests/test_fuzz_format_harness.c ${LDFLAGS:-} ${LDLIBS:-} -o "$test_tmp/ubsan-child"
+# Exercise spaced mutation paths at runtime without changing compiler scratch.
+TMPDIR="$test_tmp/mutations with spaces"
+export TMPDIR
 printf 'seed1234' > "$test_tmp/seed"
 printf '0123456789abcdef' > "$test_tmp/seed-16"
 

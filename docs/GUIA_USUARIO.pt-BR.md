@@ -2154,10 +2154,17 @@ nova das fontes; depois repita com `CC=clang`:
 ```sh
 make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 CC=gcc \
   CFLAGS='-O2 -Werror -Wpedantic -Wshadow -Wcast-align -Wformat=2' \
-  test-fuzz-build test-fuzz-build-wrapper
+  test-fuzz-harness test-fuzz-build test-fuzz-build-wrapper
 ```
 
-O alvo Make primeiro compila a CLI correspondente e fornece seu caminho
+A regressão de execução de filhos `test-fuzz-harness` compila seus fixtures
+com os flags do chamador antes de selecionar o diretório de mutações com
+espaços. Os temporários do compilador permanecem separados dos temporários de
+execução, inclusive com LTO do GCC. Os casos de execução continuam cobrindo
+caminhos privados com espaços, limpeza, retenção, falhas reais de UBSan e
+classificação de diagnósticos sintéticos de sanitizadores.
+
+O alvo `test-fuzz-build` primeiro compila a CLI correspondente e fornece seu caminho
 absoluto por `FUZZ_TEST_CLI`. Essa CLI apenas cria e testa a semente STORE
 sem criptografia. Os dois executáveis de fuzzing continuam compilando seu
 próprio núcleo UBSan; objetos separados sem LTO preservam os checks reais

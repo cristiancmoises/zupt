@@ -6,6 +6,11 @@ Version 5.2.10 is being validated and is not an official release. Its earlier
 delivery was withdrawn; previous packages do not validate the corrected source.
 The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Compile fuzz-harness fixtures before selecting the mutation directory with
+  spaces. Fedora GCC 16 LTO failed while creating compiler scratch files in
+  that directory. Preserve caller compiler/linker flags, UBSan and all spaced
+  runtime-path checks. Local GCC 14 LTO and ordinary GCC/Clang checks pass;
+  the native Fedora package gate still needs a fresh run.
 - Declare the UBSan runtime as a Fedora build dependency and install it in
   the native GUI package CI job: the maintained check suite links instrumented
   harness regressions. Use openSUSE's optional man-page suffix macro and test

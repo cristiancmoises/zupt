@@ -2042,10 +2042,16 @@ copy, then repeat with `CC=clang`:
 ```sh
 make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 CC=gcc \
   CFLAGS='-O2 -Werror -Wpedantic -Wshadow -Wcast-align -Wformat=2' \
-  test-fuzz-build test-fuzz-build-wrapper
+  test-fuzz-harness test-fuzz-build test-fuzz-build-wrapper
 ```
 
-The Make target first builds the matching CLI and supplies its absolute path
+The child-execution regression `test-fuzz-harness` compiles its fixtures with
+the caller's flags before selecting the mutation directory containing spaces.
+Compiler scratch remains separate from runtime scratch, including with GCC
+LTO. The runtime cases still check spaced private-input paths, cleanup,
+retention, real UBSan failures and synthetic sanitizer-diagnostic classification.
+
+The `test-fuzz-build` target first builds the matching CLI and supplies its absolute path
 through `FUZZ_TEST_CLI`. That CLI only creates and tests the unencrypted STORE
 seed. Both fuzz executables still compile their own UBSan core; separate
 non-LTO objects retain the real short/interrupted I/O, setup-failure,
