@@ -67,17 +67,23 @@ check test "$provider_status" -eq 1
 # Keep these tools separate from the parent PATH used by the existing checks.
 symbol_bin="$work/symbol-bin"
 mkdir -p "$symbol_bin"
+fixture_shell=${BASH-}
+if [[ $fixture_shell != /* || $fixture_shell == *[[:space:]]* || ! -x $fixture_shell ]]; then
+    printf 'FAIL: fixture interpreter must be an executable absolute path without whitespace\n' >&2
+    exit 1
+fi
 make_bin=$(command -v "${MAKE:-make}")
 real_awk=$(command -v awk)
 real_sed=$(command -v sed)
 real_sort=$(command -v sort)
 real_grep=$(command -v grep)
 real_tr=$(command -v tr)
-for tool in diff mktemp rm; do
-    ln -s -- "$(command -v "$tool")" "$symbol_bin/$tool"
-done
-cat > "$symbol_bin/tool" <<'SHIM'
-#!/bin/sh
+real_diff=$(command -v diff)
+real_mktemp=$(command -v mktemp)
+real_rm=$(command -v rm)
+# Generated fixtures are not covered by a package's source-shebang phase.
+printf '#!%s\n' "$fixture_shell" > "$symbol_bin/tool"
+cat >> "$symbol_bin/tool" <<'SHIM'
 set -u
 tool=${0##*/}
 stage=$tool
@@ -93,6 +99,11 @@ owned_input() {
     fi
 }
 case "$tool" in
+    # Invoke installed utilities at their original paths. Relocating an MSYS
+    # executable into this private PATH can hide its adjacent runtime DLLs.
+    diff) exec "$SDK_TEST_REAL_DIFF" "$@" ;;
+    mktemp) exec "$SDK_TEST_REAL_MKTEMP" "$@" ;;
+    rm) exec "$SDK_TEST_REAL_RM" "$@" ;;
     nm)
         [ "$#" -eq 3 ] || bad_args
         [ "$1" = -D ] && [ "$2" = --defined-only ] &&
@@ -179,8 +190,8 @@ printf '%s:%s:real=%s\n' "$stage" "$status" "$real_status" >> "$SDK_TEST_CASE/tr
 exit "$status"
 SHIM
 chmod +x "$symbol_bin/tool"
-for tool in nm awk sed sort grep tr unexpected-cc; do
-    ln -s tool "$symbol_bin/$tool"
+for tool in nm awk sed sort grep tr diff mktemp rm unexpected-cc; do
+    cp -- "$symbol_bin/tool" "$symbol_bin/$tool"
 done
 
 symbol_case() {
@@ -206,7 +217,8 @@ MAP
             SDK_TEST_LIBRARY="$case_dir/prebuilt.so" SDK_TEST_FAULT="$fault" \
             SDK_TEST_REAL_AWK="$real_awk" SDK_TEST_REAL_SED="$real_sed" \
             SDK_TEST_REAL_SORT="$real_sort" SDK_TEST_REAL_GREP="$real_grep" \
-            SDK_TEST_REAL_TR="$real_tr" \
+            SDK_TEST_REAL_TR="$real_tr" SDK_TEST_REAL_DIFF="$real_diff" \
+            SDK_TEST_REAL_MKTEMP="$real_mktemp" SDK_TEST_REAL_RM="$real_rm" \
             "$make_bin" --no-print-directory -rR -f "$root/sdk/Makefile.sdk" \
             -o "$case_dir/prebuilt.so" "SDK_SHARED=$case_dir/prebuilt.so" \
             "SDK_MAP=$case_dir/symbols.map" "SDK_BUILD_DIR=$case_dir/build" \
