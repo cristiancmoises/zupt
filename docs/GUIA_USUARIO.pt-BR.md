@@ -4,6 +4,10 @@ Este guia descreve os fluxos suportados da linha de comando e da interface
 gráfica do ZUPT. Os exemplos usam diretórios descartáveis, deixam a etapa de
 verificação explícita e mantêm senhas fora dos argumentos dos processos.
 
+Entre em contato com o projeto somente por
+[sac@securityops.co](mailto:sac@securityops.co). Para relatar vulnerabilidades,
+siga a [política de segurança](../SECURITY.md).
+
 ## Status da versão
 
 A versão pública oficial é o [ZUPT 5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).

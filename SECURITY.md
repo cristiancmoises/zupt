@@ -2,7 +2,7 @@
 
 ## Reporting vulnerabilities
 
-Report suspected vulnerabilities privately to **zupt@riseup.net** with
+Report suspected vulnerabilities privately to **sac@securityops.co** with
 `[security]` in the subject. Do not open a public issue before coordinated
 disclosure.
 

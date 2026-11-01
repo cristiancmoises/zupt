@@ -2,6 +2,11 @@
 
 [English](README.md) | [Português do Brasil](README.pt-BR.md)
 
+**Official contact:** [sac@securityops.co](mailto:sac@securityops.co).
+This is ZUPT's only official email address. The address `zupt@riseup.net`
+is not associated with this project. For vulnerability reports, follow the
+[security policy](SECURITY.md).
+
 The published official version is
 [ZUPT 5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 Version **5.2.10 is undergoing validation**, not an official

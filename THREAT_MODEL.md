@@ -358,7 +358,7 @@ final release gates for the resulting candidate.
 
 ## Reporting security issues
 
-Email **zupt@riseup.net** with `[security]` in the subject. Include the version,
+Email **sac@securityops.co** with `[security]` in the subject. Include the version,
 platform, impact, and a minimal non-sensitive reproducer. Do not disclose the
 issue publicly until a coordinated timeline has been agreed.
 

@@ -5469,7 +5469,7 @@ build-time tool that is not redistributed.
 - "libzuptsdk is free software" → "Zupt is free software" (this is the
   zupt repo, not the libzuptsdk repo)
 - GitHub URL → git.securityops.co URL
-- Contact `zupt@riseup.net` → `sac@securityops.co`
+- Correct the project contact to `sac@securityops.co`
 - Appended a note explaining that VaptVupt is GPL not AGPL, with
   rationale for the deliberate licensing split
 

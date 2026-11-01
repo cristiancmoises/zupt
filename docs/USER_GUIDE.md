@@ -4,6 +4,9 @@ This guide covers the supported command-line and graphical workflows for ZUPT.
 Every example uses a disposable path, makes verification explicit, and keeps
 passwords out of process arguments.
 
+Contact the project only at [sac@securityops.co](mailto:sac@securityops.co).
+For vulnerability reports, follow the [security policy](../SECURITY.md).
+
 ## Release status
 
 The official public release is [ZUPT 5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
