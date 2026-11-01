@@ -311,16 +311,43 @@ do not establish native package installation. Optional full SDK/PQ providers
 and the privileged loop-device case remain separate requirements; the base
 SDK is not a replacement for the full provider.
 
-### Current formal evidence, reviewed 2026-10-31
+### Reproducing the static analyzer checks
 
-The 2026-10-31 UTC repeat of all six maintained Frama-C targets passes on the
+On GNU/Linux with GCC and Cppcheck **2.21.0**, run:
+
+~~~sh
+cppcheck --version
+CC=gcc bash tests/test_static_analysis.sh
+~~~
+
+CI builds Cppcheck from commit
+`e73bf44c3e49686b7495fab352d03a6c6075516b`; its archive SHA-256 is
+`acc9383fc48d50faaab543f78deb5efbf20b0cdf9bab7622e9ced8f19e7ceb60`.
+The exact build commands are in [the CI workflow](../.github/workflows/ci.yml).
+The separately built upstream tool passes warning/performance, the selected
+dead-condition style criterion and error-level scans in 6.58/6.87/6.47 seconds
+on 2026-11-01 UTC. The Guix tool also passes. All retain 20 first-party C
+files, at most two preprocessor configurations per file, the existing
+suppression list and 60-second deadlines.
+Other advisory style diagnostics are retained; these checks do not cover
+every configuration or establish absence of vulnerabilities.
+
+Ubuntu's Cppcheck 2.13.0 exceeded all three deadlines in run `41234761751`;
+those are recorded failures. The exact slow function has not been isolated.
+The version pin qualifies a newer analyzer without increasing limits,
+discarding source files or changing the application to satisfy the old tool.
+Native Ubuntu CI with the pinned build remains required.
+
+### Current formal evidence, reviewed 2026-11-01
+
+The 2026-11-01 UTC repeat of all six maintained Frama-C targets passes on the
 frozen 294-file source after the five ANS guard corrections: decoder bounds,
 reader, frequencies, logarithm, logarithm bounds and fixed-vector AES. The
 tools are Frama-C 29.0, GCC 14.3.0, Why3 1.7.2 and recognized Z3 4.12.2.
 Each target retains its own model, caller assumptions and exact result
 checks; these conditional results do not prove the whole application.
 
-The 2026-10-31 UTC ordinary Jasmin 2026.09.0 repeat on the same source
+The 2026-11-01 UTC ordinary Jasmin 2026.09.0 repeat on the same source
 passes compilation, safety, CT, DOIT, lowering and generated/runtime
 instruction comparisons for all five selected sources. Seven tools/libraries
 match the pinned package members. Two environment rejections, four warning

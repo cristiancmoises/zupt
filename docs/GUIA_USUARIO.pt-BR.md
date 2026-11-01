@@ -318,9 +318,37 @@ Sintaxe aprovada não comprova instalação de pacote nativo. Os provedores
 opcionais completos SDK/PQ e o caso privilegiado de dispositivo loop
 continuam separados; o SDK base não substitui o provedor completo.
 
-### Evidência formal atual, conferida em 2026-10-31
+### Reprodução dos checks do analisador estático
 
-Na repetição de 2026-10-31 UTC, os seis alvos Frama-C mantidos passam na
+No GNU/Linux, com GCC e Cppcheck **2.21.0**, execute:
+
+~~~sh
+cppcheck --version
+CC=gcc bash tests/test_static_analysis.sh
+~~~
+
+O CI compila o Cppcheck a partir do commit
+`e73bf44c3e49686b7495fab352d03a6c6075516b`; o SHA-256 do arquivo de fontes é
+`acc9383fc48d50faaab543f78deb5efbf20b0cdf9bab7622e9ced8f19e7ceb60`.
+Os comandos exatos estão no [workflow do CI](../.github/workflows/ci.yml).
+A ferramenta compilada separadamente da fonte upstream passa nos scans de
+warning/performance, no critério selecionado de condições mortas e nos erros
+em 6,58/6,87/6,47 segundos em 2026-11-01 UTC. A ferramenta Guix também passa.
+São mantidos os 20 arquivos C próprios, no máximo duas configurações de
+pré-processamento por arquivo, as supressões existentes e os prazos de
+60 segundos. Outros diagnósticos consultivos de
+estilo são preservados; esses checks não cobrem todas as configurações nem
+comprovam ausência de vulnerabilidades.
+
+O Cppcheck 2.13.0 do Ubuntu excedeu os três prazos na execução `41234761751`;
+as falhas estão registradas. A função exata que demora ainda não foi isolada.
+A versão fixada qualifica um analisador mais recente sem aumentar limites,
+descartar fontes ou alterar o aplicativo para atender à ferramenta antiga.
+A execução nativa do Ubuntu com o build fixado continua obrigatória.
+
+### Evidência formal atual, conferida em 2026-11-01
+
+Na repetição de 2026-11-01 UTC, os seis alvos Frama-C mantidos passam na
 fonte congelada de 294 arquivos após as cinco correções dos guards ANS:
 limites do decodificador, leitor, frequências, logaritmo, limites do
 logaritmo e AES com vetores fixos. As ferramentas são Frama-C 29.0, GCC
@@ -328,7 +356,7 @@ logaritmo e AES com vetores fixos. As ferramentas são Frama-C 29.0, GCC
 suas hipóteses sobre os chamadores e seus checks exatos de resultado; esses
 resultados condicionais não comprovam o aplicativo completo.
 
-A repetição comum do Jasmin 2026.09.0 em 2026-10-31 UTC, na mesma fonte,
+A repetição comum do Jasmin 2026.09.0 em 2026-11-01 UTC, na mesma fonte,
 passa em compilação, safety, CT, DOIT, lowering e comparação de instruções
 geradas/mantidas para as cinco fontes selecionadas. Sete
 ferramentas/bibliotecas correspondem aos membros dos pacotes fixados. Passam

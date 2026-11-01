@@ -6,6 +6,13 @@ Version 5.2.10 is being validated and is not an official release. Its earlier
 delivery was withdrawn; previous packages do not validate the corrected source.
 The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Pin the CI analyzer to Cppcheck 2.21.0, built from an exact upstream commit
+  and verified source checksum. Ubuntu's 2.13.0 times out in all three scans;
+  retain those failures. Both the Guix tool and the separately compiled
+  upstream tool pass all three existing criteria on the same 20 source files,
+  at most two configurations per file and the existing suppression list within
+  the unchanged 60-second
+  deadlines. Record advisory style output and require fresh native CI.
 - Keep SDK symbol-test launchers executable inside Guix and MSYS builds:
   generate them with the running Bash path and invoke installed utilities at
   their original locations. Preserve the isolated tool path and all 36

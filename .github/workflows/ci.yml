@@ -211,10 +211,32 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install GCC and cppcheck
+      - name: Install GCC and Cppcheck build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cppcheck
+          sudo apt-get install -y build-essential curl python3
+      - name: Build pinned Cppcheck 2.21.0
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          cppcheck_commit=e73bf44c3e49686b7495fab352d03a6c6075516b
+          cppcheck_work=$(mktemp -d "$RUNNER_TEMP/zupt-cppcheck.XXXXXXXX")
+          cppcheck_source="$cppcheck_work/source"
+          cppcheck_archive="$cppcheck_work/source.tar.gz"
+          curl --fail --location --proto '=https' --proto-redir '=https' \
+            --max-time 30 --max-filesize 8388608 \
+            --output "$cppcheck_archive" \
+            "https://codeload.github.com/cppcheck-opensource/cppcheck/tar.gz/$cppcheck_commit"
+          printf 'acc9383fc48d50faaab543f78deb5efbf20b0cdf9bab7622e9ced8f19e7ceb60  %s\n' \
+            "$cppcheck_archive" | sha256sum --check
+          printf 'Cppcheck source commit: %s\n' "$cppcheck_commit"
+          mkdir "$cppcheck_source"
+          tar -xzf "$cppcheck_archive" --strip-components=1 -C "$cppcheck_source"
+          make -C "$cppcheck_source" -j2 MATCHCOMPILER=yes \
+            CPPCHK_GLIBCXX_DEBUG= CXXOPTS=-O2 FILESDIR="$cppcheck_source" cppcheck
+          cppcheck_version=$("$cppcheck_source/cppcheck" --version) || exit "$?"
+          test "$cppcheck_version" = 'Cppcheck 2.21.0'
+          printf '%s\n' "$cppcheck_source" >> "$GITHUB_PATH"
       - name: Run the maintained compiler and cppcheck regressions
         run: |
           command -v cppcheck
