@@ -329,6 +329,17 @@ nos perfis comuns e UBSan. Remover qualquer guarda da contagem ou ignorar o
 observador faz o controle negativo privado correspondente falhar. Uma nova
 execução nativa macOS continua obrigatória.
 
+`make test-sdk-adapter` executa 14 casos de envelopes/propriedade e um check
+de escopo da macro de cópia com o adaptador real e um provedor controlado.
+Cabeçalhos da plataforma podem definir `memcpy` como macro; o fixture guarda
+essa definição, aplica o observador de cópia somente ao adaptador e restaura
+a definição da plataforma. Hosts sem essa macro usam um modelo de macro
+de função. Uma cópia legítima de 1.501 bytes fora do adaptador deve funcionar;
+o limite de 1.500 bytes do envelope permanece igual. GCC 14.3.0 e
+Clang 22.1.8 passam localmente nos perfis comuns/UBSan; omitir ou corromper a
+restauração da macro é rejeitado. São testes da fronteira do provedor, não do
+SDK externo completo, do hardening Apple nativo ou certificação criptográfica.
+
 `make test-sdk-build-flags` executa 36 controles de seleção/exportação do SDK.
 Os lançadores gerados usam o caminho absoluto do Bash em execução, que não
 pode conter espaços em branco. Os utilitários instalados são chamados pelos

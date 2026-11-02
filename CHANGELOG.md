@@ -6,6 +6,14 @@ Version 5.2.10 is being validated and is not an official release. Its earlier
 delivery was withdrawn; previous packages do not validate the corrected source.
 The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Preserve the platform `memcpy` macro around the SDK adapter fixture's
+  checked-copy override. The Apple SDK defines that macro, causing the native
+  check to fail under `-Werror`. Model a function-like macro on other hosts
+  and verify that normal copying resumes outside the adapter scope. Retain
+  the 14 envelope/ownership cases and add one scope check. GCC 14.3.0 and
+  Clang 22.1.8 pass ordinary/UBSan profiles; missing and incorrect restoration
+  are rejected. Production hardening and adapter code are unchanged; native
+  macOS confirmation remains required.
 - Observe entropy literal-buffer allocations in separate test-only builds
   of the same codec modules instead of GNU linker wrapping, which fails on
   macOS. Retain all four malformed-count cases and add four controls proving

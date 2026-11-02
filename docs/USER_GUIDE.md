@@ -322,6 +322,17 @@ GCC 14.3.0 and Clang 22.1.8 pass ordinary and UBSan profiles locally. Removing
 any count guard or bypassing the observer fails the corresponding private
 negative control. A fresh native macOS run remains required.
 
+`make test-sdk-adapter` runs 14 envelope/ownership cases and one copy-macro
+scope check against the real adapter with a controlled provider. Platform
+headers may define `memcpy` as a macro; the fixture saves that definition,
+installs its checked-copy observer only around the adapter, then restores the
+platform definition. Hosts without such a macro use a function-like model.
+A legitimate 1,501-byte copy outside the adapter must still work, while the
+adapter's 1,500-byte envelope limit remains unchanged. GCC 14.3.0 and
+Clang 22.1.8 pass ordinary/UBSan profiles locally; omitting or corrupting macro
+restoration is rejected. This is provider-boundary testing, not full external
+SDK, native Apple hardening or cryptographic certification.
+
 `make test-sdk-build-flags` runs 36 SDK selection/export controls. Its generated
 tool launchers use the running Bash's absolute executable path, which must not
 contain whitespace. Installed utilities are invoked at their original quoted

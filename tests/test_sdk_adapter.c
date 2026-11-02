@@ -14,6 +14,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Exercise string headers that expose memcpy as a function-like macro. */
+#ifndef memcpy
+#define memcpy(...) (memcpy)(__VA_ARGS__)
+#endif
+
 #define TEST_HEADER_CAPACITY 1500u
 #define TEST_BLOB_CAPACITY   1496u
 #define TEST_LENGTH_SENTINEL ((size_t)0x5a17c0deu)
@@ -268,6 +273,8 @@ static void *checked_memcpy(void *destination, const void *source, size_t bytes)
     return memcpy(destination, source, bytes);
 }
 
+#pragma push_macro("memcpy")
+#undef memcpy
 #define free forbidden_libc_free
 #define memcpy checked_memcpy
 #define zupt_secure_wipe observed_secure_wipe
@@ -275,6 +282,24 @@ static void *checked_memcpy(void *destination, const void *source, size_t bytes)
 #undef zupt_secure_wipe
 #undef memcpy
 #undef free
+#pragma pop_macro("memcpy")
+
+#ifndef memcpy
+#error "SDK fixture must restore the platform memcpy macro"
+#endif
+
+static void test_memcpy_macro_scope(void)
+{
+    uint8_t source[TEST_HEADER_CAPACITY + 1];
+    uint8_t destination[sizeof(source)];
+
+    memset(source, 0x6a, sizeof(source));
+    memset(destination, 0, sizeof(destination));
+    rejected_copies = 0;
+    if (memcpy(destination, source, sizeof(source)) != destination ||
+        memcmp(destination, source, sizeof(source)) != 0 || rejected_copies != 0)
+        fail("memcpy macro restoration", "test-only copy guard escaped the adapter scope");
+}
 
 static void test_encrypt_success(void)
 {
@@ -597,6 +622,7 @@ static void test_decrypt_rejects_oversize(void)
 
 int main(void)
 {
+    test_memcpy_macro_scope();
     test_encrypt_success();
     test_encrypt_maximum_blob();
     test_encrypt_provider_error_with_blob();
