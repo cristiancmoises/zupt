@@ -283,21 +283,32 @@ e os scripts de testes para a matriz vigente.
 
 ### Supervisão portátil dos checks e cobertura de ferramentas
 
-Os supervisores Frama-C preservam explicitamente as falhas da consulta de
-versão do analisador/compilador antes de interpretar a versão. Isso trata a
-falha de status de ferramenta ausente observada no check nativo do macOS.
-Execute os controles mantidos:
+Os supervisores Frama-C verificam a disponibilidade das ferramentas antes de
+executá-las e depois preservam explicitamente o status de falha das consultas
+de versão do analisador/compilador. Repassar apenas esse status não resolveu
+a falha de ferramenta ausente no check nativo do macOS. A verificação de
+disponibilidade retorna 127 com diagnóstico do supervisor, sem depender do
+tratamento de erros específico do shell. Execute os controles mantidos:
 
 ~~~sh
 make -j1 test-frama-aes-nist-wrapper test-frama-ans-decode-bounds-wrapper \
   test-frama-ans-reader-wrapper test-frama-ans-log-bounds-wrapper
 ~~~
 
-A execução Linux de 2026-10-31 passa nos 320 casos sintéticos, incluindo
+A execução Linux de 2026-11-02 passa nos 320 casos sintéticos, incluindo
 falhas de consulta, ferramentas ausentes, timeouts, relatórios incompletos e
-falhas dos parsers. Quatro mutações privadas que perdem o status são
-rejeitadas. São testes dos supervisores, não análise formal nem evidência
-de uma nova execução nativa do macOS aprovada.
+falhas dos parsers. Os casos de ferramenta ausente também exigem o diagnóstico
+de inicialização do próprio supervisor; os quatro grupos falham nessa nova
+asserção antes da verificação de disponibilidade. São testes dos supervisores,
+não análise formal nem evidência de uma nova execução nativa do macOS aprovada.
+
+O smoke test da CLI instalada e `bash tests/test_path_traversal.sh` exigem
+links simbólicos reais nos fixtures de confinamento da extração. No MSYS/Cygwin,
+eles solicitam links nativos sem alternativa por cópia e verificam cada link
+antes da extração. A execução nativa Windows falha se não puder criar o fixture;
+uma pasta copiada não comprova rejeição de reparse points. A suíte POSIX local
+passa em 23 casos sem skips. Os controles privados de cópia e repasse de opções
+exercitam a preparação dos fixtures, não o comportamento nativo Windows.
 
 `make test-sdk-build-flags` executa 36 controles de seleção/exportação do SDK.
 Os lançadores gerados usam o caminho absoluto do Bash em execução, que não
@@ -1634,8 +1645,11 @@ make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-installed-smoke-harness
 bash tests/test_installed_smoke_harness.sh /caminho/do/pacote/bin/zupt
 ```
 
-Em hosts POSIX são 65 casos: os 53 controles existentes de processos e 12
-controles das ferramentas de checksum. As duas interfaces têm controle de
+Em hosts POSIX são 66 casos: os 53 controles existentes de processos, 12
+controles das ferramentas de checksum e uma rejeição de pasta copiada como
+fixture de link. Os utilitários auxiliares usam lançadores que executam os
+caminhos instalados originais, para que os executáveis MSYS encontrem as DLLs
+adjacentes sem ampliar o `PATH` privado. As duas interfaces têm controle de
 sucesso, saída vazia/plausível com erro de hash e falhas de enumeração/ordenação.
 Adaptadores privados encaminham ao gerador SHA-256 real disponível; o caminho
 `shasum` não exige Perl para esses controles. Eles validam o tratamento de

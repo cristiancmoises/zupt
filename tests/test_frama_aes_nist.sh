@@ -9,8 +9,13 @@ repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 frama_c=${FRAMA_C:-frama-c}
 cpp_cc=${FRAMA_CPP_CC:-gcc}
 deadline=${FRAMA_TIMEOUT:-timeout}
-# Handle failed substitutions explicitly: older /bin/sh implementations may
-# replace their status when errexit terminates an assignment.
+# Detect missing tools before shell-specific command-not-found handling runs.
+for tool in "$frama_c" "$cpp_cc" "$deadline" awk; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        printf 'ERROR: required tool not found: %s\n' "$tool" >&2
+        exit 127
+    fi
+done
 version=$("$frama_c" -version) || exit "$?"
 case "$version" in
     '29.0'*) ;;
@@ -21,14 +26,6 @@ case "$version" in
     '14.3.0') ;;
     *) printf 'ERROR: this Eva preprocessing profile requires GCC 14.3.0, got %s\n' "$version" >&2; exit 1 ;;
 esac
-if ! command -v "$deadline" >/dev/null; then
-    printf 'ERROR: GNU-compatible deadline tool not found: %s\n' "$deadline" >&2
-    exit 127
-fi
-if ! command -v awk >/dev/null; then
-    printf 'ERROR: awk not found\n' >&2
-    exit 127
-fi
 log=$(mktemp "${TMPDIR:-/tmp}/zupt-frama-aes.XXXXXXXX")
 trap 'rm -f -- "$log"' EXIT
 trap 'exit 129' HUP

@@ -32,6 +32,16 @@ case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*) WINDOWS_NATIVE=1 ;;
 esac
 
+make_symlink() {
+    # Copied or emulated MSYS2 links do not exercise native reparse checks.
+    case ${OSTYPE-} in
+        msys*|mingw*) MSYS=winsymlinks:nativestrict ln -s -- "$1" "$2" ;;
+        cygwin*) CYGWIN=winsymlinks:nativestrict ln -s -- "$1" "$2" ;;
+        *) ln -s -- "$1" "$2" ;;
+    esac || return
+    [[ -L $2 ]]
+}
+
 FIXTURE=$TEST_ROOT/archive-path-fixture
 # Compiler and linker flag variables intentionally expand into argument lists,
 # matching the Makefile command-line contract.
@@ -164,8 +174,7 @@ expect_display_unsafe_hex_path_rejected \
 make_fixture "$TEST_ROOT/leaf.zupt" 'innocent.txt'
 printf '%s\n' DO_NOT_OVERWRITE > "$TEST_ROOT/sentinel"
 mkdir "$TEST_ROOT/leaf-out"
-if ln -s "$TEST_ROOT/sentinel" "$TEST_ROOT/leaf-out/innocent.txt" \
-        2>/dev/null && [[ -L $TEST_ROOT/leaf-out/innocent.txt ]]; then
+if make_symlink "$TEST_ROOT/sentinel" "$TEST_ROOT/leaf-out/innocent.txt" 2>/dev/null; then
     if ! "$ZUPT_BIN" extract -o "$TEST_ROOT/leaf-out" "$TEST_ROOT/leaf.zupt" \
             > "$TEST_ROOT/leaf.log" 2>&1 &&
        [[ $(<"$TEST_ROOT/sentinel") == DO_NOT_OVERWRITE ]]; then
@@ -174,7 +183,11 @@ if ln -s "$TEST_ROOT/sentinel" "$TEST_ROOT/leaf-out/innocent.txt" \
         fail 'leaf symlink is refused without changing its target'
     fi
 else
-    skip 'leaf symlink test is unsupported by this runner'
+    if ((WINDOWS_NATIVE)); then
+        fail 'cannot create a native leaf-symlink fixture'
+    else
+        skip 'leaf symlink test is unsupported by this runner'
+    fi
 fi
 
 mkdir "$TEST_ROOT/regular-out"
@@ -203,8 +216,7 @@ fi
 
 make_fixture "$TEST_ROOT/parent.zupt" 'nested/file.txt'
 mkdir "$TEST_ROOT/parent-out" "$TEST_ROOT/parent-outside"
-if ln -s "$TEST_ROOT/parent-outside" "$TEST_ROOT/parent-out/nested" \
-        2>/dev/null && [[ -L $TEST_ROOT/parent-out/nested ]]; then
+if make_symlink "$TEST_ROOT/parent-outside" "$TEST_ROOT/parent-out/nested" 2>/dev/null; then
     if ! "$ZUPT_BIN" extract -o "$TEST_ROOT/parent-out" "$TEST_ROOT/parent.zupt" \
             > "$TEST_ROOT/parent.log" 2>&1 &&
        [[ -z $(find "$TEST_ROOT/parent-outside" -mindepth 1 -print -quit) ]]; then
@@ -213,12 +225,15 @@ if ln -s "$TEST_ROOT/parent-outside" "$TEST_ROOT/parent-out/nested" \
         fail 'intermediate symlink cannot redirect extraction or directory creation'
     fi
 else
-    skip 'intermediate symlink test is unsupported by this runner'
+    if ((WINDOWS_NATIVE)); then
+        fail 'cannot create a native intermediate-symlink fixture'
+    else
+        skip 'intermediate symlink test is unsupported by this runner'
+    fi
 fi
 
 mkdir "$TEST_ROOT/root-outside"
-if ln -s "$TEST_ROOT/root-outside" "$TEST_ROOT/root-link" 2>/dev/null &&
-        [[ -L $TEST_ROOT/root-link ]]; then
+if make_symlink "$TEST_ROOT/root-outside" "$TEST_ROOT/root-link" 2>/dev/null; then
     if ((WINDOWS_NATIVE)); then
         if ! "$ZUPT_BIN" extract -o "$TEST_ROOT/root-link/child" \
                 "$TEST_ROOT/leaf.zupt" > "$TEST_ROOT/root-link.log" 2>&1 &&
@@ -235,7 +250,11 @@ if ln -s "$TEST_ROOT/root-outside" "$TEST_ROOT/root-link" 2>/dev/null &&
         fail 'user-selected POSIX output-root symlink is resolved once'
     fi
 else
-    skip 'output-root symlink test is unsupported by this runner'
+    if ((WINDOWS_NATIVE)); then
+        fail 'cannot create a native output-root-symlink fixture'
+    else
+        skip 'output-root symlink test is unsupported by this runner'
+    fi
 fi
 
 make_fixture "$TEST_ROOT/backslash.zupt" 'back\slash.txt'

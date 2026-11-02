@@ -257,10 +257,15 @@ for test_case in clean zero-dot single-subgoal partial-subgoals boolean-subgoals
         grep -Fxq 'BEGIN_WP_RAW_JSON' "$test_tmp/result.log" &&
             grep -Fxq 'END_WP_RAW_JSON' "$test_tmp/result.log" || raw_report=1
     fi
-    if [ "$actual" -ne "$expected" ] || [ "$marker" -ne "$wanted_marker" ] || [ "$raw_report" -ne 0 ]; then
+    startup_diagnostic=0
+    case "$test_case" in missing|parser-missing)
+        grep -Fq 'ERROR: required tool not found:' "$test_tmp/result.log" || startup_diagnostic=$? ;;
+    esac
+    if [ "$actual" -ne "$expected" ] || [ "$marker" -ne "$wanted_marker" ] ||
+       [ "$raw_report" -ne 0 ] || [ "$startup_diagnostic" -ne 0 ]; then
         cat "$test_tmp/result.log" >&2
-        printf 'FAIL: %s result %s returned %s, expected %s (marker %s/%s)\n' \
-            "$profile" "$test_case" "$actual" "$expected" "$marker" "$wanted_marker" >&2
+        printf 'FAIL: %s result %s returned %s, expected %s (marker %s/%s, startup diagnostic %s)\n' \
+            "$profile" "$test_case" "$actual" "$expected" "$marker" "$wanted_marker" "$startup_diagnostic" >&2
         failed=$((failed + 1))
     else
         printf 'PASS: synthetic %s result %s\n' "$profile" "$test_case"

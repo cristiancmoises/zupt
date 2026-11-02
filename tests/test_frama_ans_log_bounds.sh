@@ -4,6 +4,10 @@
 set -eu
 repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 frama_c=${FRAMA_C:-frama-c}
+if ! command -v "$frama_c" >/dev/null 2>&1; then
+    printf 'ERROR: required tool not found: %s\n' "$frama_c" >&2
+    exit 127
+fi
 version=$("$frama_c" -version) || exit "$?"
 case "$version" in
     '29.0'*) ;;

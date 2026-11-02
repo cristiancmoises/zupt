@@ -21,11 +21,21 @@ The published official version remains [5.2.9](https://github.com/cristiancmoise
 - Run the existing compiler/cppcheck regression in CI with cppcheck installed,
   retaining its findings, timeout and process-failure criteria. A completed
   native CI run is required before counting those scans as passed.
-- Preserve failed analyzer and compiler version-query statuses explicitly in
-  the Frama-C supervisors. The native macOS check exposed an older shell's
-  `errexit` status replacement. Retain all earlier controls and add failures
-  during the version queries; all 320 supervisor cases pass locally. These
-  controls do not run formal analysis; a fresh native macOS run is required.
+- Check required tools before running Frama-C version queries, and preserve
+  failed analyzer/compiler query statuses explicitly. Status forwarding alone
+  did not resolve the native macOS missing-tool failure. All 320 maintained
+  supervisor controls pass locally, including the new startup-diagnostic
+  assertions. These controls do not run formal analysis; a fresh native macOS
+  run remains required.
+- Require real symbolic links in extraction-confinement fixtures. Request
+  native MSYS/Cygwin links without the directory-copy fallback, verify the
+  fixture before extraction and fail native Windows checks when link setup
+  fails. The POSIX path suite passes 23 cases without skips; private copy and
+  option-relay controls pass locally. Native Windows qualification remains open.
+- Invoke the installed-smoke harness's auxiliary tools at their original
+  installed paths so MSYS can load adjacent runtime DLLs. Keep the private
+  tool path and all process/checksum failure controls; add a copied-directory
+  link-fixture rejection. Native Windows validation remains required.
 - Rerun previously unavailable completion/manual checks with fish, zsh,
   mandoc and groff, and syntax checks with Ruby, Nix and Guix. Record actual
   passes separately from unavailable optional providers and privileged tests.

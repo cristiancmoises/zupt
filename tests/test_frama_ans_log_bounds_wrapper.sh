@@ -247,10 +247,15 @@ for test_case in clean alarm unknown invalid unknown-precondition invalid-precon
     grep -Fq 'PASS: Frama-C ANS logarithm ranges (limited scope)' "$test_tmp/result.log" || marker=$?
     wanted=1
     if [ "$expected" -eq 0 ]; then wanted=0; fi
-    if [ "$actual" -ne "$expected" ] || [ "$marker" -ne "$wanted" ]; then
+    startup_diagnostic=0
+    if [ "$test_case" = missing ]; then
+        grep -Fq 'ERROR: required tool not found:' "$test_tmp/result.log" || startup_diagnostic=$?
+    fi
+    if [ "$actual" -ne "$expected" ] || [ "$marker" -ne "$wanted" ] ||
+       [ "$startup_diagnostic" -ne 0 ]; then
         cat "$test_tmp/result.log" >&2
-        printf 'FAIL: logarithm result %s returned %s, expected %s (marker %s/%s)\n' \
-            "$test_case" "$actual" "$expected" "$marker" "$wanted" >&2
+        printf 'FAIL: logarithm result %s returned %s, expected %s (marker %s/%s, startup diagnostic %s)\n' \
+            "$test_case" "$actual" "$expected" "$marker" "$wanted" "$startup_diagnostic" >&2
         failed=$((failed + 1))
     else
         printf 'PASS: synthetic logarithm result %s\n' "$test_case"

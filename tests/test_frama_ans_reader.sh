@@ -13,6 +13,12 @@ case "$profile" in
     logarithm) functions=ilog2; rte_flags=-warn-unsigned-overflow ;;
     *) printf 'ERROR: expected reader, frequency or logarithm WP profile\n' >&2; exit 2 ;;
 esac
+for tool in "$frama_c" "$python"; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        printf 'ERROR: required tool not found: %s\n' "$tool" >&2
+        exit 127
+    fi
+done
 version=$("$frama_c" -version) || exit "$?"
 case "$version" in
     '29.0'*) ;;

@@ -279,19 +279,31 @@ current command matrix.
 
 ### Portable check supervision and tool coverage
 
-The Frama-C supervisors explicitly preserve analyzer/compiler version-query
-failures before parsing the version. This addresses the missing-tool status
-failure observed in the native macOS check. Run their maintained controls:
+The Frama-C supervisors check that required tools are available before running
+them, then explicitly preserve failed analyzer/compiler version-query statuses.
+Forwarding the query status alone did not resolve the missing-tool failure in
+the native macOS check. The availability check returns 127 with a diagnostic
+from the supervisor rather than depending on shell-specific error handling.
+Run their maintained controls:
 
 ~~~sh
 make -j1 test-frama-aes-nist-wrapper test-frama-ans-decode-bounds-wrapper \
   test-frama-ans-reader-wrapper test-frama-ans-log-bounds-wrapper
 ~~~
 
-The 2026-10-31 Linux run passes 320 synthetic cases, including failed probes,
-missing tools, timeouts, incomplete reports and parser failures. Four private
-status-loss mutations are rejected. These are supervisor tests, not formal
-analysis or evidence of a successful native macOS rerun.
+The 2026-11-02 Linux run passes all 320 synthetic cases, including failed probes,
+missing tools, timeouts, incomplete reports and parser failures. The missing-tool
+cases also require the supervisor's own startup diagnostic; all four groups
+fail this added assertion before the availability check. These are supervisor
+tests, not formal analysis or evidence of a successful native macOS rerun.
+
+The installed-CLI smoke test and `bash tests/test_path_traversal.sh` require
+real symbolic links for extraction-confinement fixtures. On MSYS/Cygwin they
+request native links without a copy fallback and verify each link before
+extraction. Native Windows runs fail if the fixture cannot be created; a copied
+directory is not evidence that reparse-point rejection works. The local POSIX
+path suite passes 23 cases without skips. Private copy/option-relay controls
+exercise fixture setup, not native Windows behavior.
 
 `make test-sdk-build-flags` runs 36 SDK selection/export controls. Its generated
 tool launchers use the running Bash's absolute executable path, which must not
@@ -1552,8 +1564,11 @@ make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-installed-smoke-harness
 bash tests/test_installed_smoke_harness.sh /path/to/staged/bin/zupt
 ```
 
-On POSIX hosts this runs 65 cases: the existing 53 process-boundary controls
-and 12 checksum-tool controls. Both checksum interfaces have a successful
+On POSIX hosts this runs 66 cases: the existing 53 process-boundary controls,
+12 checksum-tool controls and one copied-directory link-fixture rejection.
+Auxiliary tools use launchers that execute their original installed paths,
+so MSYS executables can load adjacent DLLs without expanding the private `PATH`.
+Both checksum interfaces have a successful
 control, empty/plausible failed hash output, and failed enumeration/sorting.
 Private tool adapters forward to the available real SHA-256 engine; the
 `shasum` branch does not require Perl for these controls. They validate the

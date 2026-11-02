@@ -12,6 +12,14 @@ ulimit -c 0
 if [[ ${ZUPT_SMOKE_TOOL_CHILD:-0} == 1 ]]; then
     tool=${0##*/}
     case $tool in
+        ln)
+            [[ $# -eq 4 && $1 == -s && $2 == -- ]] || {
+                printf 'HARNESS SETUP FAILURE: unexpected ln arguments\n' >&2
+                exit 125
+            }
+            printf 'SMOKE-LINK-COPY-FAULT\n' >&2
+            exec "$ZUPT_SMOKE_REAL_CP" -R -- "$3" "$4"
+            ;;
         sha256sum|shasum) real_tool=$ZUPT_SMOKE_REAL_HASH ;;
         find) real_tool=$ZUPT_SMOKE_REAL_FIND ;;
         sort) real_tool=$ZUPT_SMOKE_REAL_SORT ;;
@@ -129,6 +137,11 @@ candidate=$1
 real_cli=$(cd -- "$(dirname -- "$candidate")" && pwd -P)/$(basename -- "$candidate")
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 smoke=$repo_root/scripts/test-installed-zupt.sh
+tool_bash=${BASH-}
+if [[ $tool_bash != /* || $tool_bash == *[[:space:]]* || ! -x $tool_bash ]]; then
+    printf 'HARNESS SETUP FAILURE: fixture interpreter must be an executable absolute path without whitespace\n' >&2
+    exit 125
+fi
 work=$(mktemp -d "${TMPDIR:-/tmp}/zupt-smoke-harness.XXXXXX")
 trap 'rm -rf -- "$work"' EXIT
 cp -- "${BASH_SOURCE[0]}" "$work/shim"
@@ -181,7 +194,8 @@ done
 # Use real archive operations in each case. Only hashing/sorting/enumeration
 # tools are substituted; their successful output comes from the real tools.
 unset ZUPT_SMOKE_HARNESS_CHILD
-export ZUPT_SMOKE_REAL_HASH ZUPT_SMOKE_REAL_HASH_KIND ZUPT_SMOKE_REAL_FIND ZUPT_SMOKE_REAL_SORT
+export ZUPT_SMOKE_REAL_HASH ZUPT_SMOKE_REAL_HASH_KIND ZUPT_SMOKE_REAL_FIND ZUPT_SMOKE_REAL_SORT \
+    ZUPT_SMOKE_REAL_CP
 if ZUPT_SMOKE_REAL_HASH=$(command -v sha256sum); then
     ZUPT_SMOKE_REAL_HASH_KIND=sha256sum
 else
@@ -190,7 +204,7 @@ else
 fi
 ZUPT_SMOKE_REAL_FIND=$(command -v find)
 ZUPT_SMOKE_REAL_SORT=$(command -v sort)
-tool_bash=$(command -v bash)
+ZUPT_SMOKE_REAL_CP=$(command -v cp)
 run_tool_case() {
     local checksum=$1 tool=$2 mode=$3 tree=$4 expected=$5 status log
     log=$work/$checksum-$tool-$mode-$tree.log
@@ -224,7 +238,9 @@ for checksum in sha256sum shasum; do
     mkdir -- "$tools"
     for name in bash basename cat chmod cmp dd diff dirname grep head id ln mkdir mktemp rm wc; do
         real_tool=$(command -v -- "$name")
-        ln -s -- "$real_tool" "$tools/$name"
+        # Keep MSYS executables beside their runtime DLLs, outside this PATH.
+        printf '#!%s\nexec %q "$@"\n' "$tool_bash" "$real_tool" > "$tools/$name"
+        chmod 700 "$tools/$name"
     done
     for name in "$checksum" find sort; do
         cp -- "${BASH_SOURCE[0]}" "$tools/$name"
@@ -237,6 +253,32 @@ for checksum in sha256sum shasum; do
     run_tool_case "$checksum" find plausible both 1
     run_tool_case "$checksum" sort plausible both 1
 done
+
+# A copied directory must not masquerade as a successful symlink fixture.
+cp -- "${BASH_SOURCE[0]}" "$work/tools-shasum/ln"
+chmod 700 "$work/tools-shasum/ln"
+log=$work/ln-copy.log
+if env PATH="$work/tools-shasum" ZUPT_SMOKE_TOOL_CHILD=1 \
+    ZUPT_SMOKE_TOOL_FAULT=none ZUPT_SMOKE_TOOL_MODE=clean \
+    ZUPT_SMOKE_TOOL_TREE=both \
+    "$tool_bash" "$smoke" "$real_cli" > "$log" 2>&1; then
+    status=0
+else
+    status=$?
+fi
+checks=$((checks + 1))
+printf 'CASE: ln-copy: smoke status %s\n' "$status"
+cat -- "$log"
+if [[ $status != 1 ]] || \
+   grep -aFq 'HARNESS SETUP FAILURE:' "$log" || \
+   ! grep -Fxq 'SMOKE-LINK-COPY-FAULT' "$log" || \
+   ! grep -Fxq 'FAIL: destination-symlink fixture is not a symbolic link' "$log" || \
+   grep -q '^PASS: installed ZUPT functional test suite$' "$log"; then
+    printf 'FAIL: copied-directory symlink fixture was not rejected before extraction\n' >&2
+    failures=$((failures + 1))
+else
+    printf 'PASS: copied-directory symlink fixture is rejected\n'
+fi
 
 if (( failures != 0 )); then
     printf 'FAIL: installed-smoke harness: %s/%s checks failed\n' "$failures" "$checks" >&2

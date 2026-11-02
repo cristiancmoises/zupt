@@ -157,6 +157,13 @@ for test_case in clean alarm unknown invalid assertions warning external-warning
             "$test_case" "$actual" "$expected" >&2
         exit 1
     fi
+    case "$test_case" in missing|missing-cc|missing-supervisor)
+        if ! grep -Fq 'ERROR: required tool not found:' "$test_tmp/$test_case.log"; then
+            cat "$test_tmp/$test_case.log" >&2
+            printf 'FAIL: missing tool was not rejected before execution\n' >&2
+            exit 1
+        fi ;;
+    esac
     pass_status=0
     grep -Fq 'PASS: Frama-C portable AES,' "$test_tmp/$test_case.log" || pass_status=$?
     if [ "$test_case" = clean ]; then

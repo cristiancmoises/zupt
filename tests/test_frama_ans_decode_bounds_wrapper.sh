@@ -221,6 +221,13 @@ for test_case in $cases; do
         failed=$((failed + 1))
         continue
     fi
+    if [ "$test_case" = missing ] &&
+       ! grep -Fq 'ERROR: required tool not found:' "$test_tmp/$test_case.log"; then
+        cat "$test_tmp/$test_case.log" >&2
+        printf 'FAIL: missing analyzer was not rejected before execution\n' >&2
+        failed=$((failed + 1))
+        continue
+    fi
     marker_expected=1
     case "$test_case" in clean|unsupported-acsl-info) marker_expected=0 ;; esac
     if ! check_marker "$test_case" "$marker_expected" 'PASS: Frama-C ANS bounds metadata and exact tails (production scalar scope)' "$test_tmp/$test_case.log"; then

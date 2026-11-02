@@ -159,7 +159,13 @@ archive_input_rel=${extracted_input#"$plain_out"/}
 [[ $archive_input_rel != "$extracted_input" && $archive_input_rel != /* ]] || \
     die 'cannot determine the archive extraction path'
 mkdir -p -- "$escape_out/$(dirname -- "$archive_input_rel")"
-ln -s -- "$outside" "$escape_out/$archive_input_rel"
+# MSYS2 otherwise copies the directory, which is not a confinement fixture.
+case ${OSTYPE-} in
+    msys*|mingw*) MSYS=winsymlinks:nativestrict ln -s -- "$outside" "$escape_out/$archive_input_rel" ;;
+    cygwin*) CYGWIN=winsymlinks:nativestrict ln -s -- "$outside" "$escape_out/$archive_input_rel" ;;
+    *) ln -s -- "$outside" "$escape_out/$archive_input_rel" ;;
+esac || die 'cannot create destination-symlink fixture'
+[[ -L $escape_out/$archive_input_rel ]] || die 'destination-symlink fixture is not a symbolic link'
 run_cli 1 "$test_root/escape.log" 'Error: cannot create ' \
     "$binary" extract -o "$escape_out" "$plain_archive"
 [[ $(<"$outside/sentinel") == 'do-not-overwrite' ]] || die 'extraction overwrote outside sentinel'
