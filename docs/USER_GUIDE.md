@@ -293,17 +293,34 @@ make -j1 test-frama-aes-nist-wrapper test-frama-ans-decode-bounds-wrapper \
 
 The 2026-11-02 Linux run passes all 320 synthetic cases, including failed probes,
 missing tools, timeouts, incomplete reports and parser failures. The missing-tool
-cases also require the supervisor's own startup diagnostic; all four groups
-fail this added assertion before the availability check. These are supervisor
+cases also require the supervisor's own startup diagnostic. With the availability
+preflight omitted, all four groups fail that added assertion. These are supervisor
 tests, not formal analysis or evidence of a successful native macOS rerun.
 
 The installed-CLI smoke test and `bash tests/test_path_traversal.sh` require
 real symbolic links for extraction-confinement fixtures. On MSYS/Cygwin they
-request native links without a copy fallback and verify each link before
+set both `MSYS` and `CYGWIN` for native links without a copy fallback and
+verify each link before
 extraction. Native Windows runs fail if the fixture cannot be created; a copied
 directory is not evidence that reparse-point rejection works. The local POSIX
 path suite passes 23 cases without skips. Private copy/option-relay controls
 exercise fixture setup, not native Windows behavior.
+MSYS2's [Bash compatibility change](https://www.msys2.org/news/#2025-02-14-moving-msys2-closer-to-cygwin)
+means `OSTYPE=cygwin` does not identify which runtime option is read. Its
+[link modes](https://www.msys2.org/docs/symlinks/) use `MSYS`, while Cygwin
+uses `CYGWIN`; the fixture sets both only for the `ln` command.
+
+`make test-entropy-literal-limit` checks all four entropy tags against the real
+decoder. Four impossible literal-count cases must return corruption without
+allocation or output changes. Four matching-size, empty-stream controls must
+reach one allocation and then reject the stream; they check that the allocation
+observer is active. The target compiles the same codec source set separately
+with test-only allocator renaming instead of GNU linker `--wrap`, which the
+Apple linker does not support. Production objects and allocation behavior
+remain unchanged; the observer covers the same linked codec modules.
+GCC 14.3.0 and Clang 22.1.8 pass ordinary and UBSan profiles locally. Removing
+any count guard or bypassing the observer fails the corresponding private
+negative control. A fresh native macOS run remains required.
 
 `make test-sdk-build-flags` runs 36 SDK selection/export controls. Its generated
 tool launchers use the running Bash's absolute executable path, which must not
@@ -1564,8 +1581,9 @@ make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-installed-smoke-harness
 bash tests/test_installed_smoke_harness.sh /path/to/staged/bin/zupt
 ```
 
-On POSIX hosts this runs 66 cases: the existing 53 process-boundary controls,
-12 checksum-tool controls and one copied-directory link-fixture rejection.
+On POSIX hosts this runs 68 cases: the existing 53 process-boundary controls,
+12 checksum-tool controls, one copied-directory link-fixture rejection and
+two runtime-option checks with `OSTYPE=cygwin`.
 Auxiliary tools use launchers that execute their original installed paths,
 so MSYS executables can load adjacent DLLs without expanding the private `PATH`.
 Both checksum interfaces have a successful

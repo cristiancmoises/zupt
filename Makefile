@@ -763,12 +763,23 @@ test-ans-decode-bounds: tests/test_ans_decode_bounds.c src/vv_ans.o src/vv_huffm
 	$(Q)./test_ans_decode_bounds$(EXEEXT)
 	@echo "PASS: ANS4 rejects invalid metadata and decodes exact-sized literal and match tails"
 
-test-entropy-literal-limit: tests/test_entropy_literal_limit.c $(HEADERS) $(TEST_VV_OBJS)
-	$(Q)$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
-		$(LDFLAGS) $(PROJECT_LDFLAGS) tests/test_entropy_literal_limit.c $(TEST_VV_OBJS) \
-		-Wl,--wrap=malloc -Wl,--wrap=free -o test_entropy_literal_limit$(EXEEXT) \
-		$(PROJECT_LDLIBS) $(LDLIBS)
-	$(Q)./test_entropy_literal_limit$(EXEEXT)
+# Keep allocation observation across all linked codec modules without changing
+# production objects or depending on GNU linker interposition.
+test-entropy-literal-limit: tests/test_entropy_literal_limit.c $(HEADERS) $(TEST_VV_OBJS:.o=.c)
+	$(Q)set -eu; test_dir=$$(mktemp -d); \
+		trap 'rm -rf "$$test_dir"' EXIT; trap 'exit 1' HUP INT TERM; \
+		for source in $(TEST_VV_OBJS:.o=.c); do \
+			cast_flags=; \
+			case "$$source" in src/vv_ans.c|src/vv_simd.c) cast_flags="$(CLANG_CAST_ALIGN_FLAGS)" ;; esac; \
+			$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+				$$cast_flags -Dmalloc=observed_malloc -c "$$source" \
+				-o "$$test_dir/$${source##*/}.o"; \
+		done; \
+		$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+			$(LDFLAGS) $(PROJECT_LDFLAGS) tests/test_entropy_literal_limit.c \
+			"$$test_dir"/*.o -o "$$test_dir/test_entropy_literal_limit$(EXEEXT)" \
+			$(PROJECT_LDLIBS) $(LDLIBS); \
+		"$$test_dir/test_entropy_literal_limit$(EXEEXT)"
 
 test-frama-ans-decode-bounds:
 	$(Q)sh tests/test_frama_ans_decode_bounds.sh

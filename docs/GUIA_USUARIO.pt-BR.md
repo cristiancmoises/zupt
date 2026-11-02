@@ -299,16 +299,35 @@ A execução Linux de 2026-11-02 passa nos 320 casos sintéticos, incluindo
 falhas de consulta, ferramentas ausentes, timeouts, relatórios incompletos e
 falhas dos parsers. Os casos de ferramenta ausente também exigem o diagnóstico
 de inicialização do próprio supervisor; os quatro grupos falham nessa nova
-asserção antes da verificação de disponibilidade. São testes dos supervisores,
+asserção no controle privado sem a verificação de disponibilidade. São testes dos supervisores,
 não análise formal nem evidência de uma nova execução nativa do macOS aprovada.
 
 O smoke test da CLI instalada e `bash tests/test_path_traversal.sh` exigem
 links simbólicos reais nos fixtures de confinamento da extração. No MSYS/Cygwin,
-eles solicitam links nativos sem alternativa por cópia e verificam cada link
+eles definem `MSYS` e `CYGWIN` para solicitar links nativos sem alternativa por
+cópia e verificam cada link
 antes da extração. A execução nativa Windows falha se não puder criar o fixture;
 uma pasta copiada não comprova rejeição de reparse points. A suíte POSIX local
 passa em 23 casos sem skips. Os controles privados de cópia e repasse de opções
 exercitam a preparação dos fixtures, não o comportamento nativo Windows.
+A [mudança de compatibilidade do Bash no MSYS2](https://www.msys2.org/news/#2025-02-14-moving-msys2-closer-to-cygwin)
+faz com que `OSTYPE=cygwin` não identifique qual opção o runtime lê. Os
+[modos de link](https://www.msys2.org/docs/symlinks/) do MSYS2 usam `MSYS`,
+enquanto o Cygwin usa `CYGWIN`; o fixture define ambas somente no comando `ln`.
+
+`make test-entropy-literal-limit` verifica as quatro tags de entropia com o
+decodificador real. Quatro casos com contagem impossível de literais devem
+retornar corrupção sem alocar nem alterar a saída. Quatro controles com tamanho
+correspondente e stream vazio devem alcançar uma alocação antes de rejeitar o
+stream; eles conferem se o observador de alocações está ativo. O alvo compila
+separadamente o mesmo conjunto de fontes do codec, com renomeação do alocador
+somente para o teste, sem o `--wrap` do linker GNU, não suportado pelo linker
+Apple. Os objetos de produção e o comportamento de alocação permanecem iguais;
+o observador cobre os mesmos módulos vinculados do codec. GCC 14.3.0 e
+Clang 22.1.8 passam localmente
+nos perfis comuns e UBSan. Remover qualquer guarda da contagem ou ignorar o
+observador faz o controle negativo privado correspondente falhar. Uma nova
+execução nativa macOS continua obrigatória.
 
 `make test-sdk-build-flags` executa 36 controles de seleção/exportação do SDK.
 Os lançadores gerados usam o caminho absoluto do Bash em execução, que não
@@ -1645,9 +1664,10 @@ make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-installed-smoke-harness
 bash tests/test_installed_smoke_harness.sh /caminho/do/pacote/bin/zupt
 ```
 
-Em hosts POSIX são 66 casos: os 53 controles existentes de processos, 12
-controles das ferramentas de checksum e uma rejeição de pasta copiada como
-fixture de link. Os utilitários auxiliares usam lançadores que executam os
+Em hosts POSIX são 68 casos: os 53 controles existentes de processos, 12
+controles das ferramentas de checksum, uma rejeição de pasta copiada como
+fixture de link e dois checks de opções do runtime com `OSTYPE=cygwin`.
+Os utilitários auxiliares usam lançadores que executam os
 caminhos instalados originais, para que os executáveis MSYS encontrem as DLLs
 adjacentes sem ampliar o `PATH` privado. As duas interfaces têm controle de
 sucesso, saída vazia/plausível com erro de hash e falhas de enumeração/ordenação.

@@ -6,6 +6,18 @@ Version 5.2.10 is being validated and is not an official release. Its earlier
 delivery was withdrawn; previous packages do not validate the corrected source.
 The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Observe entropy literal-buffer allocations in separate test-only builds
+  of the same codec modules instead of GNU linker wrapping, which fails on
+  macOS. Retain all four malformed-count cases and add four controls proving
+  the observer reaches allocation. GCC 14.3.0 and Clang 22.1.8 pass ordinary
+  and UBSan profiles; four removed-guard mutations and a bypassed observer
+  are rejected. No production decoder, API or format change; native macOS
+  confirmation remains required.
+- Set both MSYS and Cygwin native-link options only for fixture creation.
+  The current MSYS2 Bash reports `OSTYPE=cygwin`, while its runtime still reads
+  `MSYS`; selecting the option by `OSTYPE` alone left directory copies in
+  the Windows smoke test. Retain the real-link check and native failure
+  requirement. Fresh Windows qualification remains required.
 - Pin the CI analyzer to Cppcheck 2.21.0, built from an exact upstream commit
   and verified source checksum. Ubuntu's 2.13.0 times out in all three scans;
   retain those failures. Both the Guix tool and the separately compiled

@@ -12,28 +12,22 @@
 
 #include "../include/vaptvupt.h"
 
-void *__real_malloc(size_t size);
-void __real_free(void *pointer);
-void *__wrap_malloc(size_t size);
-void __wrap_free(void *pointer);
-
 static size_t allocation_calls;
 
-void *__wrap_malloc(size_t size)
+void *observed_malloc(size_t size);
+
+void *observed_malloc(size_t size)
 {
     allocation_calls++;
-    return __real_malloc(size);
+    return malloc(size);
 }
 
-void __wrap_free(void *pointer)
+static int check_tag(uint8_t tag, const char *name, unsigned output_size,
+                     size_t expected_allocations)
 {
-    __real_free(pointer);
-}
-
-static int check_tag(uint8_t tag, const char *name)
-{
-    /* Frame header, last entropy block (one output byte), a five-byte
-     * entropy section, then [lit_count=2, encoded_section_size=0]. */
+    /* A two-literal envelope with no entropy bytes. A one-byte block must
+     * reject it before allocation; a two-byte block reaches allocation and
+     * then rejects the empty entropy stream, checking the observer itself. */
     uint8_t frame[] = {
         0x00, 0x01, 0x56, 0x56, 0x01, 0x00, 0x00, 0x10,
         0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -42,14 +36,18 @@ static int check_tag(uint8_t tag, const char *name)
         0x00,
         0x02, 0x00, 0x00, 0x00
     };
-    uint8_t output = 0xa5;
+    uint8_t output[2] = {0xa5, 0xa5};
 
+    frame[8] = (uint8_t)output_size;
+    frame[16] = (uint8_t)((output_size << 3) | 7u);
     frame[23] = tag;
     allocation_calls = 0;
-    int64_t result = vv_decompress(frame, sizeof(frame), &output, sizeof(output));
-    if (result != VV_ERR_CORRUPT || allocation_calls != 0 || output != 0xa5) {
-        fprintf(stderr, "FAIL: %s result=%lld allocations=%zu output=%u\n",
-                name, (long long)result, allocation_calls, (unsigned)output);
+    int64_t result = vv_decompress(frame, sizeof(frame), output, output_size);
+    if (result != VV_ERR_CORRUPT || allocation_calls != expected_allocations ||
+        output[0] != 0xa5 || output[1] != 0xa5) {
+        fprintf(stderr, "FAIL: %s size=%u result=%lld allocations=%zu/%zu output=%u,%u\n",
+                name, output_size, (long long)result, allocation_calls,
+                expected_allocations, (unsigned)output[0], (unsigned)output[1]);
         return 0;
     }
     return 1;
@@ -57,11 +55,20 @@ static int check_tag(uint8_t tag, const char *name)
 
 int main(void)
 {
-    if (!check_tag(VV_ENTROPY_HUFFMAN, "Huffman") ||
-        !check_tag(VV_ENTROPY_ANS, "ANS") ||
-        !check_tag(VV_ENTROPY_ANS4, "ANS4") ||
-        !check_tag(VV_ENTROPY_CTX, "context ANS"))
-        return 1;
+    static const struct {
+        uint8_t tag;
+        const char *name;
+    } cases[] = {
+        {VV_ENTROPY_HUFFMAN, "Huffman"},
+        {VV_ENTROPY_ANS, "ANS"},
+        {VV_ENTROPY_ANS4, "ANS4"},
+        {VV_ENTROPY_CTX, "context ANS"}
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        if (!check_tag(cases[i].tag, cases[i].name, 1, 0) ||
+            !check_tag(cases[i].tag, cases[i].name, 2, 1))
+            return 1;
+    }
 
     puts("PASS: entropy literal counts above block output are rejected before allocation");
     return 0;

@@ -159,10 +159,11 @@ archive_input_rel=${extracted_input#"$plain_out"/}
 [[ $archive_input_rel != "$extracted_input" && $archive_input_rel != /* ]] || \
     die 'cannot determine the archive extraction path'
 mkdir -p -- "$escape_out/$(dirname -- "$archive_input_rel")"
-# MSYS2 otherwise copies the directory, which is not a confinement fixture.
+# MSYS2 Bash may report cygwin; configure each runtime's native-link mode.
 case ${OSTYPE-} in
-    msys*|mingw*) MSYS=winsymlinks:nativestrict ln -s -- "$outside" "$escape_out/$archive_input_rel" ;;
-    cygwin*) CYGWIN=winsymlinks:nativestrict ln -s -- "$outside" "$escape_out/$archive_input_rel" ;;
+    msys*|mingw*|cygwin*)
+        MSYS=winsymlinks:nativestrict CYGWIN=winsymlinks:nativestrict \
+            ln -s -- "$outside" "$escape_out/$archive_input_rel" ;;
     *) ln -s -- "$outside" "$escape_out/$archive_input_rel" ;;
 esac || die 'cannot create destination-symlink fixture'
 [[ -L $escape_out/$archive_input_rel ]] || die 'destination-symlink fixture is not a symbolic link'

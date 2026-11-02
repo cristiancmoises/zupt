@@ -33,10 +33,11 @@ case "$(uname -s)" in
 esac
 
 make_symlink() {
-    # Copied or emulated MSYS2 links do not exercise native reparse checks.
+    # MSYS2 Bash may report cygwin; configure each runtime's native-link mode.
     case ${OSTYPE-} in
-        msys*|mingw*) MSYS=winsymlinks:nativestrict ln -s -- "$1" "$2" ;;
-        cygwin*) CYGWIN=winsymlinks:nativestrict ln -s -- "$1" "$2" ;;
+        msys*|mingw*|cygwin*)
+            MSYS=winsymlinks:nativestrict CYGWIN=winsymlinks:nativestrict \
+                ln -s -- "$1" "$2" ;;
         *) ln -s -- "$1" "$2" ;;
     esac || return
     [[ -L $2 ]]

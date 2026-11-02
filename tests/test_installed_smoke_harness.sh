@@ -9,6 +9,7 @@ ulimit -c 0
 
 # These tool shims preserve real output and change only the selected producer's
 # status. A restricted PATH also exercises the shasum fallback without Perl.
+# Link shims separately check fixture setup using real ln and copy operations.
 if [[ ${ZUPT_SMOKE_TOOL_CHILD:-0} == 1 ]]; then
     tool=${0##*/}
     case $tool in
@@ -17,6 +18,20 @@ if [[ ${ZUPT_SMOKE_TOOL_CHILD:-0} == 1 ]]; then
                 printf 'HARNESS SETUP FAILURE: unexpected ln arguments\n' >&2
                 exit 125
             }
+            case ${ZUPT_SMOKE_LINK_RUNTIME:-copy} in
+                msys)
+                    if [[ ${MSYS-} == winsymlinks:nativestrict ]]; then
+                        printf 'SMOKE-LINK-RELAY: msys\n' >&2
+                        exec "$ZUPT_SMOKE_REAL_LN" "$@"
+                    fi ;;
+                cygwin)
+                    if [[ ${CYGWIN-} == winsymlinks:nativestrict ]]; then
+                        printf 'SMOKE-LINK-RELAY: cygwin\n' >&2
+                        exec "$ZUPT_SMOKE_REAL_LN" "$@"
+                    fi ;;
+                copy) ;;
+                *) printf 'HARNESS SETUP FAILURE: unknown link runtime\n' >&2; exit 125 ;;
+            esac
             printf 'SMOKE-LINK-COPY-FAULT\n' >&2
             exec "$ZUPT_SMOKE_REAL_CP" -R -- "$3" "$4"
             ;;
@@ -195,7 +210,7 @@ done
 # tools are substituted; their successful output comes from the real tools.
 unset ZUPT_SMOKE_HARNESS_CHILD
 export ZUPT_SMOKE_REAL_HASH ZUPT_SMOKE_REAL_HASH_KIND ZUPT_SMOKE_REAL_FIND ZUPT_SMOKE_REAL_SORT \
-    ZUPT_SMOKE_REAL_CP
+    ZUPT_SMOKE_REAL_CP ZUPT_SMOKE_REAL_LN
 if ZUPT_SMOKE_REAL_HASH=$(command -v sha256sum); then
     ZUPT_SMOKE_REAL_HASH_KIND=sha256sum
 else
@@ -205,6 +220,7 @@ fi
 ZUPT_SMOKE_REAL_FIND=$(command -v find)
 ZUPT_SMOKE_REAL_SORT=$(command -v sort)
 ZUPT_SMOKE_REAL_CP=$(command -v cp)
+ZUPT_SMOKE_REAL_LN=$(command -v ln)
 run_tool_case() {
     local checksum=$1 tool=$2 mode=$3 tree=$4 expected=$5 status log
     log=$work/$checksum-$tool-$mode-$tree.log
@@ -260,7 +276,7 @@ chmod 700 "$work/tools-shasum/ln"
 log=$work/ln-copy.log
 if env PATH="$work/tools-shasum" ZUPT_SMOKE_TOOL_CHILD=1 \
     ZUPT_SMOKE_TOOL_FAULT=none ZUPT_SMOKE_TOOL_MODE=clean \
-    ZUPT_SMOKE_TOOL_TREE=both \
+    ZUPT_SMOKE_TOOL_TREE=both ZUPT_SMOKE_LINK_RUNTIME=copy \
     "$tool_bash" "$smoke" "$real_cli" > "$log" 2>&1; then
     status=0
 else
@@ -279,6 +295,34 @@ if [[ $status != 1 ]] || \
 else
     printf 'PASS: copied-directory symlink fixture is rejected\n'
 fi
+
+# Current MSYS2 Bash also reports cygwin. Exercise both runtimes with that
+# OSTYPE while checking each runtime's actual configuration variable.
+printf 'OSTYPE=cygwin\n' > "$work/cygwin-bash-env"
+for runtime in msys cygwin; do
+    log=$work/link-relay-$runtime.log
+    if env PATH="$work/tools-shasum" BASH_ENV="$work/cygwin-bash-env" MSYS= CYGWIN= \
+        ZUPT_SMOKE_TOOL_CHILD=1 ZUPT_SMOKE_TOOL_FAULT=none \
+        ZUPT_SMOKE_TOOL_MODE=clean ZUPT_SMOKE_TOOL_TREE=both \
+        ZUPT_SMOKE_LINK_RUNTIME="$runtime" \
+        "$tool_bash" "$smoke" "$real_cli" > "$log" 2>&1; then
+        status=0
+    else
+        status=$?
+    fi
+    checks=$((checks + 1))
+    printf 'CASE: link-relay-%s: smoke status %s\n' "$runtime" "$status"
+    cat -- "$log"
+    if [[ $status != 0 ]] || \
+       grep -aFq 'HARNESS SETUP FAILURE:' "$log" || \
+       ! grep -Fxq "SMOKE-LINK-RELAY: $runtime" "$log" || \
+       ! grep -q '^PASS: installed ZUPT functional test suite$' "$log"; then
+        printf 'FAIL: cygwin OSTYPE did not configure the %s native-link runtime\n' "$runtime" >&2
+        failures=$((failures + 1))
+    else
+        printf 'PASS: cygwin OSTYPE configures the %s native-link runtime\n' "$runtime"
+    fi
+done
 
 if (( failures != 0 )); then
     printf 'FAIL: installed-smoke harness: %s/%s checks failed\n' "$failures" "$checks" >&2
