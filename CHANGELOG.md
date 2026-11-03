@@ -6,6 +6,15 @@ Version 5.2.10 is being validated and is not an official release. Its earlier
 delivery was withdrawn; previous packages do not validate the corrected source.
 The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Request native symbolic links before starting the threaded test's Python
+  launcher on MSYS/Cygwin. Check the link before invoking the suite and reject
+  a copied-directory control without touching the sentinel. Preserve all 79
+  previous controls and the exact-target cleanup guard. Native Windows
+  qualification remains required.
+- Enable the Darwin feature namespace before system headers in the format
+  fuzz harness. Retain strict compiler diagnostics and add controls for a
+  missing or late feature macro. No production parser, API or format change;
+  a fresh native macOS run is required.
 - Preserve the platform `memcpy` macro around the SDK adapter fixture's
   checked-copy override. The Apple SDK defines that macro, causing the native
   check to fail under `-Werror`. Model a function-like macro on other hosts

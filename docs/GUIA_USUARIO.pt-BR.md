@@ -315,6 +315,23 @@ faz com que `OSTYPE=cygwin` não identifique qual opção o runtime lê. Os
 [modos de link](https://www.msys2.org/docs/symlinks/) do MSYS2 usam `MSYS`,
 enquanto o Cygwin usa `CYGWIN`; o fixture define ambas somente no comando `ln`.
 
+`make test-threaded-harness` aplica as mesmas opções antes de iniciar o
+lançador Python do ciclo de vida: a cópia padrão do MSYS2 também afeta
+`os.symlink`. O lançador confere o tipo do link e o destino exato antes de
+invocar a suíte. Um controle negativo com diretório copiado deve falhar antes
+de chamar a CLI, preservar o sentinela e permanecer na pasta privada do teste.
+O harness preserva os 79 casos anteriores e acrescenta esse controle. Os 80
+passam localmente com a CLI sintética e o modelo do runtime; remover a guarda
+do link é rejeitado. Esses controles não substituem uma execução Windows
+nativa aprovada nem exercitam a correção do codec.
+
+`make test-fuzz-harness` habilita as extensões Darwin antes do primeiro
+cabeçalho de sistema nos alvos Apple para obter a declaração de `mkdtemp`.
+Os controles de visibilidade rejeitam macros ausentes ou definidas tarde e
+compilam o harness real com o namespace suportado. Esses checks modelados são
+distintos da compilação macOS nativa; não alteram o parser nem os critérios
+de rejeição.
+
 `make test-entropy-literal-limit` verifica as quatro tags de entropia com o
 decodificador real. Quatro casos com contagem impossível de literais devem
 retornar corrupção sem alocar nem alterar a saída. Quatro controles com tamanho
@@ -326,8 +343,9 @@ Apple. Os objetos de produção e o comportamento de alocação permanecem iguai
 o observador cobre os mesmos módulos vinculados do codec. GCC 14.3.0 e
 Clang 22.1.8 passam localmente
 nos perfis comuns e UBSan. Remover qualquer guarda da contagem ou ignorar o
-observador faz o controle negativo privado correspondente falhar. Uma nova
-execução nativa macOS continua obrigatória.
+observador faz o controle negativo privado correspondente falhar. A execução
+macOS nativa `41539121266` passa nesse alvo; o job completo ainda falha depois
+no harness de fuzzing.
 
 `make test-sdk-adapter` executa 14 casos de envelopes/propriedade e um check
 de escopo da macro de cópia com o adaptador real e um provedor controlado.
@@ -339,6 +357,8 @@ o limite de 1.500 bytes do envelope permanece igual. GCC 14.3.0 e
 Clang 22.1.8 passam localmente nos perfis comuns/UBSan; omitir ou corromper a
 restauração da macro é rejeitado. São testes da fronteira do provedor, não do
 SDK externo completo, do hardening Apple nativo ou certificação criptográfica.
+A execução macOS nativa `41539121266` passa nesse alvo, mas não no gate completo
+de release.
 
 `make test-sdk-build-flags` executa 36 controles de seleção/exportação do SDK.
 Os lançadores gerados usam o caminho absoluto do Bash em execução, que não
@@ -1594,7 +1614,7 @@ integridade dos arquivos; não verifica falhas do relógio/`awk` nem diagnóstic
 de sanitizadores em um processo que termina com zero. Os tempos continuam
 informativos, não são evidência de benchmark reproduzível.
 
-Oito controles de T6 elevam o total atual a 79. T6 exige status zero tanto na
+Oito controles de T6 elevaram o total a 79 naquele checkpoint. T6 exige status zero tanto na
 compressão quanto na extração, exatamente 1.000 arquivos regulares de saída
 e comparação recursiva dos caminhos e conteúdos de toda a árvore. A raiz
 esperada mantém o prefixo absoluto de entrada sem a barra inicial, conforme
@@ -1610,8 +1630,8 @@ anteriores permanecem inalterados. Antes de corromper a saída, o controle
 remove seu hardlink e verifica que os bytes do `file_2.txt` original não
 mudaram. Isso não verifica metadados/permissões, nem constitui auditoria
 completa do parser ou medição de desempenho.
-Passam os 79 controles; uma execução separada da CLI real passa nos 14 checks
-multithread.
+Passaram os 79 controles naquele checkpoint; uma execução separada da CLI
+real passou nos 14 checks multithread.
 
 Os fixtures usam hardlinks somente nos dados privados gerados para limitar
 o espaço temporário. Não executam o codec nem a criptografia; a saída

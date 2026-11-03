@@ -310,6 +310,22 @@ means `OSTYPE=cygwin` does not identify which runtime option is read. Its
 [link modes](https://www.msys2.org/docs/symlinks/) use `MSYS`, while Cygwin
 uses `CYGWIN`; the fixture sets both only for the `ln` command.
 
+`make test-threaded-harness` applies the same options before starting its
+Python lifecycle launcher: MSYS2's default copy behavior also affects
+`os.symlink`. The launcher checks link type and exact target before invoking
+the suite. A copied-directory negative control must fail before any CLI call,
+preserve the sentinel, and remain inside the private test directory. The
+harness retains the original 79 cases and adds this control. All 80 pass
+locally with the synthetic CLI and the runtime model; removing the link guard
+is rejected. These controls do not replace a successful native Windows run
+or exercise codec correctness.
+
+`make test-fuzz-harness` enables Darwin extensions before the first system
+header on Apple targets so that `mkdtemp` is declared. Its header-visibility
+controls reject missing and late feature macros and compile the real harness
+with the supported namespace. These modeled checks are distinct from native
+macOS compilation; neither the parser nor its rejection criteria change.
+
 `make test-entropy-literal-limit` checks all four entropy tags against the real
 decoder. Four impossible literal-count cases must return corruption without
 allocation or output changes. Four matching-size, empty-stream controls must
@@ -320,7 +336,8 @@ Apple linker does not support. Production objects and allocation behavior
 remain unchanged; the observer covers the same linked codec modules.
 GCC 14.3.0 and Clang 22.1.8 pass ordinary and UBSan profiles locally. Removing
 any count guard or bypassing the observer fails the corresponding private
-negative control. A fresh native macOS run remains required.
+negative control. Native macOS run `41539121266` passes this target; the overall
+job still fails later in the fuzz harness.
 
 `make test-sdk-adapter` runs 14 envelope/ownership cases and one copy-macro
 scope check against the real adapter with a controlled provider. Platform
@@ -331,7 +348,8 @@ A legitimate 1,501-byte copy outside the adapter must still work, while the
 adapter's 1,500-byte envelope limit remains unchanged. GCC 14.3.0 and
 Clang 22.1.8 pass ordinary/UBSan profiles locally; omitting or corrupting macro
 restoration is rejected. This is provider-boundary testing, not full external
-SDK, native Apple hardening or cryptographic certification.
+SDK, native Apple hardening or cryptographic certification. Native macOS run
+`41539121266` passes this target, but does not pass the complete release gate.
 
 `make test-sdk-build-flags` runs 36 SDK selection/export controls. Its generated
 tool launchers use the running Bash's absolute executable path, which must not
@@ -1515,7 +1533,7 @@ This file-type/length guard does not establish archive integrity; it does not
 check clock/`awk` failures or sanitizer diagnostics from a zero-exit process.
 Elapsed times remain informational, not reproducible benchmark evidence.
 
-Eight T6 controls bring the current total to 79. T6 requires both compression
+Eight T6 controls brought the total to 79 at that checkpoint. T6 requires both compression
 and extraction to exit zero, exactly 1,000 regular output files, and a recursive
 path/content comparison of the complete small-file tree. The expected root
 retains the absolute input prefix without its leading slash, as confirmed by
@@ -1529,7 +1547,8 @@ cleanup; the clean control requires 14/0. Earlier 71 control functions and
 calls are unchanged. The corruption control unlinks its output before writing
 and verifies that original `file_2.txt` bytes remain unchanged. This is not
 a metadata/permission check, full parser audit or performance measurement.
-All 79 controls pass; a separate real-CLI run passes 14/14 threaded checks.
+All 79 controls passed at that checkpoint; a separate real-CLI run passed
+14/14 threaded checks.
 
 The fixtures hardlink only generated private data to bound scratch usage.
 They do not run the codec or encryption, and the script's synthetic timing

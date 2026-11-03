@@ -491,6 +491,7 @@ run_lifecycle() {
     export ZUPT_MT_EVENT_LOG=$directory/events ZUPT_MT_RECORD=$directory/workspace
     export ZUPT_MT_FILE_MODE=$directory/file-mode
     export ZUPT_MT_PID_FILE=$directory/pid ZUPT_MT_SENTINEL=$directory/sentinel
+    export ZUPT_MT_LEGACY_COPY=$directory/legacy-copy
     : >"$ZUPT_MT_EVENT_LOG"
     case $mode in
         bad-file) printf 'not a directory\n' >"$directory/not-directory"; base=$directory/not-directory ;;
@@ -499,14 +500,28 @@ run_lifecycle() {
     # exec preserves the PID used for the historical name. Atomic symlink
     # creation refuses an existing path instead of writing into a directory.
     # Reset signal dispositions before exec, including inherited ignored INT.
-    if TMPDIR=$base PATH=$work/tools:$PATH ZUPT_MT_TOOL_CHILD=1 python3 -I -B -c '
+    # MSYS2 symlink() defaults to copying, including calls made by Python.
+    # Select native links before that runtime starts; keep this child-scoped.
+    if TMPDIR=$base PATH=$work/tools:$PATH ZUPT_MT_TOOL_CHILD=1 \
+        MSYS=winsymlinks:nativestrict CYGWIN=winsymlinks:nativestrict python3 -I -B -c '
 import os, signal, sys
 pid = os.getpid()
 os.environ["ZUPT_MT_SUITE_PID"] = str(pid)
 with open(os.environ["ZUPT_MT_PID_FILE"], "x") as receipt:
     receipt.write(str(pid) + "\n")
-if os.environ["ZUPT_MT_LIFECYCLE"] == "normal":
-    os.symlink(os.environ["ZUPT_MT_SENTINEL"], "/tmp/zupt_mt_" + str(pid))
+mode = os.environ["ZUPT_MT_LIFECYCLE"]
+if mode in ("normal", "symlink-copy"):
+    target = os.environ["ZUPT_MT_SENTINEL"]
+    if mode == "symlink-copy":
+        import shutil
+        legacy = os.environ["ZUPT_MT_LEGACY_COPY"]
+        shutil.copytree(target, legacy)
+    else:
+        legacy = "/tmp/zupt_mt_" + str(pid)
+        os.symlink(target, legacy)
+    if not os.path.islink(legacy) or os.readlink(legacy) != target:
+        print("Cannot create legacy symbolic-link fixture", file=sys.stderr)
+        sys.exit(1)
 os.umask(0)
 for number in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
     signal.signal(number, signal.SIG_DFL)
@@ -544,6 +559,14 @@ os.execvp("sh", ["sh", sys.argv[1], sys.argv[2]])
                 "$ZUPT_MT_REAL_GREP" -Fx "signal-$mode" "$directory/events" >/dev/null || valid=0
             fi
             ;;
+        symlink-copy)
+            [[ -d $directory/legacy-copy && ! -L $directory/legacy-copy ]] || valid=0
+            [[ $(cat -- "$directory/legacy-copy/data/hello.txt") == 'preserve this sentinel' ]] || valid=0
+            [[ $(cat -- "$directory/sentinel/data/hello.txt") == 'preserve this sentinel' ]] || valid=0
+            [[ ! -e $directory/workspace ]] || valid=0
+            [[ ! -s $directory/events ]] || valid=0
+            "$ZUPT_MT_REAL_GREP" -Fx 'Cannot create legacy symbolic-link fixture' "$directory/log" >/dev/null || valid=0
+            ;;
         *)
             if "$ZUPT_MT_REAL_GREP" -Fx version "$directory/events" >/dev/null; then valid=0
             elif [[ $? != 1 ]]; then valid=0
@@ -572,12 +595,16 @@ os.execvp("sh", ["sh", sys.argv[1], sys.argv[2]])
         if [[ $mode == normal ]]; then
             printf 'Observed sentinel: '
             cat -- "$directory/sentinel/data/hello.txt"
+            printf 'Legacy fixture: %s\n' "/tmp/zupt_mt_$pid"
+            ls -ld -- "/tmp/zupt_mt_$pid" 2>&1 || :
+            readlink -- "/tmp/zupt_mt_$pid" 2>&1 || :
         fi
         failures=$((failures + 1))
     fi
 }
 
 run_lifecycle normal 0
+run_lifecycle symlink-copy 1
 run_lifecycle HUP 129
 run_lifecycle INT 130
 run_lifecycle TERM 143
@@ -848,8 +875,8 @@ run_many() {
 
 run_many many-clean 0
 for fault in compress-after extract-after corrupt rename relocate missing extra; do run_many "many-$fault" 1; done
-if [[ $checks != 79 ]]; then
-    printf 'FAIL: expected 79 threaded controls, observed %s\n' "$checks" >&2
+if [[ $checks != 80 ]]; then
+    printf 'FAIL: expected 80 threaded controls, observed %s\n' "$checks" >&2
     failures=$((failures + 1))
 fi
 if ((failures)); then
