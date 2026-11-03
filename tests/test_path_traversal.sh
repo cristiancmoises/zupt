@@ -236,12 +236,21 @@ fi
 mkdir "$TEST_ROOT/root-outside"
 if make_symlink "$TEST_ROOT/root-outside" "$TEST_ROOT/root-link" 2>/dev/null; then
     if ((WINDOWS_NATIVE)); then
-        if ! "$ZUPT_BIN" extract -o "$TEST_ROOT/root-link/child" \
-                "$TEST_ROOT/leaf.zupt" > "$TEST_ROOT/root-link.log" 2>&1 &&
+        # Convert only the plain base. MSYS argument conversion can resolve an
+        # intermediate symlink before the native executable receives the path.
+        windows_test_root=$(cygpath -m "$TEST_ROOT")
+        if [[ -z $windows_test_root || ! $windows_test_root -ef $TEST_ROOT ]]; then
+            fail 'Windows path conversion must identify the private test root'
+            exit 1
+        fi
+        if ! MSYS2_ARG_CONV_EXCL='*' "$ZUPT_BIN" extract \
+                -o "$windows_test_root/root-link/child" \
+                "$windows_test_root/leaf.zupt" > "$TEST_ROOT/root-link.log" 2>&1 &&
            [[ -z $(find "$TEST_ROOT/root-outside" -mindepth 1 -print -quit) ]]; then
             pass 'Windows rejects a reparse-point output-root ancestor'
         else
             fail 'Windows rejects a reparse-point output-root ancestor'
+            cat -- "$TEST_ROOT/root-link.log" >&2
         fi
     elif "$ZUPT_BIN" extract -o "$TEST_ROOT/root-link/child" \
             "$TEST_ROOT/leaf.zupt" > "$TEST_ROOT/root-link.log" 2>&1 &&

@@ -17,35 +17,45 @@ cd "$test_root"
 # Model Darwin's first-header feature selection without an Apple SDK. Hide the
 # Linux prototype so it cannot mask a missing or too-late Darwin feature macro.
 mkdir "$test_tmp/darwin-headers"
-cat > "$test_tmp/darwin-headers/stdio.h" <<'HEADER'
+cat > "$test_tmp/darwin-headers/feature-model.h" <<'HEADER'
 #ifndef ZUPT_TEST_DARWIN_FEATURES
 #define ZUPT_TEST_DARWIN_FEATURES
-#if !defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)
+#if defined(_DARWIN_C_SOURCE) || (!defined(_POSIX_C_SOURCE) && !defined(_XOPEN_SOURCE))
 #define ZUPT_TEST_DARWIN_EXTENSIONS 1
 #else
 #define ZUPT_TEST_DARWIN_EXTENSIONS 0
 #endif
-#include_next <stdio.h>
 #endif
 HEADER
+for first_header in stdio stdint; do
+    printf '#include "feature-model.h"\n#include_next <%s.h>\n' "$first_header" \
+        > "$test_tmp/darwin-headers/$first_header.h"
+done
 cat > "$test_tmp/darwin-headers/stdlib.h" <<'HEADER'
+#include "feature-model.h"
 #define mkdtemp zupt_test_hidden_mkdtemp
 #include_next <stdlib.h>
 #undef mkdtemp
 HEADER
 cat > "$test_tmp/darwin-headers/unistd.h" <<'HEADER'
+#include "feature-model.h"
+#define mkdtemp zupt_test_hidden_mkdtemp
 #include_next <unistd.h>
+#undef mkdtemp
 #if ZUPT_TEST_DARWIN_EXTENSIONS
 char *mkdtemp(char *);
 #endif
 HEADER
-for feature_case in missing late; do
+for first_header in stdio stdint; do
+  for feature_case in posix-missing posix-late xopen-missing xopen-late; do
     {
-        printf '#undef _DARWIN_C_SOURCE\n#define _POSIX_C_SOURCE 200809L\n'
-        printf '#include <stdio.h>\n'
-        if test "$feature_case" = late; then
-            printf '#define _DARWIN_C_SOURCE 1\n'
-        fi
+        printf '#undef _DARWIN_C_SOURCE\n'
+        case $feature_case in
+            posix-*) printf '#define _POSIX_C_SOURCE 200809L\n' ;;
+            xopen-*) printf '#define _XOPEN_SOURCE 700\n' ;;
+        esac
+        printf '#include <%s.h>\n' "$first_header"
+        case $feature_case in *-late) printf '#define _DARWIN_C_SOURCE 1\n' ;; esac
         printf '#include <stdlib.h>\n#include <unistd.h>\n'
         printf 'int main(void) { char path[] = "probe.XXXXXX"; return mkdtemp(path) == NULL; }\n'
     } > "$test_tmp/$feature_case.c"
@@ -54,19 +64,23 @@ for feature_case in missing late; do
         -D__APPLE__=1 -Werror=implicit-function-declaration \
         -isystem "$test_tmp/darwin-headers" -fsyntax-only "$test_tmp/$feature_case.c" \
         > "$test_tmp/$feature_case.log" 2>&1; then
-        printf 'FAIL: modeled Darwin headers exposed mkdtemp with %s feature macro\n' \
-            "$feature_case" >&2
+        printf 'FAIL: modeled Darwin headers exposed mkdtemp with %s feature macro after %s\n' \
+            "$feature_case" "$first_header" >&2
         exit 1
     fi
     grep -F 'mkdtemp' "$test_tmp/$feature_case.log" >/dev/null
     grep -E 'implicit.*declaration|undeclared function' "$test_tmp/$feature_case.log" >/dev/null
+  done
 done
 # This is header-visibility coverage, not a native macOS compilation.
-# shellcheck disable=SC2086
-"${CC:-cc}" ${CPPFLAGS:-} ${CFLAGS:--O2 -g -std=c11 -Wall -Wextra -Werror} \
-    -D__APPLE__=1 -Werror=implicit-function-declaration \
-    -isystem "$test_tmp/darwin-headers" -fsyntax-only tests/fuzz_format.c
-printf 'PASS: modeled Darwin mkdtemp visibility rejects missing and late feature macros\n'
+for fuzz_source in tests/fuzz_format.c tests/fuzz_decompress.c; do
+    # shellcheck disable=SC2086
+    "${CC:-cc}" ${CPPFLAGS:-} ${CFLAGS:--O2 -g -std=c11 -Wall -Wextra -Werror} \
+        -D__APPLE__=1 -Werror=implicit-function-declaration \
+        -I"$test_root/include" -I"$test_root/src" \
+        -isystem "$test_tmp/darwin-headers" -fsyntax-only "$fuzz_source"
+done
+printf 'PASS: modeled Darwin mkdtemp visibility covers both fuzz harnesses and POSIX/XOPEN controls\n'
 
 # Deliberately use the real harness and its child-execution path.
 # shellcheck disable=SC2086

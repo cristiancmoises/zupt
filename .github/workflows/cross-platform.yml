@@ -6,12 +6,69 @@ name: target release packages
 on:
   workflow_call:
   workflow_dispatch:
+    inputs:
+      paths_only:
+        description: Run Windows argument and extraction-path diagnostics only
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
+  windows-paths:
+    name: Windows argument and extraction-path diagnostics
+    if: github.event_name == 'workflow_dispatch' && inputs.paths_only
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          lfs: false
+          submodules: false
+      - name: Install the Windows C toolchain
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc coreutils diffutils findutils git make python
+      - name: Record native argument conversion and test extraction confinement
+        run: |
+          set -Eeuo pipefail
+          probe=$(mktemp -d)
+          trap 'rm -rf -- "$probe"' EXIT
+          mkdir "$probe/outside"
+          MSYS=winsymlinks:nativestrict CYGWIN=winsymlinks:nativestrict \
+            ln -s -- "$probe/outside" "$probe/root-link"
+          test -L "$probe/root-link"
+          cat > "$probe/argument.c" <<'C'
+          #include <stdio.h>
+          int main(int argc, char **argv) {
+              if (argc != 2) return 2;
+              return fputs(argv[1], stdout) == EOF ? 1 : 0;
+          }
+          C
+          gcc -std=c11 -Wall -Wextra -Werror "$probe/argument.c" -o "$probe/argument.exe"
+          "$probe/argument.exe" "$probe/root-link/child" > "$probe/default-argument"
+          native_base=$(cygpath -m "$probe")
+          test "$native_base" -ef "$probe"
+          literal="$native_base/root-link/child"
+          MSYS2_ARG_CONV_EXCL='*' "$probe/argument.exe" "$literal" > "$probe/literal-argument"
+          printf '%s' "$literal" > "$probe/expected-argument"
+          cmp "$probe/expected-argument" "$probe/literal-argument"
+          printf 'Default conversion: '; cat "$probe/default-argument"; printf '\n'
+          printf 'Literal argument: '; cat "$probe/literal-argument"; printf '\n'
+          make -j2 CC=gcc V=1 WITH_SDK=0 WITH_PQBOX=0 INSTALL_LEGACY_ALIAS=0
+          if [[ -x ./zupt.exe ]]; then binary=$PWD/zupt.exe; else binary=$PWD/zupt; fi
+          CC=gcc bash tests/test_path_traversal.sh "$binary"
+
   windows-x86_64:
+    if: github.event_name != 'workflow_dispatch' || !inputs.paths_only
     name: Windows x86_64 package and smoke test
     runs-on: windows-latest
     defaults:
@@ -210,6 +267,7 @@ jobs:
           retention-days: 7
 
   macos-native:
+    if: github.event_name != 'workflow_dispatch' || !inputs.paths_only
     name: macOS native DMG and installed-image test
     runs-on: macos-latest
     steps:

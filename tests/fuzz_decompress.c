@@ -20,6 +20,9 @@
  *   afl-fuzz -i corpus -o findings -- ./fuzz_decompress
  */
 #define _XOPEN_SOURCE 700
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE 1
+#endif
 #include "zupt.h"
 #include <stdio.h>
 #include <stdlib.h>

@@ -325,12 +325,25 @@ passam localmente com a CLI sintética e o modelo do runtime; remover a guarda
 do link é rejeitado. Esses controles não substituem uma execução Windows
 nativa aprovada nem exercitam a correção do codec.
 
-`make test-fuzz-harness` habilita as extensões Darwin antes do primeiro
-cabeçalho de sistema nos alvos Apple para obter a declaração de `mkdtemp`.
-Os controles de visibilidade rejeitam macros ausentes ou definidas tarde e
-compilam o harness real com o namespace suportado. Esses checks modelados são
-distintos da compilação macOS nativa; não alteram o parser nem os critérios
-de rejeição.
+O fixture Windows da raiz de saída converte somente sua base privada simples
+com `cygpath`, confere se ela identifica a mesma pasta e acrescenta o componente
+do link. `MSYS2_ARG_CONV_EXCL='*'`, limitado ao comando, mantém esse componente
+no argumento recebido pela CLI nativa. Caso contrário, a [conversão de argumentos
+do MSYS](https://www.msys2.org/docs/filesystem-paths/) pode resolver o ancestral
+antes de a CLI recebê-lo. Permanecem as exigências de rejeição e ausência de
+escrita externa. Os 23 casos passam localmente em modo POSIX e com um modelo
+da conversão, usando GCC e Clang; a confirmação nativa é separada. Para registrar
+os bytes do argumento nativo e executar apenas esses casos, dispare
+`cross-platform.yml` com `paths_only=true`. Esse diagnóstico não gera artefatos
+de release nem substitui o gate completo do CI.
+
+`make test-fuzz-harness test-fuzz-build` habilita as extensões Darwin antes
+dos cabeçalhos de sistema nos dois harnesses para declarar `mkdtemp`. Oito
+controles cobrem a primeira inclusão por `stdio.h`/`stdint.h`, namespaces
+POSIX/XOPEN e macros ausentes/definidas tarde; os dois harnesses reais devem
+compilar. Passam localmente os perfis estritos GCC/Clang comuns/UBSan e builds
+reais dos harnesses com UBSan. Esses checks são distintos da qualificação
+macOS nativa; não alteram o parser nem os critérios de rejeição.
 
 `make test-entropy-literal-limit` verifica as quatro tags de entropia com o
 decodificador real. Quatro casos com contagem impossível de literais devem

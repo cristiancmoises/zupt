@@ -6,6 +6,15 @@ Version 5.2.10 is being validated and is not an official release. Its earlier
 delivery was withdrawn; previous packages do not validate the corrected source.
 The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Preserve the literal reparse-point ancestor in the Windows output-root
+  fixture. Convert only its plain private base and disable argument conversion
+  for that invocation; retain rejection and no-outside-write assertions.
+  Add an optional native path diagnostic to the existing workflow, with no
+  release assets. Full native qualification remains required.
+- Enable Darwin extensions in the decoder fuzz harness as well as the format
+  harness. Extend the shared visibility regression to both first headers and
+  POSIX/XOPEN namespaces. Strict GCC/Clang and actual UBSan harness builds
+  pass locally; native macOS confirmation remains required.
 - Request native symbolic links before starting the threaded test's Python
   launcher on MSYS/Cygwin. Check the link before invoking the suite and reject
   a copied-directory control without touching the sentinel. Preserve all 79

@@ -320,11 +320,24 @@ locally with the synthetic CLI and the runtime model; removing the link guard
 is rejected. These controls do not replace a successful native Windows run
 or exercise codec correctness.
 
-`make test-fuzz-harness` enables Darwin extensions before the first system
-header on Apple targets so that `mkdtemp` is declared. Its header-visibility
-controls reject missing and late feature macros and compile the real harness
-with the supported namespace. These modeled checks are distinct from native
-macOS compilation; neither the parser nor its rejection criteria change.
+The Windows output-root fixture converts only its plain private base using
+`cygpath`, verifies that it names the same directory, then appends the link
+component. Scoped `MSYS2_ARG_CONV_EXCL='*'` keeps that component in the native
+CLI argument. Otherwise [MSYS argument conversion](https://www.msys2.org/docs/filesystem-paths/)
+can resolve the ancestor before the CLI sees it. The original rejection and
+no-outside-write requirements remain. The 23 cases pass locally in POSIX mode
+and with a modeled conversion boundary, using GCC and Clang; native confirmation
+is separate. To record native argument bytes and run just these cases, dispatch
+`cross-platform.yml` with `paths_only=true`. This diagnostic produces no release
+assets and does not replace the full CI gate.
+
+`make test-fuzz-harness test-fuzz-build` enables Darwin extensions before
+system headers in both fuzz harnesses so that `mkdtemp` is declared. Eight
+header-visibility controls cover first inclusion through `stdio.h`/`stdint.h`,
+POSIX/XOPEN namespaces and missing/late feature macros; both real harnesses
+must compile. Strict GCC/Clang ordinary/UBSan profiles and real UBSan harness
+builds pass locally. These checks are distinct from native macOS qualification;
+neither the parser nor its rejection criteria change.
 
 `make test-entropy-literal-limit` checks all four entropy tags against the real
 decoder. Four impossible literal-count cases must return corruption without
