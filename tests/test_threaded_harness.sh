@@ -48,7 +48,7 @@ for index in range(5001 if mode == "json-long" else 5000):
 fi
 
 if [[ ${ZUPT_MT_TOOL_CHILD:-0} == 1 && ${0##*/} == dd ]]; then
-    kind= blocks=
+    kind='' blocks=''
     if [[ $# == 4 && $1 == if=/dev/urandom && $2 == bs=1024 &&
           $3 == count=500 && $4 == of=*/data/large_rand.bin ]]; then
         kind=random; blocks=500
@@ -140,7 +140,9 @@ if [[ ${ZUPT_MT_HARNESS_CHILD:-0} == 1 ]]; then
                             exit 125
                         }
                         printf '%s\n' "$observed" >"$ZUPT_MT_RECORD"
-                        stat -Lc '%a' -- "$observed" >>"$ZUPT_MT_RECORD"
+                        "$ZUPT_MT_REAL_PYTHON" -I -B -c \
+                            'import os, stat, sys; print(format(stat.S_IMODE(os.stat(sys.argv[1]).st_mode), "o"))' \
+                            "$observed" >>"$ZUPT_MT_RECORD"
                         if [[ -L $observed ]]; then printf 'symlink\n'
                         else printf 'directory\n'
                         fi >>"$ZUPT_MT_RECORD"
@@ -226,7 +228,9 @@ if [[ ${ZUPT_MT_HARNESS_CHILD:-0} == 1 ]]; then
                 fi
             fi
             if [[ ${ZUPT_MT_LIFECYCLE:-} == normal && ! -e $ZUPT_MT_FILE_MODE ]]; then
-                stat -c '%a' -- "${1%/}/single.bin" >"$ZUPT_MT_FILE_MODE"
+                "$ZUPT_MT_REAL_PYTHON" -I -B -c \
+                    'import os, stat, sys; print(format(stat.S_IMODE(os.stat(sys.argv[1]).st_mode), "o"))' \
+                    "${1%/}/single.bin" >"$ZUPT_MT_FILE_MODE"
             fi
             if [[ ${ZUPT_MT_FIXTURE:-} == json-clean && ! -e $ZUPT_MT_JSON_HASH ]]; then
                 "$ZUPT_MT_REAL_PYTHON" -I -B -c '
@@ -279,7 +283,7 @@ print("512000 204800")
             fi
             ;;
         extract)
-            output= archive= wrong=0
+            output='' archive='' wrong=0
             while (($#)); do
                 case $1 in
                     -o) output=$2; shift 2 ;;
@@ -482,7 +486,7 @@ for mode in test-status-1 test-status-2 test-status-127 test-term test-segv test
 done
 
 run_lifecycle() {
-    local mode=$1 expected=$2 directory base status valid=1 pid= legacy= observed= permissions= kind=
+    local mode=$1 expected=$2 directory base status valid=1 pid='' legacy='' observed='' permissions='' kind=''
     directory=$work/lifecycle-$mode
     base=$directory/tmp\ with\ spaces
     mkdir -p -- "$base" "$directory/sentinel/data"
@@ -611,7 +615,7 @@ run_lifecycle TERM 143
 for mode in bad-file bad-missing mktemp-error; do run_lifecycle "$mode" 1; done
 
 run_fixture() {
-    local mode=$1 expected=$2 directory status valid=1 observed= scan hash= command
+    local mode=$1 expected=$2 directory status valid=1 observed='' scan hash='' command
     directory=$work/fixture-$mode
     mkdir -p -- "$directory/tmp with spaces"
     unset ZUPT_MT_LIFECYCLE
@@ -673,7 +677,7 @@ for mode in json-exit json-empty json-short json-malformed json-schema json-nonf
 done
 
 run_binary_fixture() {
-    local mode=$1 expected=$2 directory status valid=1 observed= scan sizes= command event
+    local mode=$1 expected=$2 directory status valid=1 observed='' scan sizes='' command event
     directory=$work/fixture-$mode
     mkdir -p -- "$directory/tmp with spaces"
     unset ZUPT_MT_LIFECYCLE
@@ -746,7 +750,7 @@ done
 run_binary_fixture binary-validator-error 1
 
 run_timing() {
-    local mode=$1 expected=$2 directory status valid=1 observed= calls= scan phase state result count= summary
+    local mode=$1 expected=$2 directory status valid=1 observed='' calls='' scan phase state result count='' summary
     directory=$work/fixture-$mode
     mkdir -p -- "$directory/tmp with spaces"
     unset ZUPT_MT_LIFECYCLE
@@ -813,7 +817,7 @@ for phase in 1 4; do
     for fault in before after missing empty directory; do run_timing "timing-$phase-$fault" 1; done
 done
 run_many() {
-    local mode=$1 expected=$2 directory status valid=1 observed= calls= scan count= files=1000
+    local mode=$1 expected=$2 directory status valid=1 observed='' calls='' scan count='' files=1000
     local compress_status=0 extract_status=0 summary='  MT RESULTS: 14 passed, 0 failed (14 tests)'
     directory=$work/fixture-$mode
     mkdir -p -- "$directory/tmp with spaces"

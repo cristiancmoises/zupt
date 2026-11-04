@@ -165,14 +165,16 @@ if [ "$ARCH_SA" = "x86_64" ] || [ "$ARCH_SA" = "i686" ]; then
 else
     SA_SHANI=()
 fi
-if "$STATIC_CC" "${STRICT_CFLAGS[@]}" "${SA_SHANI[@]}" -c "$SHANI_FILE" -o /dev/null 2>"$STATIC_TMP/shani.log"; then
+# Bash 3.2 treats an empty array value as unset under nounset. The optional
+# expansion emits no flags on non-x86 hosts while preserving each x86 flag.
+if "$STATIC_CC" "${STRICT_CFLAGS[@]}" ${SA_SHANI[@]+"${SA_SHANI[@]}"} -c "$SHANI_FILE" -o /dev/null 2>"$STATIC_TMP/shani.log"; then
     P "SHA-NI file strict GCC -Werror clean"
 else
     F "SHA-NI file fails strict -Werror"
     head -5 "$STATIC_TMP/shani.log" | sed 's/^/    /'
 fi
 status=0
-"$STATIC_CC" "${CONV_CFLAGS[@]}" "${SA_SHANI[@]}" -c "$SHANI_FILE" -o /dev/null \
+"$STATIC_CC" "${CONV_CFLAGS[@]}" ${SA_SHANI[@]+"${SA_SHANI[@]}"} -c "$SHANI_FILE" -o /dev/null \
     >"$STATIC_TMP/shani-conversion.log" 2>&1 || status=$?
 count_findings -c 'warning:' "$STATIC_TMP/shani-conversion.log"
 if [ "$status" -ne 0 ]; then

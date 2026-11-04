@@ -320,6 +320,29 @@ locally with the synthetic CLI and the runtime model; removing the link guard
 is rejected. These controls do not replace a successful native Windows run
 or exercise codec correctness.
 
+The permission probes use the existing Python interpreter and `os.stat` with
+`stat.S_IMODE`, preserving the exact `700` directory and `600` file criteria.
+They no longer require GNU `stat` options on macOS. All 80 controls pass in a
+local environment whose `stat` rejects those options; a probe that prints a
+valid mode and exits with an error is still rejected.
+
+`make test-static-analysis-harness` preserves 53 reporting criteria and adds
+three controls for architecture flags and the fixture timeout command. Its
+56 cases pass locally with modeled legacy Bash empty-array behavior, missing
+host `timeout`, and a symlinked temporary-directory base. The private timeout
+fixture accepts only the existing 60-second cppcheck invocation and forwards
+the controlled tool's exit status. It does not run an analyzer or replace the
+real scanner's time limit. On non-x86 hosts, optional SHA-NI flags expand to
+zero arguments under Bash 3.2. The supervisor reports captured output when
+required evidence is missing and canonicalizes only its newly created private
+temporary directory. Native macOS confirmation remains required.
+
+For native source-check diagnostics, dispatch `cross-platform.yml` with
+`macos_checks_only=true`. It uses `make -k check` to finish independent targets
+and retain a failing exit status if any target fails. Neither diagnostic mode
+assembles release assets; default and reusable workflow calls retain the full
+native package jobs.
+
 The Windows output-root fixture converts only its plain private base using
 `cygpath`, verifies that it names the same directory, then appends the link
 component. Scoped `MSYS2_ARG_CONV_EXCL='*'` keeps that component in the native

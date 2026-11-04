@@ -8,12 +8,14 @@ analysis_script=${STATIC_ANALYSIS_SCRIPT:-$test_root/tests/test_static_analysis.
 real_find=$(command -v find)
 real_sort=$(command -v sort)
 real_grep=$(command -v grep)
-case "$real_find:$real_sort:$real_grep" in
-    /*:/*:/*) ;;
-    *) echo 'FAIL: absolute find, sort and grep paths are required' >&2; exit 1 ;;
+real_uname=$(command -v uname)
+case "$real_find:$real_sort:$real_grep:$real_uname" in
+    /*:/*:/*:/*) ;;
+    *) echo 'FAIL: absolute find, sort, grep and uname paths are required' >&2; exit 1 ;;
 esac
 cd -- "$test_root"
 test_tmp=$(mktemp -d)
+test_tmp=$(CDPATH='' cd -- "$test_tmp" && pwd -P)
 trap 'rm -rf -- "$test_tmp"' EXIT HUP INT TERM
 
 cat >"$test_tmp/compiler" <<'EOF'
@@ -26,12 +28,31 @@ if [ "$STATIC_HARNESS_CASE" = silent-conversion ]; then
 fi
 previous=
 for argument do
+    if [ -z "$argument" ]; then
+        echo 'compiler fixture received an empty argument' >&2
+        exit 20
+    fi
     if [ "$previous" = -c ] && [ ! -f "$argument" ]; then
         echo "compiler fixture source missing: $argument" >&2
         exit 18
     fi
     previous=$argument
 done
+case " $* " in
+    *" -c src/zupt_sha256_shani.c "*)
+        for flag in -msha -mssse3 -msse4.1; do
+            case "$STATIC_HARNESS_ARCH: $* " in
+                arm64:*" $flag "*)
+                    echo "compiler fixture received x86 flag on arm64: $flag" >&2
+                    exit 20 ;;
+                x86_64:*)
+                    case " $* " in
+                        *" $flag "*) ;;
+                        *) echo "compiler fixture missing x86 flag: $flag" >&2; exit 20 ;;
+                    esac ;;
+            esac
+        done ;;
+esac
 if [ "$STATIC_HARNESS_CASE" = disappearing-shani ]; then
     # This trigger may move only a source owned by this harness's private tmp.
     case "$STATIC_PRIVATE_TMP" in
@@ -131,22 +152,60 @@ case "$STATIC_HARNESS_CASE" in
     *) exec "$STATIC_REAL_SORT" "$@" ;;
 esac
 EOF
-chmod +x "$test_tmp/compiler" "$test_tmp/cppcheck" "$test_tmp/find" "$test_tmp/sort" "$test_tmp/grep"
+cat >"$test_tmp/uname" <<'EOF'
+#!/bin/sh
+if [ "$#" -eq 1 ] && [ "$1" = -m ] && [ -n "$STATIC_HARNESS_ARCH" ]; then
+    printf '%s\n' "$STATIC_HARNESS_ARCH"
+else
+    exec "$STATIC_REAL_UNAME" "$@"
+fi
+EOF
+# The cppcheck double is immediate. Check its requested time bound without
+# requiring GNU timeout on the platform running this supervisor regression.
+cat >"$test_tmp/timeout" <<'EOF'
+#!/bin/sh
+if [ "$#" -lt 2 ] || [ "$1" != 60 ] || [ "$2" != cppcheck ]; then
+    echo 'timeout fixture requires: 60 cppcheck' >&2
+    exit 21
+fi
+if [ "$STATIC_HARNESS_CASE" = timeout-launch-error ]; then
+    echo 'injected timeout launch failure 74' >&2
+    exit 74
+fi
+shift
+exec "$@"
+EOF
+chmod +x "$test_tmp/compiler" "$test_tmp/cppcheck" "$test_tmp/find" "$test_tmp/sort" "$test_tmp/grep" "$test_tmp/uname" "$test_tmp/timeout"
 
 export STATIC_REAL_FIND="$real_find" STATIC_REAL_SORT="$real_sort"
 export STATIC_REAL_GREP="$real_grep" STATIC_GREP_TARGET=
+export STATIC_REAL_UNAME="$real_uname" STATIC_HARNESS_ARCH=
 export STATIC_COMPILER_CALLS="$test_tmp/compiler-calls.log"
 STATIC_HARNESS_CASE=silent-conversion
 export STATIC_HARNESS_CASE
+
+require_log() {
+    log=$1
+    shift
+    grep_status=0
+    "$real_grep" "$@" "$log" >/dev/null || grep_status=$?
+    if [ "$grep_status" -ne 0 ]; then
+        printf 'FAIL: missing static-analysis evidence (grep status %s): %s\n' \
+            "$grep_status" "$*" >&2
+        cat "$log" >&2
+        exit 1
+    fi
+}
 
 if PATH="$test_tmp:$PATH" CC="$test_tmp/compiler" \
         bash "$analysis_script" \
         >"$test_tmp/output.log" 2>&1; then
     echo 'FAIL: static-analysis gate accepted a silent compiler failure' >&2
+    cat "$test_tmp/output.log" >&2
     exit 1
 fi
-"$real_grep" -F 'conversion compiler exited with status 17' "$test_tmp/output.log" >/dev/null
-"$real_grep" -F 'Static analysis:' "$test_tmp/output.log" >/dev/null
+require_log "$test_tmp/output.log" -F 'conversion compiler exited with status 17'
+require_log "$test_tmp/output.log" -F 'Static analysis:'
 echo 'PASS: static-analysis gate rejects silent compiler failures'
 
 # Real source discovery and ordering must still reach the compiler on success.
@@ -158,9 +217,27 @@ if ! PATH="$test_tmp:$PATH" CC="$test_tmp/compiler" \
     cat "$test_tmp/clean.log" >&2
     exit 1
 fi
-test -s "$STATIC_COMPILER_CALLS"
-"$real_grep" -E 'strict GCC -Werror clean on [1-9][0-9]* files' "$test_tmp/clean.log" >/dev/null
+if [ ! -s "$STATIC_COMPILER_CALLS" ]; then
+    echo 'FAIL: static-analysis clean baseline did not invoke the compiler' >&2
+    cat "$test_tmp/clean.log" >&2
+    exit 1
+fi
+require_log "$test_tmp/clean.log" -E 'strict GCC -Werror clean on [1-9][0-9]* files'
 echo 'PASS: static-analysis source-backed clean baseline'
+
+# Exercise both optional-flag paths, including macOS arm64 with no SHA flags.
+for STATIC_HARNESS_ARCH in arm64 x86_64; do
+    if ! PATH="$test_tmp:$PATH" CC="$test_tmp/compiler" \
+            bash "$analysis_script" >"$test_tmp/arch.log" 2>&1; then
+        printf 'FAIL: static-analysis %s compiler launch was rejected\n' "$STATIC_HARNESS_ARCH" >&2
+        cat "$test_tmp/arch.log" >&2
+        exit 1
+    fi
+    require_log "$test_tmp/arch.log" -F 'SHA-NI file strict GCC -Werror clean'
+    require_log "$test_tmp/arch.log" -F 'SHA-NI file -Wconversion -Wsign-conversion clean'
+    printf 'PASS: static-analysis %s compiler launches preserve optional flags\n' "$STATIC_HARNESS_ARCH"
+done
+STATIC_HARNESS_ARCH=
 
 # A failed producer may emit a full valid inventory before failing. Neither
 # those names nor an empty successful inventory may advance to compilation.
@@ -192,6 +269,7 @@ for STATIC_HARNESS_CASE in find-before find-after sort-before sort-after empty-f
     if [ "$case_failed" -eq 0 ]; then
         echo "PASS: static-analysis gate rejects $STATIC_HARNESS_CASE inventory before compilation"
     else
+        cat "$output" >&2
         failures=$((failures + 1))
     fi
 done
@@ -208,9 +286,11 @@ reject_case() {
             bash "$analysis_script") >"$output" 2>&1 || status=$?
     if [ "$status" -eq 0 ]; then
         echo "FAIL: static-analysis gate accepted $label" >&2
+        cat "$output" >&2
         failures=$((failures + 1))
     elif [ -n "$diagnostic" ] && ! "$real_grep" -F "$diagnostic" "$output" >/dev/null; then
         echo "FAIL: $label diagnostic was lost" >&2
+        cat "$output" >&2
         failures=$((failures + 1))
     else
         echo "PASS: static-analysis gate rejects $label"
@@ -252,6 +332,10 @@ for STATIC_HARNESS_CASE in conversion-warning shani-warning \
         cppcheck-warning cppcheck-style cppcheck-error; do
     reject_case "$STATIC_HARNESS_CASE" ''
 done
+STATIC_HARNESS_CASE=timeout-launch-error
+reject_case timeout-launch-error 'cppcheck warning+performance exited with status 74'
+require_log "$test_tmp/timeout-launch-error.log" -F 'cppcheck style exited with status 74'
+require_log "$test_tmp/timeout-launch-error.log" -F 'cppcheck error-level scan exited with status 74'
 
 # Minimal private sources exercise missing SHA-NI and forbidden-source controls
 # without renaming or rewriting any worktree source. The compiler double above

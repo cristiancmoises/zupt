@@ -325,6 +325,29 @@ passam localmente com a CLI sintética e o modelo do runtime; remover a guarda
 do link é rejeitado. Esses controles não substituem uma execução Windows
 nativa aprovada nem exercitam a correção do codec.
 
+As sondas de permissões usam o Python já exigido e `os.stat` com
+`stat.S_IMODE`, preservando os critérios exatos de `700` para a pasta e `600`
+para o arquivo. Elas dispensam opções GNU de `stat` no macOS. Os 80 controles
+passam localmente com um `stat` que rejeita essas opções; uma sonda que imprime
+um modo válido e termina com erro continua sendo rejeitada.
+
+`make test-static-analysis-harness` preserva 53 critérios de relatório e
+acrescenta três controles para flags de arquitetura e o comando de timeout do
+fixture. Seus 56 casos passam localmente com modelos do comportamento de arrays
+vazios no Bash antigo, ausência de `timeout` no host e base temporária por link
+simbólico. O timeout privado aceita somente a chamada existente de 60 segundos
+do cppcheck e repassa o status da ferramenta controlada. Ele não executa um
+analisador nem substitui o limite real do scanner. Em hosts não x86, as flags
+opcionais SHA-NI produzem zero argumentos no Bash 3.2. O supervisor mostra a
+saída capturada quando falta evidência obrigatória e canonicaliza somente sua
+pasta temporária privada recém-criada. A confirmação macOS nativa é necessária.
+
+Para diagnóstico nativo dos checks da fonte, dispare `cross-platform.yml` com
+`macos_checks_only=true`. Ele usa `make -k check` para concluir alvos independentes
+e preservar o status de falha se algum alvo falhar. Nenhum modo de diagnóstico
+monta artefatos de release; as chamadas padrão e reutilizáveis mantêm os jobs
+completos dos pacotes nativos.
+
 O fixture Windows da raiz de saída converte somente sua base privada simples
 com `cygpath`, confere se ela identifica a mesma pasta e acrescenta o componente
 do link. `MSYS2_ARG_CONV_EXCL='*'`, limitado ao comando, mantém esse componente

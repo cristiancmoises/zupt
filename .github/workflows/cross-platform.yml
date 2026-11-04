@@ -11,11 +11,36 @@ on:
         description: Run Windows argument and extraction-path diagnostics only
         type: boolean
         default: false
+      macos_checks_only:
+        description: Run macOS source checks without assembling release assets
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
+  macos-checks:
+    name: macOS source-check diagnostics
+    if: github.event_name == 'workflow_dispatch' && inputs.macos_checks_only
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out the audited source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          lfs: false
+          submodules: false
+      - name: Audit source before building
+        run: bash scripts/check-source-only.sh
+      - name: Build and run independent source checks
+        run: |
+          set -Eeuo pipefail
+          make -j2 V=1 WITH_SDK=0 WITH_PQBOX=0 INSTALL_LEGACY_ALIAS=0
+          make -k -j1 V=1 WITH_SDK=0 WITH_PQBOX=0 INSTALL_LEGACY_ALIAS=0 check
+
   windows-paths:
     name: Windows argument and extraction-path diagnostics
     if: github.event_name == 'workflow_dispatch' && inputs.paths_only
@@ -68,7 +93,7 @@ jobs:
           CC=gcc bash tests/test_path_traversal.sh "$binary"
 
   windows-x86_64:
-    if: github.event_name != 'workflow_dispatch' || !inputs.paths_only
+    if: github.event_name != 'workflow_dispatch' || (!inputs.paths_only && !inputs.macos_checks_only)
     name: Windows x86_64 package and smoke test
     runs-on: windows-latest
     defaults:
@@ -267,7 +292,7 @@ jobs:
           retention-days: 7
 
   macos-native:
-    if: github.event_name != 'workflow_dispatch' || !inputs.paths_only
+    if: github.event_name != 'workflow_dispatch' || (!inputs.paths_only && !inputs.macos_checks_only)
     name: macOS native DMG and installed-image test
     runs-on: macos-latest
     steps:
