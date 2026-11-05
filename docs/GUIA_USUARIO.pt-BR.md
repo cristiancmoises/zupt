@@ -340,7 +340,18 @@ do cppcheck e repassa o status da ferramenta controlada. Ele não executa um
 analisador nem substitui o limite real do scanner. Em hosts não x86, as flags
 opcionais SHA-NI produzem zero argumentos no Bash 3.2. O supervisor mostra a
 saída capturada quando falta evidência obrigatória e canonicaliza somente sua
-pasta temporária privada recém-criada. A confirmação macOS nativa é necessária.
+pasta temporária privada recém-criada. Os 56 controles também passam no
+diagnóstico macOS nativo `41815590681`, em `2fa686a`.
+O mesmo diagnóstico revelou duas suposições sobre o `wc`: a versão BSD inclui
+espaços antes de contagens de stdin, e comparações de texto rejeitavam uma
+execução válida e um arquivo extraído vazio. Os supervisores agora comparam
+as contagens numericamente e exigem sucesso do comando de contagem. As
+regressões locais reproduzem as duas falhas originais, passam nos 80 controles
+de threads com contagens preenchidas e rejeitam zero/duas execuções,
+contagens malformadas, tamanho não vazio e saída seguida de erro na contagem.
+Esses checks verificam supervisores; não executam o codec real nem qualificam
+pacotes nativos. Repita `make test-codec-exact-size-wrapper test-threaded-harness`
+e os jobs nativos completos depois de aplicar as correções.
 
 Para diagnóstico nativo dos checks da fonte, dispare `cross-platform.yml` com
 `macos_checks_only=true`. Ele usa `make -k check` para concluir alvos independentes

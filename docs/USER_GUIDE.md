@@ -335,7 +335,18 @@ the controlled tool's exit status. It does not run an analyzer or replace the
 real scanner's time limit. On non-x86 hosts, optional SHA-NI flags expand to
 zero arguments under Bash 3.2. The supervisor reports captured output when
 required evidence is missing and canonicalizes only its newly created private
-temporary directory. Native macOS confirmation remains required.
+temporary directory. All 56 controls also pass in native macOS diagnostic
+run `41815590681` at `2fa686a`.
+The same diagnostic exposed two assumptions about `wc`: BSD prints leading
+spaces for stdin counts, so string comparisons rejected a valid single
+execution and an empty extracted file. The supervisors now compare the
+counts numerically and require the counting command to succeed. Local
+regressions reproduce both original failures, pass all 80 threaded controls
+with padded counts, and reject zero/two executions, malformed counts,
+nonempty-file counts and output followed by a counting error. These are
+supervisor checks; they do not run the real codec or establish native package
+readiness. Rerun `make test-codec-exact-size-wrapper test-threaded-harness`
+and the complete native jobs after applying the corrections.
 
 For native source-check diagnostics, dispatch `cross-platform.yml` with
 `macos_checks_only=true`. It uses `make -k check` to finish independent targets

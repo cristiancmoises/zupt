@@ -6,12 +6,17 @@ Version 5.2.10 is being validated and is not an official release. Its earlier
 delivery was withdrawn; previous packages do not validate the corrected source.
 The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Compare `wc` counts numerically in the exact-size execution checks and
+  threaded empty-file check, accepting BSD whitespace while retaining exact
+  counts. Reject a counting command that emits a valid count and then fails.
+  Local regressions reproduce both native macOS failures and retain all
+  80 threaded controls; fresh native qualification remains required.
 - Keep optional SHA-NI flags empty on non-x86 Bash 3.2 without triggering
   nounset failures. Retain all compiler criteria, validate the controlled
   timeout invocation and report missing supervisor evidence explicitly.
   Canonicalize the private temporary root before its ownership safeguards.
   All 56 maintained controls pass locally, including legacy-shell and
-  missing-timeout models; native macOS confirmation remains required.
+  missing-timeout models, and in the native macOS diagnostic at `2fa686a`.
 - Read threaded-fixture permissions with the existing Python interpreter,
   preserving exact modes and failure checks across GNU/BSD utility layouts.
   All 80 controls pass with a BSD-option model. Add an optional macOS

@@ -173,7 +173,7 @@ has_argument() {
 }
 
 check_calls() {
-    local flavor=$1 record argument source compile_count=0 link_count=0
+    local flavor=$1 record argument source compile_count=0 link_count=0 run_count
     local -a arguments
     local seen_sources=''
     test -s "$EXACT_SIZE_CC_LOG" || fail 'chosen CC was not invoked'
@@ -219,7 +219,8 @@ check_calls() {
         fi
     done <"$EXACT_SIZE_CC_LOG"
     [[ $compile_count == 9 && $link_count == 1 ]] || fail "expected nine sanitized sources and one link, got $compile_count/$link_count"
-    [[ $(wc -l <"$EXACT_SIZE_RUN_LOG") == 1 ]] || fail 'synthetic output did not execute exactly once'
+    run_count=$(wc -l <"$EXACT_SIZE_RUN_LOG") || fail 'cannot count synthetic executions'
+    [ "$run_count" -eq 1 ] || fail 'synthetic output did not execute exactly once'
 }
 
 for flavor in gcc clang; do
@@ -278,7 +279,8 @@ for failure in compile link status signal; do
             test ! -e "$EXACT_SIZE_RUN_LOG" || fail 'output ran after compiler failure'
             ;;
         status|signal)
-            [[ $(wc -l <"$EXACT_SIZE_RUN_LOG") == 1 ]] || fail 'failing synthetic output did not execute'
+            run_count=$(wc -l <"$EXACT_SIZE_RUN_LOG") || fail 'cannot count failing synthetic executions'
+            [ "$run_count" -eq 1 ] || fail 'failing synthetic output did not execute'
             ;;
     esac
     printf 'PASS: synthetic %s failure returns nonzero and preserves failure handling\n' "$failure"

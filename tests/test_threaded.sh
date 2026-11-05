@@ -166,7 +166,8 @@ echo "notempty" > "$T/notempty.txt"
 $ZUPT compress -t 4 -l 5 "$T/t7.zupt" "$T/empty_test.txt" "$T/notempty.txt" 2>/dev/null
 $ZUPT extract -o "$T/t7_out" "$T/t7.zupt" 2>/dev/null
 EXTR_EMPTY=$(find "$T/t7_out" -name "empty_test.txt" -type f | head -1)
-if [ -n "$EXTR_EMPTY" ] && [ "$(wc -c < "$EXTR_EMPTY")" = "0" ]; then
+if [ -n "$EXTR_EMPTY" ] &&
+   EXTR_EMPTY_SIZE=$(wc -c < "$EXTR_EMPTY") && [ "$EXTR_EMPTY_SIZE" -eq 0 ]; then
     pass "Empty file in MT archive"
 else fail "Empty file in MT archive"; fi
 
