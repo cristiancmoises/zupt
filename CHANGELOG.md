@@ -6,6 +6,12 @@ Version 5.2.10 is being validated and is not an official release. Its earlier
 delivery was withdrawn; previous packages do not validate the corrected source.
 The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Honor the requested temporary directory in the exact-size test through an
+  explicit `mktemp` template. Darwin can prefer its system user-temp directory
+  over `TMPDIR` when no template is provided. Require the owned template in
+  the BCJ supervisor; the old subject fails this regression, and all 19 cases
+  pass with GNU and source-derived Darwin-default models. Keep the original
+  path guards and native macOS qualification requirement.
 - Require the bounded ANS logarithm proof to establish the two table-related
   bounds through twelve checked return assertions. The focused proof passes
   all 64 exact goals; all 166 report-supervisor controls pass. GCC/Clang

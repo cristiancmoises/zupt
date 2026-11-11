@@ -215,8 +215,10 @@ the reviewed annotations and their profile guard.
 
 The frozen 2026-11-11 integrated snapshot passes all six maintained Frama-C
 profiles and the five-source Jasmin checks. Analyzer, gate, collector and
-source-integrity statuses pass separately. Final documentation updates
-follow this snapshot; analyzed code, tests and Makefile remain unchanged.
+source-integrity statuses pass separately. Documentation updates at that
+checkpoint followed the snapshot without changing analyzed C, formal
+fixtures or the Makefile. Later shell-supervisor corrections need their
+own native checks.
 
 The original integration's strict GCC 14.3.0 and Clang 22.1.8 `check` plus
 installed-CLI functional smoke pass on the integrated 294-file snapshot,

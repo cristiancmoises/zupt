@@ -364,6 +364,17 @@ threads, incluindo um modelo de alias temporário e um negativo de argumentos
 fragmentados. Esses modelos não estabelecem o mecanismo preciso da falha
 nativa; uma nova execução macOS continua obrigatória.
 
+Em `6089467`, a execução `43109399344` passa nos 13 jobs Linux, incluindo
+as suítes GCC/Clang completas e pacotes das distribuições. O diagnóstico
+macOS nativo agora passa nos 80 controles de threads, mas ainda falha nos
+nove casos do fixture BCJ. Na [implementação da Apple](https://raw.githubusercontent.com/apple-oss-distributions/shell_cmds/main/mktemp/mktemp.c),
+`mktemp -d` sem template pode preferir a pasta temporária do usuário Darwin
+a `TMPDIR`. O teste agora fornece um template explícito sob `${TMPDIR:-/tmp}`;
+o supervisor BCJ exige esse template exato na pasta própria. A implementação
+anterior falha nessa regressão. Os 19 casos passam em modelos GNU e do padrão
+Darwin baseados na fonte, preservando as guardas de caminhos; a confirmação
+nativa continua obrigatória.
+
 Para diagnóstico nativo dos checks da fonte, dispare `cross-platform.yml` com
 `macos_checks_only=true`. Ele usa `make -k check` para concluir alvos independentes
 e preservar o status de falha se algum alvo falhar. Nenhum modo de diagnóstico

@@ -358,6 +358,16 @@ argument rather than a flattened argument string. Local regressions pass all
 and a fragmented-argument negative control. These modeled checks do not
 establish the precise native failure mechanism; a fresh macOS run is required.
 
+At `6089467`, run `43109399344` passes all 13 Linux jobs, including the full
+GCC/Clang suites and distribution packages. The native macOS diagnostic now
+passes all 80 threaded controls but still fails the nine BCJ fixture cases.
+In the [Apple implementation](https://raw.githubusercontent.com/apple-oss-distributions/shell_cmds/main/mktemp/mktemp.c),
+`mktemp -d` without a template can prefer the Darwin user-temp directory over
+`TMPDIR`. The test now passes an explicit template under `${TMPDIR:-/tmp}`;
+its BCJ supervisor requires that exact owned template. The old subject fails
+this regression. All 19 cases pass in GNU and source-derived Darwin-default
+models, with path guards unchanged; native confirmation remains required.
+
 For native source-check diagnostics, dispatch `cross-platform.yml` with
 `macos_checks_only=true`. It uses `make -k check` to finish independent targets
 and retain a failing exit status if any target fails. Neither diagnostic mode
