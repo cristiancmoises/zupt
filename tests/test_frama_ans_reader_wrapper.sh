@@ -73,8 +73,9 @@ frequency_suffixes = [
     "loop_variant_decrease", "loop_variant_positive",
 ]
 logarithm_suffixes = (
-    ["ensures_result_range", "ensures_zero"]
+    ["ensures_result_range", "ensures_zero", "ensures_table_low_count", "ensures_table_nbits"]
     + [f"ensures_exact_{case}" for case in range(12)]
+    + [f"assert_table_low_count_cut_{case}" for case in range(12)]
     + [
         f"loop_invariant_{name}_{phase}"
         for name in [f"case{case}" for case in range(12)] + ["range", "zero", "mask_or_bound"]
@@ -129,6 +130,23 @@ elif case in ("single-subgoal", "partial-subgoals", "boolean-subgoals", "zero-su
             "zero-subgoals": 0,
         }[case],
     )
+elif case.startswith(("missing-cut-", "unproved-cut-", "missing-post-", "unproved-post-")):
+    operation, family, name = case.split("-", 2)
+    suffix = (
+        "assert_table_low_count_cut_" + name
+        if family == "cut"
+        else {"low-count": "ensures_table_low_count", "nbits": "ensures_table_nbits"}[name]
+    )
+    target = next(row for row in rows if row["goal"] == "typed_ilog2_" + suffix)
+    if operation == "missing":
+        rows.remove(target)
+    else:
+        target.update(
+            passed=False,
+            verdict="unknown",
+            proved=0,
+            provers=[{"prover": "Z3:4.12.2", "time": 0.0, "success": 0}],
+        )
 elif case == "duplicate-goal":
     rows[-1] = rows[0]
 elif case == "missing-goal":
@@ -180,7 +198,7 @@ elif case == "wrong-type":
     text = "{}"
 if case != "missing-report":
     Path(path).write_text(text)
-goal_count = {"reader": 34, "frequency": 25, "logarithm": 52}[profile]
+goal_count = {"reader": 34, "frequency": 25, "logarithm": 66}[profile]
 summary = f"{goal_count - 1} / {goal_count}" if case == "old-partial" else f"{goal_count} / {goal_count}"
 if case == "old-take-only":
     summary = "20 / 20"
@@ -216,6 +234,15 @@ chmod +x "$test_tmp/frama-reader-fixture"
 total=0
 failed=0
 for profile in reader frequency logarithm; do
+extra_cases=
+if [ "$profile" = logarithm ]; then
+    extra_cases='missing-post-low-count unproved-post-low-count missing-post-nbits unproved-post-nbits'
+    cut=0
+    while [ "$cut" -lt 12 ]; do
+        extra_cases="$extra_cases missing-cut-$cut unproved-cut-$cut"
+        cut=$((cut + 1))
+    done
+fi
 for test_case in clean zero-dot single-subgoal partial-subgoals boolean-subgoals zero-subgoals \
     old-partial old-take-only missing-init swapped-functions \
     unknown duplicate-goal missing-goal extra-goal \
@@ -223,7 +250,7 @@ for test_case in clean zero-dot single-subgoal partial-subgoals boolean-subgoals
     wrong-prover unsuccessful-prover negative-time nan string-number duplicate-key \
     trailing-junk malformed-number truncated empty-report wrong-type missing-report \
     missing-summary duplicate-summary warning external-warning timeout-text failure-text \
-    status timeout version missing parser-missing probe-status probe-timeout; do
+    status timeout version missing parser-missing probe-status probe-timeout $extra_cases; do
     total=$((total + 1))
     analyzer="$test_tmp/frama-reader-fixture"
     parser=python3
@@ -246,17 +273,18 @@ for test_case in clean zero-dot single-subgoal partial-subgoals boolean-subgoals
     if [ "$profile" = frequency ]; then
         wanted_text='PASS: Frama-C ANS frequency validation, 23 exact WP goals (conditional scope)'
     elif [ "$profile" = logarithm ]; then
-        wanted_text='PASS: Frama-C ANS bounded logarithm, 50 exact WP goals (conditional scope)'
+        wanted_text='PASS: Frama-C ANS bounded logarithm, 64 exact WP goals including table-derived bounds and established return cuts (conditional scope)'
     fi
     grep -Fq "$wanted_text" \
         "$test_tmp/result.log" || marker=$?
     wanted_marker=1
     if [ "$expected" -eq 0 ]; then wanted_marker=0; fi
     raw_report=0
-    if [ "$test_case" = old-partial ]; then
-        grep -Fxq 'BEGIN_WP_RAW_JSON' "$test_tmp/result.log" &&
-            grep -Fxq 'END_WP_RAW_JSON' "$test_tmp/result.log" || raw_report=1
-    fi
+    case "$test_case" in
+        old-partial|missing-cut-*|unproved-cut-*|missing-post-*|unproved-post-*)
+            grep -Fxq 'BEGIN_WP_RAW_JSON' "$test_tmp/result.log" &&
+                grep -Fxq 'END_WP_RAW_JSON' "$test_tmp/result.log" || raw_report=1 ;;
+    esac
     startup_diagnostic=0
     case "$test_case" in missing|parser-missing)
         grep -Fq 'ERROR: required tool not found:' "$test_tmp/result.log" || startup_diagnostic=$? ;;

@@ -30,6 +30,8 @@
   requires v < ANS_L;
   assigns \nothing;
   ensures result_range: 0 <= \result < ANS_LOG;
+  ensures table_low_count: \old(v) > 0 ==> 1 <= (1 << (\result + 1)) - \old(v) <= 2048;
+  ensures table_nbits: \old(v) > 0 ==> 1 <= ANS_LOG - \result <= ANS_LOG;
   ensures zero: \old(v) == 0 ==> \result == 0;
   ensures exact_0: \result == 0 ==> 0 <= \old(v) < 2;
   ensures exact_1: \result == 1 ==> 2 <= \old(v) < 4;
@@ -69,6 +71,68 @@ static inline int ilog2(uint32_t v) {
     */
 #endif
     while (v >>= 1) r++;
+#ifdef VV_ANS_LOG_WP
+    /*@ assert table_low_count_cut_0:
+          \at(v,Pre) > 0 && r == 0 ==>
+          ((1 << (r + 1)) == (1 << 1) &&
+           1 <= (1 << 1) - \at(v,Pre) <= 1);
+    */
+    /*@ assert table_low_count_cut_1:
+          \at(v,Pre) > 0 && r == 1 ==>
+          ((1 << (r + 1)) == (1 << 2) &&
+           1 <= (1 << 2) - \at(v,Pre) <= 2);
+    */
+    /*@ assert table_low_count_cut_2:
+          \at(v,Pre) > 0 && r == 2 ==>
+          ((1 << (r + 1)) == (1 << 3) &&
+           1 <= (1 << 3) - \at(v,Pre) <= 4);
+    */
+    /*@ assert table_low_count_cut_3:
+          \at(v,Pre) > 0 && r == 3 ==>
+          ((1 << (r + 1)) == (1 << 4) &&
+           1 <= (1 << 4) - \at(v,Pre) <= 8);
+    */
+    /*@ assert table_low_count_cut_4:
+          \at(v,Pre) > 0 && r == 4 ==>
+          ((1 << (r + 1)) == (1 << 5) &&
+           1 <= (1 << 5) - \at(v,Pre) <= 16);
+    */
+    /*@ assert table_low_count_cut_5:
+          \at(v,Pre) > 0 && r == 5 ==>
+          ((1 << (r + 1)) == (1 << 6) &&
+           1 <= (1 << 6) - \at(v,Pre) <= 32);
+    */
+    /*@ assert table_low_count_cut_6:
+          \at(v,Pre) > 0 && r == 6 ==>
+          ((1 << (r + 1)) == (1 << 7) &&
+           1 <= (1 << 7) - \at(v,Pre) <= 64);
+    */
+    /*@ assert table_low_count_cut_7:
+          \at(v,Pre) > 0 && r == 7 ==>
+          ((1 << (r + 1)) == (1 << 8) &&
+           1 <= (1 << 8) - \at(v,Pre) <= 128);
+    */
+    /*@ assert table_low_count_cut_8:
+          \at(v,Pre) > 0 && r == 8 ==>
+          ((1 << (r + 1)) == (1 << 9) &&
+           1 <= (1 << 9) - \at(v,Pre) <= 256);
+    */
+    /*@ assert table_low_count_cut_9:
+          \at(v,Pre) > 0 && r == 9 ==>
+          ((1 << (r + 1)) == (1 << 10) &&
+           1 <= (1 << 10) - \at(v,Pre) <= 512);
+    */
+    /*@ assert table_low_count_cut_10:
+          \at(v,Pre) > 0 && r == 10 ==>
+          ((1 << (r + 1)) == (1 << 11) &&
+           1 <= (1 << 11) - \at(v,Pre) <= 1024);
+    */
+    /*@ assert table_low_count_cut_11:
+          \at(v,Pre) > 0 && r == 11 ==>
+          ((1 << (r + 1)) == (1 << 12) &&
+           1 <= (1 << 12) - \at(v,Pre) <= 2048);
+    */
+#endif
     return r;
 }
 

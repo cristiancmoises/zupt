@@ -82,7 +82,7 @@ try:
     log_path, report_path, source_path, profile = sys.argv[1:]
     log = Path(log_path).read_text()
     summaries = re.findall(r"^\[wp\] Proved goals:.*$", log, re.MULTILINE)
-    summary_count = {"reader": 34, "frequency": 25, "logarithm": 52}[profile]
+    summary_count = {"reader": 34, "frequency": 25, "logarithm": 66}[profile]
     if len(summaries) != 1 or not re.fullmatch(
         rf"\[wp\] Proved goals:\s+{summary_count} / {summary_count}\s*", summaries[0]
     ):
@@ -157,7 +157,8 @@ try:
         "loop_variant_decrease", "loop_variant_positive",
     }
     logarithm_suffixes = (
-        {"ensures_result_range", "ensures_zero"}
+        {"ensures_result_range", "ensures_zero", "ensures_table_low_count", "ensures_table_nbits"}
+        | {f"assert_table_low_count_cut_{case}" for case in range(12)}
         | {f"ensures_exact_{case}" for case in range(12)}
         | {
             f"loop_invariant_{name}_{phase}"
@@ -242,5 +243,5 @@ PY
 case "$profile" in
     reader) printf 'PASS: Frama-C ANS reader initialization/extraction, 30 exact WP goals (conditional scope)\n' ;;
     frequency) printf 'PASS: Frama-C ANS frequency validation, 23 exact WP goals (conditional scope)\n' ;;
-    logarithm) printf 'PASS: Frama-C ANS bounded logarithm, 50 exact WP goals (conditional scope)\n' ;;
+    logarithm) printf 'PASS: Frama-C ANS bounded logarithm, 64 exact WP goals including table-derived bounds and established return cuts (conditional scope)\n' ;;
 esac
