@@ -17,7 +17,7 @@ else
     echo "  SKIP: AVX2-specific subpath unavailable; scalar exact-size test remains enabled"
 fi
 
-TMP=$(mktemp -d) || exit 1
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/zupt-exact.XXXXXXXX") || exit 1
 trap 'rm -rf -- "$TMP"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT

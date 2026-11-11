@@ -20,6 +20,13 @@ bcj_injected_failure() {
     exit 73
 }
 
+# Only BCJ cases install this self-copy in PATH; require an explicit owned template.
+if [[ ${0##*/} == mktemp ]]; then
+    [[ $# == 2 && $1 == -d && $2 == "$EXACT_SIZE_BCJ_TMP/zupt-exact.XXXXXXXX" ]] ||
+        bcj_fixture_error 'unexpected temporary directory template'
+    exec "$EXACT_SIZE_REAL_MKTEMP" "$@"
+fi
+
 if [[ ${0##*/} == zupt || ${0##*/} == find ]]; then
     mode=${EXACT_SIZE_BCJ_MODE:?}
     level=${EXACT_SIZE_BCJ_LEVEL:?}
@@ -149,6 +156,9 @@ test -x "$false_program"
 ln -s "$false_program" "$test_tmp/bin/gcc"
 export EXACT_SIZE_REAL_FIND="$(type -P find)"
 test -x "$EXACT_SIZE_REAL_FIND"
+EXACT_SIZE_REAL_MKTEMP=$(type -P mktemp)
+export EXACT_SIZE_REAL_MKTEMP
+test -x "$EXACT_SIZE_REAL_MKTEMP"
 export PATH="$test_tmp/bin:$PATH"
 unset BASH_ENV ENV
 export ZUPT_BIN="$test_tmp/no-real-cli"
@@ -293,7 +303,8 @@ unset EXACT_SIZE_FAIL_SOURCE EXACT_SIZE_FAIL_LINK EXACT_SIZE_RUN_STATUS EXACT_SI
 unset MAKEFLAGS MAKEOVERRIDES MFLAGS
 cp -- "$self" "$test_tmp/project/zupt"
 cp -- "$self" "$test_tmp/bin/find"
-chmod +x "$test_tmp/project/zupt" "$test_tmp/bin/find"
+cp -- "$self" "$test_tmp/bin/mktemp"
+chmod +x "$test_tmp/project/zupt" "$test_tmp/bin/find" "$test_tmp/bin/mktemp"
 export ZUPT_BIN="$test_tmp/fixture.bin"
 printf 'literal BCJ fixture\000\001\377\n' >"$ZUPT_BIN"
 bcj_failures=0
