@@ -93,7 +93,13 @@ fi
 
 if [[ ${ZUPT_MT_TOOL_CHILD:-0} == 1 && ${0##*/} == grep ]]; then
     last_argument=
-    for argument in "$@"; do last_argument=$argument; done
+    summary_argument=0
+    for argument in "$@"; do
+        last_argument=$argument
+        if [[ $argument == '  Test: 9 passed, 0 failed (9 files)' ]]; then
+            summary_argument=1
+        fi
+    done
     if [[ $last_argument == */t9-error.log ]]; then
         if [[ $ZUPT_MT_FAULT == grep-scan && $* == *AddressSanitizer* ]] ||
            [[ $ZUPT_MT_FAULT == grep-auth && $* == *'Error: Authentication failed'* ]]; then
@@ -104,7 +110,7 @@ if [[ ${ZUPT_MT_TOOL_CHILD:-0} == 1 && ${0##*/} == grep ]]; then
     fi
     if [[ $last_argument == */t10-result.log ]]; then
         if [[ $ZUPT_MT_FAULT == test-grep-scan && $* == *AddressSanitizer* ]] ||
-           [[ $ZUPT_MT_FAULT == test-grep-summary && $* == *'  Test: 9 passed, 0 failed (9 files)'* ]] ||
+           [[ $ZUPT_MT_FAULT == test-grep-summary && $summary_argument == 1 ]] ||
            [[ $ZUPT_MT_FAULT == test-grep-count && $* == *'-acF'* && $* == *'Test:'* ]]; then
             printf 'tool-%s\n' "$ZUPT_MT_FAULT" >>"$ZUPT_MT_EVENT_LOG"
             if [[ $ZUPT_MT_FAULT == test-grep-count ]]; then

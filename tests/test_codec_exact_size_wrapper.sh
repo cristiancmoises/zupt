@@ -134,6 +134,7 @@ fi
 test_project=${1:-$(dirname -- "$(dirname -- "$self")")}
 test_project=$(CDPATH='' cd -- "$test_project" && pwd -P)
 test_tmp=$(mktemp -d)
+test_tmp=$(CDPATH='' cd -- "$test_tmp" && pwd -P)
 trap 'rm -rf -- "$test_tmp"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
