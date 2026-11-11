@@ -188,23 +188,39 @@ positive input. They do not change the helper's runtime behavior or impose a
 new public caller contract. Callers outside this bounded profile still need
 their own analysis.
 
-Frama-C 29.0, Why3 1.7.2 and recognized Z3 4.12.2 pass all 50 exact JSON
-goals and the 52/52 console summary. The redundant OR-bound loop invariant
-exposes WP's existing mask/addition relation. Its establishment and
-preservation are separately proved through the native bit-range tactic;
-neither is assumed. Raw scripts and JSON remain in the gate output.
-An intentionally false postcondition is rejected with analyzer status zero
-but gate status one. Reader and frequency profiles retain their 30 and 23
-exact valid goals.
+The maintained profile also requires two table-related postconditions for
+positive inputs: `1 <= (1 << (result + 1)) - input <= 2048` and
+`1 <= 12 - result <= 12`. Twelve guarded return assertions split the first
+bound into fixed-shift intervals. Each assertion is a proof obligation;
+none is an assumed lemma. The redundant OR-bound loop invariant and all
+previous assumptions remain unchanged.
 
-The result validator now rejects non-integer, zero or multiple `subgoals`
-when a row claims just one proved goal. The actual two-line omission fails
-nine of 132 synthetic controls; the corrected gate passes all 132 with GCC
-and Clang. These controls reject an unknown mask invariant even while the
-postcondition rows remain valid. Synthetic reports are not C proofs.
+The 2026-11-05 focused run with Frama-C 29.0, Why3 1.7.2 and recognized Z3
+4.12.2 proves all **64 exact JSON goals**, with **66/66** in the console:
+the original 50, twelve assertions and two postconditions. Raw scripts and
+JSON remain in the gate output. A separate false aggregate bound leaves
+only that goal unproved; the analyzer exits zero and the strict gate exits
+two. This does not establish the table builder's or its callers' contracts.
+Reader and frequency profiles retain their 30 and 23 exact valid goals.
 
-Strict GCC 14.3.0 and Clang 22.1.8 `check` plus installed-CLI functional smoke
-pass on the integrated 294-file snapshot, with 11 and 10 explicit skips.
+The validator requires every goal identity and rejects non-integer, zero or
+multiple `subgoals` when a row claims one proved goal. All **166 synthetic
+controls** pass: the 138 cases present before this extension and 28 missing
+or unproved-goal cases. Ignoring assertion verdicts fails twelve controls.
+The earlier 132-case result and its nine-failure subgoal mutation remain
+historical results. Synthetic reports are not C proofs. GCC 14.3.0 and Clang
+22.1.8 preprocessing and complete `-O2 -g0` objects match the baseline for
+both default and selected-logarithm profiles; source bytes differ only in
+the reviewed annotations and their profile guard.
+
+The frozen 2026-11-11 integrated snapshot passes all six maintained Frama-C
+profiles and the five-source Jasmin checks. Analyzer, gate, collector and
+source-integrity statuses pass separately. Final documentation updates
+follow this snapshot; analyzed code, tests and Makefile remain unchanged.
+
+The original integration's strict GCC 14.3.0 and Clang 22.1.8 `check` plus
+installed-CLI functional smoke pass on the integrated 294-file snapshot,
+with 11 and 10 explicit skips.
 Each run first rejects a real fatal UBSan overflow control. This qualifies
 the contained UBSan fuzz-build checks, not a fully instrumented CLI or new
 ASan/LSan campaign. Skips cover native Windows, five external-SDK cases,

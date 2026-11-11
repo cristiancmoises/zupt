@@ -348,6 +348,16 @@ supervisor checks; they do not run the real codec or establish native package
 readiness. Rerun `make test-codec-exact-size-wrapper test-threaded-harness`
 and the complete native jobs after applying the corrections.
 
+The later native macOS run at `decbb77` passes the numeric-count checks but
+still rejects the exact-size fixture's owned paths and fails one threaded
+summary-injection control. The exact-size supervisor now resolves its newly
+created temporary directory physically before applying the same ownership
+guards. The threaded supervisor selects the summary through one literal
+argument rather than a flattened argument string. Local regressions pass all
+19 exact-size and 80 threaded cases, including a temporary-path alias model
+and a fragmented-argument negative control. These modeled checks do not
+establish the precise native failure mechanism; a fresh macOS run is required.
+
 For native source-check diagnostics, dispatch `cross-platform.yml` with
 `macos_checks_only=true`. It uses `make -k check` to finish independent targets
 and retain a failing exit status if any target fails. Neither diagnostic mode
@@ -415,6 +425,25 @@ Debian changelog parsing passes in GitHub run `41181738059`. Syntax checks
 do not establish native package installation. Optional full SDK/PQ providers
 and the privileged loop-device case remain separate requirements; the base
 SDK is not a replacement for the full provider.
+
+The installation regression suite now also runs the real Makefile's compound
+recipes in a private `DESTDIR` with injected command failures. Run:
+
+```sh
+bash tests/test_completions_manpage.sh
+```
+
+Sixteen fault cases cover license, manual, completion and legacy-alias
+installation; five controls cover successful layouts, absent optional inputs
+and the no-build fixture. No compiler or Zupt process is executed by these
+new fixtures. Adding local `set -e` to six recipes stops errors previously
+hidden by later commands. The initial expanded run records 41 passes, zero
+failures and three missing-tool skips. On 2026-11-11, both mandoc and groff
+profiles pass **44 checks without skips**, with actual zsh/fish parsing and
+manual rendering. The earlier 23-pass renderer results predate this extension.
+This change does not provide transactional rollback:
+files installed earlier or partial compressed manuals may remain after error.
+Inspect a failed staging directory before retrying or packaging it.
 
 ### Reproducing the static analyzer checks
 
@@ -648,16 +677,31 @@ are proved with the native bit-range tactic. No new axiom or executable C
 substitution is introduced. This does not restrict the userspace helper to
 that input domain or prove that every caller supplies it.
 
-The gate requires **50 exact, valid, non-smoke JSON goals** and the
-**52/52** console summary, including the two implicit results. It retains
-proof scripts and raw JSON. Each row must have one proved goal and, when
-present, an integer `subgoals` count of exactly one. Partial, boolean and
-zero totals fail, as do unknown loop invariants despite valid postconditions.
-All 132 synthetic supervisor cases pass; removing the two subgoal checks
-produces nine failures. These fixtures validate result handling, not C
-semantics. A separate false-postcondition run confirms actual rejection.
+For positive inputs, two additional postconditions require
+`1 <= (1 << (result + 1)) - input <= 2048` and `1 <= 12 - result <= 12`.
+Twelve guarded return assertions prove the fixed-shift intervals used by
+the first bound. They are checked obligations, not assumed lemmas; existing
+preconditions and loop invariants are preserved.
 
-The integrated source passes strict GCC/Clang `check` and CLI functional
+The gate requires **64 exact, valid, non-smoke JSON goals** and the
+**66/66** console summary, including two implicit results. The focused
+2026-11-05 run proves the original 50 goals, twelve assertions and two new
+postconditions. It retains proof scripts and raw JSON. Each row must have
+one proved goal and, when present, an integer `subgoals` count of exactly
+one. Partial, boolean and zero totals fail, as do unknown assertions or
+invariants despite valid postconditions. All **166 synthetic supervisor
+cases** pass, preserving the preceding 138 cases and adding 28 missing or
+unproved-goal checks. A mutation ignoring the assertion verdicts fails
+twelve cases. The earlier 132-case result remains historical. These fixtures
+validate result handling, not C semantics. A separate false aggregate bound
+is rejected with analyzer exit zero and gate exit two.
+
+After this annotation-only extension, GCC 14.3.0 and Clang 22.1.8 produce
+baseline-identical preprocessed C and complete `-O2 -g0` objects in both the
+default and selected-logarithm profiles. This establishes executable
+equivalence for those builds, not a general table or caller proof.
+
+The original integration passes strict GCC/Clang `check` and CLI functional
 smoke with 11/10 explicit skips. Real fatal UBSan controls precede each run;
 the existing fuzz-build UBSan tests execute, not an ASan/LSan campaign.
 GCC preprocessing matches baseline in the default/frequency/logarithm

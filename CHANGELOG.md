@@ -6,6 +6,24 @@ Version 5.2.10 is being validated and is not an official release. Its earlier
 delivery was withdrawn; previous packages do not validate the corrected source.
 The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Require the bounded ANS logarithm proof to establish the two table-related
+  bounds through twelve checked return assertions. The focused proof passes
+  all 64 exact goals; all 166 report-supervisor controls pass. GCC/Clang
+  preprocessing and complete objects remain baseline-identical. General
+  table/caller obligations and final release qualification remain open.
+- Canonicalize the newly created exact-size test directory before checking
+  owned paths, and match the threaded supervisor's summary as one literal
+  argument. All 19 exact-size and 80 threaded controls pass locally. The
+  latest native macOS job still fails on the preceding source; native
+  confirmation of these corrections remains required.
+- Stop compound install recipes at failed commands, including license,
+  manual and completion installation. Sixteen injected failures and five
+  success/no-build controls cover the real Makefile recipes without running
+  the CLI or installing on the host. The expanded suite records 41 passes,
+  zero failures and three missing-tool skips initially. Both subsequent
+  mandoc and groff profiles pass 44 checks without skips, including zsh/fish
+  parsing. Failed installation can leave earlier files or partial output;
+  this is not transactional rollback.
 - Compare `wc` counts numerically in the exact-size execution checks and
   threaded empty-file check, accepting BSD whitespace while retaining exact
   counts. Reject a counting command that emits a valid count and then fails.

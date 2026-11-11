@@ -353,6 +353,17 @@ Esses checks verificam supervisores; não executam o codec real nem qualificam
 pacotes nativos. Repita `make test-codec-exact-size-wrapper test-threaded-harness`
 e os jobs nativos completos depois de aplicar as correções.
 
+A execução macOS nativa posterior em `decbb77` passa nos checks de contagens
+numéricas, mas ainda rejeita caminhos próprios do fixture de buffers exatos
+e falha em um controle de injeção do resumo de threads. O supervisor de
+buffers exatos agora resolve fisicamente sua pasta temporária recém-criada
+antes de aplicar as mesmas guardas de propriedade. O supervisor de threads
+seleciona o resumo por um argumento literal, sem achatar a lista de argumentos.
+As regressões locais passam nos 19 casos de buffers exatos e nos 80 casos de
+threads, incluindo um modelo de alias temporário e um negativo de argumentos
+fragmentados. Esses modelos não estabelecem o mecanismo preciso da falha
+nativa; uma nova execução macOS continua obrigatória.
+
 Para diagnóstico nativo dos checks da fonte, dispare `cross-platform.yml` com
 `macos_checks_only=true`. Ele usa `make -k check` para concluir alvos independentes
 e preservar o status de falha se algum alvo falhar. Nenhum modo de diagnóstico
@@ -425,6 +436,26 @@ O changelog Debian passa no parser na execução GitHub `41181738059`.
 Sintaxe aprovada não comprova instalação de pacote nativo. Os provedores
 opcionais completos SDK/PQ e o caso privilegiado de dispositivo loop
 continuam separados; o SDK base não substitui o provedor completo.
+
+A suíte de regressão da instalação também executa as receitas compostas do
+Makefile real em `DESTDIR` privado, com falhas de comandos injetadas. Execute:
+
+```sh
+bash tests/test_completions_manpage.sh
+```
+
+Dezesseis casos de falha cobrem instalação de licenças, manuais, completions
+e aliases legados; cinco controles cobrem layouts válidos, entradas opcionais
+ausentes e o fixture sem build. Esses novos fixtures não executam compilador
+nem processo Zupt. O `set -e` local em seis receitas impede erros antes
+ocultados pelos comandos posteriores. A primeira execução ampliada registra
+41 passes, zero falhas e três skips por ferramentas ausentes. Em 2026-11-11,
+os perfis mandoc e groff passam nos **44 checks sem skips**, com parsing
+zsh/fish e renderização de manual reais. Os resultados anteriores de 23 passes
+com renderizadores precedem essa extensão. A mudança não oferece rollback
+transacional: arquivos instalados antes ou manuais
+comprimidos parciais podem permanecer após erro. Inspecione a pasta de staging
+com falha antes de repetir a instalação ou empacotá-la.
 
 ### Reprodução dos checks do analisador estático
 
@@ -760,16 +791,31 @@ de bits. Não há novo axioma nem substituição do C executável. Isso não
 restringe o auxiliar de userspace a esse domínio nem prova que todos os
 chamadores o respeitam.
 
-O gate exige **50 metas JSON exatas e válidas, sem smoke**, e o resumo
-**52/52**, que inclui dois resultados implícitos. Preserva scripts de prova
-e JSON bruto. Cada registro precisa ter uma meta provada e, quando presente,
-`subgoals` inteiro igual a um. Totais parciais, booleanos ou zero falham,
-assim como invariantes desconhecidas mesmo com pós-contratos válidos.
-Passam os 132 casos sintéticos do supervisor; retirar os dois checks de
-submetas produz nove falhas. Essas fixtures verificam o relatório, não a
-semântica C. Um pós-contrato falso separado confirma a rejeição real.
+Para entradas positivas, duas pós-condições adicionais exigem
+`1 <= (1 << (resultado + 1)) - entrada <= 2048` e `1 <= 12 - resultado <= 12`.
+Doze asserções de retorno, limitadas ao perfil, provam os intervalos de shift
+constante usados no primeiro limite. São obrigações verificadas, não lemas
+assumidos; as pré-condições e invariantes existentes são preservadas.
 
-A fonte integrada passa em `check` estrito e no smoke funcional da CLI com
+O gate exige **64 metas JSON exatas e válidas, sem smoke**, e o resumo
+**66/66**, incluindo dois resultados implícitos. A execução focada de
+2026-11-05 prova as 50 metas originais, doze asserções e duas pós-condições
+novas. Preserva scripts de prova e JSON bruto. Cada registro precisa ter uma
+meta provada e, quando presente, `subgoals` inteiro igual a um. Totais parciais,
+booleanos ou zero falham, assim como asserções ou invariantes desconhecidas
+mesmo com pós-contratos válidos. Passam os **166 casos sintéticos** do
+supervisor, preservando os 138 anteriores e acrescentando 28 checks de metas
+ausentes ou não provadas. Uma mutação que ignora os veredictos das asserções
+falha em doze casos. O resultado anterior de 132 casos permanece histórico.
+Essas fixtures verificam o relatório, não a semântica C. Um limite agregado
+falso separado é rejeitado com status zero do analisador e dois do gate.
+
+Após essa extensão somente de anotações, GCC 14.3.0 e Clang 22.1.8 produzem
+C pré-processado e objetos completos `-O2 -g0` idênticos à base, nos perfis
+padrão e do logaritmo selecionado. Isso estabelece equivalência executável
+nesses builds, não uma prova geral da tabela ou dos chamadores.
+
+A integração original passa em `check` estrito e no smoke funcional da CLI com
 GCC/Clang, mantendo 11/10 skips explícitos. Negativos UBSan fatais reais
 precedem cada execução; rodam os testes UBSan existentes do fuzz-build,
 não uma campanha ASan/LSan. O pré-processamento GCC coincide com a base nos
