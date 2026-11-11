@@ -373,15 +373,15 @@ $(TARGET): $(ALL_OBJS) $(JAZZ_O)
 install: $(TARGET)
 	$(Q)mkdir -p "$(DESTDIR)$(BINDIR)"
 	$(Q)install -m 0755 "$(TARGET)" "$(DESTDIR)$(BINDIR)/$(TARGET)"
-	$(Q)if [ "$(INSTALL_LICENSES)" = 1 ]; then \
+	$(Q)set -e; if [ "$(INSTALL_LICENSES)" = 1 ]; then \
 		mkdir -p "$(DESTDIR)$(LICENSEDIR)"; \
 		install -m 0644 $(LICENSE_FILES) "$(DESTDIR)$(LICENSEDIR)/"; \
 	fi
-	$(Q)if [ "$(INSTALL_LEGACY_ALIAS)" = 1 ]; then \
+	$(Q)set -e; if [ "$(INSTALL_LEGACY_ALIAS)" = 1 ]; then \
 		ln -sf "$(TARGET)" "$(DESTDIR)$(BINDIR)/$(LEGACY_LINK)"; \
 	fi
 
-	$(Q)if [ -f "$(MANPAGE)" ]; then \
+	$(Q)set -e; if [ -f "$(MANPAGE)" ]; then \
 		mkdir -p "$(DESTDIR)$(MAN1DIR)"; \
 		$(GZIP) $(GZIPFLAGS) -c "$(MANPAGE)" > "$(DESTDIR)$(MAN1DIR)/$(MANPAGE_GZ)"; \
 		chmod 0644 "$(DESTDIR)$(MAN1DIR)/$(MANPAGE_GZ)"; \
@@ -396,7 +396,7 @@ install: $(TARGET)
 	# Shell completions (v2.4.7+). Honour distro path conventions where
 	# possible; downstream packagers can override DESTDIR + the specific
 	# dirs as needed.
-	$(Q)if [ -f completions/zupt.bash ]; then \
+	$(Q)set -e; if [ -f completions/zupt.bash ]; then \
 		mkdir -p "$(DESTDIR)$(BASHCOMPDIR)"; \
 		install -m 0644 completions/zupt.bash \
 			"$(DESTDIR)$(BASHCOMPDIR)/$(PROGRAM)"; \
@@ -405,7 +405,7 @@ install: $(TARGET)
 		fi; \
 		echo "Installed: $(DESTDIR)$(BASHCOMPDIR)/$(PROGRAM)"; \
 	fi
-	$(Q)if [ -f completions/_zupt ]; then \
+	$(Q)set -e; if [ -f completions/_zupt ]; then \
 		mkdir -p "$(DESTDIR)$(ZSHCOMPDIR)"; \
 		install -m 0644 completions/_zupt \
 			"$(DESTDIR)$(ZSHCOMPDIR)/_$(PROGRAM)"; \
@@ -414,7 +414,7 @@ install: $(TARGET)
 		fi; \
 		echo "Installed: $(DESTDIR)$(ZSHCOMPDIR)/_$(PROGRAM)"; \
 	fi
-	$(Q)if [ -f completions/zupt.fish ]; then \
+	$(Q)set -e; if [ -f completions/zupt.fish ]; then \
 		mkdir -p "$(DESTDIR)$(FISHCOMPDIR)"; \
 		install -m 0644 completions/zupt.fish \
 			"$(DESTDIR)$(FISHCOMPDIR)/$(PROGRAM).fish"; \
