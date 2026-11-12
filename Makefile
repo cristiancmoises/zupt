@@ -714,7 +714,20 @@ else ifneq ($(findstring linux,$(TARGET_MACHINE)),)
 		$(FEATURE_LDLIBS) $(PROJECT_LDLIBS) $(LDLIBS)
 	$(Q)set -eu; test_dir=$$(mktemp -d); \
 		trap 'rm -rf "$$test_dir"' EXIT HUP INT TERM; \
-		./test_native_key_read_errors$(EXEEXT) "$$test_dir"
+		mkdir -m 700 "$$test_dir/fixture"; \
+		./test_native_key_read_errors$(EXEEXT) "$$test_dir/fixture"; \
+		printf 'foreign export sentinel\n' > "$$test_dir/expected-export"; \
+		cp "$$test_dir/expected-export" "$$test_dir/fixture/ZKEY-export.key"; \
+		ln "$$test_dir/fixture/ZKEY-export.key" "$$test_dir/held-export"; \
+		status=0; ./test_native_key_read_errors$(EXEEXT) "$$test_dir/fixture" \
+			> "$$test_dir/nonempty.log" 2>&1 || status=$$?; \
+		if [ "$$status" -ne 2 ]; then \
+			cat "$$test_dir/nonempty.log" >&2; \
+			echo 'FAIL: native key fixture did not reject a nonempty directory before testing' >&2; exit 1; \
+		fi; \
+		test "$$test_dir/fixture/ZKEY-export.key" -ef "$$test_dir/held-export"; \
+		cmp -s "$$test_dir/fixture/ZKEY-export.key" "$$test_dir/expected-export"; \
+		echo 'PASS: native key fixture preserves a preexisting export and its inode'
 else
 	@echo "SKIP: native key read fault injection requires GNU/Linux cookie streams and fopen wrapping"
 endif

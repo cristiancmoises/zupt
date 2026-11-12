@@ -9,8 +9,11 @@
 #if defined(__linux__) && !defined(__ANDROID__)
 
 #include <errno.h>
+#include <dirent.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 FILE *__real_fopen(const char *, const char *);
@@ -284,8 +287,39 @@ cleanup:
     zupt_secure_wipe(private_data, sizeof(private_data));
 }
 
+/* Direct invocations must not put disposable keys beside existing files. */
+static int prepare_fixture_directory(const char *path) {
+    int descriptor = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    if (descriptor < 0) return -1;
+    struct stat info;
+    if (fstat(descriptor, &info) || !S_ISDIR(info.st_mode) ||
+        (info.st_mode & 0777) != 0700 || info.st_uid != geteuid()) {
+        close(descriptor);
+        return -1;
+    }
+    DIR *directory = fdopendir(descriptor);
+    if (!directory) { close(descriptor); return -1; }
+    int valid = 1;
+    unsigned entries = 0;
+    for (;;) {
+        errno = 0;
+        struct dirent *entry = readdir(directory);
+        if (!entry) { if (errno) valid = 0; break; }
+        if (++entries > 2 || (strcmp(entry->d_name, ".") && strcmp(entry->d_name, ".."))) {
+            valid = 0;
+            break;
+        }
+    }
+    if (valid && fchdir(descriptor)) valid = 0;
+    if (closedir(directory)) valid = 0;
+    return valid ? 0 : -1;
+}
+
 int main(int argc, char **argv) {
-    if (argc != 2) return 2;
+    if (argc != 2 || prepare_fixture_directory(argv[1])) {
+        fputs("Fixture directory must be empty, owned and mode 0700\n", stderr);
+        return 2;
+    }
     const struct mode modes[] = {
         {"ZKEY", 1232, 3664, zupt_hybrid_keygen, zupt_hybrid_export_pubkey,
          zupt_hybrid_encrypt_init, zupt_hybrid_decrypt_init},
@@ -293,7 +327,7 @@ int main(int argc, char **argv) {
          zupt_pq_encrypt_init, zupt_pq_decrypt_init}
     };
     for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++)
-        exercise_mode(&modes[i], argv[1]);
+        exercise_mode(&modes[i], ".");
     printf("native key read errors: %d cases, %d failures\n", cases, failures);
     return failures ? 1 : 0;
 }

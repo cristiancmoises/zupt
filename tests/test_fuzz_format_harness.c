@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* Copyright (c) 2026 Cristian Cezar Moisés */
 #define _POSIX_C_SOURCE 200809L
+#include <fcntl.h>
 #include <signal.h>
 #include <limits.h>
 #include <stdio.h>
@@ -23,19 +24,34 @@ static int capture_input(const char *archive) {
     if (length >= sizeof(directory)) return -1;
     memcpy(directory, archive, length);
     directory[length] = '\0';
-    struct stat info;
-    if (lstat(directory, &info) || !S_ISDIR(info.st_mode) ||
-        (info.st_mode & 0777) != 0700 || lstat(archive, &info) ||
-        !S_ISREG(info.st_mode) || (info.st_mode & 0777) != 0600) return -1;
     int written = snprintf(copy_path, sizeof(copy_path), "%s.input", log_path);
     if (written < 0 || (size_t)written >= sizeof(copy_path)) return -1;
+    int parent = open(directory, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    if (parent < 0) return -1;
+    struct stat info;
+    if (fstat(parent, &info) || !S_ISDIR(info.st_mode) ||
+        (info.st_mode & 0777) != 0700 || info.st_uid != geteuid()) {
+        close(parent);
+        return -1;
+    }
+    int descriptor = openat(parent, leaf + 1,
+                            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    int invalid = descriptor < 0;
+    if (!invalid && (fstat(descriptor, &info) || !S_ISREG(info.st_mode) ||
+                    (info.st_mode & 0777) != 0600 || info.st_uid != geteuid()))
+        invalid = 1;
+    if (close(parent)) invalid = 1;
+    if (invalid) {
+        if (descriptor >= 0) close(descriptor);
+        return -1;
+    }
+    FILE *input = fdopen(descriptor, "rb");
+    if (!input) { close(descriptor); return -1; }
     FILE *log = fopen(log_path, "a");
-    if (!log) return -1;
+    if (!log) { fclose(input); return -1; }
     int failed = fprintf(log, "%s\n", archive) < 0;
     if (fclose(log)) failed = 1;
-    if (failed) return -1;
-    FILE *input = fopen(archive, "rb");
-    if (!input) return -1;
+    if (failed) { fclose(input); return -1; }
     FILE *copy = fopen(copy_path, "wb");
     if (!copy) { fclose(input); return -1; }
     unsigned char bytes[4096];
