@@ -210,6 +210,25 @@ done
 if ((${#missing_install_tools[@]})); then
     skip "install failure checks require: ${missing_install_tools[*]}"
 else
+    case $(uname -s) in
+        MINGW*|MSYS*|CYGWIN*)
+            # MSYS can copy a file for ln -s. These fixtures must exercise
+            # actual links, including when another link mode was inherited.
+            for runtime in MSYS CYGWIN; do
+                read -r -a runtime_options <<< "${!runtime-}"
+                native_options=()
+                for option in "${runtime_options[@]}"; do
+                    case $option in
+                        winsymlinks|winsymlinks:*) ;;
+                        *) native_options+=("$option") ;;
+                    esac
+                done
+                native_options+=(winsymlinks:nativestrict)
+                printf -v "$runtime" '%s' "${native_options[*]}"
+            done
+            export MSYS CYGWIN
+            ;;
+    esac
     install_tmp=$(mktemp -d "${TMPDIR:-/tmp}/zupt-install-check.XXXXXXXX")
     trap 'rm -rf -- "$install_tmp"' EXIT HUP INT TERM
     fixture=$install_tmp/source
@@ -246,6 +265,12 @@ if [[ $tool == "$INSTALL_TEST_FAIL_TOOL" && $target == "$INSTALL_TEST_FAIL_PATH"
     if [[ $tool == gzip ]]; then printf 'partial-gzip-output\n'; fi
     exit 73
 fi
+if [[ $tool == ln && ${INSTALL_TEST_COPY_LINKS:-0} == 1 ]]; then
+    source=${@: -2:1}
+    if [[ $source != /* ]]; then source=${target%/*}/$source; fi
+    cp -pL -- "$source" "$target"
+    exit 0
+fi
 real_tool=INSTALL_TEST_REAL_$tool
 exec "${!real_tool}" "$@"
 SH
@@ -270,6 +295,7 @@ SH
         : > "$install_trace"
         if PATH="$install_tmp/tools:$PATH" INSTALL_TEST_TRACE="$install_trace" \
            INSTALL_TEST_FAIL_TOOL="$tool" INSTALL_TEST_FAIL_PATH="$target" \
+           INSTALL_TEST_COPY_LINKS="${INSTALL_TEST_COPY_LINKS:-0}" \
            "$make_bin" --no-print-directory -s -j1 -C "$fixture" -o zupt \
                CC="$fixture/no-compile" TARGET_MACHINE=x86_64-unknown-linux-gnu \
                WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 V=0 LICENSE_FILES=LICENSE \
@@ -331,8 +357,8 @@ CASES
     else
         fail 'default staged install changed'
     fi
-    run_install aliases '' '' 1
-    if ((install_status == 0)) && [[ -L $dest/usr/bin/vaptvupt &&
+    installed_aliases_are_links() {
+        [[ -L $dest/usr/bin/vaptvupt &&
         -L $dest/usr/share/man/man1/vaptvupt.1.gz &&
         -L $dest/usr/share/bash-completion/completions/vaptvupt &&
         -L $dest/usr/share/zsh/site-functions/_vaptvupt &&
@@ -341,10 +367,21 @@ CASES
        cmp "$dest/usr/share/man/man1/zupt.1.gz" "$dest/usr/share/man/man1/vaptvupt.1.gz" &&
        cmp completions/zupt.bash "$dest/usr/share/bash-completion/completions/vaptvupt" &&
        cmp completions/_zupt "$dest/usr/share/zsh/site-functions/_vaptvupt" &&
-       cmp completions/zupt.fish "$dest/usr/share/fish/vendor_completions.d/vaptvupt.fish"; then
+       cmp completions/zupt.fish "$dest/usr/share/fish/vendor_completions.d/vaptvupt.fish"
+    }
+    run_install aliases '' '' 1
+    if ((install_status == 0)) && installed_aliases_are_links; then
         pass 'opt-in staged legacy aliases are preserved'
     else
         fail 'opt-in staged legacy aliases changed'
+    fi
+    INSTALL_TEST_COPY_LINKS=1 run_install copied-aliases '' '' 1
+    if ((install_status == 0)) && [[ ! -L $dest/usr/bin/vaptvupt ]] &&
+       cmp "$fixture/zupt" "$dest/usr/bin/vaptvupt" &&
+       ! installed_aliases_are_links; then
+        pass 'copied compatibility files are rejected as legacy links'
+    else
+        fail 'copied compatibility files were not distinguished from legacy links'
     fi
     run_install configured '' '' 0 BINDIR=/custom/bin MAN1DIR=/custom/man \
         LICENSEDIR=/custom/licenses BASHCOMPDIR=/custom/bash \
