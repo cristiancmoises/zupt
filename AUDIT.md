@@ -103,14 +103,19 @@ and the [native macOS job](https://github.com/cristiancmoises/zupt/actions/runs/
 pass. The Windows job in that native run fails in the permission fixture
 described below. These dated results do not qualify later source or packages.
 
-Windows bundles and both macOS DMG documentation locations now stage the two
-user guides plus SECURITY, DISTRIBUTION, AUDIT, INSTALL and THREAT_MODEL.
-The installed-documentation checker has explicit Windows/macOS profiles;
-it compares bytes and package versions in a trusted, private, quiescent tree.
-The local Linux regression collects 30 cases: 29 pass and the native NT-junction
-case is skipped. Six local recipe-staging controls pass without executing the
-placeholder CLI. These checks do not build native packages or qualify the
-changed revision; each changed revision requires fresh Windows/macOS CI.
+The affected native DEB/RPM package helpers, GUI installer, Guix recipes,
+portable bundle, Windows bundle and both macOS DMG locations require both user
+guides plus SECURITY, DISTRIBUTION, AUDIT, INSTALL and THREAT_MODEL: seven
+documentation pages. The portable bundle requires a 20-file inventory. The
+installed-documentation checker retains explicit Windows/macOS profiles; it
+compares bytes and package versions in a trusted, private, quiescent tree. The
+earlier `7fe4eb5` Linux suite collects 30 cases: 29 pass and the native
+NT-junction case is skipped. The expanded working-tree suite defines 32 cases,
+including two GUI-installer staging regressions. Its local Linux run before this
+documentation update passes 31 cases and skips the native NT-junction case. The
+earlier six Windows/macOS recipe-staging controls pass without executing the
+placeholder CLI. These local results do not qualify final packages; each changed
+revision requires fresh validation and native package CI.
 
 The later native Windows run on `3e50a65` reports 12 permission-fixture
 subtest failures: the checker accepts files after the fixture requests mode

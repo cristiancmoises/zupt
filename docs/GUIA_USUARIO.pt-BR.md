@@ -275,13 +275,13 @@ cmp docs/GUIA_USUARIO.pt-BR.md "$stage/usr/share/doc/zupt-gui/docs/GUIA_USUARIO.
 bash tests/test_packaging_syntax.sh
 ```
 
-O instalador inclui os dois guias e as políticas SECURITY/DISTRIBUTION
-referenciadas por eles. A regressão confere os bytes instalados, modo 0644,
-diretório de dados personalizado e rejeição de guias ausentes antes de criar
-a saída da instalação. O build DEB da GUI usa esse instalador, mas esses
-checks de staging não compilam nem validam o DEB. Outros helpers nativos
-têm gates separados de conteúdo e execução. Referências a headers e scripts
-de teste precisam do checkout.
+O instalador inclui os dois guias e as páginas SECURITY, DISTRIBUTION, AUDIT,
+INSTALL e THREAT_MODEL referenciadas por eles. A regressão exige bytes
+instalados, modo 0644, diretório de dados personalizado e rejeição de guias
+ausentes antes de criar a saída da instalação. O build DEB da GUI usa esse
+instalador, mas esses checks de staging não compilam nem validam o DEB. Outros
+helpers nativos têm gates separados de conteúdo e execução. Referências a
+headers e scripts de teste precisam do checkout.
 
 Os bundles Windows e os dois locais de documentação do DMG macOS incluem os
 dois guias e SECURITY, DISTRIBUTION, AUDIT, INSTALL e THREAT_MODEL. Depois de
@@ -294,15 +294,18 @@ python3 -B scripts/check-installed-docs.py . /path/to/windows-extraction windows
 python3 -B scripts/check-installed-docs.py . /path/to/read-only-dmg macos
 ```
 
-O checker apenas lê arquivos; não extrai nem monta pacotes. Ele confere a
-versão do diretório Windows e as duas versões do `Info.plist` macOS com o
-header das fontes. Documentos POSIX precisam do modo 0644. Arquivos nativos
-do Windows NT normalmente informam 0666; esse perfil não comprova a correção
-das ACLs. A regressão local no Linux coleta 30 casos: 29 passam e um
-caso de junction nativa do NT é pulado. Seis controles locais dos trechos reais
-das receitas de staging passam sem executar a CLI de exemplo. Execute o CI
-nativo Windows/macOS dos pacotes para cada revisão alterada; os pacotes
-anteriores de `b25a486` não cobrem essas mudanças.
+O checker apenas lê arquivos; não extrai nem monta pacotes. Ele confere a versão
+do diretório Windows e as duas versões do `Info.plist` macOS com o header das
+fontes. Documentos POSIX precisam do modo 0644. Arquivos nativos do Windows NT
+normalmente informam 0666; esse perfil não comprova a correção das ACLs. A suíte
+Linux anterior de `7fe4eb5` coleta 30 casos: 29 passam e um caso de junction
+nativa do NT é pulado. A suíte ampliada da árvore de trabalho define 32 casos,
+incluindo duas regressões de staging do instalador da GUI. Antes desta
+atualização da documentação, sua execução Linux local passa em 31 casos e pula o
+caso de junction nativa do NT. Os seis controles anteriores das receitas
+Windows/macOS passam sem executar a CLI de exemplo. Execute o CI nativo
+Windows/macOS dos pacotes para cada revisão alterada; os pacotes anteriores de
+`b25a486` não cobrem essas mudanças.
 
 O CI nativo Windows de `3e50a65` registra 12 subfalhas do fixture de permissões:
 o checker aceita arquivos após o fixture solicitar o modo 0600, embora o
@@ -331,30 +334,29 @@ env ZUPT_BIN="$PWD/zupt" DIST_DIR="$release_dir" bash packaging/build-portable-g
 ```
 
 O helper confere a CLI correspondente, solicita VaptVupt nível 9 sem
-criptografia, testa o contêiner, verifica os 17 arquivos exatos, incluindo os
-dois guias sob `docs/` e as políticas SECURITY/DISTRIBUTION referenciadas na
-raiz do pacote, examina as duas árvores de fontes e compara todos os
-bytes extraídos. Ele grava o `.zupt`, seu
-arquivo SHA-256 e um diretório `.extracted`. Recusa destinos já existentes.
-Uma falha na publicação local pode deixar saídas parciais verificadas para
-inspeção; o helper não apaga caminhos finais que outro processo possa ter
-substituído. Esse ensaio não é uma release assinada nem aprovação de pacote
-nativo. Python, Qt e a CLI testada separadamente continuam sendo dependências
-externas. Execute o launcher extraído por `bash`, sem presumir que a extração
-restaurou permissões executáveis.
-Links para headers e scripts de teste ainda exigem o checkout; esse pacote
-não é uma cópia offline completa da documentação do repositório.
+criptografia, testa o contêiner e verifica o inventário exato de 20 arquivos. Os
+dois guias ficam sob `docs/`; SECURITY, DISTRIBUTION, AUDIT, INSTALL e
+THREAT_MODEL ficam na raiz do pacote. Ele examina as duas árvores de fontes e
+compara todos os bytes extraídos. Ele grava o `.zupt`, seu arquivo SHA-256 e um
+diretório `.extracted`. Recusa destinos já existentes. Uma falha na publicação
+local pode deixar saídas parciais verificadas para inspeção; o helper não apaga
+caminhos finais que outro processo possa ter substituído. Esse ensaio não é uma
+release assinada nem aprovação de pacote nativo. Python, Qt e a CLI testada
+separadamente continuam sendo dependências externas. Execute o launcher extraído
+por `bash`, sem presumir que a extração restaurou permissões executáveis. Links
+para headers e scripts de teste ainda exigem o checkout; esse pacote não é uma
+cópia offline completa da documentação do repositório.
 
-Em 2026-10-18, uma CLI nova com GCC 14.3.0 estrito passa no script funcional
-e nos 12 métodos de `test-portable-gui`. Os testes usam operações reais de
-arquivo e conferem o conteúdo atual de 17 arquivos, checksum, bytes extraídos,
-opções de criptografia/codec, rejeição de falhas da CLI, membros alterados,
-symlinks e corridas de publicação das saídas. Os arquivos são dados temporários
-de teste, não artefatos assinados de release; a suíte não executa Qt.
-`make audit-licenses` também passa nos checks de marcadores SPDX das fontes
-cobertas, não em auditoria completa de proveniência, REUSE, patentes ou
-direitos de redistribuição. Reproduza esses gates separados com a CLI
-correspondente testada e as ferramentas de build instaladas:
+Em 2026-10-18, uma CLI nova com GCC 14.3.0 estrito passa no script funcional e
+nos 12 métodos de `test-portable-gui`. Os testes usam operações reais de arquivo
+e conferem o conteúdo de 17 arquivos daquela execução, checksum, bytes
+extraídos, opções de criptografia/codec, rejeição de falhas da CLI, membros
+alterados, symlinks e corridas de publicação das saídas. Os arquivos são dados
+temporários de teste, não artefatos assinados de release; a suíte não executa
+Qt. `make audit-licenses` também passa nos checks de marcadores SPDX das fontes
+cobertas, não em auditoria completa de proveniência, REUSE, patentes ou direitos
+de redistribuição. Reproduza esses gates separados com a CLI correspondente
+testada e as ferramentas de build instaladas:
 
 ```sh
 make -j2 CC=gcc WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-portable-gui
@@ -1321,14 +1323,15 @@ arquivo histórico.
 
 ### Verificação da documentação dos pacotes nativos
 
-Os helpers DEB/RPM da CLI/GUI executam `scripts/check-installed-docs.py` sobre
-o pacote realmente extraído, antes de entregá-lo. Exigem os dois guias sob
-`docs/` e SECURITY/DISTRIBUTION no diretório pai. A documentação deve ter os
-mesmos bytes da fonte, modo 0644 e nenhum componente symlink. O verificador
-aceita os layouts Debian, Fedora e openSUSE, inclusive o sufixo exato da versão
-atual quando usado. Diretórios ausentes ou duplicados são rejeitados; uma
-versão antiga não substitui a atual. A rota debhelper preserva nomes `.md`,
-sem quebrar links relativos pela compressão automática.
+Os helpers DEB/RPM da CLI/GUI executam `scripts/check-installed-docs.py` sobre o
+pacote realmente extraído, antes de entregá-lo. Exigem os dois guias sob `docs/`
+e SECURITY, DISTRIBUTION, AUDIT, INSTALL e THREAT_MODEL no diretório pai: sete
+documentos. A documentação deve ter os mesmos bytes da fonte, modo 0644 e nenhum
+componente symlink. O verificador aceita os layouts Debian, Fedora e openSUSE,
+inclusive o sufixo exato da versão atual quando usado. Diretórios ausentes ou
+duplicados são rejeitados; uma versão antiga não substitui a atual. A rota
+debhelper preserva nomes `.md`, sem quebrar links relativos pela compressão
+automática.
 
 Execute os testes focados sem compilar a CLI:
 
@@ -2216,64 +2219,63 @@ timeout --kill-after=2s 30s guile --no-auto-compile -q -s tests/test_guix_gui_in
 NIX_REMOTE=dummy:// timeout --kill-after=2s 30s bash tests/test_packaging_syntax.sh
 ```
 
-O teste focado avalia a receita real e executa a fase de instalação por cópia
-do Guix em armazenamento temporário. Compara byte a byte com o source o manual
-instalado da GUI, os arquivos de licença do projeto e da GUI e a proveniência
-dos assets, além do ícone relativo ao módulo, dois guias de usuário e políticas
-de segurança/distribuição: dez arquivos da GUI conferidos no total. Também
-executa a fase real de documentação da CLI e compara os dois guias,
-`SECURITY.md` e `DISTRIBUTION.md`, totalizando quatro arquivos da CLI.
-Em 2026-10-17, a regressão ampliada falha primeiro em `DISTRIBUTION.md` ausente
-na CLI; após corrigir essa entrada, detecta `SECURITY.md` ausente na GUI.
-A receita corrigida passa nas duas comparações reais de arquivos instalados.
-Uma execução nova e estrita com GCC também passa nas 17 etapas, testes
-funcionais da CLI e 56 testes reais da GUI offscreen, com 11 skips normais,
-no snapshot corrigido de 282 arquivos antes desta atualização apenas documental.
-A origem da fonte permanece intencionalmente inalterada; essas fases não
-comprovam derivação Guix nativa, closure completa, instalação pelo gerenciador
-de pacotes ou aprovação da release. A regressão de intérpretes executa a fase
-padrão real `patch-source-shebangs` antes da fase da
-receita que ajusta fixtures gerados, seguida por nove grupos de controles em
-shell. Os wrappers do leitor, logaritmo e tamanho exato começam como
-fontes não executáveis e copiam a si mesmos para ferramentas executáveis;
-isso detecta a ausência da preparação dos shebangs sem exigir compilador
-ou Frama-C reais. Não compila nem executa o codec. Os grupos DEB/RPM também
-executam os helpers reais com ferramentas substitutas: os 20 casos DEB e
-55 RPM devem passar. A receita ajusta seus intérpretes gerados; corrigir
-apenas o shebang de entrada não basta. A regressão detecta essas omissões
-em ambiente semelhante ao Guix sem `/usr/bin/env`; um host convencional
-pode ocultar essa dependência. Uma execução
-registrada sem rede omite `/bin/sh` e `/usr/bin/env`, verificando que os fixtures
-gerados usam os intérpretes selecionados do store. O pin da fonte retirada,
-o build nativo e a closure real do Qt continuam como gates separados.
-Uma execução separada no host aplica essas fases reais ao snapshot completo
-de 281 arquivos e passa no `make check` estrito com GCC 14.3.0 e na suíte
-funcional da CLI real. Foram executados 29.413 checks de limites do codec;
+O teste focado avalia a receita real e executa a fase de instalação por cópia do
+Guix em armazenamento temporário. O teste atual exige 13 conferências de
+arquivos da GUI, incluindo os dois guias e as cinco páginas referenciadas, e
+sete conferências de documentação da CLI. Antes desta atualização da
+documentação, uma execução local da árvore de trabalho passa nas sete cópias
+selecionadas de documentos da GUI e nas sete conferências de documentos da CLI;
+não repete o fixture completo de 13 arquivos da GUI nem o launcher. A versão de
+2026-10-17 conferia dez arquivos da GUI e quatro documentos da CLI: os dois
+guias e SECURITY/DISTRIBUTION. Essa regressão ampliada falha primeiro em
+`DISTRIBUTION.md` ausente na CLI; após corrigir essa entrada, detecta
+`SECURITY.md` ausente na GUI. A receita corrigida passa nas duas comparações
+reais de arquivos instalados. Uma execução nova e estrita com GCC também passa
+nas 17 etapas, testes funcionais da CLI e 56 testes reais da GUI offscreen, com
+11 skips normais, no snapshot corrigido de 282 arquivos antes desta atualização
+apenas documental. A origem da fonte permanece intencionalmente inalterada;
+essas fases não comprovam derivação Guix nativa, closure completa, instalação
+pelo gerenciador de pacotes ou aprovação da release. A regressão de intérpretes
+executa a fase padrão real `patch-source-shebangs` antes da fase da receita que
+ajusta fixtures gerados, seguida por nove grupos de controles em shell. Os
+wrappers do leitor, logaritmo e tamanho exato começam como fontes não
+executáveis e copiam a si mesmos para ferramentas executáveis; isso detecta a
+ausência da preparação dos shebangs sem exigir compilador ou Frama-C reais. Não
+compila nem executa o codec. Os grupos DEB/RPM também executam os helpers reais
+com ferramentas substitutas: os 20 casos DEB e 55 RPM devem passar. A receita
+ajusta seus intérpretes gerados; corrigir apenas o shebang de entrada não basta.
+A regressão detecta essas omissões em ambiente semelhante ao Guix sem
+`/usr/bin/env`; um host convencional pode ocultar essa dependência. Uma execução
+registrada sem rede omite `/bin/sh` e `/usr/bin/env`, verificando que os
+fixtures gerados usam os intérpretes selecionados do store. O pin da fonte
+retirada, o build nativo e a closure real do Qt continuam como gates separados.
+Uma execução separada no host aplica essas fases reais ao snapshot completo de
+281 arquivos e passa no `make check` estrito com GCC 14.3.0 e na suíte funcional
+da CLI real. Foram executados 29.413 checks de limites do codec;
 SDK/PQBOX/Jasmin estão desativados nesse build. Os 11 skips explícitos abrangem
-Windows nativo, o modelo de cabeçalho bionic exclusivo do Clang, cinco sweeps
-do SDK, dispositivos de loop privilegiados, zsh, fish e renderizadores de
-manuais. Hashes e modos das fontes são conferidos antes e depois dos testes.
-Isso valida a execução no host, não uma derivação Guix nem a GUI.
-A cópia do ícone para o tema continua instalada separadamente; a cópia relativa
-permite ao módulo Python encontrar sua imagem.
-O teste também executa as fases reais `make-launcher` e `install-desktop-file`
-com caminhos controlados para a saída padrão dos pacotes. Um executável Guile
-que registra a chamada substitui o Python: confere limites exatos dos argumentos,
-incluindo strings vazias, espaços, aspas, glob com arquivo correspondente e
-quebra de linha; variáveis de caminhos ausentes, vazias e herdadas; CLI fixada,
-prefixo completo de 48 bibliotecas auxiliares, status 37 e modo executável.
-Os campos obrigatórios do desktop incluem `Exec` com o caminho gerado e `%F`,
-além de `Icon=zupt-gui`. Esse teste não executa Qt. O ambiente do processo pai
-é restaurado e o pipe é fechado com coleta do filho, inclusive em erros de
-leitura. Oito mutações deliberadas em cópias privadas da receita foram rejeitadas
-pelos checks correspondentes; esses controles não são bugs do produto.
-A execução isolada de metadados em 2026-10-10 registrou 55 passes,
-nenhuma falha e dois skips (Make e `dpkg-parsechangelog` indisponíveis); o parser
-Nix usou o store `dummy://`, sem armazenamento persistente. Esses checks não
-compilam dependências, resolvem todos os Gexps/caminhos do store, verificam o
-arquivo remoto fixado ou validam um pacote nativo completo da GUI ou abertura
-real pelo desktop. Guile ausente é um skip na suíte de metadados, não um passe
-do teste focado.
+Windows nativo, o modelo de cabeçalho bionic exclusivo do Clang, cinco sweeps do
+SDK, dispositivos de loop privilegiados, zsh, fish e renderizadores de manuais.
+Hashes e modos das fontes são conferidos antes e depois dos testes. Isso valida
+a execução no host, não uma derivação Guix nem a GUI. A cópia do ícone para o
+tema continua instalada separadamente; a cópia relativa permite ao módulo Python
+encontrar sua imagem. O teste também executa as fases reais `make-launcher` e
+`install-desktop-file` com caminhos controlados para a saída padrão dos pacotes.
+Um executável Guile que registra a chamada substitui o Python: confere limites
+exatos dos argumentos, incluindo strings vazias, espaços, aspas, glob com
+arquivo correspondente e quebra de linha; variáveis de caminhos ausentes, vazias
+e herdadas; CLI fixada, prefixo completo de 48 bibliotecas auxiliares, status 37
+e modo executável. Os campos obrigatórios do desktop incluem `Exec` com o
+caminho gerado e `%F`, além de `Icon=zupt-gui`. Esse teste não executa Qt. O
+ambiente do processo pai é restaurado e o pipe é fechado com coleta do filho,
+inclusive em erros de leitura. Oito mutações deliberadas em cópias privadas da
+receita foram rejeitadas pelos checks correspondentes; esses controles não são
+bugs do produto. A execução isolada de metadados em 2026-10-10 registrou 55
+passes, nenhuma falha e dois skips (Make e `dpkg-parsechangelog` indisponíveis);
+o parser Nix usou o store `dummy://`, sem armazenamento persistente. Esses
+checks não compilam dependências, resolvem todos os Gexps/caminhos do store,
+verificam o arquivo remoto fixado ou validam um pacote nativo completo da GUI ou
+abertura real pelo desktop. Guile ausente é um skip na suíte de metadados, não
+um passe do teste focado.
 
 Um teste isolado separado usou essas mesmas fases com dependências já instaladas
 e a CLI restaurada privadamente. Sem caminhos herdados de Python/plugins/bibliotecas
@@ -4031,13 +4033,14 @@ make -j2 CC=gcc CFLAGS='-O2 -g -Werror' CARGO=false \
   WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=1 test-portable-gui
 ```
 
-Esse alvo é separado de `test-all` e não precisa de binding Qt. Exercita o
-helper real com contêineres `.zupt` genuínos não criptografados em nível 9,
-inventário exato de 17 arquivos, checksums e extração idêntica byte a byte.
-Os negativos cobrem falhas da CLI, membros alterados/ausentes/inseguros,
-fontes de políticas, saídas existentes e substituição/colisão de diretórios.
-Saídas temporárias não são artefatos publicados. Não exercita uma janela Qt
-nem instalação nativa da GUI.
+Esse alvo é separado de `test-all` e não precisa de binding Qt. Naquela execução
+registrada, exercitou o helper real com contêineres `.zupt` genuínos não
+criptografados em nível 9, o inventário então exigido de 17 arquivos, checksums
+e extração idêntica byte a byte. O helper atual exige 20 arquivos. Os negativos
+cobrem falhas da CLI, membros alterados/ausentes/inseguros, fontes de políticas,
+saídas existentes e substituição/colisão de diretórios. Saídas temporárias não
+são artefatos publicados. Não exercita uma janela Qt nem instalação nativa da
+GUI.
 
 O perfil nativo mantém CPUs 0/1, espaço de endereçamento de 1 GiB por processo,
 CPU e prazo externo de 600 segundos com tolerância de cinco segundos para
@@ -4488,10 +4491,11 @@ contínua. O status externo zero da VM registra seu encerramento; confira
 separadamente o status e os diagnósticos preservados de cada alvo.
 
 Campanhas contínuas posteriores e limitadas em VM passaram nos respectivos
-snapshots registrados, incluindo a campanha de 2026-10-14 após as alterações
-de alocação de sequências documentada no [README.pt-BR.md](../README.pt-BR.md).
-Esses resultados não reclassificam esta falha anterior nem aprovam alterações
-posteriores da fonte ou pacotes nativos.
+snapshots registrados, incluindo a campanha de 2026-10-14 após as alterações de
+alocação de sequências. As [limitações da
+auditoria](../AUDIT.md#known-limitations) se aplicam a esses resultados. Eles
+não reclassificam esta falha anterior nem aprovam alterações posteriores da
+fonte ou pacotes nativos.
 
 ## Solução de problemas
 

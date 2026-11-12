@@ -7,16 +7,19 @@ and checksums are listed on the
 [official release page](https://github.com/cristiancmoises/zupt/releases/latest).
 The earlier withdrawn delivery does not validate the corrected source.
 
-- Ship both user guides and their security, distribution, audit, installation
-  and threat-model documents in Windows bundles and both macOS DMG locations.
-  Check the actual extracted or mounted tree with explicit native profiles,
-  including Windows directory version and both macOS bundle versions. Retain
-  all 16 earlier checker cases; Linux collects 30, passes 29 and skips the
-  native NT-junction case. Six local staging controls pass without running the
-  placeholder CLI. Separate read-only rejection from the owner-only mode
-  capability check; explicitly skip the latter when 0600 cannot be materialized.
-  The checker retains its document-mode requirements. Require native package
-  CI for each changed revision.
+- Require both user guides and their security, distribution, audit, installation
+  and threat-model pages in CLI/GUI, DEB/RPM and portable packages, Windows
+  bundles and both macOS DMG locations. The portable inventory grows from 17 to
+  20 files. Check actual extracted or mounted trees with native profiles,
+  including Windows directory version and both macOS bundle versions. Retain all
+  earlier checker cases and add two GUI-installer staging regressions, defining
+  32 cases. Local Linux working-tree runs before this documentation update pass
+  31 cases with one native NT-junction skip and all 12 portable methods against
+  the 20-file payload. Earlier 30-case Linux results and six Windows/macOS
+  staging controls retain their original scope. Separate read-only rejection
+  from the owner-only mode capability check; explicitly skip the latter when
+  0600 cannot be materialized. The checker retains its document-mode
+  requirements. Require native package CI for each changed revision.
 - Bind the SDK read-stop fixture's sentinel and observed metadata to the same
   open files used for their bytes. Retain its 18 cases and add two deterministic
   inode-replacement regressions; both GCC and Clang pass. Native key-read tests
@@ -253,13 +256,14 @@ The earlier withdrawn delivery does not validate the corrected source.
   and final-package and broader formal acceptance remain separate conditions.
 - Revalidate the current 294-file source with `WITH_JASMIN=1`: strict GCC
   `check`, 16 cryptographic vectors, CLI functional smoke and 14 threaded checks
-  pass, retaining 11 explicit skips. F-06 reaches Jasmin AES-NI with 2,000 honest round trips
-  and no accepted HMAC tampers. The same CLI passes 12 portable-GUI helper
-  test methods with subcases, including genuine level-9 `.zupt`, exact
-  17-file payload/checksum/extraction and output-preservation controls.
-  Record commands and limits in EN/PT-BR. This is not Qt execution, assembly
-  sanitizer coverage, full optional-profile or final-package acceptance;
-  leave the release unpublished pending the remaining production gates.
+  pass, retaining 11 explicit skips. F-06 reaches Jasmin AES-NI with 2,000
+  honest round trips and no accepted HMAC tampers. The same CLI passes 12
+  portable-GUI helper test methods with subcases, including genuine level-9
+  `.zupt`, exact then-required 17-file payload/checksum/extraction and
+  output-preservation controls. Record commands and limits in EN/PT-BR. This is
+  not Qt execution, assembly sanitizer coverage, full optional-profile or
+  final-package acceptance; leave the release unpublished pending the remaining
+  production gates.
 - Repeat the four maintained Frama-C 29.0 gates on the current 294-file source
   with recognized Z3 4.12.2 and real solver controls. Metadata bounds, reader
   init/take, logarithm ranges and fixed-vector AES pass their unchanged
@@ -578,15 +582,15 @@ The earlier withdrawn delivery does not validate the corrected source.
   flags, tests or resource limits. Repeat the five selected Frama-C/Jasmin
   gates successfully. These are bounded host checks, not complete formal,
   current VM sanitizer, native-package or production approval.
-- Revalidate the portable frontend package with a fresh strict GCC CLI and
-  the existing 12-test suite: genuine unencrypted VaptVupt level-9 `.zupt`,
-  exact 17-file payload, checksum/extraction checks, failure controls and
-  output-preservation races. The covered-source SPDX-marker audit passes.
-  Execute the previously unavailable spec parse with installed RPM 4.20.1
-  and record its 14 declared build requirements. Preserve the actual Guix
-  macro prefix and distinguish parsing from native openSUSE builds or
-  dependency acceptance. Update English/Portuguese reproduction guidance;
-  no codec, cryptographic, API, source-mode or licensing-grant change.
+- Revalidate the portable frontend package with a fresh strict GCC CLI and the
+  existing 12-test suite: genuine unencrypted VaptVupt level-9 `.zupt`, the
+  then-required 17-file payload, checksum/extraction checks, failure controls
+  and output-preservation races. The covered-source SPDX-marker audit passes.
+  Execute the previously unavailable spec parse with installed RPM 4.20.1 and
+  record its 14 declared build requirements. Preserve the actual Guix macro
+  prefix and distinguish parsing from native openSUSE builds or dependency
+  acceptance. Update English/Portuguese reproduction guidance; no codec,
+  cryptographic, API, source-mode or licensing-grant change.
 - Keep operational fallbacks in the three synchronous GUI queries without
   hiding unexpected programming errors as missing version, capability or
   archive metadata. Add two regression methods covering 18 expected failures
@@ -898,10 +902,10 @@ The earlier withdrawn delivery does not validate the corrected source.
   any partial installation. Native GUI DEB builds use this same installer,
   but still require their separate package and runtime acceptance checks.
 - Include both user guides under `docs/` in the portable GUI source bundle and
-  Guix CLI/GUI documentation. Preserve the README's relative offline links;
-  the portable bundle validates 17 files, including the linked security and
-  distribution policies. Reject missing guides/policies and missing or
-  symlinked policy sources before delivering the bundle.
+  Guix CLI/GUI documentation. Preserve the README's relative offline links; that
+  initial portable bundle validated 17 files, including the linked security and
+  distribution policies. Reject missing guides/policies and missing or symlinked
+  policy sources before delivering the bundle.
 - Resolve the eight shell-fixture emitters used by the Guix CLI checks to the
   selected store interpreters, including generated Bash fixtures. Regressions
   run the four newly covered wrapper groups without `/bin/sh` or `/usr/bin/env`;

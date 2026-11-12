@@ -272,12 +272,13 @@ cmp docs/GUIA_USUARIO.pt-BR.md "$stage/usr/share/doc/zupt-gui/docs/GUIA_USUARIO.
 bash tests/test_packaging_syntax.sh
 ```
 
-The installer includes both guides and their linked SECURITY/DISTRIBUTION
-policies. The regression checks real staged bytes, mode 0644, a custom data
-directory and missing-guide rejection before any installation output. Native
-GUI DEB builds use this installer, but these staging checks do not build or
-validate the DEB. Other native packaging helpers have separate payload and
-runtime gates. Source-header and test-script references need the checkout.
+The installer includes both guides and the linked SECURITY, DISTRIBUTION, AUDIT,
+INSTALL and THREAT_MODEL pages. The regression requires real staged bytes, mode
+0644, a custom data directory and missing-guide rejection before any
+installation output. Native GUI DEB builds use this installer, but these staging
+checks do not build or validate the DEB. Other native packaging helpers have
+separate payload and runtime gates. Source-header and test-script references
+need the checkout.
 
 Windows bundles and both macOS DMG documentation locations include both user
 guides and SECURITY, DISTRIBUTION, AUDIT, INSTALL and THREAT_MODEL. After
@@ -294,10 +295,13 @@ The checker only reads files; it does not extract or mount packages. It checks
 the Windows directory version and both macOS `Info.plist` versions against the
 source header. POSIX documents must have mode 0644. Native Windows NT files
 normally report 0666; that profile does not establish ACL correctness. The
-local Linux regression collects 30 cases: 29 pass and one native NT-junction
-case is skipped. Six local controls of the real staging recipe fragments pass
-without executing the placeholder CLI. Run native Windows/macOS package CI
-for each changed revision; earlier `b25a486` packages do not cover these changes.
+earlier 30-case Linux suite for `7fe4eb5` passes 29 cases and skips the native
+NT-junction case. The expanded working-tree suite defines 32 cases, including
+two GUI-installer staging regressions. Before this documentation update, its
+local Linux run passes 31 cases and skips the native NT-junction case. The
+earlier six Windows/macOS recipe-staging controls pass without executing the
+placeholder CLI. Run native Windows/macOS package CI for each changed revision;
+earlier `b25a486` packages do not cover these changes.
 
 Native Windows CI on `3e50a65` reports 12 permission-fixture subtest failures:
 the checker accepts files after the fixture requests mode 0600, although the
@@ -323,30 +327,29 @@ Then run this single-line command in either shell:
 env ZUPT_BIN="$PWD/zupt" DIST_DIR="$release_dir" bash packaging/build-portable-gui.sh
 ```
 
-The helper checks the matching CLI, requests unencrypted VaptVupt level 9,
-tests the container, verifies the exact 17-file inventory including both user
-guides under `docs/` and their linked SECURITY/DISTRIBUTION policies in the
-bundle root, scans both source
-trees and compares all extracted bytes. It writes the `.zupt`, its SHA-256
-sidecar and a retained `.extracted` directory. Existing output targets are
-refused. A publication error can leave verified partial outputs for inspection;
-the helper does not delete final paths that another process may have replaced.
-This local rehearsal is not a signed release or native package approval.
-Python, Qt and the independently tested CLI remain external dependencies.
-Source-header and test-script links still require the checkout; this is not a
-complete offline copy of the repository documentation.
+The helper checks the matching CLI, requests unencrypted VaptVupt level 9, tests
+the container and verifies the exact 20-file inventory. Both user guides remain
+under `docs/`; SECURITY, DISTRIBUTION, AUDIT, INSTALL and THREAT_MODEL remain in
+the bundle root. It scans both source trees and compares all extracted bytes. It
+writes the `.zupt`, its SHA-256 sidecar and a retained `.extracted` directory.
+Existing output targets are refused. A publication error can leave verified
+partial outputs for inspection; the helper does not delete final paths that
+another process may have replaced. This local rehearsal is not a signed release
+or native package approval. Python, Qt and the independently tested CLI remain
+external dependencies. Source-header and test-script links still require the
+checkout; this is not a complete offline copy of the repository documentation.
 Run an extracted shell launcher through `bash`, not by assuming executable
 permissions survived extraction.
 
 On 2026-10-18, a fresh strict GCC 14.3.0 CLI passes its functional script and
-all 12 methods in `test-portable-gui`. The tests use real archive operations
-and verify the current 17-file payload, checksum, extracted bytes, encryption
+all 12 methods in `test-portable-gui`. The tests use real archive operations and
+verify the then-current 17-file payload, checksum, extracted bytes, encryption
 and codec settings, rejected CLI failures, altered members, symlinks and
 output-publication races. The archives are temporary test data, not signed
-release assets; the suite does not execute Qt. `make audit-licenses` also
-passes its covered-source SPDX-marker checks, not a complete provenance,
-REUSE, patent or redistribution-rights audit. Reproduce these separate gates
-with the matching tested CLI and installed build tools:
+release assets; the suite does not execute Qt. `make audit-licenses` also passes
+its covered-source SPDX-marker checks, not a complete provenance, REUSE, patent
+or redistribution-rights audit. Reproduce these separate gates with the matching
+tested CLI and installed build tools:
 
 ```sh
 make -j2 CC=gcc WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-portable-gui
@@ -1257,13 +1260,14 @@ of compatibility with every historical archive.
 
 The DEB and RPM CLI/GUI helpers run `scripts/check-installed-docs.py` on the
 actual extracted package before delivering it. It requires both user guides
-under `docs/` plus SECURITY/DISTRIBUTION in their parent directory. The
-documentation must match the source byte-for-byte, use mode 0644 and contain
-no symlink components. Debian, Fedora and openSUSE documentation layouts are
-supported, including the exact current version suffix where used. Missing or
-duplicate package directories fail closed; stale version directories do not
-substitute for the current package. Debian's helper route preserves `.md`
-filenames instead of breaking relative links through automatic compression.
+under `docs/` plus SECURITY, DISTRIBUTION, AUDIT, INSTALL and THREAT_MODEL in
+their parent directory: seven documents. The documentation must match the source
+byte-for-byte, use mode 0644 and contain no symlink components. Debian, Fedora
+and openSUSE documentation layouts are supported, including the exact current
+version suffix where used. Missing or duplicate package directories fail closed;
+stale version directories do not substitute for the current package. Debian's
+helper route preserves `.md` filenames instead of breaking relative links
+through automatic compression.
 
 Run the focused checker tests without compiling the CLI:
 
@@ -2103,58 +2107,58 @@ NIX_REMOTE=dummy:// timeout --kill-after=2s 30s bash tests/test_packaging_syntax
 ```
 
 The focused test evaluates the actual recipe and executes Guix's copy install
-phase in temporary storage. It checks the installed GUI manpage, project and
-GUI license files, asset provenance, module-relative icon, both user guides and
-the security/distribution policies byte-for-byte: ten GUI file checks in total.
-It also executes the actual CLI documentation phase and compares both installed
-guides plus `SECURITY.md` and `DISTRIBUTION.md`, for four CLI file checks.
-On 2026-10-17, the extended regression first fails on missing CLI
+phase in temporary storage. The current test requires 13 GUI file checks,
+including both guides and all five linked pages, and seven CLI documentation
+checks. Before this documentation update, a local working-tree run passes the
+selected seven GUI-document copies and seven CLI-document checks; it does not
+rerun the complete 13-file GUI fixture or launcher. The 2026-10-17 version
+checked ten GUI files and four CLI documents: both guides plus
+SECURITY/DISTRIBUTION. That extended regression first fails on missing CLI
 `DISTRIBUTION.md`; after that entry is fixed, it detects missing GUI
 `SECURITY.md`. The corrected recipe passes both sets of real installed-file
 checks. A fresh strict GCC run also passes all 17 stages, CLI functional tests
 and 56 actual offscreen GUI tests with 11 ordinary skips, on the corrected
 282-file snapshot before this results-only documentation update. The source
 origin is deliberately unchanged; these phases do not establish a native Guix
-derivation, complete dependency closure, package-manager installation or release.
-The fixture-interpreter regression executes the actual standard
+derivation, complete dependency closure, package-manager installation or
+release. The fixture-interpreter regression executes the actual standard
 `patch-source-shebangs` phase before the recipe's generated-fixture patch phase,
-then runs nine shell-only control groups. The reader, logarithm and
-exact-size wrappers start as non-executable source files and copy themselves
-into executable tools; this catches missing source-shebang preparation without
+then runs nine shell-only control groups. The reader, logarithm and exact-size
+wrappers start as non-executable source files and copy themselves into
+executable tools; this catches missing source-shebang preparation without
 requiring a real compiler or Frama-C run. It does not build or run the codec.
 The DEB/RPM groups additionally run the actual packaging helpers with tool
 doubles: all 20 DEB and 55 RPM cases must pass. The recipe patches their
-generated interpreters too; entry-shebang patching alone is insufficient.
-This regression detects those omissions in a Guix-style environment without
-`/usr/bin/env`; a conventional host can conceal that dependency.
-A recorded networkless namespace run omits `/bin/sh` and `/usr/bin/env`, checking
-that generated fixtures use the selected store interpreters. The recipe's
-withdrawn source pin, native build and real Qt closure remain separate gates.
-A separate host run applies those actual source phases to the complete
-281-file snapshot, then passes strict GCC 14.3.0 `make check` and the real CLI
-functional suite. It executes 29,413 codec boundary checks; SDK/PQBOX/Jasmin
-are disabled for that build. The 11 explicit skips cover native Windows,
-the Clang-only bionic header model, five SDK sweeps, privileged loop devices,
-zsh, fish and manpage renderers. Source hashes and modes are checked before
-and after testing. This is host validation, not a Guix derivation or GUI run.
-The theme icon remains installed
-separately; the relative copy lets the Python module find its own image.
-The test also executes the actual `make-launcher` and `install-desktop-file`
-phases with controlled default-output package paths. A recording Guile
-executable stands in for Python: it checks exact argument boundaries, including
-empty strings, spaces, quotes, a matching glob and a newline; unset, empty and
-inherited path variables; the pinned CLI, complete 48-leaf library prefix,
-exit status 37 and executable mode. Required desktop fields include the
-generated `Exec` path with `%F` and `Icon=zupt-gui`. This probe does not run Qt.
-The parent environment is restored and the subprocess pipe is closed/reaped,
-including on read errors. Eight deliberate mutations in private recipe copies
-were rejected by the corresponding checks; these controls are not product bugs.
-The 2026-10-10 isolated metadata run recorded 55 passes, zero failures and
-two skips (Make and `dpkg-parsechangelog` unavailable); Nix parsing used its
-`dummy://` store without persistent storage. These checks do not build
-dependencies, perform full Gexp/store lowering, verify the pinned remote archive
-or validate a complete native GUI package or real desktop launch. Missing Guile
-is a skip in the metadata suite, not a pass for the focused test.
+generated interpreters too; entry-shebang patching alone is insufficient. This
+regression detects those omissions in a Guix-style environment without
+`/usr/bin/env`; a conventional host can conceal that dependency. A recorded
+networkless namespace run omits `/bin/sh` and `/usr/bin/env`, checking that
+generated fixtures use the selected store interpreters. The recipe's withdrawn
+source pin, native build and real Qt closure remain separate gates. A separate
+host run applies those actual source phases to the complete 281-file snapshot,
+then passes strict GCC 14.3.0 `make check` and the real CLI functional suite. It
+executes 29,413 codec boundary checks; SDK/PQBOX/Jasmin are disabled for that
+build. The 11 explicit skips cover native Windows, the Clang-only bionic header
+model, five SDK sweeps, privileged loop devices, zsh, fish and manpage
+renderers. Source hashes and modes are checked before and after testing. This is
+host validation, not a Guix derivation or GUI run. The theme icon remains
+installed separately; the relative copy lets the Python module find its own
+image. The test also executes the actual `make-launcher` and
+`install-desktop-file` phases with controlled default-output package paths. A
+recording Guile executable stands in for Python: it checks exact argument
+boundaries, including empty strings, spaces, quotes, a matching glob and a
+newline; unset, empty and inherited path variables; the pinned CLI, complete
+48-leaf library prefix, exit status 37 and executable mode. Required desktop
+fields include the generated `Exec` path with `%F` and `Icon=zupt-gui`. This
+probe does not run Qt. The parent environment is restored and the subprocess
+pipe is closed/reaped, including on read errors. Eight deliberate mutations in
+private recipe copies were rejected by the corresponding checks; these controls
+are not product bugs. The 2026-10-10 isolated metadata run recorded 55 passes,
+zero failures and two skips (Make and `dpkg-parsechangelog` unavailable); Nix
+parsing used its `dummy://` store without persistent storage. These checks do
+not build dependencies, perform full Gexp/store lowering, verify the pinned
+remote archive or validate a complete native GUI package or real desktop launch.
+Missing Guile is a skip in the metadata suite, not a pass for the focused test.
 
 A separate isolated probe used the same recipe phases with existing installed
 dependencies and the privately restored CLI. With inherited Python/plugin/library
@@ -3806,12 +3810,13 @@ make -j2 CC=gcc CFLAGS='-O2 -g -Werror' CARGO=false \
   WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=1 test-portable-gui
 ```
 
-This target is separate from `test-all` and needs no Qt binding. It exercises
-the actual helper with genuine unencrypted level-9 `.zupt` containers,
-the exact 17-file inventory, checksums and byte-matching extraction. Negative
-cases cover CLI failures, altered/missing/unsafe members, policy sources,
-existing outputs and directory replacement/collision. Temporary outputs are
-not published assets. It does not exercise a Qt window or native GUI install.
+This target is separate from `test-all` and needs no Qt binding. In that
+recorded run it exercised the actual helper with genuine unencrypted level-9
+`.zupt` containers, the then-required 17-file inventory, checksums and
+byte-matching extraction. The current helper requires 20 files. Negative cases
+cover CLI failures, altered/missing/unsafe members, policy sources, existing
+outputs and directory replacement/collision. Temporary outputs are not published
+assets. It does not exercise a Qt window or native GUI install.
 
 The native profile keeps CPUs 0/1, per-process 1-GiB address space, 600-second
 CPU and outer deadlines with five-second kill grace, 128-MiB scratch and
@@ -4238,9 +4243,10 @@ outer VM exit status of zero records VM completion; assess each target's
 status and retained diagnostics separately.
 
 Later bounded continuous VM campaigns passed on their recorded snapshots,
-including the 2026-10-14 campaign after sequence-allocation changes documented
-in [README.md](../README.md). Those results do not reclassify this earlier
-failure or establish acceptance of subsequent source changes or native packages.
+including the 2026-10-14 campaign after sequence-allocation changes. The [audit
+limitations](../AUDIT.md#known-limitations) apply to these results. They do not
+reclassify this earlier failure or establish acceptance of subsequent source
+changes or native packages.
 
 ## Troubleshooting
 
