@@ -547,6 +547,8 @@ fi
 repo=$TEST_TMP/repository
 mkdir -p "$repo"
 git -C "$repo" init -q
+# Keep automatic maintenance inside the fixture's process lifetime.
+git -C "$repo" config maintenance.autoDetach false
 git -C "$repo" config user.name 'Source Audit Test'
 git -C "$repo" config user.email 'source-audit@example.invalid'
 printf 'safe source\n' >"$repo/source.c"

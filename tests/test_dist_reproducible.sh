@@ -57,6 +57,8 @@ printf 'sha256 "REPLACE_AFTER_FINAL_RELEASE_ARCHIVE_IS_BUILT"\n' \
     >"$ignored_repo/packaging/homebrew/zupt.rb"
 chmod +x "$ignored_repo/source-audit.sh"
 git -C "$ignored_repo" init -q
+# Keep automatic maintenance inside the fixture's process lifetime.
+git -C "$ignored_repo" config maintenance.autoDetach false
 git -C "$ignored_repo" add -- .
 git -C "$ignored_repo" -c user.name='ZUPT release test' \
     -c user.email='release-test@invalid.example' commit -qm 'initial source'

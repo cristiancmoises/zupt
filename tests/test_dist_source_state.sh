@@ -46,6 +46,8 @@ export ZUPT_DIST_AUDIT_MARKER=$scratch/audit-ran
 # shellcheck disable=SC2016 # The generated fixture reads the marker at runtime.
 printf '#!/usr/bin/env bash\n: > "$ZUPT_DIST_AUDIT_MARKER"\n' >"$repo/source-audit.sh"
 git -C "$repo" init -q
+# Keep automatic maintenance inside the fixture's process lifetime.
+git -C "$repo" config maintenance.autoDetach false
 git -C "$repo" add -- .
 git -C "$repo" -c user.name='ZUPT distribution test' \
     -c user.email='distribution-test@invalid.example' -c commit.gpgsign=false \
