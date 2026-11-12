@@ -592,8 +592,13 @@ de licença e checks de ELF estático/pilha não executável. Um round trip de
 texto fixo sem a store de build passa nos níveis 1 e 9. É evidência limitada
 de runtime, não qualificação do pacote final. Um produtor posterior de imagem
 VM terminou com status 137 na comparação final da saída; a causa não foi
-confirmada. Essa imagem não foi inicializada, e a suíte do produto não rodou
-nela.
+confirmada. Uma comparação completa e separada, somente de leitura, qualificou
+depois seu conteúdo para um teste em VM descartável. A VM inicializou e passou
+nos controles observados de isolamento e sanitizadores, mas a primeira execução
+completa do produto parou em oito falhas dos testes de distribuição com Make
+verboso. A correção focada do teste passa em 17 controles; a execução agregada
+corrigida ainda é necessária. A falha original do produtor foi preservada, e
+a aceitação do pacote final continua pendente.
 
 Na repetição de 2026-11-01 UTC, os seis alvos Frama-C mantidos passam na
 fonte congelada de 294 arquivos após as cinco correções dos guards ANS:
@@ -1037,7 +1042,7 @@ com sucesso antes da execução do verificador de conteúdo e da entrega da
 saída. Os demais alvos mantêm o shell existente.
 
 ```sh
-make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-dist-source-state
+make -j1 V=1 WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-dist-source-state
 ```
 
 O alvo executa 17 controles: os oito checks existentes de fonte limpa/alterada,
@@ -1048,6 +1053,13 @@ existentes preservam bytes e identidade de inode. Os adaptadores encaminham
 a saída real de Git/gzip quando solicitado, mas o verificador é um fixture
 da ordem das etapas. Esses testes não aprovam sua política de conteúdo, um
 commit final de fonte ou pacotes nativos.
+
+O fixture sempre invoca seu sub-Make com `V=1`. A verificação do relatório de
+sucesso compara a linha completa do cabeçalho emitido, para não confundir uma
+receita `printf` exibida pelo Make com saída de sucesso. A primeira execução
+completa na VM revelou esse erro de interpretação do teste; o fixture corrigido
+passa nos 17 controles sem alterar os códigos de saída exigidos, a ordem do
+verificador ou os checks de preservação da saída.
 
 Durante o desenvolvimento, registre os checks de execução separadamente da
 validação de pacotes; esta precisa identificar o snapshot realmente arquivado.

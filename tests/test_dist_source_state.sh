@@ -56,7 +56,8 @@ log=$scratch/dist.log
 passed=0
 
 run_dist() {
-    make -C "$repo" --no-print-directory SOURCE_AUDIT=source-audit.sh \
+    # Echo recipes too, so rejection checks cover verbose builds.
+    make -C "$repo" --no-print-directory V=1 SOURCE_AUDIT=source-audit.sh \
         DIST_TARBALL="$archive" dist >"$log" 2>&1
 }
 
@@ -152,7 +153,7 @@ expect_producer_rejection() {
     if [[ $status != 2 || -e $ZUPT_DIST_AUDIT_MARKER ]] || \
        ! grep -Fq "DIST-PRODUCER-FAULT: $tool $mode" "$log" || \
        grep -Fq 'FIXTURE SETUP FAILURE:' "$log" || \
-       grep -Fq 'Reproducible source tarball:' "$log" || \
+       grep -Fqx '  Reproducible source tarball:' "$log" || \
        { [[ $output == absent ]] && [[ -e $archive || -L $archive ]]; } || \
        { [[ $output == existing ]] && {
            [[ ! $archive -ef $scratch/held-output ]] || \

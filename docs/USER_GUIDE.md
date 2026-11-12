@@ -573,8 +573,12 @@ staged installation, the exact 20-file notice-bearing export and static ELF/
 non-executable-stack checks. A fixed-text round trip without the build store
 passes at levels 1 and 9. This is limited runtime evidence, not final-package
 qualification. A later VM-image producer exited 137 during its final output
-comparison; the cause is unconfirmed. That image was not booted and did not
-run the product test suite.
+comparison; the cause is unconfirmed. A separate complete read-only comparison
+then qualified its contents for a disposable VM test. The VM booted and passed
+the observed isolation and sanitizer controls, but its first full product run
+stopped at eight verbose source-distribution test failures. The focused test
+correction passes 17 controls; a corrected aggregate run remains required.
+The original producer failure is retained and final-package acceptance is open.
 
 The 2026-11-01 UTC repeat of all six maintained Frama-C targets passes on the
 frozen 294-file source after the five ANS guard corrections: decoder bounds,
@@ -990,7 +994,7 @@ both `git archive` and gzip must succeed before the content scanner runs or
 the output is delivered. Other targets retain their existing shell.
 
 ```sh
-make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-dist-source-state
+make -j1 V=1 WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-dist-source-state
 ```
 
 The target runs 17 controls: the existing eight clean/dirty-source checks,
@@ -1000,6 +1004,12 @@ destinations. Failed producers must not reach the scanner; existing output
 keeps its bytes and inode identity. Shims forward real Git/gzip output when
 requested, but the scanner is a phase-order fixture. These tests do not
 qualify its content policy, a final source commit or native packages.
+
+The fixture always invokes its sub-Make with `V=1`. The success-report check
+matches the complete emitted header line, so an echoed `printf` recipe cannot
+be mistaken for successful output. The first full VM run exposed this test
+parsing error; the corrected fixture passes all 17 controls without changing
+the required exit codes, scanner ordering or output-preservation checks.
 
 For local work in progress, keep runtime checks separate from release-package
 evidence; package validation must name the source snapshot actually archived.

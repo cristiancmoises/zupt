@@ -47,6 +47,13 @@ final-package approval. General ANS table/caller obligations remain open. The
 complete disposable-VM run and final release-artifact acceptance are still
 pending; 5.2.10 remains unpublished.
 
+The first full VM run on `60f1931` stopped at the source-distribution tests:
+verbose Make output caused eight fault-injection checks to mistake an echoed
+recipe for a successful archive report. The producers returned the expected
+errors. The focused test correction passes all 17 controls with verbose Make;
+the corrected aggregate VM run remains required. No product C code or
+packaging rejection criteria changed.
+
 ## Earlier formal evidence, reviewed 2026-10-30
 
 The 2026-10-30 UTC repeat of all six maintained Frama-C targets passes on the
@@ -264,9 +271,13 @@ The separate static non-PIE Linux build from `193d8c0` passes compilation,
 staged installation, the exact 20-file licensed export, static ELF and
 non-executable-stack checks. Fixed-text store-less round trips pass at levels
 1 and 9. Final package qualification remains open. A later VM-image producer
-exited 137 during its final comparison; the cause remains unconfirmed and no
-guest boot or product tests used that image. Earlier VM results retain their original
-source and configuration limits.
+exited 137 during its final comparison; the cause remains unconfirmed. A
+separate complete read-only comparison qualified its contents for a disposable
+VM test. That VM booted, passed the observed isolation and sanitizer controls,
+and stopped at the verbose distribution-test failure described above. The
+original producer failure remains recorded; these results do not qualify the
+final package. Earlier VM results retain their original source and
+configuration limits.
 
 The original integration's strict GCC 14.3.0 and Clang 22.1.8 `check` plus
 installed-CLI functional smoke pass on the integrated 294-file snapshot,
