@@ -6,17 +6,30 @@ Version 5.2.10 is being validated and is not an official release. Its earlier
 delivery was withdrawn; previous packages do not validate the corrected source.
 The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Bind the SDK read-stop fixture's sentinel and observed metadata to the same
+  open files used for their bytes. Retain its 18 cases and add two deterministic
+  inode-replacement regressions; both GCC and Clang pass. Native key-read tests
+  distinguish exact `ENOENT` from lookup errors and links, and check each export
+  removal directly. All 66 cases and the separate absence/cleanup controls pass.
+  A fresh hosted CodeQL analysis remains required; no finding is dismissed.
+- Keep automatic Git maintenance enabled in temporary test repositories but
+  wait for it in the foreground. Source-policy and 17 distribution-state
+  controls pass strict child cleanup; omission controls reproduce adopted Git
+  processes. The export setup passes, while its complete private replay times
+  out at 120 seconds. Fresh source-archive CI and full VM acceptance remain
+  required.
 - Pin the format-fuzz fixture's input directory and file descriptors before
   reading captured mutations. Cover symlink, mode, FIFO and ancestor
   replacement, with bounded calls that reject signals and timeouts.
 - Enable Darwin extensions before the first system header in both input-capture
   translation units. Keep `O_NOFOLLOW` and strict warnings; extend the header
   model to reject missing or late feature definitions and compile both actual
-  fixture paths. Native macOS revalidation remains required.
+  fixture paths. The native macOS DMG and installed-image gate passes at
+  `166e215`.
 - Keep compiler scratch separate from spaced mutation paths in the capture
   fixture without removing caller LTO or hardening flags. Preserve a POSIX
   feature level already selected by libc headers when including the fixture.
-  Fedora RPM revalidation remains required.
+  The Fedora CLI/GUI RPM and SRPM gate passes at `166e215`.
 - Require an empty, owned private directory for native key-read fixtures and
   retain its directory binding through cleanup. Preserve all 66 injected
   read-error cases and verify that rejected preexisting exports retain their
@@ -35,13 +48,15 @@ The published official version remains [5.2.9](https://github.com/cristiancmoise
   and ordinary five-source Jasmin checks. Analyzer, gate, collector and source
   integrity pass separately. These selected results retain their models and
   preconditions; they do not establish whole-program or package correctness.
-- Record all 13 Linux CI jobs passing at `fc55c0f`, with native Windows and
-  macOS checks passing separately at `60f1931`. Three High CodeQL alerts in
-  fixtures remain subject to correction and explicit review. The static
-  Linux build/export passes at `fc55c0f`; a later disposable-VM run reaches
-  the Jasmin gate but fails on a missing `taskset` in its private wrapper.
-  Earlier producer failures are retained. Final packages remain unqualified
-  and 5.2.9 remains official.
+- Record all 13 executed Linux CI jobs and both native Windows/macOS package
+  gates passing at `166e215`; optional diagnostic skips remain visible. The
+  input-capture CodeQL finding is fixed without dismissal; two other fixture
+  findings await analysis of their corrections. The complete VM attempt still
+  fails: Guile cache timestamps trigger descriptor exhaustion, and strict
+  teardown rejects adopted Git maintenance processes. Selected formal, SDK
+  and static-analyzer checks pass before those failures; later GUI/sanitizer
+  stages were not reached. Earlier failures remain recorded. Final release
+  bundles remain unqualified and 5.2.9 remains official.
 - Honor the requested temporary directory in the exact-size test through an
   explicit `mktemp` template. Darwin can prefer its system user-temp directory
   over `TMPDIR` when no template is provided. Require the owned template in

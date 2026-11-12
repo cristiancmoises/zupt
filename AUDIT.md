@@ -58,6 +58,22 @@ because the private Jasmin wrapper cannot find `taskset`. That run is failed,
 not a completed `release-check`; remaining analyses and GUI stages were not
 reached. The separately executed formal checks above retain their own evidence.
 
+At `166e215`, all 13 executed [Linux CI jobs](https://github.com/cristiancmoises/zupt/actions/runs/43156344287)
+and both [native Windows/macOS package gates](https://github.com/cristiancmoises/zupt/actions/runs/43156717844)
+pass. Optional diagnostics were skipped. Later fixture edits and final public
+release bundles require their own acceptance.
+
+The full VM attempt on that commit fails despite passing the selected formal,
+SDK and nine static-analyzer checks. Packaging records 54 passes, one failure
+and three skips: image timestamps invalidate Guile's compiled caches and source
+loading exhausts the unchanged 128-descriptor limit. The same complete Guix
+CLI/GUI fixture passes with original store metadata, peaking at 12 descriptors;
+the image view reproduces the failure at 128. Earlier content-only image
+qualification did not establish timestamp correctness. Strict cleanup also
+rejects two adopted Git maintenance processes. Later GUI and sanitizer stages
+were not reached. A repaired image and the complete corrected run remain
+unqualified; limits and cleanup requirements must remain intact.
+
 ## Test-fixture file handling
 
 CodeQL reported three High path-race alerts in test fixtures on `fc55c0f`.
@@ -75,10 +91,14 @@ been hardened without changing production codec, archive or cryptographic code:
   also verifies that a rejected preexisting export retains both its inode and
   independently expected bytes.
 
-The remaining SDK read-stop and native key-read alerts concern metadata
-postconditions followed by cleanup inside private test directories. Their
-ownership and cleanup contracts still require explicit review; neither alert
-has been suppressed or dismissed.
+The SDK read-stop fixture now captures initial and observed inode identity
+from the same open files used for writing and reading. Its 18 original cases
+and two deterministic inode-replacement regressions pass with GCC and Clang;
+pathname-stat mutations are rejected. The native fixture accepts only `ENOENT`
+as evidence of absence and attempts cleanup directly, checking the actual
+result. Its 66 original cases and separate absence/removal controls pass with
+both compilers. Neither remaining alert has been suppressed or dismissed;
+resolution requires a new hosted analysis of these changes.
 See the [English fixture checks](docs/USER_GUIDE.md#test-fixture-file-handling)
 and [Portuguese fixture checks](docs/GUIA_USUARIO.pt-BR.md#manuseio-de-arquivos-nos-fixtures-de-teste)
 for executable targets and the limits of these checks. A new hosted analysis
@@ -89,7 +109,8 @@ the strict POSIX namespace hides `O_NOFOLLOW` in its SDK. Both the standalone
 fixture and its generated capture translation unit must enable Darwin
 extensions before their first system header. The modeled controls exercise
 missing and late definitions as failures; the real no-follow operation and
-strict compiler flags remain required. Native revalidation is a separate gate.
+strict compiler flags remain required. The native macOS DMG and installed-image
+gate passes at `166e215`.
 
 The Fedora RPM check also exposed a compiler-scratch interaction: its inherited
 GCC LTO flags caused the newly generated capture child to fail when compiled
@@ -98,7 +119,15 @@ scratch and runtime fixture paths must remain separate, without stripping LTO
 or other caller flags. The fixture must still exercise paths with spaces.
 Fedora also selects a newer POSIX feature level through libc headers; including
 the fixture must preserve that level rather than redefine it after the headers.
-The Fedora gate requires a fresh native run after these corrections.
+The Fedora CLI/GUI RPM and SRPM gate passes at `166e215` after these corrections.
+
+Source-policy and distribution fixtures configure only their temporary Git
+repositories to keep automatic maintenance in the foreground. Maintenance
+remains enabled. Actual old fixtures leave adopted Git processes; corrected
+source-policy and 17 distribution-state controls pass strict process cleanup.
+The two-commit export setup passes too, but the complete private export replay
+times out at 120 seconds. The next-source archive CI and full VM run must still
+pass. See the existing user-guide fixture sections for executable commands.
 
 ## Earlier formal evidence, reviewed 2026-10-30
 

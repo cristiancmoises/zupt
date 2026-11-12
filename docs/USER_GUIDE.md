@@ -334,6 +334,21 @@ substitute for the Jasmin safety and constant-time tools. See
 [DISTRIBUTION.md](../DISTRIBUTION.md) and the project test scripts for the
 current command matrix.
 
+The source-build example above selects official 5.2.9. The audit targets below
+describe the 5.2.10 development tree and may not exist in older releases.
+Use a separate checkout of the revision being assessed and record its identity
+before running checks:
+
+```sh
+git switch 5.2.10
+git rev-parse HEAD
+gcc --version
+clang --version
+```
+
+Keep complete output, exit codes and tool versions with each result. Checks of
+one commit do not qualify a later commit or its final release packages.
+
 ### Test-fixture file handling
 
 Run the maintained fixtures with GCC and repeat with Clang:
@@ -358,15 +373,20 @@ identity and independent expected bytes, so an overwrite cannot pass merely
 because a hard link points to the same damaged file. This target requires
 GNU/Linux cookie streams and linker wrapping; its platform skips remain
 visible. `sdk-test-read-stop` exercises the in-tree SDK callbacks separately
-from the optional system SDK integration.
+from the optional system SDK integration. It correlates bytes and inode identity
+from the same open file, including the initial sentinel write. Two replacement
+regressions detect pathname checks that can otherwise pass after an inode swap.
+The native fixture accepts only `ENOENT` as evidence of absence, distinguishes
+dangling links, FIFOs and invalid parent paths, and checks removal directly
+without a preceding existence lookup.
 
 Focused local runs on 2026-11-12 UTC use GCC 14.3.0 and Clang 22.1.8:
 
 | Target | GCC | Clang |
 | --- | --- | --- |
 | `test-fuzz-harness` | PASS, replacement controls included | PASS, replacement controls included |
-| `test-native-key-read-errors` | 66 cases, zero failures; preservation check passes | 66 cases, zero failures; preservation check passes |
-| `sdk-test-read-stop` | 18 cases, zero failures | 18 cases, zero failures |
+| `test-native-key-read-errors` | 66 cases plus absence/cleanup controls; zero failures | 66 cases plus absence/cleanup controls; zero failures |
+| `sdk-test-read-stop` | 18 cases plus 2 identity regressions; zero failures | 18 cases plus 2 identity regressions; zero failures |
 
 These are GNU/Linux test-fixture results; native macOS/BSD execution and
 final-package acceptance are separate checks.
@@ -380,15 +400,15 @@ On macOS, the standalone fixture and generated capture translation unit must
 enable Darwin extensions before their first system header to expose
 `O_NOFOLLOW`. The header-visibility regression checks missing and late
 definitions too. Do not replace the no-follow flag with zero or skip the
-capture checks to make a build pass. The native rerun remains required after
-this portability correction.
+capture checks to make a build pass. The native macOS DMG gate passes at
+`166e215`, including the installed-image check.
 
 Compiler scratch and mutation paths are separate. The generated test child
 must compile with the caller's flags, including GCC LTO, while runtime capture
 continues to use paths with spaces. This does not establish that a compiler
 supports spaces in its own LTO scratch directory. A feature level already
 selected by libc headers must also survive inclusion of the fixture. The
-corresponding Fedora RPM check still requires native revalidation.
+corresponding Fedora CLI/GUI RPM and SRPM gate passes at `166e215`.
 
 To exercise the relevant GCC LTO flags, select the compiler to audit and run:
 
@@ -404,6 +424,23 @@ after the correction; GCC 14.3.0 did not reproduce the old failure. This local
 profile does not include Fedora's unavailable RPM specs. Ordinary Clang 22
 checks pass, but its LTO attempt fails with the installed incompatible linker
 21; a matching-linker Clang LTO profile has not been run.
+
+Temporary Git repositories keep automatic maintenance enabled but run it in
+the foreground, so detached maintenance cannot outlive a fixture. Reproduce
+the maintained source and export checks with:
+
+```sh
+bash tests/test_source_only.sh
+make -j1 WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-dist-source-state
+JOBS=2 bash tests/test_dist_reproducible.sh
+```
+
+The focused source-only and 17 distribution-state controls pass with strict
+child-process cleanup. Removing the per-fixture setting reproduces adopted
+Git processes. The two-commit export setup also passes; the complete private
+export replay reached its 120-second limit and remains incomplete. A fresh
+source-archive CI run on the corrected revision is still required. None of
+these results waives process cleanup or final archive acceptance.
 
 ### Portable check supervision and tool coverage
 
@@ -631,11 +668,12 @@ Native Ubuntu CI with the pinned build remains required.
 
 ### Current formal evidence, reviewed 2026-11-12
 
-A fresh frozen 294-file snapshot passes all six maintained Frama-C targets and
-the ordinary five-source Jasmin gate on 2026-11-12 UTC. Analyzer, gate,
-collector and source-integrity results pass separately. The snapshot includes
-the Windows installation-fixture correction; its 55 C/header/Jasmin source
-files are unchanged from `193d8c0`. The selected models and preconditions remain
+A frozen 294-file snapshot published as `166e215` passes all six maintained
+Frama-C targets and the ordinary five-source Jasmin gate on 2026-11-12 UTC.
+Analyzer, gate, collector and source-integrity results pass separately. This
+snapshot predates the subsequent SDK, native-key and Git-fixture corrections
+documented above; its 55 production C/header/Jasmin source files are unchanged
+from `193d8c0`. The selected models and preconditions remain
 mandatory. General table/caller obligations, whole-program correctness and
 final-package acceptance are not established by these selected checks.
 
@@ -648,13 +686,31 @@ comparison; the cause is unconfirmed. A separate complete read-only comparison
 then qualified its contents for a disposable VM test. The VM booted and passed
 the observed isolation and sanitizer controls, but its first full product run
 stopped at eight verbose source-distribution test failures. The focused test
-correction passes 17 controls; a corrected aggregate run remains required.
+correction passes 17 controls; that result did not complete the aggregate run.
 The original producer failure is retained and final-package acceptance is open.
 The later run on `fc55c0f` passes all 17 source-distribution controls, 20 DEB
 helper controls and 55 RPM helper controls, then fails because the private
 Jasmin wrapper cannot find `taskset`. The full `release-check` remains
 incomplete; unreached formal and GUI stages are not passes. This environment
 failure does not replace the separate formal results above.
+
+At `166e215`, all 13 executed [Linux CI jobs](https://github.com/cristiancmoises/zupt/actions/runs/43156344287)
+pass, as do the separate [native Windows and macOS package gates](https://github.com/cristiancmoises/zupt/actions/runs/43156717844).
+Optional diagnostic jobs were skipped. Those source-specific results do not
+qualify the later fixture changes or the final public `.zupt` bundles.
+
+The complete VM attempt on `166e215` still fails. With the corrected tool path,
+all six Frama-C targets, the Jasmin gate, SDK checks and nine static-analyzer
+checks pass. Packaging reports 54 passes, one failure and three skips: Guile
+exhausts its 128-descriptor limit while loading source modules. The tools image
+has Scheme sources newer than their compiled caches; its earlier content-only
+qualification did not check those timestamps. A controlled comparison completes
+the actual Guix CLI/GUI fixture using original store metadata with a peak of
+12 descriptors; image metadata reproduces the failure at 128. This comparison
+does not qualify a repaired image or replace the VM run. Strict teardown also
+rejects two adopted Git maintenance processes. Later GUI and sanitizer stages
+were not reached. Both failures must be corrected and the complete run repeated
+without relaxing its resource or cleanup requirements.
 
 The 2026-11-01 UTC repeat of all six maintained Frama-C targets passes on the
 frozen 294-file source after the five ANS guard corrections: decoder bounds,

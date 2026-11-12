@@ -340,6 +340,22 @@ de segurança e tempo constante.
 Consulte [SECURITY.md](../SECURITY.md), [DISTRIBUTION.md](../DISTRIBUTION.md)
 e os scripts de testes para a matriz vigente.
 
+O exemplo de compilação acima seleciona a versão oficial 5.2.9. Os alvos de
+auditoria abaixo descrevem a árvore de desenvolvimento 5.2.10 e podem não
+existir em versões antigas. Use um checkout separado da revisão avaliada e
+registre sua identidade antes de executar os checks:
+
+```sh
+git switch 5.2.10
+git rev-parse HEAD
+gcc --version
+clang --version
+```
+
+Guarde a saída completa, os códigos de saída e as versões das ferramentas com
+cada resultado. Checks de um commit não qualificam um commit posterior nem
+seus pacotes finais.
+
 ### Manuseio de arquivos nos fixtures de teste
 
 Execute os fixtures mantidos com GCC e repita com Clang:
@@ -366,15 +382,20 @@ apenas porque um hard link aponta para o mesmo arquivo danificado. O alvo
 exige cookie streams GNU/Linux e interceptação pelo linker; os skips de
 plataforma permanecem visíveis. `sdk-test-read-stop` exercita os callbacks do
 SDK presente nas fontes, separadamente da integração opcional com o SDK do
-sistema.
+sistema. Ele correlaciona os bytes e a identidade do inode do mesmo arquivo
+aberto, inclusive na escrita inicial da sentinela. Duas regressões de
+substituição detectam checks por caminho que poderiam passar após uma troca
+de inode. O fixture nativo aceita apenas `ENOENT` como evidência de ausência,
+distingue links pendentes, FIFOs e caminhos com pai inválido, e verifica a
+remoção diretamente, sem consulta prévia de existência.
 
 As execuções locais focadas em 2026-11-12 UTC usam GCC 14.3.0 e Clang 22.1.8:
 
 | Alvo | GCC | Clang |
 | --- | --- | --- |
 | `test-fuzz-harness` | PASS, incluindo controles de substituição | PASS, incluindo controles de substituição |
-| `test-native-key-read-errors` | 66 casos, zero falhas; preservação aprovada | 66 casos, zero falhas; preservação aprovada |
-| `sdk-test-read-stop` | 18 casos, zero falhas | 18 casos, zero falhas |
+| `test-native-key-read-errors` | 66 casos mais controles de ausência/limpeza; zero falhas | 66 casos mais controles de ausência/limpeza; zero falhas |
+| `sdk-test-read-stop` | 18 casos mais 2 regressões de identidade; zero falhas | 18 casos mais 2 regressões de identidade; zero falhas |
 
 São resultados de fixtures em GNU/Linux; a execução nativa em macOS/BSD e
 a aceitação dos pacotes finais são verificações separadas.
@@ -389,16 +410,16 @@ No macOS, o fixture isolado e a unidade de tradução gerada para captura devem
 habilitar extensões Darwin antes do primeiro header do sistema para expor
 `O_NOFOLLOW`. A regressão de visibilidade dos headers também verifica
 definições ausentes e tardias. Não substitua a flag por zero nem pule os
-checks de captura para fazer a compilação passar. A nova execução nativa
-continua obrigatória após essa correção de portabilidade.
+checks de captura para fazer a compilação passar. O gate nativo do DMG macOS
+passa em `166e215`, incluindo o check da imagem instalada.
 
 O diretório temporário do compilador é separado dos caminhos de mutação. O
 filho gerado para o teste deve compilar com as flags do chamador, incluindo
 LTO do GCC, enquanto a captura em runtime continua usando caminhos com espaços.
 Isso não demonstra que o compilador aceita espaços em seu próprio diretório
 temporário de LTO. O nível de funcionalidades já selecionado pelos headers da
-libc também deve ser preservado ao incluir o fixture. O check RPM Fedora
-correspondente ainda exige nova validação nativa.
+libc também deve ser preservado ao incluir o fixture. O gate correspondente
+dos pacotes RPM CLI/GUI e SRPM Fedora passa em `166e215`.
 
 Para exercitar as flags relevantes de LTO do GCC, selecione o compilador a
 auditar e execute:
@@ -416,6 +437,24 @@ Esse perfil local não inclui os specs RPM indisponíveis do Fedora. Os checks
 comuns do Clang 22 passam, mas a tentativa de LTO falha com o linker 21
 instalado, incompatível; o perfil LTO do Clang com linker correspondente não
 foi executado.
+
+Os repositórios Git temporários mantêm a manutenção automática habilitada,
+mas a executam em primeiro plano, para que ela termine dentro do ciclo de
+vida do fixture. Reproduza os checks mantidos de fontes e exportação com:
+
+```sh
+bash tests/test_source_only.sh
+make -j1 WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-dist-source-state
+JOBS=2 bash tests/test_dist_reproducible.sh
+```
+
+Os checks focados de fontes e os 17 controles de estado da distribuição passam
+com limpeza estrita dos processos filhos. Remover a configuração por fixture
+reproduz processos Git adotados. A preparação da exportação com dois commits
+também passa; a repetição privada completa atingiu o limite de 120 segundos e
+permanece incompleta. Ainda é necessária uma nova execução do CI de arquivos
+de fontes na revisão corrigida. Esses resultados não dispensam a limpeza dos
+processos nem a aceitação do arquivo final.
 
 ### Supervisão portátil dos checks e cobertura de ferramentas
 
@@ -654,11 +693,12 @@ A execução nativa do Ubuntu com o build fixado continua obrigatória.
 
 ### Evidência formal atual, conferida em 2026-11-12
 
-Um novo snapshot congelado de 294 arquivos passa nos seis alvos Frama-C
-mantidos e no gate comum Jasmin das cinco fontes em 2026-11-12 UTC. Os
-resultados do analisador, gate, coletor e integridade das fontes passam
-separadamente. O snapshot inclui a correção do fixture de instalação Windows;
-seus 55 arquivos C/headers/Jasmin são iguais aos de `193d8c0`. Os modelos e
+Um snapshot congelado de 294 arquivos, publicado como `166e215`, passa nos seis
+alvos Frama-C mantidos e no gate comum Jasmin das cinco fontes em 2026-11-12 UTC.
+Os resultados do analisador, gate, coletor e integridade das fontes passam
+separadamente. Esse snapshot antecede as correções posteriores dos fixtures
+SDK, de chaves nativas e Git documentadas acima; seus 55 arquivos C/headers/Jasmin
+de produção são iguais aos de `193d8c0`. Os modelos e
 as pré-condições selecionados continuam obrigatórios. Essas análises selecionadas não
 estabelecem obrigações gerais da tabela/chamadores, correção do programa inteiro
 ou aceitação dos pacotes finais.
@@ -674,13 +714,35 @@ depois seu conteúdo para um teste em VM descartável. A VM inicializou e passou
 nos controles observados de isolamento e sanitizadores, mas a primeira execução
 completa do produto parou em oito falhas dos testes de distribuição com Make
 verboso. A correção focada do teste passa em 17 controles; a execução agregada
-corrigida ainda é necessária. A falha original do produtor foi preservada, e
+corrigida não foi concluída por esse resultado focado. A falha original do
+produtor foi preservada, e
 a aceitação do pacote final continua pendente. A execução posterior em
 `fc55c0f` passa nos 17 controles de distribuição de fontes, 20 controles do
 helper DEB e 55 controles do helper RPM, mas falha porque o wrapper privado
 do Jasmin não encontra `taskset`. O `release-check` completo permanece
 inconcluso; as etapas formais e da GUI não alcançadas não são passes. Essa
 falha de ambiente não substitui os resultados formais separados acima.
+
+Em `166e215`, passam os 13 [jobs Linux executados no CI](https://github.com/cristiancmoises/zupt/actions/runs/43156344287)
+e os [gates nativos de pacotes Windows e macOS](https://github.com/cristiancmoises/zupt/actions/runs/43156717844), executados separadamente.
+Os jobs opcionais de diagnóstico foram pulados. Esses resultados específicos
+da fonte não qualificam as alterações posteriores dos fixtures nem os bundles
+`.zupt` públicos finais.
+
+A tentativa completa na VM em `166e215` ainda falha. Com o caminho da ferramenta
+corrigido, passam os seis alvos Frama-C, o gate Jasmin, os checks do SDK e nove
+checks do analisador estático. O empacotamento registra 54 passes, uma falha e
+três skips: Guile esgota o limite de 128 descritores ao carregar módulos-fonte.
+Na imagem de ferramentas, as fontes Scheme são mais recentes que seus caches
+compilados; a qualificação anterior, limitada ao conteúdo, não verificou esses
+timestamps. Uma comparação controlada conclui o fixture real CLI/GUI do Guix
+com os metadados originais da store e pico de 12 descritores; os metadados da
+imagem reproduzem a falha em 128. Essa comparação não qualifica uma imagem
+reparada nem substitui a execução na VM. A limpeza estrita também rejeita dois
+processos adotados de manutenção do Git. As etapas posteriores da GUI e dos
+sanitizadores não foram alcançadas. As duas falhas precisam ser corrigidas e a
+execução completa repetida, mantendo os limites de recursos e os requisitos de
+limpeza.
 
 Na repetição de 2026-11-01 UTC, os seis alvos Frama-C mantidos passam na
 fonte congelada de 294 arquivos após as cinco correções dos guards ANS:
