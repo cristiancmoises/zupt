@@ -341,13 +341,35 @@ class NativeInstalledDocsTests(InstalledDocsFixture):
                         profile=profile, location=location, document=name
                     ):
                         path = location / name
-                        path.chmod(0o444)
-                        self.run_checker(profile, expected=1)
-                        path.chmod(0o644)
-                        if os.name == "posix":
-                            path.chmod(0o600)
+                        try:
+                            path.chmod(0o444)
+                            self.assertEqual(
+                                stat.S_IMODE(path.stat().st_mode),
+                                0o444,
+                                "read-only fixture mode did not materialize",
+                            )
                             self.run_checker(profile, expected=1)
+                        finally:
                             path.chmod(0o644)
+
+    @unittest.skipUnless(os.name == "posix", "owner-only modes require POSIX")
+    def test_owner_only_native_document_modes_are_rejected(self):
+        for profile, locations in self.layouts():
+            self.run_checker(profile)
+            for location in locations:
+                for name in DOCUMENTS:
+                    path = location / name
+                    try:
+                        path.chmod(0o600)
+                        observed = stat.S_IMODE(path.stat().st_mode)
+                        if observed != 0o600:
+                            self.skipTest(
+                                f"owner-only mode 0600 unavailable for {profile}/{name}: "
+                                f"observed {observed:04o}"
+                            )
+                        self.run_checker(profile, expected=1)
+                    finally:
+                        path.chmod(0o644)
 
     def test_symlink_native_documents_are_rejected(self):
         for profile, locations in self.layouts():
