@@ -28,10 +28,11 @@ records findings, analysis assumptions and remaining coverage.
 
 ## Release status
 
-The official public release is [ZUPT 5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
-Version 5.2.10 remains unpublished until the complete validation matrix passes,
-including the required formal-analysis and assembly gates. A source checkout
-whose version string says 5.2.10 is not an official download.
+This guide describes the 5.2.10 source. Consult the
+[latest official release](https://github.com/cristiancmoises/zupt/releases/latest)
+for the published version, tag, packages and checksums. A branch name
+or source version string does not establish release status. Publication
+requires the complete validation matrix, including the formal and assembly gates.
 
 ZUPT Web is available at <https://zupt-web.securityops.co> for disposable,
 non-sensitive examples. It is a separate deployment; its limits, version and
@@ -68,11 +69,28 @@ The package is maintained downstream by the openSUSE community; thanks to
 
 The distribution profile requires a C11 compiler, GNU Make, the system C and
 math libraries, and POSIX threads. The build does not download dependencies.
+The following example builds the existing `5.2.10` version branch.
 
 ```sh
 git clone https://github.com/cristiancmoises/zupt.git
 cd zupt
-git checkout v5.2.9       # use v5.2.10 only after its official publication
+git switch 5.2.10
+```
+
+For a release-pinned build, choose a published signed tag from the release
+page and verify it using the independently trusted key described in
+[INSTALL.md](../INSTALL.md). Replace `PUBLISHED_TAG` with that exact tag; no
+unpublished tag is assumed to exist. Before building, run:
+
+```sh
+git fetch origin tag PUBLISHED_TAG
+git verify-tag PUBLISHED_TAG
+git switch --detach PUBLISHED_TAG
+```
+
+Build the selected revision:
+
+```sh
 make clean
 make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)" \
   WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0
@@ -276,10 +294,19 @@ The checker only reads files; it does not extract or mount packages. It checks
 the Windows directory version and both macOS `Info.plist` versions against the
 source header. POSIX documents must have mode 0644. Native Windows NT files
 normally report 0666; that profile does not establish ACL correctness. The
-local Linux regression collects 29 cases: 28 execute and one native NT-junction
+local Linux regression collects 30 cases: 29 pass and one native NT-junction
 case is skipped. Six local controls of the real staging recipe fragments pass
-without executing the placeholder CLI. Native Windows/macOS CI of these
-package changes remains required; earlier `b25a486` packages do not cover them.
+without executing the placeholder CLI. Run native Windows/macOS package CI
+for each changed revision; earlier `b25a486` packages do not cover these changes.
+
+Native Windows CI on `3e50a65` reports 12 permission-fixture subtest failures:
+the checker accepts files after the fixture requests mode 0600, although the
+profile requires 0644. This suggests a permission-change capability mismatch;
+the raw log does not print the observed mode. The read-only 0444 controls are
+rejected as intended. The failed run does not qualify packages or establish a
+codec/cryptographic fault. The local correction tests read-only rejection
+separately and skips the owner-only capability case explicitly if 0600 cannot
+be materialized. The checker criteria remain unchanged; repeat native checks.
 
 The portable frontend has a separate packaging regression target; it uses
 real `.zupt` containers and does not require Qt:
@@ -354,8 +381,8 @@ substitute for the Jasmin safety and constant-time tools. See
 [DISTRIBUTION.md](../DISTRIBUTION.md) and the project test scripts for the
 current command matrix.
 
-The source-build example above selects official 5.2.9. The audit targets below
-describe the 5.2.10 development tree and may not exist in older releases.
+The source-build example above selects the `5.2.10` version branch. The audit
+targets below describe that source and may not exist in older releases.
 Use a separate checkout of the revision being assessed and record its identity
 before running checks:
 
@@ -707,6 +734,16 @@ negative sanitizer controls pass. These controls validate the observed
 supervision and error classification, not every sanitizer path. The aggregate
 run's undersized loop-device `SKIP` remains part of that result.
 
+A later frozen snapshot, `3e50a65`, completes the actual aggregate check in
+1001.431 seconds with eleven policy controls, three negative sanitizer controls
+and unchanged input pins. Product cleanup reports no descendants, OOM or
+PID-limit events; the cgroup reaches its 768 MiB build/test/file-cache budget.
+All 13 [Linux CI jobs](https://github.com/cristiancmoises/zupt/actions/runs/43188511397)
+and the [macOS job](https://github.com/cristiancmoises/zupt/actions/runs/43189296339)
+pass; Windows fails in the permission fixture described above. These dated
+results predate the fixture correction and later documentation changes, and
+do not qualify their final packages. Observed skips keep their original scope.
+
 A separate 16.993-second disposable-VM run passes the maintained
 [disk-capacity guard test](../tests/test_disk_device_capacity.sh). It uses the
 pinned static-musl CLI from `b25a486`, rather than the aggregate's glibc build.
@@ -752,9 +789,9 @@ and both [native Windows and macOS package gates](https://github.com/cristiancmo
 pass. The reusable native dispatch and optional diagnostic jobs were skipped.
 Their package and source artifacts are internal CI outputs, not official
 release assets. These native results predate the package-documentation changes
-described above; those changes still need native CI. The final public `.zupt`
-bundles still require acceptance;
-5.2.10 has no official tag or release, and 5.2.9 remains the official version.
+described above. Each changed revision and its final public `.zupt` bundles
+require their own native and format-specific acceptance; source CI alone does
+not establish publication status.
 
 The earlier complete VM attempt on `166e215` failed. With the corrected tool path,
 all six Frama-C targets, the Jasmin gate, SDK checks and nine static-analyzer
@@ -2641,7 +2678,7 @@ Rust fuzzing have **not** run in this profile. Miri is not a general native-FFI
 checker; qualify its applicable Rust-only tests separately. Frama-C still
 applies to C slices, Jasmin to its own modules; neither proves this Rust code.
 These developer results do not replace the existing release/security gates.
-Keep 5.2.10 unpublished until its complete production qualification is accepted.
+Release approval requires complete production qualification.
 
 A fresh strict GCC 14.3.0 `make check` and actual CLI functional suite also
 pass with `CARGO` set to a failing executable, confirming the production test

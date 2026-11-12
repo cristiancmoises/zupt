@@ -6,14 +6,13 @@ ZUPT is a backup archiver with VaptVupt compression, authenticated encryption,
 multithreaded operation, and an optional Python/Qt graphical interface. The
 command-line application is written in C11.
 
-**Official release: [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).**
-Version **5.2.10 is under validation and is not an official download**. Its
-previous delivery was withdrawn. Use the official release for installations.
+This checkout documents **ZUPT 5.2.10**. For published packages and their
+checksums, use the [latest official release](https://github.com/cristiancmoises/zupt/releases/latest).
 
-| Version | Status | Bundled VaptVupt codec |
+| Version | Reference | Bundled VaptVupt codec |
 | --- | --- | --- |
-| 5.2.9 | Official published release | 2.65.11 |
-| 5.2.10 | Development source under validation | 2.65.13 |
+| 5.2.9 | Release history | 2.65.11 |
+| 5.2.10 | Source version documented here | 2.65.13 |
 
 Source: [release history](CHANGELOG.md), reviewed 2026-11-12 UTC. The update
 is described in the [user guide](docs/USER_GUIDE.md) and
@@ -21,8 +20,8 @@ is described in the [user guide](docs/USER_GUIDE.md) and
 
 ## Download and installation
 
-Use the [official 5.2.9 release page](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9)
-for published packages and their checksums. Follow the
+Use the [official release page](https://github.com/cristiancmoises/zupt/releases/latest)
+for available packages and their checksums. Follow the
 [installation guide](INSTALL.md) for your platform and verify downloaded files
 before running them. Development version strings do not identify a release.
 
@@ -55,12 +54,13 @@ community openSUSE package.
 
 The default build needs a C11 compiler, GNU Make and the system C, math and
 threading libraries. The build does not download dependencies. Bash and
-Python 3 are used by the test suite.
+Python 3 are used by the test suite. This example builds the `5.2.10` version
+branch; see the guide below for a build pinned to a published signed tag.
 
 ```sh
 git clone https://github.com/cristiancmoises/zupt.git
 cd zupt
-git checkout v5.2.9
+git switch 5.2.10
 make -j2 WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0
 make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 check
 ```

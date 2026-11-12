@@ -3,13 +3,16 @@
 This document describes the packaging material maintained in the ZUPT
 source repository. A recipe in `packaging/` is not evidence that a package has
 been accepted by a distribution or that every target platform has been tested.
-Record each build and test result separately; an unexecuted target is a skip.
+Record each build and test result separately. Use `NOT RUN` for checks not
+executed, `BLOCKED` for missing prerequisites with a recorded reason, and
+`SKIP` for intentional optional or platform exclusions. An unexecuted or
+blocked required gate still blocks publication.
 
-The published official version is
-[5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
-Its existing artifacts and formats remain unchanged. Version 5.2.10 is being
-validated; the withdrawn delivery and its old source/package pins must not
-be treated as the final version. New bundles must use genuine level-9 `.zupt`
+Consult the [latest official release](https://github.com/cristiancmoises/zupt/releases/latest)
+for publication status, the tag, assets and checksums. Historical 5.2.9
+artifacts retain their original formats. The withdrawn 5.2.10 delivery and its
+old source/package pins must not be treated as final artifacts. New bundles
+must use genuine level-9 `.zupt`
 containers; native DEB/RPM/SRPM keep their package formats. Record the final
 signed runtime tag and actual build commit separately for every artifact.
 
@@ -318,10 +321,10 @@ content to be committed to Git or included in the source archive.
 
 ### AUR, Homebrew, Guix, and Nix
 
-The official release is 5.2.9. The withdrawn 5.2.10 source and packaging pins
-must not be presented as final installation instructions. Before distributing
-5.2.10, regenerate each recipe's source URL and checksum from the final signed
-runtime tag and record the actual recipe commit.
+Use only source and packaging pins matching the selected official release.
+The withdrawn 5.2.10 pins are not final installation instructions. Before
+distribution, derive each recipe's source URL and checksum from the final
+signed runtime tag and record the actual recipe commit.
 
 Before the tag exists, run branch or pull-request CI with the default
 `verify_recipe_pins=false`; it must not fetch an unpublished tag. After the

@@ -3,13 +3,13 @@
 This guide covers the ZUPT command-line program and the optional Python GUI.
 The canonical source repository is
 [GitHub](https://github.com/cristiancmoises/zupt).
-For official packages, use the
-[5.2.9 release page](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9)
-and its `SHA256SUMS`. Existing 5.2.9 assets keep their original formats:
-use the appropriate tar/ZIP/DMG or native package tool, not `zupt extract` for
-those legacy containers. Version 5.2.10 is still in development; its earlier
-delivery was withdrawn. The `.zupt` instructions below describe the next
-official release, not currently available downloads.
+For official packages and `SHA256SUMS`, use the
+[latest official release](https://github.com/cristiancmoises/zupt/releases/latest).
+Use only assets listed on the selected release page. The version-specific
+examples below describe the 5.2.10 formats; they do not establish publication
+status. Historical 5.2.9 assets retain their original tar/ZIP/DMG or native
+formats; use the matching tool, not `zupt extract` for those legacy containers.
+The earlier withdrawn 5.2.10 delivery is not evidence for final artifacts.
 
 ## Choosing an installation method
 
@@ -22,10 +22,11 @@ official release, not currently available downloads.
   Git tree or upstream source archive. Use only artifacts whose release notes
   record a successful format-specific test for your target.
 
-## Planned 5.2.10 bundles and verification
+## 5.2.10 bundle formats and verification
 
-After validation, all five new bundles must use genuine, unencrypted VaptVupt
-level-9 `.zupt` containers. Do not use earlier packages as the final version:
+The 5.2.10 bundle contract uses five genuine, unencrypted VaptVupt level-9
+`.zupt` containers. Obtain them only when listed on the chosen official release
+page; do not use the withdrawn packages as final artifacts:
 
 | Bundle | Contents and prerequisites |
 |---|---|
@@ -169,9 +170,11 @@ chmod u+x scripts/check-source-only.sh
 bash scripts/check-source-only.sh
 ```
 
-After official publication, a verified Git checkout of `v5.2.10` will retain
-tracked execute modes. Until then, use the official `v5.2.9` release for an
-installation, not the withdrawn 5.2.10 source pins. Build the source-only
+A Git checkout retains tracked execute modes. For a release-pinned build,
+select and verify a published signed tag as described in the
+[source-build guide](docs/USER_GUIDE.md#build-from-source). The existing
+`5.2.10` branch can be used for source review; its name does not establish
+release status. Do not use the withdrawn source pins. Build the source-only
 feature set with:
 
 ```sh
@@ -252,10 +255,10 @@ sudo make PREFIX=/usr/local uninstall
 
 ### Downstream recipe validation
 
-For a current installation, start from the official 5.2.9 release and the
-matching recipe, not a withdrawn 5.2.10 packaging commit. Before installing a
-future 5.2.10 recipe, verify its source URL, checksum and exact signed source
-commit, then build and test it with the target package manager.
+For an installation, select an official published release and its matching
+recipe, not a withdrawn packaging commit. Verify the recipe source URL,
+checksum and exact signed source commit, then build and test it with the
+target package manager.
 
 `packaging/guix/zupt.scm` selects the GUI package, whose launcher pins the
 matching store CLI. A `guix build -f packaging/guix/zupt.scm` check builds a

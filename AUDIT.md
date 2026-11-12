@@ -52,6 +52,13 @@ source, input and initrd pins remain unchanged. These controls qualify the
 observed run, not every sanitizer path. Its recorded undersized loop-device
 test remains a skip.
 
+A later frozen snapshot, `3e50a65`, passes the actual aggregate `release-check`
+in 1001.431 seconds with eleven policy and three negative sanitizer controls,
+unchanged input pins and no product descendants, OOM or PID-limit events.
+Its cgroup reaches the 768 MiB budget, including build/test processes and
+charged file cache. This run predates the permission-fixture correction and
+later documentation changes; its observed skips retain their original scope.
+
 A separate disposable-VM run passes the maintained
 [disk-capacity guard test](tests/test_disk_device_capacity.sh) in 16.993 seconds.
 It uses the pinned static-musl CLI from `b25a486`, rather than the aggregate
@@ -64,9 +71,10 @@ The static-musl build also passes staged-install smokes and a separate
 store-less fixed-text check at levels 1 and 9. The first store-less bootstrap
 failed at UID-map setup with read-only `/proc`; that failure is retained. The
 successful CLI namespace has no GNU store and retains read-only `/proc`.
-General ANS table/caller obligations, whole-program correctness and final
-release-artifact acceptance remain open. Version 5.2.10 is unpublished; the
-official release remains 5.2.9.
+General ANS table/caller obligations remain open; these checks do not prove
+whole-program correctness. Final artifacts require their own acceptance. Consult the
+[official release page](https://github.com/cristiancmoises/zupt/releases/latest)
+for publication status, the tag and checksums.
 
 The first full VM run on `60f1931` stopped at the source-distribution tests:
 verbose Make output caused eight fault-injection checks to mistake an echoed
@@ -84,18 +92,35 @@ and both [native Windows/macOS package gates](https://github.com/cristiancmoises
 pass. The reusable native dispatch and optional diagnostic jobs were skipped.
 Their package and source artifacts are internal CI outputs, not an official
 release or acceptance of final public `.zupt` bundles. Those results predate
-the native package-documentation corrections below. Source synchronization
-to `git.securityops.com.br` is also incomplete because its unpacker rejects the
-push; the other three mirrors have verified the source commits.
+the native package-documentation corrections below. At these source-publication
+checks, `git.securityops.com.br` rejected the push during unpacking; the other
+three mirrors verified the source commits. A later normal atomic push of
+`3e50a65` succeeded on all four mirrors, with signature verification recorded;
+the earlier unpacking failure remains historical.
+
+At `3e50a65`, all 13 [Linux CI jobs](https://github.com/cristiancmoises/zupt/actions/runs/43188511397)
+and the [native macOS job](https://github.com/cristiancmoises/zupt/actions/runs/43189296339)
+pass. The Windows job in that native run fails in the permission fixture
+described below. These dated results do not qualify later source or packages.
 
 Windows bundles and both macOS DMG documentation locations now stage the two
 user guides plus SECURITY, DISTRIBUTION, AUDIT, INSTALL and THREAT_MODEL.
 The installed-documentation checker has explicit Windows/macOS profiles;
 it compares bytes and package versions in a trusted, private, quiescent tree.
-The Linux regression collects 29 cases: 28 execute and the native NT-junction
+The local Linux regression collects 30 cases: 29 pass and the native NT-junction
 case is skipped. Six local recipe-staging controls pass without executing the
 placeholder CLI. These checks do not build native packages or qualify the
-changed revision; fresh Windows/macOS CI remains pending.
+changed revision; each changed revision requires fresh Windows/macOS CI.
+
+The later native Windows run on `3e50a65` reports 12 permission-fixture
+subtest failures: the checker accepts files after the fixture requests mode
+0600. Because that profile requires 0644, this points to a permission-change
+capability mismatch; the raw log does not print the observed mode. The
+read-only 0444 controls are rejected as intended. This failed fixture run does
+not qualify packages or establish a codec/cryptographic fault. The corrected
+fixture requires a fresh native run. The local correction separates read-only
+rejection from the owner-only capability check, with an explicit skip when
+0600 is not materialized; the checker criteria remain unchanged.
 
 The earlier full VM attempt on `166e215` fails despite passing the selected formal,
 SDK and nine static-analyzer checks. Packaging records 54 passes, one failure

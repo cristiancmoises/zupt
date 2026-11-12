@@ -8,13 +8,13 @@ sendo a referência detalhada: [INSTALL.md](INSTALL.md),
 [DISTRIBUTION.md](DISTRIBUTION.md), [SECURITY.md](SECURITY.md) e
 [THREAT_MODEL.md](THREAT_MODEL.md).
 
-Para a versão oficial, use a
-[release 5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9)
-e seu `SHA256SUMS`. A 5.2.9 inclui VaptVupt 2.65.11 e mantém o formato 1.6.
-Os pacotes antigos preservam seus formatos tar/ZIP/DMG ou nativos; não os
-extraia como `.zupt`. A 5.2.10 está em desenvolvimento e sua entrega anterior
-foi retirada. Os exemplos dos novos bundles `.zupt` são instruções para a
-próxima versão oficial, não downloads disponíveis neste momento.
+Para pacotes oficiais e seu `SHA256SUMS`, consulte a
+[release oficial mais recente](https://github.com/cristiancmoises/zupt/releases/latest).
+Use somente os assets listados na release escolhida. Os exemplos abaixo
+descrevem os formatos da 5.2.10; não estabelecem o status da publicação.
+Historicamente, a 5.2.9 inclui VaptVupt 2.65.11 e mantém o formato 1.6. Seus
+pacotes preservam os formatos tar/ZIP/DMG ou nativos; não os extraia como
+`.zupt`. A entrega anterior retirada da 5.2.10 não valida os artefatos finais.
 
 ## 1. Instalação a partir do código-fonte
 
@@ -185,8 +185,8 @@ Wine não substitui o teste nativo obrigatório.
 
 ## 5. Codec VaptVupt incluído
 
-A fonte 5.2.10 em desenvolvimento inclui VaptVupt 2.65.13; a versão oficial
-5.2.9 inclui 2.65.11. O adaptador mantém:
+A fonte 5.2.10 inclui VaptVupt 2.65.13; a versão histórica 5.2.9 inclui
+2.65.11. O adaptador mantém:
 
 - quadros independentes e janela automática;
 - níveis 1–2 em FAST, 3–7 em balanced e 8–9 em extreme;
@@ -410,9 +410,10 @@ Não publique novos `.tar.gz` como downloads manuais. Os arquivos gerados
 automaticamente pelo forge e os tarballs internos do SRPM/OBS são entradas de
 construção distintas, não esses bundles públicos.
 
-A versão oficial é a 5.2.9. Não use os pins retirados da 5.2.10 como instruções
-de instalação da versão final. Antes da publicação, regenere a URL e o checksum
-de cada receita a partir da tag final assinada e registre o commit da receita.
+Use somente os pins correspondentes à release oficial escolhida. Os pins
+retirados da 5.2.10 não são instruções da versão final. Antes da distribuição,
+gere a URL e o checksum de cada receita a partir da tag final assinada e
+registre o commit da receita.
 
 O CI anterior à tag não deve tentar baixá-la. Depois de publicar a tag final
 assinada e preparar o commit exclusivo dos pins, execute manualmente

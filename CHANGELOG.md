@@ -1,18 +1,22 @@
 # ZUPT Changelog
 
-## [5.2.10] — Unreleased — Codec compatibility and terminal fixes
+## [5.2.10] — Codec compatibility and terminal fixes
 
-Version 5.2.10 is being validated and is not an official release. Its earlier
-delivery was withdrawn; previous packages do not validate the corrected source.
-The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
+This entry records the 5.2.10 source changes. Published packages, their tag
+and checksums are listed on the
+[official release page](https://github.com/cristiancmoises/zupt/releases/latest).
+The earlier withdrawn delivery does not validate the corrected source.
 
 - Ship both user guides and their security, distribution, audit, installation
   and threat-model documents in Windows bundles and both macOS DMG locations.
   Check the actual extracted or mounted tree with explicit native profiles,
   including Windows directory version and both macOS bundle versions. Retain
-  all 16 earlier checker cases; Linux collects 29, executes 28 and skips the
+  all 16 earlier checker cases; Linux collects 30, passes 29 and skips the
   native NT-junction case. Six local staging controls pass without running the
-  placeholder CLI. Native package CI for these changes remains pending.
+  placeholder CLI. Separate read-only rejection from the owner-only mode
+  capability check; explicitly skip the latter when 0600 cannot be materialized.
+  The checker retains its document-mode requirements. Require native package
+  CI for each changed revision.
 - Bind the SDK read-stop fixture's sentinel and observed metadata to the same
   open files used for their bytes. Retain its 18 cases and add two deterministic
   inode-replacement regressions; both GCC and Clang pass. Native key-read tests
@@ -65,8 +69,8 @@ The published official version remains [5.2.9](https://github.com/cristiancmoise
   strict process cleanup. Earlier producer exit 137, the failed `166e215` VM
   and host-supervisor timeout 124 remain recorded. The aggregate's loop-device
   skip remains recorded separately from the later real-loop result. Internal
-  CI packages do not qualify the final release bundles; 5.2.10 remains
-  unpublished and 5.2.9 remains official.
+  CI packages do not qualify final release bundles; those require separate
+  acceptance before official publication.
 - Pass the maintained disk-capacity guard test in a separate disposable VM
   using the pinned `b25a486` static-musl CLI. A 128 KiB restore is rejected
   against one owned 64 KiB loop backing file without changing its bytes; the

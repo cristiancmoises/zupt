@@ -7,14 +7,13 @@ O ZUPT é um arquivador de backups com compressão VaptVupt, criptografia
 autenticada, operação com múltiplas threads e interface gráfica opcional em
 Python/Qt. O aplicativo de linha de comando é escrito em C11.
 
-**Versão oficial: [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).**
-A versão **5.2.10 está em validação e não é um download oficial**. Sua entrega
-anterior foi retirada. Use a versão oficial nas instalações.
+Este checkout documenta o **ZUPT 5.2.10**. Para obter pacotes publicados e suas
+somas de verificação, use a [release oficial mais recente](https://github.com/cristiancmoises/zupt/releases/latest).
 
-| Versão | Status | Codec VaptVupt integrado |
+| Versão | Referência | Codec VaptVupt integrado |
 | --- | --- | --- |
-| 5.2.9 | Versão oficial publicada | 2.65.11 |
-| 5.2.10 | Fonte em desenvolvimento e validação | 2.65.13 |
+| 5.2.9 | Histórico de versões | 2.65.11 |
+| 5.2.10 | Versão da fonte documentada aqui | 2.65.13 |
 
 Fonte: [histórico de versões](CHANGELOG.md), conferido em 2026-11-12 UTC. A
 atualização está descrita no [guia de usuário](docs/GUIA_USUARIO.pt-BR.md) e nos
@@ -22,8 +21,8 @@ atualização está descrita no [guia de usuário](docs/GUIA_USUARIO.pt-BR.md) e
 
 ## Download e instalação
 
-Use a [página oficial da 5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9)
-para obter os pacotes publicados e suas somas de verificação. Siga o
+Use a [página oficial de releases](https://github.com/cristiancmoises/zupt/releases/latest)
+para obter os pacotes disponíveis e suas somas de verificação. Siga o
 [guia de instalação](INSTALL.md) da sua plataforma e verifique os arquivos
 antes de executá-los. A versão indicada em uma fonte em desenvolvimento não
 identifica uma release.
@@ -58,12 +57,13 @@ pacote comunitário para openSUSE.
 
 O build padrão precisa de compilador C11, GNU Make e bibliotecas de C,
 matemática e threads do sistema. O build não baixa dependências. A suíte de
-testes usa Bash e Python 3.
+testes usa Bash e Python 3. O exemplo compila a branch de versão `5.2.10`;
+consulte o guia abaixo para fixar o build em uma tag publicada e assinada.
 
 ```sh
 git clone https://github.com/cristiancmoises/zupt.git
 cd zupt
-git checkout v5.2.9
+git switch 5.2.10
 make -j2 WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0
 make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 check
 ```
