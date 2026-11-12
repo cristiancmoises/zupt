@@ -261,6 +261,26 @@ GUI DEB builds use this installer, but these staging checks do not build or
 validate the DEB. Other native packaging helpers have separate payload and
 runtime gates. Source-header and test-script references need the checkout.
 
+Windows bundles and both macOS DMG documentation locations include both user
+guides and SECURITY, DISTRIBUTION, AUDIT, INSTALL and THREAT_MODEL. After
+extracting the Windows bundle or mounting the DMG read-only, compare that
+private, quiescent tree against its exact source checkout:
+
+```sh
+make -j1 test-installed-docs
+python3 -B scripts/check-installed-docs.py . /path/to/windows-extraction windows
+python3 -B scripts/check-installed-docs.py . /path/to/read-only-dmg macos
+```
+
+The checker only reads files; it does not extract or mount packages. It checks
+the Windows directory version and both macOS `Info.plist` versions against the
+source header. POSIX documents must have mode 0644. Native Windows NT files
+normally report 0666; that profile does not establish ACL correctness. The
+local Linux regression collects 29 cases: 28 execute and one native NT-junction
+case is skipped. Six local controls of the real staging recipe fragments pass
+without executing the placeholder CLI. Native Windows/macOS CI of these
+package changes remains required; earlier `b25a486` packages do not cover them.
+
 The portable frontend has a separate packaging regression target; it uses
 real `.zupt` containers and does not require Qt:
 
@@ -391,10 +411,10 @@ Focused local runs on 2026-11-12 UTC use GCC 14.3.0 and Clang 22.1.8:
 These are GNU/Linux test-fixture results; native macOS/BSD execution and
 final-package acceptance are separate checks.
 
-The CodeQL analysis of `a52c79d` marks the input-capture finding (#12) fixed,
-without dismissal. Two High metadata/cleanup findings (#11 and #13) in the SDK
-and native key-read fixtures remain open for explicit review. No alert has
-been hidden or dismissed. See the [audit record](../AUDIT.md#test-fixture-file-handling).
+The CodeQL analysis of `b25a486` reports zero results across five language
+analyses and zero open alerts. The three fixture findings (#11, #12 and #13)
+are marked fixed without dismissal. These source-specific results do not
+prove the absence of vulnerabilities. See the [audit record](../AUDIT.md#test-fixture-file-handling).
 
 On macOS, the standalone fixture and generated capture translation unit must
 enable Darwin extensions before their first system header to expose
@@ -438,9 +458,9 @@ JOBS=2 bash tests/test_dist_reproducible.sh
 The focused source-only and 17 distribution-state controls pass with strict
 child-process cleanup. Removing the per-fixture setting reproduces adopted
 Git processes. The two-commit export setup also passes; the complete private
-export replay reached its 120-second limit and remains incomplete. A fresh
-source-archive CI run on the corrected revision is still required. None of
-these results waives process cleanup or final archive acceptance.
+export replay reached its 120-second limit and remains incomplete. The later
+source-archive CI and aggregate VM run pass on `b25a486`, retaining strict
+process cleanup. Final public archive acceptance remains separate.
 
 ### Portable check supervision and tool coverage
 
@@ -668,20 +688,54 @@ Native Ubuntu CI with the pinned build remains required.
 
 ### Current formal evidence, reviewed 2026-11-12
 
-A frozen 294-file snapshot published as `166e215` passes all six maintained
-Frama-C targets and the ordinary five-source Jasmin gate on 2026-11-12 UTC.
-Analyzer, gate, collector and source-integrity results pass separately. This
-snapshot predates the subsequent SDK, native-key and Git-fixture corrections
-documented above; its 55 production C/header/Jasmin source files are unchanged
-from `193d8c0`. The selected models and preconditions remain
-mandatory. General table/caller obligations, whole-program correctness and
-final-package acceptance are not established by these selected checks.
+A frozen 294-file snapshot of `b25a486` passes all six maintained Frama-C
+targets and the ordinary five-source Jasmin gate on 2026-11-12 UTC, both
+separately and within the actual unmodified aggregate `release-check` in a
+disposable VM. Analyzer, gate, collector and source-integrity results pass
+separately. Its 55 production C/header/Jasmin files are unchanged from
+`193d8c0`; the later test-fixture corrections are included. The selected models
+and preconditions remain mandatory. General table/caller obligations,
+whole-program correctness and final-package acceptance are not established
+by these selected checks.
 
-Separately, the static non-PIE Linux CLI built from `193d8c0` passes compilation,
-staged installation, the exact 20-file notice-bearing export and static ELF/
-non-executable-stack checks. A fixed-text round trip without the build store
-passes at levels 1 and 9. This is limited runtime evidence, not final-package
-qualification. A later VM-image producer exited 137 during its final output
+The aggregate VM run exits 0 in 992.719 seconds, including the actual Guix
+CLI/GUI fixture. The process group running `release-check` records a 768 MiB
+cgroup memory peak, including build/test processes and charged file cache.
+It has no OOM or PID-limit events and no surviving descendants; source, input
+and initrd pins remain unchanged. Eleven isolation-policy controls and three
+negative sanitizer controls pass. These controls validate the observed
+supervision and error classification, not every sanitizer path. The aggregate
+run's undersized loop-device `SKIP` remains part of that result.
+
+A separate 16.993-second disposable-VM run passes the maintained
+[disk-capacity guard test](../tests/test_disk_device_capacity.sh). It uses the
+pinned static-musl CLI from `b25a486`, rather than the aggregate's glibc build.
+The test rejects a 128 KiB restore against one owned 64 KiB loop backing file,
+preserves its zero-filled bytes and detaches the device afterward. Cleanup
+records no surviving descendants, OOM or PID-limit events. This is evidence
+for that fixture, not every device or final package.
+
+To reproduce it **inside a disposable Linux VM**, use root, `losetup` and an
+available loop device, with the exact CLI binary you intend to qualify:
+
+```sh
+bash tests/test_disk_device_capacity.sh /absolute/path/to/zupt
+```
+
+Require the actual guard `PASS` lines. An exit of 0 accompanied by `SKIP` does
+not qualify the loop test; earlier skipped runs remain skipped.
+
+Separately, the pinned static non-PIE musl build from `b25a486` passes
+compilation, staged-install smokes, the exact 20-file validated export and
+static ELF/non-executable-stack checks. Eight subsequent CLI invocations pass
+without the GNU store: version/help plus fixed-text compression, testing and
+extraction at levels 1 and 9. The first store-less bootstrap failed during
+UID-map setup with read-only `/proc`; that failure is retained. The corrected
+bootstrap keeps `/proc` read-only inside the CLI namespace and does not expose
+the build store. These are limited smokes, not the full static CLI test suite
+or final-package qualification.
+
+An earlier VM-image producer exited 137 during its final output
 comparison; the cause is unconfirmed. A separate complete read-only comparison
 then qualified its contents for a disposable VM test. The VM booted and passed
 the observed isolation and sanitizer controls, but its first full product run
@@ -690,16 +744,19 @@ correction passes 17 controls; that result did not complete the aggregate run.
 The original producer failure is retained and final-package acceptance is open.
 The later run on `fc55c0f` passes all 17 source-distribution controls, 20 DEB
 helper controls and 55 RPM helper controls, then fails because the private
-Jasmin wrapper cannot find `taskset`. The full `release-check` remains
-incomplete; unreached formal and GUI stages are not passes. This environment
-failure does not replace the separate formal results above.
+Jasmin wrapper cannot find `taskset`. That run did not complete `release-check`;
+unreached formal and GUI stages were not passes.
 
-At `166e215`, all 13 executed [Linux CI jobs](https://github.com/cristiancmoises/zupt/actions/runs/43156344287)
-pass, as do the separate [native Windows and macOS package gates](https://github.com/cristiancmoises/zupt/actions/runs/43156717844).
-Optional diagnostic jobs were skipped. Those source-specific results do not
-qualify the later fixture changes or the final public `.zupt` bundles.
+At `b25a486`, all 13 executed [Linux CI jobs](https://github.com/cristiancmoises/zupt/actions/runs/43167556216)
+and both [native Windows and macOS package gates](https://github.com/cristiancmoises/zupt/actions/runs/43167838085)
+pass. The reusable native dispatch and optional diagnostic jobs were skipped.
+Their package and source artifacts are internal CI outputs, not official
+release assets. These native results predate the package-documentation changes
+described above; those changes still need native CI. The final public `.zupt`
+bundles still require acceptance;
+5.2.10 has no official tag or release, and 5.2.9 remains the official version.
 
-The complete VM attempt on `166e215` still fails. With the corrected tool path,
+The earlier complete VM attempt on `166e215` failed. With the corrected tool path,
 all six Frama-C targets, the Jasmin gate, SDK checks and nine static-analyzer
 checks pass. Packaging reports 54 passes, one failure and three skips: Guile
 exhausts its 128-descriptor limit while loading source modules. The tools image
@@ -709,8 +766,9 @@ the actual Guix CLI/GUI fixture using original store metadata with a peak of
 12 descriptors; image metadata reproduces the failure at 128. This comparison
 does not qualify a repaired image or replace the VM run. Strict teardown also
 rejects two adopted Git maintenance processes. Later GUI and sanitizer stages
-were not reached. Both failures must be corrected and the complete run repeated
-without relaxing its resource or cleanup requirements.
+were not reached. A subsequent host-supervised attempt (423) timed out with
+exit 124. Those failures remain separate from the successful `b25a486` run;
+resource and cleanup requirements were not relaxed to obtain that pass.
 
 The 2026-11-01 UTC repeat of all six maintained Frama-C targets passes on the
 frozen 294-file source after the five ANS guard corrections: decoder bounds,

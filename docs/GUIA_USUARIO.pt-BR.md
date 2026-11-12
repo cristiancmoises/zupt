@@ -265,6 +265,27 @@ checks de staging não compilam nem validam o DEB. Outros helpers nativos
 têm gates separados de conteúdo e execução. Referências a headers e scripts
 de teste precisam do checkout.
 
+Os bundles Windows e os dois locais de documentação do DMG macOS incluem os
+dois guias e SECURITY, DISTRIBUTION, AUDIT, INSTALL e THREAT_MODEL. Depois de
+extrair o bundle Windows ou montar o DMG somente de leitura, compare essa
+árvore privada e sem alterações concorrentes com o checkout exato de suas fontes:
+
+```sh
+make -j1 test-installed-docs
+python3 -B scripts/check-installed-docs.py . /path/to/windows-extraction windows
+python3 -B scripts/check-installed-docs.py . /path/to/read-only-dmg macos
+```
+
+O checker apenas lê arquivos; não extrai nem monta pacotes. Ele confere a
+versão do diretório Windows e as duas versões do `Info.plist` macOS com o
+header das fontes. Documentos POSIX precisam do modo 0644. Arquivos nativos
+do Windows NT normalmente informam 0666; esse perfil não comprova a correção
+das ACLs. A regressão local no Linux coleta 29 casos: 28 são executados e um
+caso de junction nativa do NT é pulado. Seis controles locais dos trechos reais
+das receitas de staging passam sem executar a CLI de exemplo. O CI nativo
+Windows/macOS dessas alterações de pacote ainda é obrigatório; os pacotes
+anteriores de `b25a486` não cobrem essas mudanças.
+
 A interface portátil tem um alvo separado de regressão do empacotamento;
 ele usa arquivos `.zupt` reais e não precisa de Qt:
 
@@ -400,10 +421,10 @@ As execuções locais focadas em 2026-11-12 UTC usam GCC 14.3.0 e Clang 22.1.8:
 São resultados de fixtures em GNU/Linux; a execução nativa em macOS/BSD e
 a aceitação dos pacotes finais são verificações separadas.
 
-A análise CodeQL de `a52c79d` marca o achado de captura de entrada (#12) como
-corrigido, sem descarte manual. Dois achados High de metadados/limpeza (#11 e
-#13), nos fixtures do SDK e de leitura de chaves nativas, continuam abertos
-para revisão explícita. Nenhum alerta foi ocultado ou descartado. Consulte o
+A análise CodeQL de `b25a486` registra zero resultados nas cinco análises de
+linguagem e zero alertas abertos. Os três achados dos fixtures (#11, #12 e #13)
+estão marcados como corrigidos, sem descarte manual. Esses resultados específicos
+da fonte não provam a ausência de vulnerabilidades. Consulte o
 [registro de auditoria](../AUDIT.md#test-fixture-file-handling).
 
 No macOS, o fixture isolado e a unidade de tradução gerada para captura devem
@@ -452,9 +473,9 @@ Os checks focados de fontes e os 17 controles de estado da distribuição passam
 com limpeza estrita dos processos filhos. Remover a configuração por fixture
 reproduz processos Git adotados. A preparação da exportação com dois commits
 também passa; a repetição privada completa atingiu o limite de 120 segundos e
-permanece incompleta. Ainda é necessária uma nova execução do CI de arquivos
-de fontes na revisão corrigida. Esses resultados não dispensam a limpeza dos
-processos nem a aceitação do arquivo final.
+permanece incompleta. O CI posterior do arquivo de fontes e a execução agregada
+na VM passam em `b25a486`, mantendo a limpeza estrita dos processos. A aceitação
+do arquivo público final continua separada.
 
 ### Supervisão portátil dos checks e cobertura de ferramentas
 
@@ -693,22 +714,59 @@ A execução nativa do Ubuntu com o build fixado continua obrigatória.
 
 ### Evidência formal atual, conferida em 2026-11-12
 
-Um snapshot congelado de 294 arquivos, publicado como `166e215`, passa nos seis
-alvos Frama-C mantidos e no gate comum Jasmin das cinco fontes em 2026-11-12 UTC.
-Os resultados do analisador, gate, coletor e integridade das fontes passam
-separadamente. Esse snapshot antecede as correções posteriores dos fixtures
-SDK, de chaves nativas e Git documentadas acima; seus 55 arquivos C/headers/Jasmin
-de produção são iguais aos de `193d8c0`. Os modelos e
-as pré-condições selecionados continuam obrigatórios. Essas análises selecionadas não
-estabelecem obrigações gerais da tabela/chamadores, correção do programa inteiro
-ou aceitação dos pacotes finais.
+Um snapshot congelado de 294 arquivos de `b25a486` passa nos seis alvos Frama-C
+mantidos e no gate comum Jasmin das cinco fontes em 2026-11-12 UTC, tanto
+separadamente quanto no `release-check` agregado real, sem alterações, em uma
+VM descartável. Os resultados do analisador, gate, coletor e integridade das
+fontes passam separadamente. Seus 55 arquivos C/headers/Jasmin de produção são
+iguais aos de `193d8c0`; as correções posteriores dos fixtures estão incluídas.
+Os modelos e as pré-condições selecionados continuam obrigatórios. Essas
+análises selecionadas não estabelecem obrigações gerais da tabela/chamadores,
+correção do programa inteiro ou aceitação dos pacotes finais.
 
-Separadamente, a CLI Linux estática não PIE compilada de `193d8c0` passa na
-compilação, instalação em staging, exportação exata dos 20 arquivos com avisos
-de licença e checks de ELF estático/pilha não executável. Um round trip de
-texto fixo sem a store de build passa nos níveis 1 e 9. É evidência limitada
-de runtime, não qualificação do pacote final. Um produtor posterior de imagem
-VM terminou com status 137 na comparação final da saída; a causa não foi
+A execução agregada na VM termina com status 0 em 992,719 segundos, incluindo
+o fixture real CLI/GUI do Guix. O grupo de processos da fase `release-check`
+registra pico de memória de 768 MiB no cgroup, incluindo os processos de
+compilação/teste e o cache de arquivos contabilizado. Não houve eventos de OOM
+ou limite de PIDs nem descendentes sobreviventes; os pins de fontes, entradas
+e initrd permanecem iguais. Passam onze controles da
+política de isolamento e três controles negativos de sanitizadores. Eles
+validam a supervisão e a classificação de erros observadas, não todos os
+caminhos dos sanitizadores. O `SKIP` do teste de dispositivo de loop
+subdimensionado continua registrado no resultado daquela execução agregada.
+
+Uma execução separada de 16,993 segundos em VM descartável passa no
+[teste mantido dos guards de capacidade de disco](../tests/test_disk_device_capacity.sh).
+Ela usa a CLI estática com musl fixada em `b25a486`, em vez do build glibc da
+execução agregada. O teste rejeita uma restauração de 128 KiB em um arquivo
+próprio de 64 KiB usado como backing de loop, preserva seus bytes preenchidos
+com zeros e depois desassocia o dispositivo. A limpeza não registra descendentes
+sobreviventes nem eventos de OOM ou limite de PIDs. Isso é evidência para esse
+fixture, não para todos os dispositivos ou para o pacote final.
+
+Para reproduzi-lo **dentro de uma VM Linux descartável**, use root, `losetup`
+e um dispositivo de loop disponível, com a CLI exata que pretende qualificar:
+
+```sh
+bash tests/test_disk_device_capacity.sh /absolute/path/to/zupt
+```
+
+Exija as linhas `PASS` dos guards reais. Status 0 acompanhado de `SKIP` não
+qualifica o teste de loop; as execuções anteriores puladas continuam puladas.
+
+Separadamente, o build musl estático não PIE fixado em `b25a486` passa na
+compilação, nos smokes da instalação em staging, na exportação validada exata
+de 20 arquivos e nos checks de ELF estático/pilha não executável. Oito chamadas
+posteriores da CLI passam sem a store do GNU: versão/ajuda mais compressão,
+teste e extração de texto fixo nos níveis 1 e 9. O primeiro bootstrap sem a
+store falhou na configuração do mapeamento de UID com `/proc` somente de
+leitura; essa falha está preservada. O bootstrap corrigido mantém `/proc`
+somente de leitura no namespace da CLI e não expõe a store de build. São
+smokes limitados, não a suíte completa da CLI estática nem a qualificação do
+pacote final.
+
+Um produtor anterior de imagem VM terminou com status 137 na comparação final
+da saída; a causa não foi
 confirmada. Uma comparação completa e separada, somente de leitura, qualificou
 depois seu conteúdo para um teste em VM descartável. A VM inicializou e passou
 nos controles observados de isolamento e sanitizadores, mas a primeira execução
@@ -719,17 +777,19 @@ produtor foi preservada, e
 a aceitação do pacote final continua pendente. A execução posterior em
 `fc55c0f` passa nos 17 controles de distribuição de fontes, 20 controles do
 helper DEB e 55 controles do helper RPM, mas falha porque o wrapper privado
-do Jasmin não encontra `taskset`. O `release-check` completo permanece
-inconcluso; as etapas formais e da GUI não alcançadas não são passes. Essa
-falha de ambiente não substitui os resultados formais separados acima.
+do Jasmin não encontra `taskset`. Essa execução não concluiu o `release-check`;
+as etapas formais e da GUI não alcançadas não foram passes.
 
-Em `166e215`, passam os 13 [jobs Linux executados no CI](https://github.com/cristiancmoises/zupt/actions/runs/43156344287)
-e os [gates nativos de pacotes Windows e macOS](https://github.com/cristiancmoises/zupt/actions/runs/43156717844), executados separadamente.
-Os jobs opcionais de diagnóstico foram pulados. Esses resultados específicos
-da fonte não qualificam as alterações posteriores dos fixtures nem os bundles
-`.zupt` públicos finais.
+Em `b25a486`, passam os 13 [jobs Linux executados no CI](https://github.com/cristiancmoises/zupt/actions/runs/43167556216)
+e os dois [gates nativos de pacotes Windows e macOS](https://github.com/cristiancmoises/zupt/actions/runs/43167838085).
+O job reutilizável de despacho nativo e os diagnósticos opcionais foram pulados.
+Seus artefatos de pacotes e fontes são saídas internas do CI, não assets de
+release oficial. Esses resultados nativos antecedem as alterações de documentação
+dos pacotes descritas acima; elas ainda precisam do CI nativo. Os bundles
+`.zupt` públicos finais ainda dependem de aceitação;
+a 5.2.10 não tem tag nem release oficial, e a 5.2.9 continua sendo a versão oficial.
 
-A tentativa completa na VM em `166e215` ainda falha. Com o caminho da ferramenta
+A tentativa completa anterior na VM em `166e215` falhou. Com o caminho da ferramenta
 corrigido, passam os seis alvos Frama-C, o gate Jasmin, os checks do SDK e nove
 checks do analisador estático. O empacotamento registra 54 passes, uma falha e
 três skips: Guile esgota o limite de 128 descritores ao carregar módulos-fonte.
@@ -740,9 +800,10 @@ com os metadados originais da store e pico de 12 descritores; os metadados da
 imagem reproduzem a falha em 128. Essa comparação não qualifica uma imagem
 reparada nem substitui a execução na VM. A limpeza estrita também rejeita dois
 processos adotados de manutenção do Git. As etapas posteriores da GUI e dos
-sanitizadores não foram alcançadas. As duas falhas precisam ser corrigidas e a
-execução completa repetida, mantendo os limites de recursos e os requisitos de
-limpeza.
+sanitizadores não foram alcançadas. Uma tentativa posterior supervisionada no
+host (423) atingiu o timeout com status 124. Essas falhas continuam separadas
+da execução bem-sucedida de `b25a486`; os limites de recursos e os requisitos
+de limpeza não foram relaxados para obter esse passe.
 
 Na repetição de 2026-11-01 UTC, os seis alvos Frama-C mantidos passam na
 fonte congelada de 294 arquivos após as cinco correções dos guards ANS:

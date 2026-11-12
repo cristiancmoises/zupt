@@ -36,34 +36,68 @@ output.
 
 ## Current validation, reviewed 2026-11-12
 
-A fresh repeat passes all six maintained Frama-C targets and the ordinary
-five-source Jasmin gate. Analyzer, result-checker, process-collector and source
-integrity checks pass separately. The [English user guide](docs/USER_GUIDE.md#current-formal-evidence-reviewed-2026-11-12)
+A frozen 294-file snapshot of `b25a486` passes all six maintained Frama-C
+targets, the ordinary five-source Jasmin gate and the actual unmodified
+aggregate `release-check` in a disposable VM. Analyzer, result-checker,
+process-collector and source-integrity checks pass separately. The [English user guide](docs/USER_GUIDE.md#current-formal-evidence-reviewed-2026-11-12)
 and [Portuguese user guide](docs/GUIA_USUARIO.pt-BR.md#evidência-formal-atual-conferida-em-2026-11-12)
 provide the commands, tool versions and analysis limits.
 
-These are conditional checks of selected code, not a whole-program proof or
-final-package approval. General ANS table/caller obligations remain open. The
-complete disposable-VM run and final release-artifact acceptance are still
-pending; 5.2.10 remains unpublished.
+The aggregate run finishes with exit 0 in 992.719 seconds, including the real
+Guix CLI/GUI fixture. The process group running `release-check` records a
+768 MiB cgroup memory peak, including build/test processes and charged file
+cache. It has no OOM or PID-limit events and no surviving descendants.
+Eleven isolation-policy controls and three negative sanitizer controls pass;
+source, input and initrd pins remain unchanged. These controls qualify the
+observed run, not every sanitizer path. Its recorded undersized loop-device
+test remains a skip.
+
+A separate disposable-VM run passes the maintained
+[disk-capacity guard test](tests/test_disk_device_capacity.sh) in 16.993 seconds.
+It uses the pinned static-musl CLI from `b25a486`, rather than the aggregate
+run's glibc build. A 128 KiB restore is rejected against one owned 64 KiB loop
+backing file; its zero-filled bytes remain unchanged and the device is
+detached afterward. Cleanup records no surviving descendants, OOM or PID-limit
+events. This qualifies that fixture, not other disks or a complete release.
+
+The static-musl build also passes staged-install smokes and a separate
+store-less fixed-text check at levels 1 and 9. The first store-less bootstrap
+failed at UID-map setup with read-only `/proc`; that failure is retained. The
+successful CLI namespace has no GNU store and retains read-only `/proc`.
+General ANS table/caller obligations, whole-program correctness and final
+release-artifact acceptance remain open. Version 5.2.10 is unpublished; the
+official release remains 5.2.9.
 
 The first full VM run on `60f1931` stopped at the source-distribution tests:
 verbose Make output caused eight fault-injection checks to mistake an echoed
 recipe for a successful archive report. The producers returned the expected
 errors. The focused test correction passes all 17 controls with verbose Make;
-the corrected aggregate VM run remains required. No product C code or
+that focused result did not complete an aggregate run. No product C code or
 packaging rejection criteria changed. The later run on `fc55c0f` passes those
 17 controls, the 20 DEB helper controls and 55 RPM helper controls, then stops
 because the private Jasmin wrapper cannot find `taskset`. That run is failed,
 not a completed `release-check`; remaining analyses and GUI stages were not
 reached. The separately executed formal checks above retain their own evidence.
 
-At `166e215`, all 13 executed [Linux CI jobs](https://github.com/cristiancmoises/zupt/actions/runs/43156344287)
-and both [native Windows/macOS package gates](https://github.com/cristiancmoises/zupt/actions/runs/43156717844)
-pass. Optional diagnostics were skipped. Later fixture edits and final public
-release bundles require their own acceptance.
+At `b25a486`, all 13 executed [Linux CI jobs](https://github.com/cristiancmoises/zupt/actions/runs/43167556216)
+and both [native Windows/macOS package gates](https://github.com/cristiancmoises/zupt/actions/runs/43167838085)
+pass. The reusable native dispatch and optional diagnostic jobs were skipped.
+Their package and source artifacts are internal CI outputs, not an official
+release or acceptance of final public `.zupt` bundles. Those results predate
+the native package-documentation corrections below. Source synchronization
+to `git.securityops.com.br` is also incomplete because its unpacker rejects the
+push; the other three mirrors have verified the source commits.
 
-The full VM attempt on that commit fails despite passing the selected formal,
+Windows bundles and both macOS DMG documentation locations now stage the two
+user guides plus SECURITY, DISTRIBUTION, AUDIT, INSTALL and THREAT_MODEL.
+The installed-documentation checker has explicit Windows/macOS profiles;
+it compares bytes and package versions in a trusted, private, quiescent tree.
+The Linux regression collects 29 cases: 28 execute and the native NT-junction
+case is skipped. Six local recipe-staging controls pass without executing the
+placeholder CLI. These checks do not build native packages or qualify the
+changed revision; fresh Windows/macOS CI remains pending.
+
+The earlier full VM attempt on `166e215` fails despite passing the selected formal,
 SDK and nine static-analyzer checks. Packaging records 54 passes, one failure
 and three skips: image timestamps invalidate Guile's compiled caches and source
 loading exhausts the unchanged 128-descriptor limit. The same complete Guix
@@ -71,16 +105,19 @@ CLI/GUI fixture passes with original store metadata, peaking at 12 descriptors;
 the image view reproduces the failure at 128. Earlier content-only image
 qualification did not establish timestamp correctness. Strict cleanup also
 rejects two adopted Git maintenance processes. Later GUI and sanitizer stages
-were not reached. A repaired image and the complete corrected run remain
-unqualified; limits and cleanup requirements must remain intact.
+were not reached. The image producer's earlier exit 137 has no confirmed
+cause, and a subsequent host-supervised attempt (423) times out with exit 124.
+These failures remain recorded separately from the successful `b25a486` run;
+no resource limit or cleanup requirement was relaxed to obtain that pass.
 
 ## Test-fixture file handling
 
 CodeQL reported three High path-race alerts in test fixtures on `fc55c0f`.
-The analysis of `a52c79d` marks the input-capture finding (#12) fixed, without
-dismissal; #11 and #13 remain open. Successful completion of an analysis job
-does not itself establish that its findings are resolved. Two fixtures have
-been hardened without changing production codec, archive or cryptographic code:
+The subsequent analysis of `b25a486` reports zero results across its five
+language analyses and zero open alerts. Findings #11, #12 and #13 are marked
+fixed with no dismissal. This is the analyzer's result for that source, not
+proof of an absence of vulnerabilities. The fixtures were hardened without
+changing production codec, archive or cryptographic code:
 
 - The format-fuzz fixture opens its owned mode-0700 directory once, opens the
   input relative to that descriptor without following links or blocking on a
@@ -97,12 +134,12 @@ and two deterministic inode-replacement regressions pass with GCC and Clang;
 pathname-stat mutations are rejected. The native fixture accepts only `ENOENT`
 as evidence of absence and attempts cleanup directly, checking the actual
 result. Its 66 original cases and separate absence/removal controls pass with
-both compilers. Neither remaining alert has been suppressed or dismissed;
-resolution requires a new hosted analysis of these changes.
+both compilers. The hosted analysis confirms the three findings fixed;
+no alert was suppressed or dismissed.
 See the [English fixture checks](docs/USER_GUIDE.md#test-fixture-file-handling)
 and [Portuguese fixture checks](docs/GUIA_USUARIO.pt-BR.md#manuseio-de-arquivos-nos-fixtures-de-teste)
-for executable targets and the limits of these checks. A new hosted analysis
-of subsequent corrections remains required.
+for executable targets and the limits of these checks. Later source changes
+require their own analysis.
 
 Native macOS compilation of `a52c79d` exposed a separate header-policy issue:
 the strict POSIX namespace hides `O_NOFOLLOW` in its SDK. Both the standalone

@@ -6,18 +6,26 @@ Version 5.2.10 is being validated and is not an official release. Its earlier
 delivery was withdrawn; previous packages do not validate the corrected source.
 The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Ship both user guides and their security, distribution, audit, installation
+  and threat-model documents in Windows bundles and both macOS DMG locations.
+  Check the actual extracted or mounted tree with explicit native profiles,
+  including Windows directory version and both macOS bundle versions. Retain
+  all 16 earlier checker cases; Linux collects 29, executes 28 and skips the
+  native NT-junction case. Six local staging controls pass without running the
+  placeholder CLI. Native package CI for these changes remains pending.
 - Bind the SDK read-stop fixture's sentinel and observed metadata to the same
   open files used for their bytes. Retain its 18 cases and add two deterministic
   inode-replacement regressions; both GCC and Clang pass. Native key-read tests
   distinguish exact `ENOENT` from lookup errors and links, and check each export
   removal directly. All 66 cases and the separate absence/cleanup controls pass.
-  A fresh hosted CodeQL analysis remains required; no finding is dismissed.
+  Hosted CodeQL on `b25a486` marks all three fixture findings fixed without
+  dismissal; its five language analyses report zero results and zero open alerts.
 - Keep automatic Git maintenance enabled in temporary test repositories but
   wait for it in the foreground. Source-policy and 17 distribution-state
   controls pass strict child cleanup; omission controls reproduce adopted Git
   processes. The export setup passes, while its complete private replay times
-  out at 120 seconds. Fresh source-archive CI and full VM acceptance remain
-  required.
+  out at 120 seconds. The later source-archive CI and aggregate VM run on
+  `b25a486` pass; the earlier timeout remains recorded.
 - Pin the format-fuzz fixture's input directory and file descriptors before
   reading captured mutations. Cover symlink, mode, FIFO and ancestor
   replacement, with bounded calls that reject signals and timeouts.
@@ -49,14 +57,24 @@ The published official version remains [5.2.9](https://github.com/cristiancmoise
   integrity pass separately. These selected results retain their models and
   preconditions; they do not establish whole-program or package correctness.
 - Record all 13 executed Linux CI jobs and both native Windows/macOS package
-  gates passing at `166e215`; optional diagnostic skips remain visible. The
-  input-capture CodeQL finding is fixed without dismissal; two other fixture
-  findings await analysis of their corrections. The complete VM attempt still
-  fails: Guile cache timestamps trigger descriptor exhaustion, and strict
-  teardown rejects adopted Git maintenance processes. Selected formal, SDK
-  and static-analyzer checks pass before those failures; later GUI/sanitizer
-  stages were not reached. Earlier failures remain recorded. Final release
-  bundles remain unqualified and 5.2.9 remains official.
+  gates passing at `b25a486`; dispatch and diagnostic skips remain visible.
+  Those native results precede the package-documentation corrections above.
+  Its actual unmodified aggregate `release-check` also passes in a disposable
+  VM, including the six Frama-C targets, five-source Jasmin gate and real Guix
+  CLI/GUI fixture. The 992.719-second run retains all source/input pins and
+  strict process cleanup. Earlier producer exit 137, the failed `166e215` VM
+  and host-supervisor timeout 124 remain recorded. The aggregate's loop-device
+  skip remains recorded separately from the later real-loop result. Internal
+  CI packages do not qualify the final release bundles; 5.2.10 remains
+  unpublished and 5.2.9 remains official.
+- Pass the maintained disk-capacity guard test in a separate disposable VM
+  using the pinned `b25a486` static-musl CLI. A 128 KiB restore is rejected
+  against one owned 64 KiB loop backing file without changing its bytes; the
+  device is detached and cleanup leaves no descendants or OOM/PID-limit events.
+  The static-musl build and eight store-less CLI commands also pass, including
+  fixed-text compression, testing and extraction at levels 1 and 9. Preserve
+  the earlier read-only-`/proc` bootstrap failure. These focused results do not
+  qualify other devices, the full static build's test suite or final bundles.
 - Honor the requested temporary directory in the exact-size test through an
   explicit `mktemp` template. Darwin can prefer its system user-temp directory
   over `TMPDIR` when no template is provided. Require the owned template in
