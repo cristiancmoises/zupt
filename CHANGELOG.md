@@ -9,6 +9,14 @@ The published official version remains [5.2.9](https://github.com/cristiancmoise
 - Pin the format-fuzz fixture's input directory and file descriptors before
   reading captured mutations. Cover symlink, mode, FIFO and ancestor
   replacement, with bounded calls that reject signals and timeouts.
+- Enable Darwin extensions before the first system header in both input-capture
+  translation units. Keep `O_NOFOLLOW` and strict warnings; extend the header
+  model to reject missing or late feature definitions and compile both actual
+  fixture paths. Native macOS revalidation remains required.
+- Keep compiler scratch separate from spaced mutation paths in the capture
+  fixture without removing caller LTO or hardening flags. Preserve a POSIX
+  feature level already selected by libc headers when including the fixture.
+  Fedora RPM revalidation remains required.
 - Require an empty, owned private directory for native key-read fixtures and
   retain its directory binding through cleanup. Preserve all 66 injected
   read-error cases and verify that rejected preexisting exports retain their

@@ -60,10 +60,11 @@ reached. The separately executed formal checks above retain their own evidence.
 
 ## Test-fixture file handling
 
-CodeQL analysis on `fc55c0f` reports three open High path-race alerts in test
-fixtures. Successful completion of the analysis job does not close those
-findings. Two fixtures are being hardened without changing production codec,
-archive or cryptographic code:
+CodeQL reported three High path-race alerts in test fixtures on `fc55c0f`.
+The analysis of `a52c79d` marks the input-capture finding (#12) fixed, without
+dismissal; #11 and #13 remain open. Successful completion of an analysis job
+does not itself establish that its findings are resolved. Two fixtures have
+been hardened without changing production codec, archive or cryptographic code:
 
 - The format-fuzz fixture opens its owned mode-0700 directory once, opens the
   input relative to that descriptor without following links or blocking on a
@@ -74,13 +75,30 @@ archive or cryptographic code:
   also verifies that a rejected preexisting export retains both its inode and
   independently expected bytes.
 
-The SDK read-stop alert concerns a metadata postcondition followed by cleanup
-inside its own private directory. Its ownership and cleanup contract still
-requires explicit review; the alert has not been suppressed or dismissed.
+The remaining SDK read-stop and native key-read alerts concern metadata
+postconditions followed by cleanup inside private test directories. Their
+ownership and cleanup contracts still require explicit review; neither alert
+has been suppressed or dismissed.
 See the [English fixture checks](docs/USER_GUIDE.md#test-fixture-file-handling)
 and [Portuguese fixture checks](docs/GUIA_USUARIO.pt-BR.md#manuseio-de-arquivos-nos-fixtures-de-teste)
 for executable targets and the limits of these checks. A new hosted analysis
-of the corrected source remains required.
+of subsequent corrections remains required.
+
+Native macOS compilation of `a52c79d` exposed a separate header-policy issue:
+the strict POSIX namespace hides `O_NOFOLLOW` in its SDK. Both the standalone
+fixture and its generated capture translation unit must enable Darwin
+extensions before their first system header. The modeled controls exercise
+missing and late definitions as failures; the real no-follow operation and
+strict compiler flags remain required. Native revalidation is a separate gate.
+
+The Fedora RPM check also exposed a compiler-scratch interaction: its inherited
+GCC LTO flags caused the newly generated capture child to fail when compiled
+after the test exported a spaced mutation directory as `TMPDIR`. Compiler
+scratch and runtime fixture paths must remain separate, without stripping LTO
+or other caller flags. The fixture must still exercise paths with spaces.
+Fedora also selects a newer POSIX feature level through libc headers; including
+the fixture must preserve that level rather than redefine it after the headers.
+The Fedora gate requires a fresh native run after these corrections.
 
 ## Earlier formal evidence, reviewed 2026-10-30
 

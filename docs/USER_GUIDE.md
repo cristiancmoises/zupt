@@ -371,10 +371,39 @@ Focused local runs on 2026-11-12 UTC use GCC 14.3.0 and Clang 22.1.8:
 These are GNU/Linux test-fixture results; native macOS/BSD execution and
 final-package acceptance are separate checks.
 
-Three High CodeQL alerts were open on `fc55c0f`. These fixture corrections and
-local regressions do not establish that a later hosted analysis has closed
-them. The remaining SDK metadata/cleanup finding needs explicit review; no
-alert has been hidden or dismissed. See the [audit record](../AUDIT.md#test-fixture-file-handling).
+The CodeQL analysis of `a52c79d` marks the input-capture finding (#12) fixed,
+without dismissal. Two High metadata/cleanup findings (#11 and #13) in the SDK
+and native key-read fixtures remain open for explicit review. No alert has
+been hidden or dismissed. See the [audit record](../AUDIT.md#test-fixture-file-handling).
+
+On macOS, the standalone fixture and generated capture translation unit must
+enable Darwin extensions before their first system header to expose
+`O_NOFOLLOW`. The header-visibility regression checks missing and late
+definitions too. Do not replace the no-follow flag with zero or skip the
+capture checks to make a build pass. The native rerun remains required after
+this portability correction.
+
+Compiler scratch and mutation paths are separate. The generated test child
+must compile with the caller's flags, including GCC LTO, while runtime capture
+continues to use paths with spaces. This does not establish that a compiler
+supports spaces in its own LTO scratch directory. A feature level already
+selected by libc headers must also survive inclusion of the fixture. The
+corresponding Fedora RPM check still requires native revalidation.
+
+To exercise the relevant GCC LTO flags, select the compiler to audit and run:
+
+```sh
+gcc --version
+env CC=gcc CPPFLAGS=-D_DEFAULT_SOURCE \
+  CFLAGS='-O2 -flto=auto -ffat-lto-objects -g -Wall -Wextra -Woverlength-strings -std=c11 -pthread -Werror=format-security' \
+  bash tests/test_fuzz_format_harness.sh
+```
+
+The recorded GCC 16.2.0 run reproduces the old scratch-path failure and passes
+after the correction; GCC 14.3.0 did not reproduce the old failure. This local
+profile does not include Fedora's unavailable RPM specs. Ordinary Clang 22
+checks pass, but its LTO attempt fails with the installed incompatible linker
+21; a matching-linker Clang LTO profile has not been run.
 
 ### Portable check supervision and tool coverage
 

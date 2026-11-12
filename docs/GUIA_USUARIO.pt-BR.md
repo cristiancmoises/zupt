@@ -379,11 +379,43 @@ As execuções locais focadas em 2026-11-12 UTC usam GCC 14.3.0 e Clang 22.1.8:
 São resultados de fixtures em GNU/Linux; a execução nativa em macOS/BSD e
 a aceitação dos pacotes finais são verificações separadas.
 
-Havia três alertas High do CodeQL abertos em `fc55c0f`. Essas correções dos
-fixtures e regressões locais não demonstram que uma análise hospedada posterior
-encerrou os alertas. O achado restante de metadados/limpeza do SDK exige
-revisão explícita; nenhum alerta foi ocultado ou descartado. Consulte o
+A análise CodeQL de `a52c79d` marca o achado de captura de entrada (#12) como
+corrigido, sem descarte manual. Dois achados High de metadados/limpeza (#11 e
+#13), nos fixtures do SDK e de leitura de chaves nativas, continuam abertos
+para revisão explícita. Nenhum alerta foi ocultado ou descartado. Consulte o
 [registro de auditoria](../AUDIT.md#test-fixture-file-handling).
+
+No macOS, o fixture isolado e a unidade de tradução gerada para captura devem
+habilitar extensões Darwin antes do primeiro header do sistema para expor
+`O_NOFOLLOW`. A regressão de visibilidade dos headers também verifica
+definições ausentes e tardias. Não substitua a flag por zero nem pule os
+checks de captura para fazer a compilação passar. A nova execução nativa
+continua obrigatória após essa correção de portabilidade.
+
+O diretório temporário do compilador é separado dos caminhos de mutação. O
+filho gerado para o teste deve compilar com as flags do chamador, incluindo
+LTO do GCC, enquanto a captura em runtime continua usando caminhos com espaços.
+Isso não demonstra que o compilador aceita espaços em seu próprio diretório
+temporário de LTO. O nível de funcionalidades já selecionado pelos headers da
+libc também deve ser preservado ao incluir o fixture. O check RPM Fedora
+correspondente ainda exige nova validação nativa.
+
+Para exercitar as flags relevantes de LTO do GCC, selecione o compilador a
+auditar e execute:
+
+```sh
+gcc --version
+env CC=gcc CPPFLAGS=-D_DEFAULT_SOURCE \
+  CFLAGS='-O2 -flto=auto -ffat-lto-objects -g -Wall -Wextra -Woverlength-strings -std=c11 -pthread -Werror=format-security' \
+  bash tests/test_fuzz_format_harness.sh
+```
+
+A execução registrada com GCC 16.2.0 reproduz a falha antiga do diretório
+temporário e passa após a correção; GCC 14.3.0 não reproduziu a falha antiga.
+Esse perfil local não inclui os specs RPM indisponíveis do Fedora. Os checks
+comuns do Clang 22 passam, mas a tentativa de LTO falha com o linker 21
+instalado, incompatível; o perfil LTO do Clang com linker correspondente não
+foi executado.
 
 ### Supervisão portátil dos checks e cobertura de ferramentas
 
