@@ -6,21 +6,34 @@ Version 5.2.10 is being validated and is not an official release. Its earlier
 delivery was withdrawn; previous packages do not validate the corrected source.
 The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Pin the format-fuzz fixture's input directory and file descriptors before
+  reading captured mutations. Cover symlink, mode, FIFO and ancestor
+  replacement, with bounded calls that reject signals and timeouts.
+- Require an empty, owned private directory for native key-read fixtures and
+  retain its directory binding through cleanup. Preserve all 66 injected
+  read-error cases and verify that rejected preexisting exports retain their
+  original inode and independently expected bytes.
+- Match the emitted source-archive success header as a complete line in the
+  failure tests. Exercise verbose Make output permanently; all 17 controls
+  pass without mistaking echoed recipes for successful publication.
 - Require real native links in the Windows installation fixture while
   preserving other MSYS/CYGWIN options. Retain the five link/content checks
   and all previous install cases; add a copied-alias rejection control. The
   local zsh/fish/mandoc run passes 45 checks without skips; native-link models
   pass 43 with two tool skips, and weakening `-L` to `-f` fails the regression.
-  Native Windows qualification of this correction remains required.
+  The subsequent native Windows run on `60f1931` passes, including the
+  copied-alias rejection control; its three missing-tool skips remain visible.
 - Record the fresh 2026-11-12 UTC repeat of all six maintained Frama-C targets
   and ordinary five-source Jasmin checks. Analyzer, gate, collector and source
   integrity pass separately. These selected results retain their models and
   preconditions; they do not establish whole-program or package correctness.
-- Record all 13 Linux CI jobs and the native macOS source-check and DMG gates
-  passing at `193d8c0`. Windows remains in progress at this checkpoint. The
-  static Linux build/export and fixed-text store-less round trips also pass;
-  a later VM-image producer exits 137 before guest testing, with its cause
-  unconfirmed. Final packages remain unqualified and 5.2.9 remains official.
+- Record all 13 Linux CI jobs passing at `fc55c0f`, with native Windows and
+  macOS checks passing separately at `60f1931`. Three High CodeQL alerts in
+  fixtures remain subject to correction and explicit review. The static
+  Linux build/export passes at `fc55c0f`; a later disposable-VM run reaches
+  the Jasmin gate but fails on a missing `taskset` in its private wrapper.
+  Earlier producer failures are retained. Final packages remain unqualified
+  and 5.2.9 remains official.
 - Honor the requested temporary directory in the exact-size test through an
   explicit `mktemp` template. Darwin can prefer its system user-temp directory
   over `TMPDIR` when no template is provided. Require the owned template in
@@ -1444,7 +1457,7 @@ The published official version remains [5.2.9](https://github.com/cristiancmoise
 ## [5.2.9] — 2026-09-06 — VaptVupt 2.65.11 compatibility refresh
 
 Official release: [downloads and checksums](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
-Português do Brasil: [resumo da versão 5.2.9](README.pt-BR.md#versão-oficial-529).
+Português do Brasil: [status da versão e guia de uso](docs/GUIA_USUARIO.pt-BR.md#status-da-versão).
 
 - Update the bundled VaptVupt codec from 2.65.3 to tag `v2.65.11` at
   `1cc78bce90619dbf97e0ed1ad449c3c4f6329041` while preserving Zupt's

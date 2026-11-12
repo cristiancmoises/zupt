@@ -334,6 +334,48 @@ substitute for the Jasmin safety and constant-time tools. See
 [DISTRIBUTION.md](../DISTRIBUTION.md) and the project test scripts for the
 current command matrix.
 
+### Test-fixture file handling
+
+Run the maintained fixtures with GCC and repeat with Clang:
+
+```sh
+make -j1 CC=gcc WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 \
+  test-fuzz-harness test-native-key-read-errors sdk-test-read-stop
+make -j1 CC=clang WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 \
+  test-fuzz-harness test-native-key-read-errors sdk-test-read-stop
+```
+
+`test-fuzz-harness` checks the real format-fuzz supervisor and its controlled
+child. Its input-capture fixture rejects symlink, permission and FIFO
+replacements, and continues reading the original file after an ancestor is
+renamed. Each injected capture call has a three-second alarm; a timeout or
+signal is a test failure, not a valid input rejection. Synthetic sanitizer
+messages test classification and do not count as a sanitizer run of the codec.
+
+`test-native-key-read-errors` retains the 66 injected read-error cases and
+adds a nonempty-directory rejection check. That check compares both inode
+identity and independent expected bytes, so an overwrite cannot pass merely
+because a hard link points to the same damaged file. This target requires
+GNU/Linux cookie streams and linker wrapping; its platform skips remain
+visible. `sdk-test-read-stop` exercises the in-tree SDK callbacks separately
+from the optional system SDK integration.
+
+Focused local runs on 2026-11-12 UTC use GCC 14.3.0 and Clang 22.1.8:
+
+| Target | GCC | Clang |
+| --- | --- | --- |
+| `test-fuzz-harness` | PASS, replacement controls included | PASS, replacement controls included |
+| `test-native-key-read-errors` | 66 cases, zero failures; preservation check passes | 66 cases, zero failures; preservation check passes |
+| `sdk-test-read-stop` | 18 cases, zero failures | 18 cases, zero failures |
+
+These are GNU/Linux test-fixture results; native macOS/BSD execution and
+final-package acceptance are separate checks.
+
+Three High CodeQL alerts were open on `fc55c0f`. These fixture corrections and
+local regressions do not establish that a later hosted analysis has closed
+them. The remaining SDK metadata/cleanup finding needs explicit review; no
+alert has been hidden or dismissed. See the [audit record](../AUDIT.md#test-fixture-file-handling).
+
 ### Portable check supervision and tool coverage
 
 The Frama-C supervisors check that required tools are available before running
@@ -579,6 +621,11 @@ the observed isolation and sanitizer controls, but its first full product run
 stopped at eight verbose source-distribution test failures. The focused test
 correction passes 17 controls; a corrected aggregate run remains required.
 The original producer failure is retained and final-package acceptance is open.
+The later run on `fc55c0f` passes all 17 source-distribution controls, 20 DEB
+helper controls and 55 RPM helper controls, then fails because the private
+Jasmin wrapper cannot find `taskset`. The full `release-check` remains
+incomplete; unreached formal and GUI stages are not passes. This environment
+failure does not replace the separate formal results above.
 
 The 2026-11-01 UTC repeat of all six maintained Frama-C targets passes on the
 frozen 294-file source after the five ANS guard corrections: decoder bounds,

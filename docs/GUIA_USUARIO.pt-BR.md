@@ -340,6 +340,51 @@ de segurança e tempo constante.
 Consulte [SECURITY.md](../SECURITY.md), [DISTRIBUTION.md](../DISTRIBUTION.md)
 e os scripts de testes para a matriz vigente.
 
+### Manuseio de arquivos nos fixtures de teste
+
+Execute os fixtures mantidos com GCC e repita com Clang:
+
+```sh
+make -j1 CC=gcc WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 \
+  test-fuzz-harness test-native-key-read-errors sdk-test-read-stop
+make -j1 CC=clang WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 \
+  test-fuzz-harness test-native-key-read-errors sdk-test-read-stop
+```
+
+`test-fuzz-harness` verifica o supervisor real de fuzzing do formato e seu
+processo filho controlado. O fixture de captura rejeita substituições por
+links simbólicos, permissões inadequadas e FIFOs, e continua lendo o arquivo
+original após a renomeação de um diretório ancestral. Cada chamada de captura
+injetada tem um alarme de três segundos; timeout ou sinal é falha do teste,
+nunca uma rejeição válida da entrada. Mensagens sintéticas de sanitizadores
+testam a classificação e não contam como execução do codec com sanitizadores.
+
+`test-native-key-read-errors` mantém os 66 casos de falha de leitura injetada
+e acrescenta a rejeição de diretório não vazio. Esse check compara a identidade
+do inode e bytes esperados independentes; uma sobrescrita não pode passar
+apenas porque um hard link aponta para o mesmo arquivo danificado. O alvo
+exige cookie streams GNU/Linux e interceptação pelo linker; os skips de
+plataforma permanecem visíveis. `sdk-test-read-stop` exercita os callbacks do
+SDK presente nas fontes, separadamente da integração opcional com o SDK do
+sistema.
+
+As execuções locais focadas em 2026-11-12 UTC usam GCC 14.3.0 e Clang 22.1.8:
+
+| Alvo | GCC | Clang |
+| --- | --- | --- |
+| `test-fuzz-harness` | PASS, incluindo controles de substituição | PASS, incluindo controles de substituição |
+| `test-native-key-read-errors` | 66 casos, zero falhas; preservação aprovada | 66 casos, zero falhas; preservação aprovada |
+| `sdk-test-read-stop` | 18 casos, zero falhas | 18 casos, zero falhas |
+
+São resultados de fixtures em GNU/Linux; a execução nativa em macOS/BSD e
+a aceitação dos pacotes finais são verificações separadas.
+
+Havia três alertas High do CodeQL abertos em `fc55c0f`. Essas correções dos
+fixtures e regressões locais não demonstram que uma análise hospedada posterior
+encerrou os alertas. O achado restante de metadados/limpeza do SDK exige
+revisão explícita; nenhum alerta foi ocultado ou descartado. Consulte o
+[registro de auditoria](../AUDIT.md#test-fixture-file-handling).
+
 ### Supervisão portátil dos checks e cobertura de ferramentas
 
 Os supervisores Frama-C verificam a disponibilidade das ferramentas antes de
@@ -598,7 +643,12 @@ nos controles observados de isolamento e sanitizadores, mas a primeira execuçã
 completa do produto parou em oito falhas dos testes de distribuição com Make
 verboso. A correção focada do teste passa em 17 controles; a execução agregada
 corrigida ainda é necessária. A falha original do produtor foi preservada, e
-a aceitação do pacote final continua pendente.
+a aceitação do pacote final continua pendente. A execução posterior em
+`fc55c0f` passa nos 17 controles de distribuição de fontes, 20 controles do
+helper DEB e 55 controles do helper RPM, mas falha porque o wrapper privado
+do Jasmin não encontra `taskset`. O `release-check` completo permanece
+inconcluso; as etapas formais e da GUI não alcançadas não são passes. Essa
+falha de ambiente não substitui os resultados formais separados acima.
 
 Na repetição de 2026-11-01 UTC, os seis alvos Frama-C mantidos passam na
 fonte congelada de 294 arquivos após as cinco correções dos guards ANS:

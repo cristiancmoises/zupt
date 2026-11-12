@@ -52,7 +52,35 @@ verbose Make output caused eight fault-injection checks to mistake an echoed
 recipe for a successful archive report. The producers returned the expected
 errors. The focused test correction passes all 17 controls with verbose Make;
 the corrected aggregate VM run remains required. No product C code or
-packaging rejection criteria changed.
+packaging rejection criteria changed. The later run on `fc55c0f` passes those
+17 controls, the 20 DEB helper controls and 55 RPM helper controls, then stops
+because the private Jasmin wrapper cannot find `taskset`. That run is failed,
+not a completed `release-check`; remaining analyses and GUI stages were not
+reached. The separately executed formal checks above retain their own evidence.
+
+## Test-fixture file handling
+
+CodeQL analysis on `fc55c0f` reports three open High path-race alerts in test
+fixtures. Successful completion of the analysis job does not close those
+findings. Two fixtures are being hardened without changing production codec,
+archive or cryptographic code:
+
+- The format-fuzz fixture opens its owned mode-0700 directory once, opens the
+  input relative to that descriptor without following links or blocking on a
+  FIFO, and validates the same descriptor before reading it. Deterministic
+  replacement controls cover symlinks, permissions, FIFOs and ancestor renames.
+- The native key-read fixture requires an empty, owned mode-0700 directory and
+  pins its working directory before creating disposable keys. The Make target
+  also verifies that a rejected preexisting export retains both its inode and
+  independently expected bytes.
+
+The SDK read-stop alert concerns a metadata postcondition followed by cleanup
+inside its own private directory. Its ownership and cleanup contract still
+requires explicit review; the alert has not been suppressed or dismissed.
+See the [English fixture checks](docs/USER_GUIDE.md#test-fixture-file-handling)
+and [Portuguese fixture checks](docs/GUIA_USUARIO.pt-BR.md#manuseio-de-arquivos-nos-fixtures-de-teste)
+for executable targets and the limits of these checks. A new hosted analysis
+of the corrected source remains required.
 
 ## Earlier formal evidence, reviewed 2026-10-30
 
