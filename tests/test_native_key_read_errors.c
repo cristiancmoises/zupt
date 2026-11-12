@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -147,6 +148,59 @@ static int load_fixture(const char *path, uint8_t *data, size_t length) {
     return failed ? -1 : 0;
 }
 
+static int output_absent(const char *path) {
+    int descriptor = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    if (descriptor < 0) return errno == ENOENT;
+    close(descriptor);
+    return 0;
+}
+
+/* Return zero on removal or the failure errno, without a prior lookup. */
+static int remove_output(const char *path) {
+    if (remove(path) == 0) return 0;
+    return errno;
+}
+
+static void check_output_absence(void) {
+    char directory[] = "./absence-probe.XXXXXX", path[128], link_path[128], nested[160];
+    int previous_failures = failures;
+    if (!check(mkdtemp(directory) != NULL, "fixture probe", "setup", "private directory"))
+        return;
+    snprintf(path, sizeof(path), "%s/output.key", directory);
+    snprintf(link_path, sizeof(link_path), "%s/dangling.key", directory);
+    check(output_absent(path), "fixture probe", "missing file", "ENOENT means absent");
+    check(remove_output(path) == ENOENT, "fixture cleanup", "missing file", "report missing name");
+    int descriptor = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    if (check(descriptor >= 0, "fixture probe", "regular file", "create owned file")) {
+        check(close(descriptor) == 0, "fixture probe", "regular file", "close owned file");
+        check(!output_absent(path), "fixture probe", "regular file", "existing file is not absent");
+        snprintf(nested, sizeof(nested), "%s/child", path);
+        check(!output_absent(nested) && errno == ENOTDIR, "fixture probe", "non-directory parent",
+              "a lookup error does not establish absence");
+        check(remove_output(nested) == ENOTDIR, "fixture cleanup", "non-directory parent",
+              "report unexpected removal error");
+        check(remove_output(path) == 0, "fixture cleanup", "regular file", "remove owned file");
+    }
+    if (check(symlink("missing", link_path) == 0, "fixture probe", "dangling link", "create owned link")) {
+        check(!output_absent(link_path), "fixture probe", "dangling link", "existing link is not absent");
+        check(remove_output(link_path) == 0, "fixture cleanup", "dangling link", "remove owned link");
+        check(output_absent(link_path), "fixture cleanup", "dangling link", "removed link is absent");
+    }
+    if (check(mkfifo(path, 0600) == 0, "fixture probe", "FIFO", "create owned FIFO")) {
+        if (check(signal(SIGALRM, SIG_DFL) != SIG_ERR, "fixture probe", "FIFO", "arm timeout signal")) {
+            alarm(3);
+            check(!output_absent(path), "fixture probe", "FIFO", "existing FIFO is not absent");
+            alarm(0);
+        }
+        check(remove_output(path) == 0, "fixture cleanup", "FIFO", "remove owned FIFO");
+    }
+    check(rmdir(directory) == 0, "fixture probe", "cleanup", "remove owned directory");
+    if (failures == previous_failures) {
+        puts("PASS: absence probe distinguishes ENOENT, files, dangling links, FIFO and ENOTDIR");
+        puts("PASS: export cleanup reports missing, present and invalid-parent results");
+    }
+}
+
 static void exercise_case(const struct mode *mode, const struct read_case *test,
                           enum operation operation, const char *private_path,
                           const char *public_path, const char *output_path,
@@ -197,7 +251,7 @@ static void exercise_case(const struct mode *mode, const struct read_case *test,
         check(memcmp(header, original_header, sizeof(header)) == 0 && header_length == 12345,
               mode->name, name, "rejection preserves caller header and length");
         if (operation == EXPORT)
-            check(access(output_path, F_OK) != 0, mode->name, name, "rejection creates no output");
+            check(output_absent(output_path), mode->name, name, "rejection creates no output");
     }
     check(opens == 1 && reads == 1, mode->name, name, "real reader opens and reads selected path once");
     check(probes == test->probes && bad_probes == 0, mode->name, name,
@@ -217,12 +271,12 @@ static void exercise_case(const struct mode *mode, const struct read_case *test,
         check(load_fixture(output_path, exported, mode->public_size) == 0 &&
               memcmp(exported, public_data, mode->public_size) == 0,
               mode->name, name, "valid private key exports original public bytes");
-        check(remove(output_path) == 0, mode->name, name, "remove successful export");
     }
     if (operation == EXPORT) {
-        if (access(output_path, F_OK) == 0)
-            check(remove(output_path) == 0, mode->name, name, "remove unexpected export after failure");
-        check(access(output_path, F_OK) != 0, mode->name, name, "export case leaves no file behind");
+        int removal_error = remove_output(output_path);
+        check(removal_error == 0 || (!success && removal_error == ENOENT), mode->name, name,
+              success ? "remove successful export" : "remove unexpected export after failure");
+        check(output_absent(output_path), mode->name, name, "export case leaves no file behind");
     }
     if (success && operation == ENCRYPT) {
         zupt_keyring_t decrypted;
@@ -320,6 +374,7 @@ int main(int argc, char **argv) {
         fputs("Fixture directory must be empty, owned and mode 0700\n", stderr);
         return 2;
     }
+    check_output_absence();
     const struct mode modes[] = {
         {"ZKEY", 1232, 3664, zupt_hybrid_keygen, zupt_hybrid_export_pubkey,
          zupt_hybrid_encrypt_init, zupt_hybrid_decrypt_init},
