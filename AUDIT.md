@@ -220,6 +220,41 @@ checkpoint followed the snapshot without changing analyzed C, formal
 fixtures or the Makefile. Later shell-supervisor corrections need their
 own native checks.
 
+The fresh 2026-11-12 UTC sequence passes all six maintained Frama-C profiles
+and the ordinary five-source Jasmin gate on the 294-file snapshot containing
+the Windows installation-fixture correction. Analyzer, gate, collector and
+all source-integrity statuses pass separately. Its 55 protected source files
+are unchanged from `193d8c0`; the earlier annotation-only difference from the
+older baseline retains its exact admission. The preceding full sequence's
+bounds-analyzer exit 137 and its separate same-limit passing rerun remain
+recorded. The fresh full pass does not establish the cause of that exit or a
+whole-program proof; the documented models and general caller obligations
+still apply.
+
+At `193d8c0`, [CI run `43120157608`](https://github.com/cristiancmoises/zupt/actions/runs/43120157608)
+passes all 13 Linux jobs, including native DEB, openSUSE and Fedora package
+checks. The [macOS diagnostic `43120237551`](https://github.com/cristiancmoises/zupt/actions/runs/43120237551)
+passes all 19 exact-size/BCJ supervisor and 80 threaded controls. The native
+macOS DMG job also passes its mounted/installed-image checks. Windows is still
+running at this checkpoint; final assets and later source changes require
+separate acceptance.
+
+The preceding Windows run at `6089467` failed only the installation fixture's
+legacy-link assertion. Strict native-link selection and a copied-alias
+negative control retain the original link/content requirements. Run
+`bash tests/test_completions_manpage.sh`: the current local tool-complete run
+passes 45 checks without skips. Controlled models pass 43 checks with two tool
+skips; a private mutation replacing `-L` with `-f` fails the new regression.
+These modeled results are not native Windows qualification.
+
+The separate static non-PIE Linux build from `193d8c0` passes compilation,
+staged installation, the exact 20-file licensed export, static ELF and
+non-executable-stack checks. Fixed-text store-less round trips pass at levels
+1 and 9. Final package qualification remains open. A later VM-image producer
+exited 137 during its final comparison; the cause remains unconfirmed and no
+guest boot or product tests used that image. Earlier VM results retain their original
+source and configuration limits.
+
 The original integration's strict GCC 14.3.0 and Clang 22.1.8 `check` plus
 installed-CLI functional smoke pass on the integrated 294-file snapshot,
 with 11 and 10 explicit skips.

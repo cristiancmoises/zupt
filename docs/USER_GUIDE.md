@@ -72,6 +72,20 @@ make install DESTDIR="$stage" PREFIX=/usr INSTALL_LEGACY_ALIAS=0
 find "$stage" -type f -o -type l | sort
 ```
 
+The default installation prefix is `/usr/local`. For a local installation,
+use `sudo make install PREFIX=/usr/local INSTALL_LEGACY_ALIAS=0`. Uninstall
+with the same path variables:
+
+```sh
+sudo make uninstall PREFIX=/usr/local INSTALL_LEGACY_ALIAS=0
+```
+
+Packagers can override `CC`, `CPPFLAGS`, `CFLAGS`, `LDFLAGS`, `LDLIBS`, `AR`,
+`RANLIB`, `STRIP`, `DESTDIR`, `PREFIX`, `BINDIR`, `LIBDIR`, `INCLUDEDIR` and
+`MANDIR`. `INSTALL_LEGACY_ALIAS=1` adds the renamed-era `vaptvupt` compatibility
+command and manual page; the default is 0. Packages should retain 0 unless
+ownership and conflicts for that name have been checked.
+
 ## Command-line workflow
 
 Create, inspect, verify and restore an archive in a new directory:
@@ -104,6 +118,30 @@ Encrypted archives authenticate metadata and blocks with HMAC-SHA256. The
 `--pq` mode combines ML-KEM-768 and X25519; `--pq-only` uses ML-KEM-768 alone.
 Unencrypted archives provide corruption detection, not confidentiality or
 authentication.
+
+## Trusted legacy archives without AIT
+
+`extract`, `list`, `test` and `disk restore` require a valid archive-integrity
+trailer by default, without trusting header flags to decide whether
+authentication is required. This prevents removing a trailer and clearing an
+unauthenticated encryption flag from silently downgrading metadata checks.
+`--allow-legacy-no-ait` is accepted only by those four commands, solely for
+recovery of a known, trusted archive created before AIT was introduced. Do not
+use it for untrusted or attacker-writable input. Verify recovered data and
+migrate it to an archive created with an official current release. Compression
+and disk backup never create a no-AIT archive.
+
+`info` reports unauthenticated framing metadata without validating AIT or
+contents. Its successful exit is not an integrity result.
+
+This exception is separate from v5.2.1 disk-index compatibility. Published
+v5.2.1 disk archives normally have AIT. The tested narrow scope includes the
+718-byte password-encrypted, deduplicated DATA/DATA/REF/DATA disk fixture,
+stored as auditable hexadecimal text with provenance and SHA-256. It uses the
+fixed-width legacy index and linear AAD sequence; the reader lists, tests,
+extracts and restores it byte-exact. The historical full Linux gate passed on
+`ff99770`. This does not cover every historical combination or establish that
+an old reader supports new flag-gated encodings.
 
 ## Working with `.zupt` bundles
 
@@ -356,17 +394,26 @@ guards. The threaded supervisor selects the summary through one literal
 argument rather than a flattened argument string. Local regressions pass all
 19 exact-size and 80 threaded cases, including a temporary-path alias model
 and a fragmented-argument negative control. These modeled checks do not
-establish the precise native failure mechanism; a fresh macOS run is required.
+by themselves establish the precise native failure mechanism.
 
-At `6089467`, run `43109399344` passes all 13 Linux jobs, including the full
-GCC/Clang suites and distribution packages. The native macOS diagnostic now
-passes all 80 threaded controls but still fails the nine BCJ fixture cases.
+At the preceding `6089467` checkpoint, run `43109399344` passed all 13 Linux
+jobs, including the full GCC/Clang suites and distribution packages. Its native
+macOS diagnostic passed all 80 threaded controls and failed nine BCJ fixtures.
 In the [Apple implementation](https://raw.githubusercontent.com/apple-oss-distributions/shell_cmds/main/mktemp/mktemp.c),
 `mktemp -d` without a template can prefer the Darwin user-temp directory over
 `TMPDIR`. The test now passes an explicit template under `${TMPDIR:-/tmp}`;
 its BCJ supervisor requires that exact owned template. The old subject fails
 this regression. All 19 cases pass in GNU and source-derived Darwin-default
-models, with path guards unchanged; native confirmation remains required.
+models, with path guards unchanged.
+
+At `193d8c0`, [run `43120157608`](https://github.com/cristiancmoises/zupt/actions/runs/43120157608)
+passes all 13 Linux jobs, including the native DEB, openSUSE and Fedora package
+checks. The [macOS diagnostic `43120237551`](https://github.com/cristiancmoises/zupt/actions/runs/43120237551)
+passes all 19 exact-size/BCJ supervisor and 80 threaded controls. The full native
+macOS DMG job also passes, including the mounted and installed-image checks.
+The Windows source-check job is still running at this checkpoint. These results
+apply to that source; the later Windows installation-fixture correction and
+final release packages still require their own acceptance.
 
 For native source-check diagnostics, dispatch `cross-platform.yml` with
 `macos_checks_only=true`. It uses `make -k check` to finish independent targets
@@ -455,6 +502,16 @@ This change does not provide transactional rollback:
 files installed earlier or partial compressed manuals may remain after error.
 Inspect a failed staging directory before retrying or packaging it.
 
+The Windows run at `6089467` stopped at the opt-in legacy-alias assertion,
+although `make install` returned success. MSYS can implement `ln -s` by copying
+the target. The fixture now requests `winsymlinks:nativestrict`, preserving
+other MSYS/CYGWIN options, and requires real links and matching contents. A
+new actual-install control deliberately copies the aliases and requires their
+rejection. The latest local run with zsh, fish and mandoc passes **45 checks
+without skips**. Controlled native-link models pass 43 checks with two explicit
+tool skips; weakening `-L` to `-f` fails the new regression. These models do not
+replace the native Windows rerun. Reproduce with the command above.
+
 ### Reproducing the static analyzer checks
 
 On GNU/Linux with GCC and Cppcheck **2.21.0**, run:
@@ -482,7 +539,23 @@ The version pin qualifies a newer analyzer without increasing limits,
 discarding source files or changing the application to satisfy the old tool.
 Native Ubuntu CI with the pinned build remains required.
 
-### Current formal evidence, reviewed 2026-11-01
+### Current formal evidence, reviewed 2026-11-12
+
+A fresh frozen 294-file snapshot passes all six maintained Frama-C targets and
+the ordinary five-source Jasmin gate on 2026-11-12 UTC. Analyzer, gate,
+collector and source-integrity results pass separately. The snapshot includes
+the Windows installation-fixture correction; its 55 C/header/Jasmin source
+files are unchanged from `193d8c0`. The selected models and preconditions remain
+mandatory. General table/caller obligations, whole-program correctness and
+final-package acceptance are not established by these selected checks.
+
+Separately, the static non-PIE Linux CLI built from `193d8c0` passes compilation,
+staged installation, the exact 20-file notice-bearing export and static ELF/
+non-executable-stack checks. A fixed-text round trip without the build store
+passes at levels 1 and 9. This is limited runtime evidence, not final-package
+qualification. A later VM-image producer exited 137 during its final output
+comparison; the cause is unconfirmed. That image was not booted and did not
+run the product test suite.
 
 The 2026-11-01 UTC repeat of all six maintained Frama-C targets passes on the
 frozen 294-file source after the five ANS guard corrections: decoder bounds,

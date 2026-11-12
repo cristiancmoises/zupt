@@ -6,12 +6,27 @@ Version 5.2.10 is being validated and is not an official release. Its earlier
 delivery was withdrawn; previous packages do not validate the corrected source.
 The published official version remains [5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
 
+- Require real native links in the Windows installation fixture while
+  preserving other MSYS/CYGWIN options. Retain the five link/content checks
+  and all previous install cases; add a copied-alias rejection control. The
+  local zsh/fish/mandoc run passes 45 checks without skips; native-link models
+  pass 43 with two tool skips, and weakening `-L` to `-f` fails the regression.
+  Native Windows qualification of this correction remains required.
+- Record the fresh 2026-11-12 UTC repeat of all six maintained Frama-C targets
+  and ordinary five-source Jasmin checks. Analyzer, gate, collector and source
+  integrity pass separately. These selected results retain their models and
+  preconditions; they do not establish whole-program or package correctness.
+- Record all 13 Linux CI jobs and the native macOS source-check and DMG gates
+  passing at `193d8c0`. Windows remains in progress at this checkpoint. The
+  static Linux build/export and fixed-text store-less round trips also pass;
+  a later VM-image producer exits 137 before guest testing, with its cause
+  unconfirmed. Final packages remain unqualified and 5.2.9 remains official.
 - Honor the requested temporary directory in the exact-size test through an
   explicit `mktemp` template. Darwin can prefer its system user-temp directory
   over `TMPDIR` when no template is provided. Require the owned template in
   the BCJ supervisor; the old subject fails this regression, and all 19 cases
   pass with GNU and source-derived Darwin-default models. Keep the original
-  path guards and native macOS qualification requirement.
+  path guards. The later native macOS diagnostic passes all 19 cases.
 - Require the bounded ANS logarithm proof to establish the two table-related
   bounds through twelve checked return assertions. The focused proof passes
   all 64 exact goals; all 166 report-supervisor controls pass. GCC/Clang
@@ -20,8 +35,8 @@ The published official version remains [5.2.9](https://github.com/cristiancmoise
 - Canonicalize the newly created exact-size test directory before checking
   owned paths, and match the threaded supervisor's summary as one literal
   argument. All 19 exact-size and 80 threaded controls pass locally. The
-  latest native macOS job still fails on the preceding source; native
-  confirmation of these corrections remains required.
+  later native macOS diagnostic at `193d8c0` also passes all 19 exact-size
+  and 80 threaded controls; the full native DMG gate passes on that source.
 - Stop compound install recipes at failed commands, including license,
   manual and completion installation. Sixteen injected failures and five
   success/no-build controls cover the real Makefile recipes without running
@@ -34,7 +49,7 @@ The published official version remains [5.2.9](https://github.com/cristiancmoise
   threaded empty-file check, accepting BSD whitespace while retaining exact
   counts. Reject a counting command that emits a valid count and then fails.
   Local regressions reproduce both native macOS failures and retain all
-  80 threaded controls; fresh native qualification remains required.
+  80 threaded controls; the later native `193d8c0` diagnostic confirms them.
 - Keep optional SHA-NI flags empty on non-x86 Bash 3.2 without triggering
   nounset failures. Retain all compiler criteria, validate the controlled
   timeout invocation and report missing supervisor evidence explicitly.

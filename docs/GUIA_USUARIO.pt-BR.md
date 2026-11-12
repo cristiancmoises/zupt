@@ -74,6 +74,20 @@ make install DESTDIR="$stage" PREFIX=/usr INSTALL_LEGACY_ALIAS=0
 find "$stage" -type f -o -type l | sort
 ```
 
+O prefixo padrão de instalação é `/usr/local`. Para instalação local, use
+`sudo make install PREFIX=/usr/local INSTALL_LEGACY_ALIAS=0`. Na remoção,
+mantenha as mesmas variáveis de caminhos:
+
+```sh
+sudo make uninstall PREFIX=/usr/local INSTALL_LEGACY_ALIAS=0
+```
+
+Empacotadores podem definir `CC`, `CPPFLAGS`, `CFLAGS`, `LDFLAGS`, `LDLIBS`,
+`AR`, `RANLIB`, `STRIP`, `DESTDIR`, `PREFIX`, `BINDIR`, `LIBDIR`, `INCLUDEDIR`
+e `MANDIR`. `INSTALL_LEGACY_ALIAS=1` acrescenta o comando de compatibilidade
+`vaptvupt` e sua página de manual; o padrão é 0. Os pacotes devem manter 0
+até verificar propriedade e conflitos desse nome.
+
 ## Fluxo da linha de comando
 
 Crie, inspecione, verifique e restaure um arquivo em um diretório novo:
@@ -106,6 +120,32 @@ Arquivos criptografados autenticam metadados e blocos com HMAC-SHA256. O modo
 `--pq` combina ML-KEM-768 e X25519; `--pq-only` usa somente ML-KEM-768.
 Arquivos sem criptografia oferecem detecção de corrupção, não sigilo nem
 autenticação.
+
+## Arquivos legados confiáveis sem AIT
+
+`extract`, `list`, `test` e `disk restore` exigem um trailer de integridade
+válido por padrão, sem confiar nos flags do cabeçalho para decidir se é
+necessário autenticar. Isso impede remover o trailer e limpar um flag de
+criptografia não autenticado para reduzir silenciosamente os checks dos
+metadados. `--allow-legacy-no-ait` é aceito somente nesses quatro comandos,
+apenas para recuperar um arquivo antigo, conhecido e confiável, criado antes
+da introdução do AIT. Não use a opção com entrada não confiável ou gravável
+por um atacante. Verifique os dados recuperados e migre-os para um arquivo
+criado com uma versão oficial atual. Compressão e backup de disco nunca
+criam um arquivo sem AIT.
+
+`info` mostra metadados de framing não autenticados, sem validar AIT nem
+conteúdo. Seu status de sucesso não é um resultado de integridade.
+
+Essa exceção é separada da compatibilidade do índice de disco da v5.2.1.
+Arquivos de disco publicados dessa versão normalmente têm AIT. O escopo
+restrito testado inclui o fixture de 718 bytes, criptografado por senha e
+deduplicado, com sequência DATA/DATA/REF/DATA. Ele está registrado como texto
+hexadecimal auditável, com procedência e SHA-256, e usa índice legado de
+largura fixa e AAD linear. O leitor lista, testa, extrai e restaura seus bytes
+exatamente. O gate Linux completo histórico passou em `ff99770`. Isso não
+cobre todas as combinações históricas nem estabelece que um leitor antigo
+suporte novas codificações controladas por flags.
 
 ## Uso de bundles `.zupt`
 
@@ -362,18 +402,27 @@ seleciona o resumo por um argumento literal, sem achatar a lista de argumentos.
 As regressões locais passam nos 19 casos de buffers exatos e nos 80 casos de
 threads, incluindo um modelo de alias temporário e um negativo de argumentos
 fragmentados. Esses modelos não estabelecem o mecanismo preciso da falha
-nativa; uma nova execução macOS continua obrigatória.
+nativa por si sós.
 
-Em `6089467`, a execução `43109399344` passa nos 13 jobs Linux, incluindo
-as suítes GCC/Clang completas e pacotes das distribuições. O diagnóstico
-macOS nativo agora passa nos 80 controles de threads, mas ainda falha nos
-nove casos do fixture BCJ. Na [implementação da Apple](https://raw.githubusercontent.com/apple-oss-distributions/shell_cmds/main/mktemp/mktemp.c),
+No checkpoint anterior `6089467`, a execução `43109399344` passou nos 13 jobs
+Linux, incluindo suítes GCC/Clang completas e pacotes das distribuições. Seu
+diagnóstico macOS nativo passou nos 80 controles de threads e falhou em nove
+fixtures BCJ. Na [implementação da Apple](https://raw.githubusercontent.com/apple-oss-distributions/shell_cmds/main/mktemp/mktemp.c),
 `mktemp -d` sem template pode preferir a pasta temporária do usuário Darwin
 a `TMPDIR`. O teste agora fornece um template explícito sob `${TMPDIR:-/tmp}`;
 o supervisor BCJ exige esse template exato na pasta própria. A implementação
 anterior falha nessa regressão. Os 19 casos passam em modelos GNU e do padrão
-Darwin baseados na fonte, preservando as guardas de caminhos; a confirmação
-nativa continua obrigatória.
+Darwin baseados na fonte, preservando as guardas de caminhos.
+
+Em `193d8c0`, a [execução `43120157608`](https://github.com/cristiancmoises/zupt/actions/runs/43120157608)
+passa nos 13 jobs Linux, incluindo os checks de pacotes nativos DEB, openSUSE
+e Fedora. O [diagnóstico macOS `43120237551`](https://github.com/cristiancmoises/zupt/actions/runs/43120237551)
+passa nos 19 controles do supervisor de buffers exatos/BCJ e nos 80 controles
+de threads. O job macOS nativo completo do DMG também passa, incluindo os
+checks da imagem montada e instalada. O job Windows de checks da fonte ainda
+está em execução neste checkpoint. Os resultados se aplicam àquela fonte; a
+correção posterior do fixture de instalação Windows e os pacotes finais ainda
+precisam de aceitação própria.
 
 Para diagnóstico nativo dos checks da fonte, dispare `cross-platform.yml` com
 `macos_checks_only=true`. Ele usa `make -k check` para concluir alvos independentes
@@ -468,6 +517,17 @@ transacional: arquivos instalados antes ou manuais
 comprimidos parciais podem permanecer após erro. Inspecione a pasta de staging
 com falha antes de repetir a instalação ou empacotá-la.
 
+A execução Windows em `6089467` parou na asserção dos aliases legados opcionais,
+embora `make install` tenha retornado sucesso. O MSYS pode implementar `ln -s`
+copiando o destino. O fixture agora solicita `winsymlinks:nativestrict`,
+preserva as demais opções MSYS/CYGWIN e exige links reais com conteúdo idêntico.
+Um novo controle de instalação real copia os aliases deliberadamente e exige
+sua rejeição. A execução local mais recente com zsh, fish e mandoc passa nos
+**45 checks sem skips**. Modelos controlados de links nativos passam em 43
+checks com dois skips explícitos de ferramentas; enfraquecer `-L` para `-f`
+faz a nova regressão falhar. Os modelos não substituem a nova execução Windows
+nativa. Reproduza com o comando acima.
+
 ### Reprodução dos checks do analisador estático
 
 No GNU/Linux, com GCC e Cppcheck **2.21.0**, execute:
@@ -496,7 +556,25 @@ A versão fixada qualifica um analisador mais recente sem aumentar limites,
 descartar fontes ou alterar o aplicativo para atender à ferramenta antiga.
 A execução nativa do Ubuntu com o build fixado continua obrigatória.
 
-### Evidência formal atual, conferida em 2026-11-01
+### Evidência formal atual, conferida em 2026-11-12
+
+Um novo snapshot congelado de 294 arquivos passa nos seis alvos Frama-C
+mantidos e no gate comum Jasmin das cinco fontes em 2026-11-12 UTC. Os
+resultados do analisador, gate, coletor e integridade das fontes passam
+separadamente. O snapshot inclui a correção do fixture de instalação Windows;
+seus 55 arquivos C/headers/Jasmin são iguais aos de `193d8c0`. Os modelos e
+as pré-condições selecionados continuam obrigatórios. Essas análises selecionadas não
+estabelecem obrigações gerais da tabela/chamadores, correção do programa inteiro
+ou aceitação dos pacotes finais.
+
+Separadamente, a CLI Linux estática não PIE compilada de `193d8c0` passa na
+compilação, instalação em staging, exportação exata dos 20 arquivos com avisos
+de licença e checks de ELF estático/pilha não executável. Um round trip de
+texto fixo sem a store de build passa nos níveis 1 e 9. É evidência limitada
+de runtime, não qualificação do pacote final. Um produtor posterior de imagem
+VM terminou com status 137 na comparação final da saída; a causa não foi
+confirmada. Essa imagem não foi inicializada, e a suíte do produto não rodou
+nela.
 
 Na repetição de 2026-11-01 UTC, os seis alvos Frama-C mantidos passam na
 fonte congelada de 294 arquivos após as cinco correções dos guards ANS:
