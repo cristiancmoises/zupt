@@ -19,6 +19,9 @@ DOCUMENTS = {
     "docs/GUIA_USUARIO.pt-BR.md": b"Guia em portugues\n",
     "SECURITY.md": b"Security policy\n",
     "DISTRIBUTION.md": b"Distribution policy\n",
+    "AUDIT.md": b"Audit guide\n",
+    "INSTALL.md": b"Installation guide\n",
+    "THREAT_MODEL.md": b"Threat model\n",
 }
 
 
@@ -85,6 +88,71 @@ class InstalledDocsFixture(unittest.TestCase):
     "DEB/RPM metadata tests require a POSIX package build host",
 )
 class InstalledDocsTests(InstalledDocsFixture):
+    def gui_installer(self, destination):
+        root = CHECKER.parents[1]
+        for name in (
+            "gui/install.sh",
+            "gui/src/zupt_gui.py",
+            "gui/assets/zupt-icon.png",
+            "gui/packaging/zupt-gui.desktop",
+            "doc/zupt-gui.1",
+            "LICENSE",
+            "LICENSE-AGPL-3.0",
+            "gui/LICENSE-GUI",
+            "gui/assets/README.md",
+        ):
+            target = self.source / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((root / name).read_bytes())
+        environment = os.environ.copy()
+        for name in ("BASH_ENV", "ENV", "BINDIR", "LIBEXECDIR", "DATADIR", "DESTDIR"):
+            environment.pop(name, None)
+        environment["TMPDIR"] = str(self.work)
+        return subprocess.run(
+            [
+                "bash",
+                str(self.source / "gui/install.sh"),
+                "--destdir",
+                str(destination),
+                "--prefix",
+                "/usr",
+            ],
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+
+    def test_gui_installer_stages_navigation_pages(self):
+        result = self.gui_installer(self.extracted)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        destination = self.extracted / "usr/share/doc/zupt-gui"
+        for name, content in DOCUMENTS.items():
+            with self.subTest(document=name):
+                target = destination / name
+                self.assertTrue(target.is_file(), name)
+                self.assertEqual(target.read_bytes(), content)
+                self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o644)
+        self.run_checker(package="zupt-gui")
+
+    def test_gui_installer_rejects_missing_navigation_source_before_output(self):
+        for index, (name, content) in enumerate(DOCUMENTS.items()):
+            with self.subTest(document=name):
+                source = self.source / name
+                source.unlink()
+                try:
+                    destination = self.work / f"missing-source-{index}"
+                    result = self.gui_installer(destination)
+                    self.assertNotEqual(
+                        result.returncode, 0, result.stdout + result.stderr
+                    )
+                    self.assertIn("required source file is missing", result.stderr)
+                    self.assertFalse(destination.exists())
+                finally:
+                    source.write_bytes(content)
+                    source.chmod(0o644)
+
     def test_current_layout(self):
         self.run_checker()
 

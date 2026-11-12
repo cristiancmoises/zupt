@@ -78,6 +78,9 @@ def main():
         "docs/GUIA_USUARIO.pt-BR.md": "docs/GUIA_USUARIO.pt-BR.md",
         "SECURITY.md": "SECURITY.md",
         "DISTRIBUTION.md": "DISTRIBUTION.md",
+        "AUDIT.md": "AUDIT.md",
+        "INSTALL.md": "INSTALL.md",
+        "THREAT_MODEL.md": "THREAT_MODEL.md",
     }
     with tempfile.TemporaryDirectory(prefix=".zupt-gui-", dir=dist) as temporary:
         work = Path(temporary)
@@ -123,9 +126,9 @@ def main():
             require(entry is not None, "unrecognized portable GUI member listing")
             members.append(entry.group(1))
         expected = {f"{name}/{member}" for member in payload}
-        require(len(members) == 17 and len(set(members)) == 17 and
-                set(members) == expected and totals == [17],
-                "portable GUI member allowlist mismatch (expected 17 safe files)")
+        require(len(members) == 20 and len(set(members)) == 20 and
+                set(members) == expected and totals == [20],
+                "portable GUI member allowlist mismatch (expected 20 safe files)")
         run([str(cli), "test", str(archive)])
         extracted = work / "extracted"
         run([str(cli), "extract", "-o", str(extracted), str(archive)])

@@ -73,7 +73,7 @@ bash scripts/check-source-only.sh --tree .
 
 %files
 %license LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 NOTICE THIRD-PARTY-NOTICES.md
-%doc README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md CHANGELOG.md SECURITY.md THREAT_MODEL.md
+%doc README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md CHANGELOG.md SECURITY.md THREAT_MODEL.md AUDIT.md INSTALL.md
 %doc docs DISTRIBUTION.md
 %{_bindir}/zupt
 %{_datadir}/bash-completion/completions/zupt

@@ -91,8 +91,8 @@ forbidden=$(find "$stage" -type f \( \
 docdir=$stage/usr/share/doc/zupt
 mkdir -p -- "$docdir"
 install -m 0644 README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md \
-    CHANGELOG.md SECURITY.md "$docdir/"
-for document in THREAT_MODEL.md NOTICE THIRD-PARTY-NOTICES.md LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0; do
+    CHANGELOG.md SECURITY.md AUDIT.md INSTALL.md THREAT_MODEL.md "$docdir/"
+for document in NOTICE THIRD-PARTY-NOTICES.md LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0; do
     [[ ! -f $document ]] || install -m 0644 "$document" "$docdir/"
 done
 install -m 0644 LICENSE "$docdir/copyright"

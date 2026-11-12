@@ -100,7 +100,8 @@
            "gui/LICENSE-GUI" "gui/assets/README.md"
            "scripts/check-installed-docs.py" "scripts/publish-package.py"
            "README.md" "README.pt-BR.md" "DOCUMENTACAO.pt-BR.md"
-           "CHANGELOG.md" "SECURITY.md" "DISTRIBUTION.md" "THREAT_MODEL.md"
+           "CHANGELOG.md" "SECURITY.md" "DISTRIBUTION.md" "AUDIT.md"
+           "INSTALL.md" "THREAT_MODEL.md"
            "NOTICE" "THIRD-PARTY-NOTICES.md" "LICENSE"
            "LICENSE-AGPL-3.0" "LICENSE-GPL-3.0" "LICENSE-BSD-2-Clause"
            "LICENSE-BSD-3-Clause" "LICENSE-CC0-1.0"
@@ -158,7 +159,8 @@
                (error "Guix CLI installed guide is missing or differs" source))
              (format #t "PASS: Guix CLI installed ~a byte-for-byte~%" source)))
          '("docs/USER_GUIDE.md" "docs/GUIA_USUARIO.pt-BR.md"
-           "SECURITY.md" "DISTRIBUTION.md"))))))
+           "SECURITY.md" "DISTRIBUTION.md" "AUDIT.md"
+           "INSTALL.md" "THREAT_MODEL.md"))))))
 
 (test-cli-documentation)
 
@@ -499,5 +501,8 @@
        ("docs/GUIA_USUARIO.pt-BR.md" "share/doc/zupt-gui/docs/GUIA_USUARIO.pt-BR.md")
        ("SECURITY.md" "share/doc/zupt-gui/SECURITY.md")
        ("DISTRIBUTION.md" "share/doc/zupt-gui/DISTRIBUTION.md")
+       ("AUDIT.md" "share/doc/zupt-gui/AUDIT.md")
+       ("INSTALL.md" "share/doc/zupt-gui/INSTALL.md")
+       ("THREAT_MODEL.md" "share/doc/zupt-gui/THREAT_MODEL.md")
        ("gui/assets/zupt-icon.png" "lib/zupt-gui/assets/zupt-icon.png")))
     (test-launcher test-directory output)))

@@ -131,7 +131,8 @@
                 (for-each (lambda (file) (install-file file doc))
                           '("README.md" "README.pt-BR.md"
                             "DOCUMENTACAO.pt-BR.md" "SECURITY.md"
-                            "CHANGELOG.md" "DISTRIBUTION.md"))
+                            "CHANGELOG.md" "DISTRIBUTION.md"
+                            "AUDIT.md" "INSTALL.md" "THREAT_MODEL.md"))
                 (let ((guides (string-append doc "/docs")))
                   (mkdir-p guides)
                   (for-each (lambda (file) (install-file file guides))
@@ -184,6 +185,9 @@ the full provenance record.")
           ("docs/GUIA_USUARIO.pt-BR.md" "share/doc/zupt-gui/docs/")
           ("SECURITY.md" "share/doc/zupt-gui/")
           ("DISTRIBUTION.md" "share/doc/zupt-gui/")
+          ("AUDIT.md" "share/doc/zupt-gui/")
+          ("INSTALL.md" "share/doc/zupt-gui/")
+          ("THREAT_MODEL.md" "share/doc/zupt-gui/")
           ("doc/zupt-gui.1" "share/man/man1/")
           ("LICENSE" "share/licenses/zupt-gui/LICENSE")
           ("LICENSE-AGPL-3.0"

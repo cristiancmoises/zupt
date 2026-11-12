@@ -76,7 +76,10 @@ for source_file in \
     "$repo_root/docs/USER_GUIDE.md" \
     "$repo_root/docs/GUIA_USUARIO.pt-BR.md" \
     "$repo_root/SECURITY.md" \
-    "$repo_root/DISTRIBUTION.md"; do
+    "$repo_root/DISTRIBUTION.md" \
+    "$repo_root/AUDIT.md" \
+    "$repo_root/INSTALL.md" \
+    "$repo_root/THREAT_MODEL.md"; do
     [[ -f $source_file ]] || die "required source file is missing: $source_file"
 done
 
@@ -109,6 +112,7 @@ install -m 0644 -- "$script_dir/assets/README.md" \
 install -m 0644 -- "$repo_root/docs/USER_GUIDE.md" \
     "$repo_root/docs/GUIA_USUARIO.pt-BR.md" "$stage_docdir/docs/"
 install -m 0644 -- "$repo_root/SECURITY.md" "$repo_root/DISTRIBUTION.md" \
+    "$repo_root/AUDIT.md" "$repo_root/INSTALL.md" "$repo_root/THREAT_MODEL.md" \
     "$stage_docdir/"
 
 # Quote the installed module path for a POSIX shell without embedding DESTDIR.

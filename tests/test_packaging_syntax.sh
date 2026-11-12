@@ -42,7 +42,7 @@ check_gui_installed_docs() (
         bash gui/install.sh --destdir "$stage" --prefix "$prefix" || exit 1
     [[ ! -e $stage$prefix/bin/vaptvupt-gui && ! -L $stage$prefix/bin/vaptvupt-gui ]] || exit 1
     for source_file in docs/USER_GUIDE.md docs/GUIA_USUARIO.pt-BR.md \
-        SECURITY.md DISTRIBUTION.md; do
+        SECURITY.md DISTRIBUTION.md AUDIT.md INSTALL.md THREAT_MODEL.md; do
         installed=$doc/$source_file
         [[ -f $installed && ! -L $installed ]] || {
             printf 'missing installed GUI document: %s\n' "$source_file" >&2
@@ -61,6 +61,9 @@ for name in (
     "docs/GUIA_USUARIO.pt-BR.md",
     "SECURITY.md",
     "DISTRIBUTION.md",
+    "AUDIT.md",
+    "INSTALL.md",
+    "THREAT_MODEL.md",
 ):
     if stat.S_IMODE((doc / name).stat().st_mode) != 0o644:
         raise SystemExit(f"incorrect installed GUI documentation mode: {name}")
@@ -74,7 +77,8 @@ PY
     for source_file in gui/install.sh gui/src/zupt_gui.py \
         gui/assets/zupt-icon.png gui/packaging/zupt-gui.desktop doc/zupt-gui.1 \
         LICENSE LICENSE-AGPL-3.0 gui/LICENSE-GUI gui/assets/README.md \
-        docs/USER_GUIDE.md docs/GUIA_USUARIO.pt-BR.md SECURITY.md DISTRIBUTION.md; do
+        docs/USER_GUIDE.md docs/GUIA_USUARIO.pt-BR.md SECURITY.md DISTRIBUTION.md \
+        AUDIT.md INSTALL.md THREAT_MODEL.md; do
         mkdir -p -- "$fixture/$(dirname -- "$source_file")" || exit 1
         cp -- "$source_file" "$fixture/$source_file" || exit 1
     done

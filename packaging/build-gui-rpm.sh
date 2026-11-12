@@ -63,7 +63,7 @@ install -m 0644 gui/LICENSE-GUI "$tree/LICENSE-GUI"
 install -m 0644 gui/assets/README.md "$tree/ASSET-PROVENANCE.md"
 install -d -- "$tree/docs"
 install -m 0644 docs/USER_GUIDE.md docs/GUIA_USUARIO.pt-BR.md "$tree/docs/"
-install -m 0644 SECURITY.md DISTRIBUTION.md "$tree/"
+install -m 0644 SECURITY.md DISTRIBUTION.md AUDIT.md INSTALL.md THREAT_MODEL.md "$tree/"
 
 source_epoch=${SOURCE_DATE_EPOCH:-$(sed -n '1p' .source-date-epoch 2>/dev/null || true)}
 [[ $source_epoch =~ ^[0-9]+$ ]] || die 'SOURCE_DATE_EPOCH is not available'
@@ -113,7 +113,7 @@ chmod 0755 %{buildroot}%{_bindir}/zupt-gui
 %files
 %license LICENSE LICENSE-AGPL-3.0 LICENSE-GUI
 %doc README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md ASSET-PROVENANCE.md
-%doc docs SECURITY.md DISTRIBUTION.md
+%doc docs SECURITY.md DISTRIBUTION.md AUDIT.md INSTALL.md THREAT_MODEL.md
 %{_bindir}/zupt-gui
 %{_datadir}/zupt-gui/zupt_gui.py
 %{_datadir}/applications/zupt-gui.desktop

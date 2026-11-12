@@ -16,7 +16,8 @@ for name in include/zupt.h packaging/build-rpm.sh packaging/build-gui-rpm.sh \
     gui/src/zupt_gui.py gui/assets/zupt-icon.png gui/packaging/zupt-gui.desktop \
     doc/zupt-gui.1 gui/README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md \
     LICENSE LICENSE-AGPL-3.0 gui/LICENSE-GUI gui/assets/README.md \
-    docs/USER_GUIDE.md docs/GUIA_USUARIO.pt-BR.md SECURITY.md DISTRIBUTION.md; do
+    docs/USER_GUIDE.md docs/GUIA_USUARIO.pt-BR.md SECURITY.md DISTRIBUTION.md \
+    AUDIT.md INSTALL.md THREAT_MODEL.md; do
     mkdir -p -- "$source/$(dirname -- "$name")"
     cp -- "$root/$name" "$source/$name"
 done
@@ -119,7 +120,9 @@ case $name in
         fi
         doc=usr/share/doc/$RPM_TEST_PACKAGE
         mkdir -p "$doc/docs"
-        install -m0644 -- "$RPM_TEST_SOURCE/SECURITY.md" "$RPM_TEST_SOURCE/DISTRIBUTION.md" "$doc/"
+        install -m0644 -- "$RPM_TEST_SOURCE/SECURITY.md" "$RPM_TEST_SOURCE/DISTRIBUTION.md" \
+            "$RPM_TEST_SOURCE/AUDIT.md" "$RPM_TEST_SOURCE/INSTALL.md" \
+            "$RPM_TEST_SOURCE/THREAT_MODEL.md" "$doc/"
         install -m0644 -- "$RPM_TEST_SOURCE/docs/USER_GUIDE.md" "$RPM_TEST_SOURCE/docs/GUIA_USUARIO.pt-BR.md" "$doc/docs/" ;;
     readelf)
         case $1 in

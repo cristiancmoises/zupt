@@ -644,16 +644,23 @@ jobs:
           install -m 0755 zupt "$root/zupt"
           install -m 0644 README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md \
             CHANGELOG.md SECURITY.md THREAT_MODEL.md \
+            DISTRIBUTION.md AUDIT.md INSTALL.md \
             LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause \
             LICENSE-BSD-3-Clause LICENSE-CC0-1.0 NOTICE \
             THIRD-PARTY-NOTICES.md "$root/"
+          install -d "$root/docs"
+          install -m 0644 docs/USER_GUIDE.md docs/GUIA_USUARIO.pt-BR.md "$root/docs/"
           tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
             -C "$(dirname "$root")" -cJf "$output" "$(basename "$root")"
           extract=$(mktemp -d)
           tar -xJf "$output" -C "$extract"
           bash scripts/test-installed-zupt.sh \
             "$extract/$(basename "$root")/zupt"
-          test "$(find "$extract/$(basename "$root")" -maxdepth 1 -type f | wc -l)" -eq 15
+          test "$(find "$extract/$(basename "$root")" -type f | wc -l)" -eq 20
+          for document in docs/USER_GUIDE.md docs/GUIA_USUARIO.pt-BR.md \
+            SECURITY.md DISTRIBUTION.md AUDIT.md INSTALL.md THREAT_MODEL.md; do
+            cmp "$document" "$extract/$(basename "$root")/$document"
+          done
           sha256sum "$output"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

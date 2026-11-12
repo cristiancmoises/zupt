@@ -18,7 +18,7 @@ for name in include/zupt.h packaging/build-deb.sh packaging/build-gui-deb.sh \
     gui/LICENSE-GUI gui/assets/README.md scripts/check-installed-docs.py \
     scripts/publish-package.py \
     README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md CHANGELOG.md SECURITY.md \
-    DISTRIBUTION.md THREAT_MODEL.md NOTICE THIRD-PARTY-NOTICES.md LICENSE \
+    DISTRIBUTION.md AUDIT.md INSTALL.md THREAT_MODEL.md NOTICE THIRD-PARTY-NOTICES.md LICENSE \
     LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause \
     LICENSE-CC0-1.0 docs/USER_GUIDE.md docs/GUIA_USUARIO.pt-BR.md; do
     mkdir -p -- "$source/$(dirname -- "$name")"

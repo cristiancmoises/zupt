@@ -48,8 +48,25 @@ def proxy_cli():
             (root / "SECURITY.md").unlink()
         elif mode == "missing-distribution-policy":
             (root / "DISTRIBUTION.md").unlink()
+        elif mode == "missing-audit-guide":
+            (root / "AUDIT.md").unlink()
+        elif mode == "missing-install-guide":
+            (root / "INSTALL.md").unlink()
+        elif mode == "missing-threat-model":
+            (root / "THREAT_MODEL.md").unlink()
         elif mode == "tampered-member":
             (root / "README.txt").write_text("changed after staging\n")
+        elif mode in (
+            "tampered-audit-guide",
+            "tampered-install-guide",
+            "tampered-threat-model",
+        ):
+            name = {
+                "tampered-audit-guide": "AUDIT.md",
+                "tampered-install-guide": "INSTALL.md",
+                "tampered-threat-model": "THREAT_MODEL.md",
+            }[mode]
+            (root / name).write_text("changed navigation page after staging\n")
         elif mode == "wrong-codec":
             args[args.index("--vv")] = "--lzhp"
         elif mode == "wrong-level":
@@ -106,6 +123,9 @@ PAYLOAD = {
     "docs/GUIA_USUARIO.pt-BR.md": "docs/GUIA_USUARIO.pt-BR.md",
     "SECURITY.md": "SECURITY.md",
     "DISTRIBUTION.md": "DISTRIBUTION.md",
+    "AUDIT.md": "AUDIT.md",
+    "INSTALL.md": "INSTALL.md",
+    "THREAT_MODEL.md": "THREAT_MODEL.md",
 }
 
 
@@ -290,6 +310,9 @@ class PortableGuiTests(unittest.TestCase):
             "missing-portuguese-guide",
             "missing-security-policy",
             "missing-distribution-policy",
+            "missing-audit-guide",
+            "missing-install-guide",
+            "missing-threat-model",
             "unsafe-member",
             "duplicate-member",
         ):
@@ -299,6 +322,9 @@ class PortableGuiTests(unittest.TestCase):
     def test_archive_and_extracted_content_tampering_is_rejected(self):
         for mode in (
             "tampered-member",
+            "tampered-audit-guide",
+            "tampered-install-guide",
+            "tampered-threat-model",
             "extracted-extra",
             "extracted-tampered",
             "extracted-binary",
@@ -307,6 +333,9 @@ class PortableGuiTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 reason = {
                     "tampered-member": "differs from source",
+                    "tampered-audit-guide": "differs from source",
+                    "tampered-install-guide": "differs from source",
+                    "tampered-threat-model": "differs from source",
                     "extracted-extra": "member allowlist mismatch",
                     "extracted-tampered": "differs from source",
                     "extracted-binary": "FAIL source-only:",
@@ -332,15 +361,24 @@ class PortableGuiTests(unittest.TestCase):
         self.assertIn("zupt_gui.py (ELF executable or object)", result.stdout)
 
     def test_missing_or_symlink_policy_sources_are_rejected(self):
-        for name in ("SECURITY.md", "DISTRIBUTION.md"):
+        for name in (
+            "SECURITY.md",
+            "DISTRIBUTION.md",
+            "AUDIT.md",
+            "INSTALL.md",
+            "THREAT_MODEL.md",
+        ):
             with self.subTest(policy=name):
                 source = self.source / name
                 source.unlink()
-                self.rejected(None, "regular non-symlink file")
-                source.symlink_to(ROOT / name)
-                self.rejected(None, "regular non-symlink file")
-                source.unlink()
-                shutil.copyfile(ROOT / name, source)
+                try:
+                    self.rejected(None, "regular non-symlink file")
+                    source.symlink_to(ROOT / name)
+                    self.rejected(None, "regular non-symlink file")
+                finally:
+                    if source.exists() or source.is_symlink():
+                        source.unlink()
+                    shutil.copyfile(ROOT / name, source)
 
     def test_existing_output_files_directories_and_symlinks_are_preserved(self):
         self.dist.mkdir()

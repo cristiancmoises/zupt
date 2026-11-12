@@ -110,6 +110,9 @@ def main() -> int:
                 "docs/GUIA_USUARIO.pt-BR.md",
                 "SECURITY.md",
                 "DISTRIBUTION.md",
+                "AUDIT.md",
+                "INSTALL.md",
+                "THREAT_MODEL.md",
             ):
                 source = document(args.source, relative, windows=windows)
                 target = document(
