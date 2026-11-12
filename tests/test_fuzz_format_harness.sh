@@ -46,7 +46,14 @@ cat > "$test_tmp/darwin-headers/unistd.h" <<'HEADER'
 char *mkdtemp(char *);
 #endif
 HEADER
-for first_header in stdio stdint; do
+cat > "$test_tmp/darwin-headers/fcntl.h" <<'HEADER'
+#include "feature-model.h"
+#include_next <fcntl.h>
+#if !ZUPT_TEST_DARWIN_EXTENSIONS
+#undef O_NOFOLLOW
+#endif
+HEADER
+for first_header in stdio stdint fcntl; do
   for feature_case in posix-missing posix-late xopen-missing xopen-late; do
     {
         printf '#undef _DARWIN_C_SOURCE\n'
@@ -56,8 +63,8 @@ for first_header in stdio stdint; do
         esac
         printf '#include <%s.h>\n' "$first_header"
         case $feature_case in *-late) printf '#define _DARWIN_C_SOURCE 1\n' ;; esac
-        printf '#include <stdlib.h>\n#include <unistd.h>\n'
-        printf 'int main(void) { char path[] = "probe.XXXXXX"; return mkdtemp(path) == NULL; }\n'
+        printf '#include <stdlib.h>\n#include <unistd.h>\n#include <fcntl.h>\n'
+        printf 'int main(void) { char path[] = "probe.XXXXXX"; return mkdtemp(path) == NULL || O_NOFOLLOW == 0; }\n'
     } > "$test_tmp/$feature_case.c"
     # shellcheck disable=SC2086
     if "${CC:-cc}" ${CPPFLAGS:-} ${CFLAGS:--O2 -g -std=c11 -Wall -Wextra -Werror} \
@@ -70,17 +77,23 @@ for first_header in stdio stdint; do
     fi
     grep -F 'mkdtemp' "$test_tmp/$feature_case.log" >/dev/null
     grep -E 'implicit.*declaration|undeclared function' "$test_tmp/$feature_case.log" >/dev/null
+    if ! grep -E 'error:.*(O_NOFOLLOW.*undeclared|undeclared.*O_NOFOLLOW)' \
+        "$test_tmp/$feature_case.log" >/dev/null; then
+        printf 'FAIL: modeled Darwin headers exposed O_NOFOLLOW with %s feature macro after %s\n' \
+            "$feature_case" "$first_header" >&2
+        exit 1
+    fi
   done
 done
 # This is header-visibility coverage, not a native macOS compilation.
-for fuzz_source in tests/fuzz_format.c tests/fuzz_decompress.c; do
+for fuzz_source in tests/fuzz_format.c tests/fuzz_decompress.c tests/test_fuzz_format_harness.c; do
     # shellcheck disable=SC2086
     "${CC:-cc}" ${CPPFLAGS:-} ${CFLAGS:--O2 -g -std=c11 -Wall -Wextra -Werror} \
         -D__APPLE__=1 -Werror=implicit-function-declaration \
         -I"$test_root/include" -I"$test_root/src" \
         -isystem "$test_tmp/darwin-headers" -fsyntax-only "$fuzz_source"
 done
-printf 'PASS: modeled Darwin mkdtemp visibility covers both fuzz harnesses and POSIX/XOPEN controls\n'
+printf 'PASS: modeled Darwin mkdtemp/O_NOFOLLOW visibility covers fuzz harnesses, fixture and POSIX/XOPEN controls\n'
 
 # Deliberately use the real harness and its child-execution path.
 # shellcheck disable=SC2086
@@ -110,7 +123,12 @@ printf '0123456789abcdef' > "$test_tmp/seed-16"
 # Replace the checked input at the actual open call, without a timing race.
 # Include the fixture after the adapters to support non-GNU linkers too.
 cat > "$test_tmp/capture-race.c" <<'CAPTURE_RACE'
+#ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
+#endif
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE 1
+#endif
 #include <fcntl.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -184,8 +202,46 @@ int main(int argc, char **argv) {
     return capture_fixture_main(argc, argv);
 }
 CAPTURE_RACE
+# Model headers which select a newer POSIX level before including the fixture.
+for fixture_source in tests/test_fuzz_format_harness.c capture-race.c; do
+    cat > "$test_tmp/posix-level.c" <<'POSIX_LEVEL'
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE 1
+#endif
+#include <fcntl.h>
+#include <signal.h>
+#include <limits.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#undef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 202405L
+POSIX_LEVEL
+    printf '#include "%s"\n' "$fixture_source" >> "$test_tmp/posix-level.c"
+    cat >> "$test_tmp/posix-level.c" <<'POSIX_LEVEL'
+#if _POSIX_C_SOURCE < 202405L
+#error Fixture must preserve the POSIX level selected by its caller or headers
+#endif
+POSIX_LEVEL
+    # shellcheck disable=SC2086
+    TMPDIR="$test_tmp" "${CC:-cc}" ${CPPFLAGS:-} ${CFLAGS:--O2 -g -std=c11 -Wall -Wextra -Werror} \
+        -Werror -I"$test_root" -I"$test_tmp" -fsyntax-only "$test_tmp/posix-level.c"
+done
+printf 'PASS: fixture and capture translation unit preserve a newer POSIX level\n'
+# Keep compiler scratch separate from spaced runtime inputs, including LTO jobs.
 # shellcheck disable=SC2086
-"${CC:-cc}" ${CPPFLAGS:-} ${CFLAGS:--O2 -g -std=c11 -Wall -Wextra -Werror} \
+TMPDIR="$test_tmp" "${CC:-cc}" ${CPPFLAGS:-} ${CFLAGS:--O2 -g -std=c11 -Wall -Wextra -Werror} \
+    -D__APPLE__=1 -I"$test_root" -isystem "$test_tmp/darwin-headers" \
+    -fsyntax-only "$test_tmp/capture-race.c"
+printf 'PASS: modeled Darwin O_NOFOLLOW visibility covers the capture translation unit\n'
+# shellcheck disable=SC2086
+TMPDIR="$test_tmp" "${CC:-cc}" ${CPPFLAGS:-} ${CFLAGS:--O2 -g -std=c11 -Wall -Wextra -Werror} \
     -I"$test_root" "$test_tmp/capture-race.c" ${LDFLAGS:-} ${LDLIBS:-} \
     -o "$test_tmp/capture-race"
 for capture_race in symlink mode fifo ancestor; do
