@@ -130,7 +130,7 @@ dist_dir=$(cd "$dist_dir" && pwd -P)
 output=$dist_dir/ZUPT-${version}-macOS-${arch}.dmg
 [[ ! -e $output ]] || die "refusing to overwrite existing output: $output"
 
-for command_name in make clang hdiutil otool plutil shasum; do
+for command_name in make clang hdiutil otool plutil shasum python3; do
     command -v -- "$command_name" >/dev/null 2>&1 || die "required command not found: $command_name"
 done
 run_checks=${RUN_CHECKS:-1}
@@ -163,9 +163,12 @@ fi
 test_macos_binary "$repo_root/zupt"
 
 install -m 0755 zupt "$contents/MacOS/zupt"
-for document in README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md CHANGELOG.md LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 NOTICE THIRD-PARTY-NOTICES.md; do
+for document in README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md CHANGELOG.md AUDIT.md INSTALL.md SECURITY.md DISTRIBUTION.md THREAT_MODEL.md LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 NOTICE THIRD-PARTY-NOTICES.md; do
     [[ ! -f $document ]] || install -m 0644 "$document" "$contents/Resources/"
 done
+mkdir -p "$contents/Resources/docs"
+install -m 0644 docs/USER_GUIDE.md docs/GUIA_USUARIO.pt-BR.md \
+    "$contents/Resources/docs/"
 
 if otool -l "$contents/MacOS/zupt" | grep -q 'cmd LC_RPATH'; then
     otool -l "$contents/MacOS/zupt" >&2
@@ -215,9 +218,12 @@ printf 'Installed %s\n' "$target_dir/zupt"
 "$target_dir/zupt" --version
 EOF
 chmod 0755 "$dmg_root/Install ZUPT.command"
-for document in README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md CHANGELOG.md LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 NOTICE THIRD-PARTY-NOTICES.md; do
+for document in README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md CHANGELOG.md AUDIT.md INSTALL.md SECURITY.md DISTRIBUTION.md THREAT_MODEL.md LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 NOTICE THIRD-PARTY-NOTICES.md; do
     [[ ! -f $document ]] || install -m 0644 "$document" "$dmg_root/"
 done
+mkdir -p "$dmg_root/docs"
+install -m 0644 docs/USER_GUIDE.md docs/GUIA_USUARIO.pt-BR.md "$dmg_root/docs/"
+python3 scripts/check-installed-docs.py "$repo_root" "$dmg_root" macos
 
 hdiutil create -fs HFS+ -srcfolder "$dmg_root" -volname "ZUPT $version" \
     -format UDZO -ov "$dmg_tmp"

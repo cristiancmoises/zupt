@@ -211,15 +211,18 @@ jobs:
 
       - name: Assemble Windows release files
         run: |
+          set -Eeuo pipefail
           version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' include/zupt.h)
           bundle="out/work/zupt-$version-windows-x86_64"
-          mkdir -p out "$bundle"
+          mkdir -p out "$bundle/docs"
           if [[ -x ./zupt.exe ]]; then source_exe=./zupt.exe; else source_exe=./zupt; fi
           install -m 0755 "$source_exe" "$bundle/zupt.exe"
           install -m 0644 README.md README.pt-BR.md DOCUMENTACAO.pt-BR.md \
-            CHANGELOG.md LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 \
+            CHANGELOG.md AUDIT.md INSTALL.md SECURITY.md DISTRIBUTION.md \
+            THREAT_MODEL.md LICENSE LICENSE-AGPL-3.0 LICENSE-GPL-3.0 \
             LICENSE-BSD-2-Clause LICENSE-BSD-3-Clause LICENSE-CC0-1.0 \
             NOTICE THIRD-PARTY-NOTICES.md "$bundle/"
+          install -m 0644 docs/USER_GUIDE.md docs/GUIA_USUARIO.pt-BR.md "$bundle/docs/"
           toolchain_prefix=${MINGW_PREFIX:-/ucrt64}
           install -m 0644 \
             "$toolchain_prefix/share/licenses/crt/COPYING" \
@@ -253,6 +256,7 @@ jobs:
           }
           trap cleanup EXIT HUP INT TERM
           unzip -q "$zip_path" -d "$extract_root"
+          python3 scripts/check-installed-docs.py "$PWD" "$extract_root" windows
           for notice in MINGW-CRT-COPYING.txt COPYING.MinGW-w64-runtime.txt \
               COPYING.MinGW-w64.txt GCC-COPYING3.txt \
               GCC-RUNTIME-LIBRARY-EXCEPTION.txt; do
@@ -324,6 +328,7 @@ jobs:
           }
           trap cleanup EXIT HUP INT TERM
           hdiutil attach -nobrowse -readonly -mountpoint "$mount_point" "$dmg" >/dev/null
+          python3 scripts/check-installed-docs.py "$PWD" "$mount_point" macos
           version=$(sed -n 's/^#define ZUPT_VERSION_STRING "\([^"]*\)".*/\1/p' \
             include/zupt.h)
           packaged_binary=$mount_point/ZUPT.app/Contents/MacOS/zupt
