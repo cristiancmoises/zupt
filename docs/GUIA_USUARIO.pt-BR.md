@@ -8,6 +8,25 @@ Entre em contato com o projeto somente por
 [sac@securityops.co](mailto:sac@securityops.co). Para relatar vulnerabilidades,
 siga a [política de segurança](../SECURITY.md).
 
+Leia este guia em [inglês](USER_GUIDE.md).
+
+## Conteúdo
+
+- [Status da versão](#status-da-versão)
+- [Instalar ou atualizar no openSUSE Tumbleweed](#instalação-no-opensuse-tumbleweed)
+- [Compilar, instalar ou desinstalar a partir do código-fonte](#compilação-a-partir-do-código-fonte)
+- [Criar, verificar e restaurar arquivos](#fluxo-da-linha-de-comando)
+- [Recuperar arquivos legados confiáveis](#arquivos-legados-confiáveis-sem-ait)
+- [Extrair bundles de software](#uso-de-bundles-zupt)
+- [Usar a interface gráfica](#interface-gráfica)
+- [Executar validações e relatar resultados](#validação-e-relatórios)
+- [Reproduzir os testes de auditoria](#reproduzir-os-testes-de-auditoria)
+- [Resolver problemas comuns](#solução-de-problemas)
+
+Para consultar a estrutura dos pacotes e os requisitos de publicação, leia o
+[guia de distribuição em inglês](../DISTRIBUTION.md). O [guia de auditoria](../AUDIT.md)
+registra achados, hipóteses de análise e cobertura pendente.
+
 ## Status da versão
 
 A versão pública oficial é o [ZUPT 5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).

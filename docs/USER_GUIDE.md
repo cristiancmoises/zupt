@@ -7,6 +7,25 @@ passwords out of process arguments.
 Contact the project only at [sac@securityops.co](mailto:sac@securityops.co).
 For vulnerability reports, follow the [security policy](../SECURITY.md).
 
+Read this guide in [Brazilian Portuguese](GUIA_USUARIO.pt-BR.md).
+
+## Contents
+
+- [Release status](#release-status)
+- [Install or update on openSUSE Tumbleweed](#install-from-opensuse-tumbleweed)
+- [Build, install or uninstall from source](#build-from-source)
+- [Create, verify and restore archives](#command-line-workflow)
+- [Recover trusted legacy archives](#trusted-legacy-archives-without-ait)
+- [Extract software bundles](#working-with-zupt-bundles)
+- [Use the graphical interface](#gui-workflow)
+- [Run validation and report results](#validation-and-reporting)
+- [Reproduce audit checks](#reproduce-the-audit-checks)
+- [Troubleshoot common problems](#troubleshooting)
+
+For package layouts and release requirements, see the
+[distribution guide](../DISTRIBUTION.md). The [audit guide](../AUDIT.md)
+records findings, analysis assumptions and remaining coverage.
+
 ## Release status
 
 The official public release is [ZUPT 5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).

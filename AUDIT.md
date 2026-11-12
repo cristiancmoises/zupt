@@ -34,7 +34,20 @@ choice on supported x86_64 compiler targets. Generated files must record their
 compiler provenance; hand-written files must not be represented as compiler
 output.
 
-## Current formal evidence, reviewed 2026-10-30
+## Current validation, reviewed 2026-11-12
+
+A fresh repeat passes all six maintained Frama-C targets and the ordinary
+five-source Jasmin gate. Analyzer, result-checker, process-collector and source
+integrity checks pass separately. The [English user guide](docs/USER_GUIDE.md#current-formal-evidence-reviewed-2026-11-12)
+and [Portuguese user guide](docs/GUIA_USUARIO.pt-BR.md#evidência-formal-atual-conferida-em-2026-11-12)
+provide the commands, tool versions and analysis limits.
+
+These are conditional checks of selected code, not a whole-program proof or
+final-package approval. General ANS table/caller obligations remain open. The
+complete disposable-VM run and final release-artifact acceptance are still
+pending; 5.2.10 remains unpublished.
+
+## Earlier formal evidence, reviewed 2026-10-30
 
 The 2026-10-30 UTC repeat of all six maintained Frama-C targets passes on the
 frozen 294-file source after the five ANS guard corrections: decoder bounds,
