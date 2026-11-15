@@ -643,7 +643,7 @@ check: $(TARGET) test-vectors test-f06 test-vv test-aes-nist test-frama-aes-nist
 	$(Q)bash tests/test_path_traversal.sh ./$(TARGET)
 	$(Q)bash tests/test_arg_order.sh ./$(TARGET)
 	$(Q)bash tests/test_password_sources.sh ./$(TARGET)
-	$(Q)bash tests/test_password_prompt_signal.sh ./$(TARGET)
+	$(Q)bash tests/test_password_tty_signal.sh ./$(TARGET)
 	$(Q)bash tests/test_key_files.sh ./$(TARGET)
 	$(Q)ZUPT_BIN="$(CURDIR)/$(TARGET)" bash tests/test_f08_topmac.sh
 	$(Q)ZUPT_BIN="$(CURDIR)/$(TARGET)" bash tests/test_f09_preface.sh
