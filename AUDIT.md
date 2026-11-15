@@ -1,717 +1,212 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-# ZUPT 5.2.10 audit guide and finding history
+# ZUPT audit guide
 
-This document describes review surfaces and reproducible checks. It is an
-upstream self-review, not an independent audit, certification, or guarantee.
-`SECURITY.md` defines reporting policy and `THREAT_MODEL.md` defines the
-security boundary.
+This document describes the review scope and reproducible checks for ZUPT
+5.2.10, which uses desktop archive format 1.6. Published tags, packages and
+checksums are listed on the [release page](https://github.com/cristiancmoises/zupt/releases).
+This is an upstream self-review, not an independent audit, certification or
+guarantee. [SECURITY.md](SECURITY.md) covers reporting and
+[THREAT_MODEL.md](THREAT_MODEL.md) defines the security boundary.
 
 ## 5.2.10 scope
 
-Fresh local candidate checks on 2026-09-30 passed the source-only `make check
-sdk-test`, `make test-asan-run` ASan/UBSan smoke test, and all 54 packaging
-syntax checks. The canonical allocator-limit regression was compiled against
-this consumer's codec and passed all 432 cases, including NULL empty inputs.
-Optional dependency and unavailable platform SKIPs are not passes. These
-results are local candidate evidence, not signed release-asset approval.
-
-The baseline scope is the source-only CLI and its bundled source codec:
-
-- first-party C and headers under `src/` and `include/`;
-- textual architecture-specific source under `jasmin/`, distinguishing
-  compiler-generated output from separately identified hand-written assembly;
-- VaptVupt codec source at release 2.65.13, commit
-  `e30dc9329be7cf9f233b1ac0b1fc9ed31f530391`, with provenance and licensing in
-  `THIRD-PARTY-NOTICES.md`;
-- CLI tests, source scanner, build system, CI, and packaging recipes;
-- the Python GUI source as a caller of the CLI.
-
-The baseline is built with `WITH_SDK=0 WITH_PQBOX=0`. The optional system
-`libvuptsdk` and `libpqvaptvupt` implementations are outside this scope unless
-their exact source packages and versions are added to an assessment. Assembly
-under `jasmin/` is disabled by default and is a separate `WITH_JASMIN=1` build
-choice on supported x86_64 compiler targets. Generated files must record their
-compiler provenance; hand-written files must not be represented as compiler
-output.
-
-## Current validation, reviewed 2026-11-12
-
-A frozen 294-file snapshot of `b25a486` passes all six maintained Frama-C
-targets, the ordinary five-source Jasmin gate and the actual unmodified
-aggregate `release-check` in a disposable VM. Analyzer, result-checker,
-process-collector and source-integrity checks pass separately. The [English user guide](docs/USER_GUIDE.md#current-formal-evidence-reviewed-2026-11-12)
-and [Portuguese user guide](docs/GUIA_USUARIO.pt-BR.md#evidência-formal-atual-conferida-em-2026-11-12)
-provide the commands, tool versions and analysis limits.
-
-The aggregate run finishes with exit 0 in 992.719 seconds, including the real
-Guix CLI/GUI fixture. The process group running `release-check` records a
-768 MiB cgroup memory peak, including build/test processes and charged file
-cache. It has no OOM or PID-limit events and no surviving descendants.
-Eleven isolation-policy controls and three negative sanitizer controls pass;
-source, input and initrd pins remain unchanged. These controls qualify the
-observed run, not every sanitizer path. Its recorded undersized loop-device
-test remains a skip.
-
-A later frozen snapshot, `3e50a65`, passes the actual aggregate `release-check`
-in 1001.431 seconds with eleven policy and three negative sanitizer controls,
-unchanged input pins and no product descendants, OOM or PID-limit events.
-Its cgroup reaches the 768 MiB budget, including build/test processes and
-charged file cache. This run predates the permission-fixture correction and
-later documentation changes; its observed skips retain their original scope.
-
-A separate disposable-VM run passes the maintained
-[disk-capacity guard test](tests/test_disk_device_capacity.sh) in 16.993 seconds.
-It uses the pinned static-musl CLI from `b25a486`, rather than the aggregate
-run's glibc build. A 128 KiB restore is rejected against one owned 64 KiB loop
-backing file; its zero-filled bytes remain unchanged and the device is
-detached afterward. Cleanup records no surviving descendants, OOM or PID-limit
-events. This qualifies that fixture, not other disks or a complete release.
-
-The static-musl build also passes staged-install smokes and a separate
-store-less fixed-text check at levels 1 and 9. The first store-less bootstrap
-failed at UID-map setup with read-only `/proc`; that failure is retained. The
-successful CLI namespace has no GNU store and retains read-only `/proc`.
-General ANS table/caller obligations remain open; these checks do not prove
-whole-program correctness. Final artifacts require their own acceptance. Consult the
-[official release page](https://github.com/cristiancmoises/zupt/releases/latest)
-for publication status, the tag and checksums.
-
-The first full VM run on `60f1931` stopped at the source-distribution tests:
-verbose Make output caused eight fault-injection checks to mistake an echoed
-recipe for a successful archive report. The producers returned the expected
-errors. The focused test correction passes all 17 controls with verbose Make;
-that focused result did not complete an aggregate run. No product C code or
-packaging rejection criteria changed. The later run on `fc55c0f` passes those
-17 controls, the 20 DEB helper controls and 55 RPM helper controls, then stops
-because the private Jasmin wrapper cannot find `taskset`. That run is failed,
-not a completed `release-check`; remaining analyses and GUI stages were not
-reached. The separately executed formal checks above retain their own evidence.
-
-At `b25a486`, all 13 executed [Linux CI jobs](https://github.com/cristiancmoises/zupt/actions/runs/43167556216)
-and both [native Windows/macOS package gates](https://github.com/cristiancmoises/zupt/actions/runs/43167838085)
-pass. The reusable native dispatch and optional diagnostic jobs were skipped.
-Their package and source artifacts are internal CI outputs, not an official
-release or acceptance of final public `.zupt` bundles. Those results predate
-the native package-documentation corrections below. At these source-publication
-checks, `git.securityops.com.br` rejected the push during unpacking; the other
-three mirrors verified the source commits. A later normal atomic push of
-`3e50a65` succeeded on all four mirrors, with signature verification recorded;
-the earlier unpacking failure remains historical.
-
-At `3e50a65`, all 13 [Linux CI jobs](https://github.com/cristiancmoises/zupt/actions/runs/43188511397)
-and the [native macOS job](https://github.com/cristiancmoises/zupt/actions/runs/43189296339)
-pass. The Windows job in that native run fails in the permission fixture
-described below. These dated results do not qualify later source or packages.
-
-The affected native DEB/RPM package helpers, GUI installer, Guix recipes,
-portable bundle, Windows bundle and both macOS DMG locations require both user
-guides plus SECURITY, DISTRIBUTION, AUDIT, INSTALL and THREAT_MODEL: seven
-documentation pages. The portable bundle requires a 20-file inventory. The
-installed-documentation checker retains explicit Windows/macOS profiles; it
-compares bytes and package versions in a trusted, private, quiescent tree. The
-earlier `7fe4eb5` Linux suite collects 30 cases: 29 pass and the native
-NT-junction case is skipped. The expanded working-tree suite defines 32 cases,
-including two GUI-installer staging regressions. Its local Linux run before this
-documentation update passes 31 cases and skips the native NT-junction case. The
-earlier six Windows/macOS recipe-staging controls pass without executing the
-placeholder CLI. These local results do not qualify final packages; each changed
-revision requires fresh validation and native package CI.
-
-The later native Windows run on `3e50a65` reports 12 permission-fixture
-subtest failures: the checker accepts files after the fixture requests mode
-0600. Because that profile requires 0644, this points to a permission-change
-capability mismatch; the raw log does not print the observed mode. The
-read-only 0444 controls are rejected as intended. This failed fixture run does
-not qualify packages or establish a codec/cryptographic fault. The corrected
-fixture requires a fresh native run. The local correction separates read-only
-rejection from the owner-only capability check, with an explicit skip when
-0600 is not materialized; the checker criteria remain unchanged.
-
-The earlier full VM attempt on `166e215` fails despite passing the selected formal,
-SDK and nine static-analyzer checks. Packaging records 54 passes, one failure
-and three skips: image timestamps invalidate Guile's compiled caches and source
-loading exhausts the unchanged 128-descriptor limit. The same complete Guix
-CLI/GUI fixture passes with original store metadata, peaking at 12 descriptors;
-the image view reproduces the failure at 128. Earlier content-only image
-qualification did not establish timestamp correctness. Strict cleanup also
-rejects two adopted Git maintenance processes. Later GUI and sanitizer stages
-were not reached. The image producer's earlier exit 137 has no confirmed
-cause, and a subsequent host-supervised attempt (423) times out with exit 124.
-These failures remain recorded separately from the successful `b25a486` run;
-no resource limit or cleanup requirement was relaxed to obtain that pass.
-
-## Test-fixture file handling
-
-CodeQL reported three High path-race alerts in test fixtures on `fc55c0f`.
-The subsequent analysis of `b25a486` reports zero results across its five
-language analyses and zero open alerts. Findings #11, #12 and #13 are marked
-fixed with no dismissal. This is the analyzer's result for that source, not
-proof of an absence of vulnerabilities. The fixtures were hardened without
-changing production codec, archive or cryptographic code:
-
-- The format-fuzz fixture opens its owned mode-0700 directory once, opens the
-  input relative to that descriptor without following links or blocking on a
-  FIFO, and validates the same descriptor before reading it. Deterministic
-  replacement controls cover symlinks, permissions, FIFOs and ancestor renames.
-- The native key-read fixture requires an empty, owned mode-0700 directory and
-  pins its working directory before creating disposable keys. The Make target
-  also verifies that a rejected preexisting export retains both its inode and
-  independently expected bytes.
-
-The SDK read-stop fixture now captures initial and observed inode identity
-from the same open files used for writing and reading. Its 18 original cases
-and two deterministic inode-replacement regressions pass with GCC and Clang;
-pathname-stat mutations are rejected. The native fixture accepts only `ENOENT`
-as evidence of absence and attempts cleanup directly, checking the actual
-result. Its 66 original cases and separate absence/removal controls pass with
-both compilers. The hosted analysis confirms the three findings fixed;
-no alert was suppressed or dismissed.
-See the [English fixture checks](docs/USER_GUIDE.md#test-fixture-file-handling)
-and [Portuguese fixture checks](docs/GUIA_USUARIO.pt-BR.md#manuseio-de-arquivos-nos-fixtures-de-teste)
-for executable targets and the limits of these checks. Later source changes
-require their own analysis.
-
-Native macOS compilation of `a52c79d` exposed a separate header-policy issue:
-the strict POSIX namespace hides `O_NOFOLLOW` in its SDK. Both the standalone
-fixture and its generated capture translation unit must enable Darwin
-extensions before their first system header. The modeled controls exercise
-missing and late definitions as failures; the real no-follow operation and
-strict compiler flags remain required. The native macOS DMG and installed-image
-gate passes at `166e215`.
-
-The Fedora RPM check also exposed a compiler-scratch interaction: its inherited
-GCC LTO flags caused the newly generated capture child to fail when compiled
-after the test exported a spaced mutation directory as `TMPDIR`. Compiler
-scratch and runtime fixture paths must remain separate, without stripping LTO
-or other caller flags. The fixture must still exercise paths with spaces.
-Fedora also selects a newer POSIX feature level through libc headers; including
-the fixture must preserve that level rather than redefine it after the headers.
-The Fedora CLI/GUI RPM and SRPM gate passes at `166e215` after these corrections.
-
-Source-policy and distribution fixtures configure only their temporary Git
-repositories to keep automatic maintenance in the foreground. Maintenance
-remains enabled. Actual old fixtures leave adopted Git processes; corrected
-source-policy and 17 distribution-state controls pass strict process cleanup.
-The two-commit export setup passes too, but the complete private export replay
-times out at 120 seconds. The next-source archive CI and full VM run must still
-pass. See the existing user-guide fixture sections for executable commands.
-
-## Earlier formal evidence, reviewed 2026-10-30
-
-The 2026-10-30 UTC repeat of all six maintained Frama-C targets passes on the
-frozen 294-file source after the five ANS guard corrections: decoder bounds,
-reader, frequencies, logarithm, logarithm bounds and fixed-vector AES. The
-tools are Frama-C 29.0, GCC 14.3.0, Why3 1.7.2 and recognized Z3 4.12.2.
-Each target retains its own model, caller assumptions and exact result
-checks; these conditional results do not prove the whole application.
-
-The 2026-10-30 UTC ordinary Jasmin 2026.09.0 repeat on the same source
-passes compilation, safety, CT, DOIT, lowering and generated/runtime
-instruction comparisons for all five selected sources. Seven tools/libraries
-match the pinned package members. Two environment rejections, four warning
-controls, seventeen wipe controls, 1,026 AES/OpenSSL blocks and 1,539 CTR4
-cases pass. This is selected source qualification under the documented
-preconditions, not whole-program verification, final-package acceptance or
-the separate `WITH_JASMIN=1` application integration check. Raw logs and
-source/tool integrity checks are retained. Later documentation edits are
-outside the measured snapshot.
-
-## Local precommit checks, 2026-10-28
-
-On the subsequent 294-file source snapshot, the actual static-analysis script
-passes nine checks with GCC 14.3.0; its three optional cppcheck scans are
-`NOT RUN` because cppcheck is absent. Distribution-state controls pass 17
-cases, publication tests pass 21, and DEB/RPM helper controls pass 20/55.
-The source-policy scan passes over 294 files and zero archives. Source, tool
-and supervisor integrity checks pass before and after execution. Package
-helpers use tool doubles; these results do not qualify native installations.
-Later documentation and signing-key instructions are outside that snapshot.
-
-## Fortified SDK test coverage, 2026-10-29
-
-The first hosted 5.2.10 runs failed the SDK temporary-path test because
-fortified GCC calls bypassed its plain `snprintf` interceptor. The test now
-intercepts glibc's checked entry points too, preserving their format flags and
-destination bounds. No production code, compiler hardening or rejection
-criteria change. The original 26 cases remain; two glibc-only controls check
-valid output and rejection of an inconsistent reported destination bound.
-The latter uses a physically sufficient buffer, requires the expected libc
-abort and diagnostic, and rejects sanitizer errors or unrelated signals.
-
-Strict full `sdk-test` runs pass with GCC 14.3.0 and Clang 22.1.8, each with
-ordinary flags and explicit `_FORTIFY_SOURCE=2` and `3`. Each profile passes
-all 28 temporary-path cases. A private mutation that discards the forwarded
-object bound fails only the new rejection control; the original 26 still
-pass. These local results do not replace the required hosted Ubuntu rerun,
-native package tests or final release qualification. See the reproduction
-commands in the [English SDK section](docs/USER_GUIDE.md#sdk-callback-tests)
-and [Portuguese SDK section](docs/GUIA_USUARIO.pt-BR.md#testes-de-callbacks-do-sdk).
-
-## ANS exact-output bounds
-
-Five sequence-copy guards now compare the remaining destination length before
-forming wide-copy pointers. API and frame grammar are unchanged. The retained
-three malformed metadata fixtures and five exact-output sequence cases pass
-`test-frama-ans-decode-bounds`: Frama-C 29.0, production scalar path,
-`gcc_x86_64`, 558/983 statements in 16/95 functions, zero alarms and 63 valid
-preconditions with zero unknowns or invalids. Six exact fixture witnesses
-exclude allocation-only or pruned-success approvals. All 82 synthetic result
-controls pass. Restoring only the four old match guards in a private control
-produces four invalid-pointer alarms and the Makefile target rejects it.
-
-The analysis uses Frama-C libc models and raw-literal sequences with
-single-symbol sequence tables. It is not a general decoder, Huffman or SIMD
-proof; native and sanitizer runtime checks remain separate. Reproduction
-commands and assumptions are in the [English guide](docs/USER_GUIDE.md#ans-exact-output-bounds)
-and [Portuguese guide](docs/GUIA_USUARIO.pt-BR.md#limites-ans-com-saída-de-tamanho-exato).
-The corrected 294-file source passed strict GCC 14.3.0 and Clang 22.1.8
-`test-all` plus the in-tree SDK, license and symbol targets on 2026-10-27 UTC.
-Both compilers also passed focused native and scalar/AVX2 ANS exact-output
-ASan/LSan/UBSan tests. A separate GCC `WITH_JASMIN=1` build passed the full
-suite and SDK targets with verified `Jasmin AES-NI` vector dispatch. Each
-profile records 15 explicit skips and passed isolation, real sanitizer
-negatives, diagnostic and source/input-integrity checks. No product stage
-recorded OOM, a PID-limit event or a surviving descendant. These are bounded
-self-review results; full `release-check` and final-package acceptance remain
-pending. The guides record reproduction commands, omissions and retained
-earlier image/time-limit failures.
-
-The following earlier full-suite results predate these five guard changes.
-Full `release-check` and final-package acceptance remain separate requirements.
-
-## Earlier GCC and GUI runtime checks, 2026-10-23
-
-On 2026-10-23 UTC, the actual strict GCC 14.3.0 `test-all` passes on a frozen
-294-file source snapshot in the disposable 2-CPU/2-GiB VM. Its 15 explicit
-skips cover native Windows, privileged devices, unavailable shell/manual
-tools, the Clang-specific ABI model and optional external integrations.
-The run includes 81 ASan exact-size cases, 1,024 BCJ bijections, byte-exact
-BCJ L5/L9 round trips, timing regression and three ML-KEM/OpenSSL comparisons.
-The ordinary CLI is not wholly instrumented by that ASan test.
-
-A separate VM passes 64 current GUI tests, 33 historical reference tests and
-six bootstrap controls with PySide6/Shiboken6/Qt 6.9.2. The compiler is kept
-outside this smaller guest: a bounded compile-only namespace produces the
-byte-identical CLI and sanitizer controls, which execute only in the VM.
-All 16 isolation controls, three real sanitizer negatives, ordered completion
-records, diagnostic gates and source/input checks pass. The target envelope
-remains 768 MiB, 16 tasks and 512 MiB of scratch space.
-
-The old Qt inputs are absent. A full Qt image hit the existing 128-MiB file
-limit before VM creation; that failed attempt remains recorded. The smaller
-runtime image fits without increasing any limit or dropping runtime library
-dependencies. An earlier comparison against a decoder predating the current
-literal bounds also failed; the corrected private reference tests only the
-cast changes and retains all four bounds. No executable project code changed.
-These are automated self-review results, not an independent audit. Final
-documentation follows the runtime snapshot. Fresh Clang repetition, broader
-formal review, full `release-check` and final-package acceptance remain pending.
-
-## ANS frequency-validation checks
-
-`make test-frama-ans-frequencies` is a required `release-check` dependency.
-The 2026-10-22 Frama-C 29.0/recognized Z3 4.12.2 run passes 23 exact WP JSON
-goals, including three unsigned-overflow conditions, under initialized,
-readable and separated-input assumptions. The guarded annotations do not
-change the C body or replace caller analysis in other profiles. Reader and
-metadata gates retain their previous exact results. A private acceptance
-mutation is rejected with one unproved postcondition; that is not a solver
-counterexample or proof of caller safety.
-
-Strict scalar GCC 14.3.0/Clang 22.1.8 tests pass eight new frequency vectors
-and 80 synthetic reporting controls. The direct 79,560-state ANS suite and
-eight vectors also pass ASan/LSan/UBSan in the bounded disposable VM, with
-real negatives and exact source/object/ordered-completion checks. Separate
-CLI/SDK/interoperability checks pass in their stated profiles. A private
-16-bit accumulator mutation passes old tests and fails the new wrap case.
-See the English/PT-BR user guides for reproduction commands and assumptions.
-Final documentation is outside these runtime snapshots. These checks do not
-establish general ANS caller safety or qualify full suites, final packages,
-the complete program or production release. The earlier 14-unknown count is
-historical, not a refreshed inventory of today's tree.
-
-The subsequent decode-table test checks 16,785,408 entries over all 4,097
-frequency splits between symbols 0/255 and a uniform 256-symbol table. Strict
-scalar GCC/Clang and bounded-VM ASan/LSan/UBSan runs pass; a targeted private
-width mutation passes old tests and fails the expanded test. The private WP
-table experiment is not adopted: 109 valid JSON goals, 17 timeouts and three
-`memset`/Typed-model warnings remain. A dependent postcondition marked valid
-does not discharge unproved loop invariants. These are proof gaps, not 17
-confirmed vulnerabilities. The new runtime coverage is finite-family
-characterization, not a general table, caller or complete-decoder proof.
-
-## Bounded ANS logarithm proof
-
-`make test-frama-ans-logarithm` is now a required `release-check` dependency.
-It analyzes the original shift-based `ilog2`, not the rejected division
-variant. Guarded annotations require an input below 4096 and establish zero
-handling, result range 0–11 and the exact power-of-two interval for each
-positive input. They do not change the helper's runtime behavior or impose a
-new public caller contract. Callers outside this bounded profile still need
-their own analysis.
-
-The maintained profile also requires two table-related postconditions for
-positive inputs: `1 <= (1 << (result + 1)) - input <= 2048` and
-`1 <= 12 - result <= 12`. Twelve guarded return assertions split the first
-bound into fixed-shift intervals. Each assertion is a proof obligation;
-none is an assumed lemma. The redundant OR-bound loop invariant and all
-previous assumptions remain unchanged.
-
-The 2026-11-05 focused run with Frama-C 29.0, Why3 1.7.2 and recognized Z3
-4.12.2 proves all **64 exact JSON goals**, with **66/66** in the console:
-the original 50, twelve assertions and two postconditions. Raw scripts and
-JSON remain in the gate output. A separate false aggregate bound leaves
-only that goal unproved; the analyzer exits zero and the strict gate exits
-two. This does not establish the table builder's or its callers' contracts.
-Reader and frequency profiles retain their 30 and 23 exact valid goals.
-
-The validator requires every goal identity and rejects non-integer, zero or
-multiple `subgoals` when a row claims one proved goal. All **166 synthetic
-controls** pass: the 138 cases present before this extension and 28 missing
-or unproved-goal cases. Ignoring assertion verdicts fails twelve controls.
-The earlier 132-case result and its nine-failure subgoal mutation remain
-historical results. Synthetic reports are not C proofs. GCC 14.3.0 and Clang
-22.1.8 preprocessing and complete `-O2 -g0` objects match the baseline for
-both default and selected-logarithm profiles; source bytes differ only in
-the reviewed annotations and their profile guard.
-
-The frozen 2026-11-11 integrated snapshot passes all six maintained Frama-C
-profiles and the five-source Jasmin checks. Analyzer, gate, collector and
-source-integrity statuses pass separately. Documentation updates at that
-checkpoint followed the snapshot without changing analyzed C, formal
-fixtures or the Makefile. Later shell-supervisor corrections need their
-own native checks.
-
-The fresh 2026-11-12 UTC sequence passes all six maintained Frama-C profiles
-and the ordinary five-source Jasmin gate on the 294-file snapshot containing
-the Windows installation-fixture correction. Analyzer, gate, collector and
-all source-integrity statuses pass separately. Its 55 protected source files
-are unchanged from `193d8c0`; the earlier annotation-only difference from the
-older baseline retains its exact admission. The preceding full sequence's
-bounds-analyzer exit 137 and its separate same-limit passing rerun remain
-recorded. The fresh full pass does not establish the cause of that exit or a
-whole-program proof; the documented models and general caller obligations
-still apply.
-
-At `193d8c0`, [CI run `43120157608`](https://github.com/cristiancmoises/zupt/actions/runs/43120157608)
-passes all 13 Linux jobs, including native DEB, openSUSE and Fedora package
-checks. The [macOS diagnostic `43120237551`](https://github.com/cristiancmoises/zupt/actions/runs/43120237551)
-passes all 19 exact-size/BCJ supervisor and 80 threaded controls. The native
-macOS DMG job also passes its mounted/installed-image checks. Windows is still
-running at this checkpoint; final assets and later source changes require
-separate acceptance.
-
-The preceding Windows run at `6089467` failed only the installation fixture's
-legacy-link assertion. Strict native-link selection and a copied-alias
-negative control retain the original link/content requirements. Run
-`bash tests/test_completions_manpage.sh`: the current local tool-complete run
-passes 45 checks without skips. Controlled models pass 43 checks with two tool
-skips; a private mutation replacing `-L` with `-f` fails the new regression.
-These modeled results are not native Windows qualification.
-
-The separate static non-PIE Linux build from `193d8c0` passes compilation,
-staged installation, the exact 20-file licensed export, static ELF and
-non-executable-stack checks. Fixed-text store-less round trips pass at levels
-1 and 9. Final package qualification remains open. A later VM-image producer
-exited 137 during its final comparison; the cause remains unconfirmed. A
-separate complete read-only comparison qualified its contents for a disposable
-VM test. That VM booted, passed the observed isolation and sanitizer controls,
-and stopped at the verbose distribution-test failure described above. The
-original producer failure remains recorded; these results do not qualify the
-final package. Earlier VM results retain their original source and
-configuration limits.
-
-The original integration's strict GCC 14.3.0 and Clang 22.1.8 `check` plus
-installed-CLI functional smoke pass on the integrated 294-file snapshot,
-with 11 and 10 explicit skips.
-Each run first rejects a real fatal UBSan overflow control. This qualifies
-the contained UBSan fuzz-build checks, not a fully instrumented CLI or new
-ASan/LSan campaign. Skips cover native Windows, five external-SDK cases,
-privileged loop devices, unavailable zsh/fish/manual tools and, for GCC only,
-the Clang-specific bionic model. GCC preprocessing remains byte-identical
-across default/frequency/logarithm profiles. Scalar whole `-O2 -g0` objects
-match baseline with each selected compiler, GCC and Clang.
-Runtime C, API, ABI and wire format are unchanged. Table construction,
-general callers, whole-program correctness, complete `test-all`/
-`release-check`, platform packages and production approval remain separate.
-Final documentation is outside the runtime snapshot. See the EN/PT-BR user
-guides for the commands and exact proof assumptions.
-
-## Earlier 2026-10-23 qualification repeat
-
-The ordinary Jasmin 2026.09.0 source gate passes again on the captured
-294-file source snapshot. The five safety/constant-time/DOIT analysis groups
-and regenerated/runtime instruction comparisons pass, as do 1,026 AES block
-cases and 1,539 AES4 cases. Three executables and four APRON libraries match
-the retained hash-pinned package members. Two exact environment rejection
-controls, four synthetic warning-screen controls and seventeen wipe-checker
-controls also pass. The namespace retains two-CPU affinity, 1 GiB per-process
-address space, 120 CPU seconds, a 125+5 second outer deadline and 128 MiB
-scratch. These are not aggregate cgroup quotas. No tools were installed.
-This repeat is not new UBSan coverage, application integration, a fresh
-upstream signature audit, a C caller proof or final-package qualification.
-
-At that earlier checkpoint, the ANS floor-log investigation remained private
-and incomplete. A bounded
-division-by-two variant passes 48 exact WP JSON goals (50/50 console), but
-its GCC whole object differs from the maintained shift variant under the
-same `-O2 -g0` profile. It was not adopted. A deliberately false postcondition
-is rejected by the exact-result gate despite analyzer exit zero. Object
-inequality alone is neither a functional failure nor a measured performance
-regression. The maintained C, API and wire format remain unchanged.
-
-With the original shift restored, scalar GCC/Clang ANS tests pass again,
-including the 79,560-state reader and 16,785,408 table entries. Preprocessed
-C and whole objects match the baseline in their stated comparison profiles.
-The private reporting extension passes 120 synthetic controls; those test
-the supervisor, not the C theorem, and are not a new published proof gate.
-At that snapshot the stronger shift-based proof still timed out on bit-mask
-reasoning, so no experimental annotations or refactorings were adopted.
-The later bounded proof above resolves this helper profile only.
-Historical results remain separate; these checks do not close general table
-or caller obligations, full release checks, packages or production approval.
-Final documentation is outside these runtime snapshots.
-
-## Source-only review
-
-The 5.2.10 baseline retains the source-only boundary introduced in 5.2.2, which
-removed incomplete SDK/PQBOX header snapshots and local precompiled-library
-expectations. Git and new upstream source
-archives are intended to contain no compiled executable, object, shared/static
-library, distribution package, unsafe symlink, or unresolved Git LFS pointer.
-
-Run the same scanner over each representation:
-
-```sh
-# tracked files and working tree
-scripts/check-source-only.sh
-
-# committed Git tree or immutable tag
-scripts/check-source-only.sh --tag HEAD
-scripts/check-source-only.sh --tag v5.2.10
-
-# generated source archive
-scripts/check-source-only.sh --archive /path/to/zupt-5.2.10.tar.gz
-```
-
-The scanner checks extensions and magic bytes, nested archives, symlink targets,
-LFS pointers, generated compiler output, and stale vendor-library references.
-It reports paths without printing file contents. Its negative tests include
-renamed ELF, ar, PE/MZ, versioned `.so`, RPM/DEB/AppImage, escaping symlinks,
-and LFS pointers; textual assembly is a permitted source type.
-
-Archive inspection must also fail closed at bounded recursion depth, member
-count, individual expanded size, and total expanded size so a nested archive or
-decompression bomb cannot turn the release scanner into an unbounded resource
-consumer. On committed Linux candidate `ff99770`, this hardening and its
-adversarial fixtures passed all 39 source-only scanner cases, including GNU
-thin-archive and safe-diagnostic-path cases.
-
-An unknown `.bin` fails by default. A necessary binary data fixture can be
-declared only through `--data-manifest`, with four tab-separated fields for
-path, purpose, provenance, and SPDX license. That manifest does not override a
-compiled/executable magic finding.
-
-An artifact is not clean merely because it has a harmless extension. Conversely,
-binary image data is not executable code: the documented GUI icon assets are
-necessary data and are reviewed separately for purpose, provenance, and license.
+The default production CLI remains C11 with `WITH_SDK=0 WITH_PQBOX=0`.
+Optional system SDK/PQBOX integrations, generated Jasmin code, different CPU
+features and native packages require their own stated test scope. A successful
+source check does not establish binary reproducibility or target-platform
+acceptance. SPDX-marker checks do not establish complete provenance, patent
+clearance or redistribution rights.
 
 ## Reproducible project checks
 
-The baseline gates are:
+Use a clean source copy for each compiler or instrumentation profile. Check
+source and licenses before creating build output:
 
 ```sh
+make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 audit-licenses source-audit
+bash tests/test_source_only.sh
 make clean
-make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf 1)" \
-  WITH_SDK=0 WITH_PQBOX=0 V=1
-make WITH_SDK=0 WITH_PQBOX=0 check
-make WITH_SDK=0 WITH_PQBOX=0 test-all
+make -j2 WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 V=1
+make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 check
+make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-all
 make sdk-test
+make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-asan-run
 ```
 
-Relevant review layers include:
+Repeat the applicable profile with `CC=gcc` and `CC=clang`. Building
+`test-asan` alone does not execute sanitizer tests. Record complete diagnostics,
+commands, tool versions, revision, target and exit status. `SKIP`, `NOT RUN`,
+`BLOCKED` and a failed check are distinct outcomes; none is a passing required
+gate.
 
-| Layer | Evidence source | Interpretation |
+| Review layer | Public entry point | Scope and prerequisites |
 |---|---|---|
-| Source boundary | `scripts/check-source-only.sh`, `tests/test_source_only.sh` | Fails on prohibited artifacts or unsafe source layout |
-| Primitive vectors | `tests/test_vectors.c` | Known-answer regression for implemented primitives |
-| ML-KEM interoperability | `tests/test_mlkem_fips203.sh` | Runs only with an ML-KEM-capable OpenSSL 3.5+; otherwise `SKIP` |
-| Archive behavior | quick/regression, traversal, argument-order, block-swap, nonce, and exact-size tests | Exercises current parser, integrity, and round-trip properties |
-| Password sources | `tests/test_password_sources.sh` | Exercises password-file, inherited-descriptor and explicit-prompt rejection paths without logging password contents |
-| Key files | native key regressions | Exercises no-replace private-file creation, POSIX mode `0600`/Windows current-user-only DACL, failed-partial behavior, checksum, and exact ZKEY/ZPQK version/flags/reserved/size/role validation |
-| SDK key publication | `make sdk-test` | Exercises atomic descriptor/handle-backed key copies, POSIX private/public modes, and symlink/hardlink target preservation; this now runs in `release-check` and hosted GCC/Clang Linux CI |
-| Terminal output | archive-comment regression | Requires displayed untrusted comments to contain no raw terminal-control sequence |
-| Prompt cleanup | PTY signal regression | Requires handled POSIX interruption to restore the saved terminal state |
-| Sanitizers | `make test-asan-run` | Builds and executes separate ASan/UBSan/LSan evidence where supported; not a substitute for normal tests |
-| Static analysis | compiler analyzer, cppcheck, scan-build, clang-tidy where installed | Tool-specific findings must be reviewed, not suppressed globally |
-| Shell and metadata | shellcheck, SPDX/license checks, packaging syntax checks | Applies only when the named tool actually executed |
-| Source reproducibility | two `make dist` runs with identical committed input and epoch | Requires equal SHA-256 digests and clean archive scans |
-| Installed package | target-native package inspection and `scripts/test-installed-zupt.sh` | Applies only to the exact OS/release/architecture tested |
+| Source and licenses | `audit-licenses`, `source-audit`, `tests/test_source_only.sh` | Scan clean source representations and retain failures; generated binaries are not source. |
+| CLI and archive behavior | `check`, `test-all`, `scripts/test-installed-zupt.sh` | Parser, integrity, traversal, round trips, password input, key-file and terminal-state regressions. |
+| In-tree SDK | `sdk-test` | Callback and file-I/O tests, atomic key publication and path/permission regressions; distinct from external SDK integration. |
+| Sanitizers | `test-asan-run`, focused exact-size and ANS targets | Execute instrumented code and retain diagnostics; instrumentation and platform scope must be explicit. |
+| Static analysis | `CC=gcc bash tests/test_static_analysis.sh` | Compiler analysis and installed optional analyzers; tool absence is not a clean result. |
+| GUI | `check-gui`, `test-portable-gui` | Requires a working supported Qt binding and matching CLI; offscreen checks do not replace installed native package tests. |
+| Installed documentation | `test-installed-docs` and package checks | Exact required English/Portuguese guides, licenses and source/document byte comparisons. |
+| Formal and generated assembly | Targets below | Selected C models and five Jasmin modules; separate prerequisites and open obligations apply. |
+| Source reproducibility | Two `make dist` runs with identical committed input and epoch | Require matching digests and clean source scans; the public full-source `.zupt` has a separate raw-Git content contract. |
+| Native packages | Platform CI and `scripts/test-installed-zupt.sh` | Inspect, install, test and remove the exact packages on each claimed OS/release/architecture. |
 
-This table identifies evidence layers rather than results. Missing tools, OBS
-access, other architectures, Leap, and SLE must not be reported as passing
-without evidence.
+The aggregate `release-check` additionally requires the maintained formal and
+assembly gates. `check` and `test-all` remain distribution-friendly entry points
+and do not replace those release conditions. See
+[DISTRIBUTION.md](DISTRIBUTION.md#release-page-artifacts) for the complete
+publication requirements.
 
-## Prior 5.2.2 committed-candidate local Linux evidence
+## Source-only review
 
-The following upstream self-audit results apply only to the 5.2.2 candidate at
-commit `ff99770` on the recorded local Linux environments. The immutable 5.2.2
-tag was not promoted after post-tag CI integration failures. These results are
-not independent certification, a 5.2.8 result, or evidence that release assets
-were published.
+Audit both committed source and exported inputs before compilation:
 
-| Gate | Result | Recorded evidence |
+```sh
+bash scripts/check-source-only.sh --tree .
+bash scripts/check-source-only.sh --tag HEAD
+bash scripts/check-source-only.sh --archive /path/to/zupt-5.2.10.tar.gz
+```
+
+The archive option checks internal/forge tar inputs. Verify and extract public
+`.zupt` bundles with a trusted desktop CLI, then compare their contents against
+the signed raw Git source as described in [DISTRIBUTION.md](DISTRIBUTION.md#source-bundle-and-reproducible-build-inputs).
+The scanner rejects compiled artifacts, unsafe links and unresolved LFS
+pointers. It does not establish complete provenance, concurrent-tree safety or
+binary acceptance. Repeat source-only scans on clean source copies after
+runtime work; generated build output is an expected finding.
+
+## Formal verification
+
+The maintained profiles use Frama-C 29.0, Why3 1.7.2 and recognized Z3 4.12.2
+with their required GCC machine model, and Jasmin 2026.09.0. Follow each script's
+version and architecture checks. The ordinary Jasmin runtime fixtures need the
+required AES-NI and OS-enabled AVX features on x86_64 Linux. A missing tool,
+unrecognized prover or unavailable required CPU feature is a blocker for that
+profile.
+
+```sh
+make -j1 CC=gcc WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 \
+  test-frama-ans-decode-bounds test-frama-ans-reader \
+  test-frama-ans-frequencies test-frama-ans-logarithm \
+  test-frama-ans-log-bounds test-frama-aes-nist
+make -j1 CC=gcc WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 \
+  test-jasmin-source-wrapper test-jasmin-wipe-checker test-jasmin-source
+```
+
+| Frama-C target | Analyzed scope | Important boundary |
 |---|---|---|
-| Full project gate | PASS | `make release-check` completed successfully on `ff99770`, including the late key-file, terminal-comment, password-prompt, explicit-Bash, and scanner-limit regressions. |
-| Packaging policy/syntax | PASS | `PASS=49 FAIL=0 SKIP=0`. |
-| Source-only scanner adversarial suite | PASS | 39/39, including GNU thin archives, bounded archive expansion, and safe diagnostic cases. |
-| Strict compilers and compiler analyzer | PASS | GCC and Clang strict builds passed; GCC `-fanalyzer` passed. |
-| Static-analysis suite | PASS | 9/9 in the full tool-enabled run. A separate reduced-environment `release-check` run completed six available checks and reported `cppcheck` unavailable; unavailable tooling was not relabelled as a pass. |
-| Dynamic analysis | PASS | ASan, UBSan, and LSan runs passed. |
-| Mutation fuzzing | PASS | 1,000 mutation iterations completed without a sanitizer-detected crash. |
+| `test-frama-ans-decode-bounds` | Actual scalar sequence match-copy path with exact-output-tail fixtures under Eva | Selected scalar paths and input geometry, not every SIMD path or arbitrary decoder input. |
+| `test-frama-ans-reader` | Conditional reader init/take WP contracts; 30 exact non-smoke goals | Buffer, bit-state and caller preconditions remain obligations outside the model. |
+| `test-frama-ans-frequencies` | Actual frequency validator; 23 exact non-smoke WP goals | Requires 256 readable initialized frequencies and a separate writable output integer. |
+| `test-frama-ans-logarithm` | Scalar shift-based logarithm for `0 <= v < 4096`; 64 exact non-smoke WP goals | Bounded helper theorem; does not prove that every caller supplies the modeled domain. |
+| `test-frama-ans-log-bounds` | Eva checks of logarithm ranges used by ANS | Selected range assertions and preconditions, not complete table construction. |
+| `test-frama-aes-nist` | Portable AES on four fixed NIST blocks, with 64 output-byte checks | Fixed-vector execution/model coverage, not arbitrary-key AES or the full archive pipeline. |
 
-An earlier off-screen GUI smoke run remains supporting evidence, but is not
-represented as an exact-`ff99770` GUI-package result. The immutable 5.2.3
-candidate was not promoted because its source-policy test assumed LF for a
-Windows `.bat` checkout that correctly used CRLF.
+The five Jasmin units are `mac_verify`, `mlkem_select`, `aes_ctr`, `aes_ctr4`
+and `x25519_fe`. The source gate runs its safety, constant-time, DOIT and lowering
+checks, compares regenerated instructions with checked-in assembly, and executes
+generated AES fixtures against reference outputs. Caller preconditions, buffer
+sizes and aliasing assumptions remain part of the result. Wipe-store checking
+covers the pinned emitted sequence, not register erasure or physical side
+channels. C sanitizer fixtures do not instrument assembly or provider programs.
 
-## Prior 5.2.4 exact-tag integration evidence
+`WITH_JASMIN=1` runtime integration must be qualified separately. Neither that
+flag nor an assembly-only test establishes source verification, and source
+verification does not qualify every final packaged binary.
 
-GitHub Actions exact-tag run `33431386002` completed 12 jobs successfully. Its
-sole failed job was the openSUSE gate: the standalone `Serviceinfo` harness did
-not change into the directory containing `_service` before executing the
-service chain. Dependent native Windows and macOS jobs were therefore skipped,
-and v5.2.4 was not promoted. The tag and its record remain immutable.
+### ANS exact-output bounds
 
-A separate local openSUSE Tumbleweed reproduction resolved the explicit
-`refs/tags/v5.2.4` revision to the tagged commit and, after
-`os.chdir(service_dir)`, completed `obs_scm`, `tar`, and `recompress`. It
-produced exactly one `zupt-5.2.4.tar.gz`, which passed the source-only scanner.
-This isolates a release/test harness defect; it is not evidence of a product,
-archive-format, cryptographic, codec, or SDK ABI change. It also does not turn
-the skipped native jobs into passes or transfer any result to 5.2.8.
+Run `make test-ans-decode-bounds` for native exact-tail regressions and
+`make test-ans-allocation` for allocation, reader and table checks. The tests
+cover the maintained malformed metadata cases, two-symbol frequency splits and
+a uniform 256-symbol table. They do not prove arbitrary three-or-more-symbol
+tables, all source spans or every caller contract.
 
-## Prior 5.2.5 exact-tag native-gate evidence
+General table construction, width/count invariants, source spans, refill and
+caller obligations still need a traceable disposition. An exploratory broader
+ANS WP analysis retained timeouts and warnings; a valid postcondition does not
+close unproved loop invariants. Unknowns, alarms and open obligations must be
+resolved or explicitly justified in the formal review before publication.
 
-The immutable `v5.2.5` candidate was not promoted. Exact-tag GitHub Actions run
-`33434986357` completed 13 jobs successfully, while its native Windows and
-macOS jobs failed. The Windows regression did not preserve every requested
-hostile path byte across its command-line boundary. The macOS gate exposed both
-an unavailable `explicit_bzero` assumption and Bash 3.2 empty-array behavior in
-the source scanner exercised by `make check`.
+## Test-fixture file handling
 
-The 5.2.6 corrections select the existing compiler-resistant volatile wipe on
-Darwin and NetBSD, guard every relevant scanner array, and make the Windows
-fixture accept explicit hexadecimal bytes, verify the full requested path in
-the archive, and reject each dangerous raw byte fragment anywhere in diagnostic
-output. These changes do not alter the archive format, cryptography, bundled
-codec, or SDK ABI.
+Maintained fixtures use private temporary directories, reject unsafe links and
+preserve meaningful child/tool failures. Result-parser and injected-failure
+controls test the test infrastructure; they are not substitutes for real
+compiler, sanitizer, analyzer, package or GUI execution.
 
-A separate local compatibility run executed the corrected scanner with genuine
-GNU Bash 3.2.57 in a clean clone. All four exercised modes completed: the
-repository audit reported 609 files and one archive; `--tree` reported 204/0;
-`--archive` reported 201/1; and `--root` plus `--tag v5.2.5` reported 810/2.
-This is targeted scanner compatibility evidence only, not exact-v5.2.6 or
-v5.2.8 hosted CI, package, native-platform, or promotion evidence.
+Useful focused entry points include `test-fuzz-harness`,
+`test-native-key-read-errors`, `sdk-test-read-stop`, `test-packaging-failures`
+and `test-dist-source-state`. The in-tree SDK callback tests are part of
+`sdk-test`. Run the actual tool or native workflow in addition to any wrapper
+or compiler-double regression.
 
-## Prior 5.2.6 exact-tag native-gate evidence
+## Experimental Rust varint
 
-The immutable `v5.2.6` candidate was not promoted. Exact-tag GitHub Actions run
-`33442264243` completed 13 jobs successfully and failed two native jobs. On
-macOS arm64, the strict SHA-NI regression build diagnosed x86-only helper
-declarations as unused under `-Werror`. On Windows, argv transcoding of the safe
-printable UTF-8 fixture caused the path regression to abort before its intended
-archive and diagnostic assertions.
+The gradual Rust work is limited to `rust/varint`, a separate experimental
+`no_std` canonical unsigned base-128 integer library. It has no external crates,
+allocation, FFI, build scripts or unsafe code. It is not an archive verifier and
+is not linked into the production C11 CLI or installed packages. Normal builds,
+`check` and installation do not require Rust.
 
-The 5.2.7 changes scope those helper declarations to supported x86 builds and
-carry the safe UTF-8 fixture across the Windows argument boundary without
-locale-dependent byte conversion. These are test/release integration changes,
-not archive-format, cryptographic, codec, or SDK ABI changes.
+With Rust/Cargo 1.93 or newer, rustfmt, Clippy, Bash and a C compiler/linker with
+function/data-section garbage collection available, run:
 
-## Prior 5.2.7 exact-tag native-gate evidence
+```sh
+make test-rust-varint
+make audit-rust-varint
+```
 
-The immutable `v5.2.7` candidate was not promoted. Exact-tag GitHub Actions run
-`33445470664` concluded `cancelled` at `2026-08-31T23:11:19Z`, with 13
-successful jobs, one failed macOS job, and one cancelled Windows job. The macOS
-runner filesystem rejected creation of the
-raw-C1 filename fixture with `EILSEQ`. The hosted Windows job stalled in `make
-check`; a MinGW/Wine reproduction isolated the cause to
-`test --password-prompt ... </dev/null` entering `_getch`, and the remaining
-native job was cancelled.
+The test target builds an oracle from the actual `src/zupt_format.c` translation
+unit, then runs locked/offline Cargo tests in debug and release with two jobs.
+It compares successful C/Rust encodings, values and consumed lengths; errors
+compare acceptance/rejection rather than C partial-output or stream-position
+state. The audit target runs the public Cargo checks:
 
-The 5.2.8 fixture treats that creation refusal as an explicit `SKIP`; on a
-filesystem that accepts the byte, the scanner must still reject the compiled
-magic and render the path without emitting the raw C1 byte. No result from the
-immutable tag transfers automatically to 5.2.8. The Windows prompt correction
-rejects a redirected/non-console standard input before entering `_getch` and
-adds a native EOF regression; it also requires fresh exact-candidate evidence.
+```sh
+cargo fmt --manifest-path rust/varint/Cargo.toml --all -- --check
+cargo clippy --manifest-path rust/varint/Cargo.toml \
+  --locked --offline --all-targets --jobs 2 -- -D warnings
+```
 
-## 5.2.8 CodeQL High path-race corrections
+Use the Make test target to prepare the required C oracle. These checks are not
+coverage-guided fuzzing or formal verification. Miri, RustSec scanning and a
+Rust formal verifier are outside the recorded profile; Frama-C and Jasmin do
+not prove this Rust implementation.
 
-CodeQL High #5 identified SDK key-copy publication that reopened the output
-path and then applied `chmod` to that mutable name. The copy now uses the core
-atomic publisher, sets POSIX mode on the open temporary descriptor, checks
-read/close/publication failures, and replaces only the destination directory
-entry. `sdk-test` covers symlink and hardlink sentinels and expected key modes.
+<!-- Stable fragment links from earlier editions. -->
+<a id="zupt-5210-audit-guide-and-finding-history"></a>
+<a id="current-validation-reviewed-2026-11-12"></a>
+<a id="earlier-formal-evidence-reviewed-2026-10-30"></a>
+<a id="local-precommit-checks-2026-10-28"></a>
+<a id="fortified-sdk-test-coverage-2026-10-29"></a>
+<a id="earlier-gcc-and-gui-runtime-checks-2026-10-23"></a>
+<a id="ans-frequency-validation-checks"></a>
+<a id="bounded-ans-logarithm-proof"></a>
+<a id="earlier-2026-10-23-qualification-repeat"></a>
+<a id="prior-522-committed-candidate-local-linux-evidence"></a>
+<a id="prior-524-exact-tag-integration-evidence"></a>
+<a id="prior-525-exact-tag-native-gate-evidence"></a>
+<a id="prior-526-exact-tag-native-gate-evidence"></a>
+<a id="prior-527-exact-tag-native-gate-evidence"></a>
+<a id="528-codeql-high-path-race-corrections"></a>
 
-CodeQL High #6 identified the POSIX disk-restore `lstat`-then-`open` sequence.
-Restore now opens once with `O_NOFOLLOW` and without truncation, classifies that
-descriptor with `fstat`, and retains the same raw-device descriptor through
-capacity checks and writes. Regular-file destinations retain the existing
-atomic publisher.
 
-CodeQL High #7 identified benchmark cleanup's `lstat`-then-recursive-path
-sequence. POSIX cleanup now pins each component with `openat` and removes leaves
-with `unlinkat`; Windows pins ancestors/children, opens reparse points without
-following them, recurses only into a plain directory held against rename, and
-after emptying a directory reopens it relative to the pinned parent, verifies
-its volume and file index against the traversal handle, and marks only that
-identity-checked handle for deletion. The live-workspace
-regression injects a directory symlink and verifies that its external sentinel
-survives. These are reviewed fixes and regression coverage, not independent
-certification by themselves; the exact-tag evidence is recorded below.
+## Recorded validation and historical results
 
-The C/C++ default-branch analysis of commit `69fc26b` closed #5, #6, and #7,
-then reported High #8, #9, and #10 solely in the newly added SDK regression:
-its sentinel and mode checks used `stat`/`lstat` before later path operations.
-Each individual content or metadata check now opens without following links
-and uses `fstat` or reads through that already-open descriptor. A static guard
-rejects a return to path-level `stat`/`lstat` in this test. The subsequent
-C/C++ default-branch scan run `33452563116` completed successfully at commit
-`7a8e5c5`; alerts #5 through #10 are fixed, and the authenticated
-code-scanning API reported zero open alerts.
+The following records have revision-specific scope. They are not approval of a
+later source tree, package set or platform, and do not replace a release's
+signed source, current CI and artifact checks.
 
-Manual pre-tag CI run `33452602634` at the same functional commit completed 14
-of 15 jobs successfully. Linux compilers, analyzers, sanitizers, source policy,
-reproducibility, DEB, RPM/SRPM, portable bundles, and the native macOS DMG gate
-passed. On Windows, source audit, build, and `make check` passed; the subsequent
-smoke failed only when the old MSYS `grep` tried to match a literal non-BMP
-filename after ZUPT had compressed and verified all five inputs. Independent
-MinGW/Wine reproduction confirmed that the redirected ZUPT listing contained
-the exact UTF-8 bytes. The gate now creates the non-BMP name through byte
-escapes, verifies Latin-1/BMP/non-BMP listing bytes without locale-sensitive
-matching, and requires extraction plus a full tree diff. The path-confinement
-regression independently constructs the BMP/non-BMP archive name from ASCII
-hex and requires byte-exact listing and extraction.
-
-Because that pre-tag run failed, it remains diagnostic evidence rather than
-release approval. The immutable `v5.2.8` tag at
-`ebb9ab3aa1d42c50030ca02883f6162dc4771fe1` repeated the complete suite in
-manually dispatched run `33456209269`: all 15 jobs passed, including native
-Windows/macOS, the pinned local OBS service chain, source reproducibility,
-DEB/RPM/SRPM, installed-package, sanitizer, analyzer, and source-only gates.
-The canonical source archive was reproduced at 798296 bytes with SHA-256
-`378b9506211545b9594cf0d38ac8955d9b1cac34eb6b379ae0ec26b84edb65f7`.
-
-Initial promotion run `33457344882` stopped before release creation because
-its validator incorrectly assumed that an SRPM's `%{ARCH}` must be `src`.
-Both artifacts were genuine source packages: `%{SOURCEPACKAGE}` was `1`,
-`%{SOURCERPM}` was absent, each payload was exactly its Source0 plus spec, and
-each binary RPM referenced the matching SRPM. Commit `33eb904` changed the
-gate to those canonical metadata and payload checks. Corrected promotion run
-`33457868306` then validated the same tag-bound artifacts and published exactly
-13 assets. No asset was rebuilt to pass promotion. These are reproducible
-project records, not independent certification.
+| Record | Observed result | Limit |
+|---|---|---|
+| 5.2.10 source `31fb1d6`, [Linux CI](https://github.com/cristiancmoises/zupt/actions/runs/43746152365) and [native package CI](https://github.com/cristiancmoises/zupt/actions/runs/43746354466) | 13 Linux jobs and the two native Windows/macOS package jobs completed successfully. | Separate diagnostic jobs/wrappers were skipped; these results predate subsequent documentation changes. |
+| 5.2.10 source `31fb1d6`, local maintained formal checks | Six Frama-C targets and the five-source Jasmin gate completed within the recorded aggregate source check. | Only the models and assumptions above; optional/platform skips and final-artifact obligations remain separate. |
+| Earlier bounded continuous-fuzz campaign | Failed its resource limit; individual replay inputs later completed. | A replay is not a successful continuous campaign, and later passes do not reclassify that failure. |
+| Broader exploratory ANS table WP analysis | Incomplete: timeouts and warnings remained. | Not a general decoder/table proof; unproved invariants remain open. |
+| 5.2.2–5.2.7 candidates | Not promoted after the recorded source-policy, service-directory or native fixture failures/cancellations. | Immutable historical candidates, not substitutes for current source or package evidence. |
+| 5.2.8 [exact-tag CI](https://github.com/cristiancmoises/zupt/actions/runs/33456209269) and [promotion](https://github.com/cristiancmoises/zupt/actions/runs/33457868306) | The recorded 15-job matrix passed and the tested asset set was promoted. | Applies to that release's source, signatures and original formats only. |
 
 ## Cryptographic review boundary
 
@@ -749,7 +244,7 @@ should be rerun, but the historical resolution does not itself constitute a
 | 5.2.2 | Medium | An authenticated archive comment could still inject terminal control sequences when displayed | Render untrusted comment bytes in a terminal-safe form without changing the authenticated archive value |
 | 5.2.2 | Medium | A signal during an interactive POSIX password prompt could leave terminal echo/state altered | Restore saved terminal settings on handled interruptions; cover the behavior with a PTY regression |
 | 5.2.2 | Test reliability | `tests/regression.sh` used Bash syntax without making the interpreter contract explicit | Execute the suite explicitly with Bash and keep syntax/interpreter checks in release gates |
-| 5.2.2 | Documentation/licensing | Current documentation incorrectly denied historical MIT grants visible in published Git history | Added a factual erratum: current source follows current SPDX notices, while earlier grants and immutable tags remain valid and unmodified |
+| 5.2.2 | Documentation/licensing | Earlier documentation incorrectly denied historical MIT grants visible in published Git history | Added a factual erratum: current source follows current SPDX notices, while earlier grants and immutable tags remain valid and unmodified |
 | 5.2.8 | High | CodeQL #5: SDK key copies changed permissions through a re-resolved destination path | Publish through the core atomic output object and apply permissions to its open descriptor; run link-target/mode regressions through `sdk-test` |
 | 5.2.8 | High | CodeQL #6: POSIX disk restore classified a pathname before reopening it destructively | Open without truncation or symlink following, classify with `fstat`, and retain the same device descriptor through write |
 | 5.2.8 | High | CodeQL #7: benchmark cleanup classified entries before recursively resolving their path | Traverse pinned descriptors/handles, refuse link/reparse traversal, remove entries relative to pinned parents, and verify Windows directory identity before handle deletion |
@@ -761,26 +256,22 @@ from current branches and new tags.
 
 ## Packaging review
 
-The openSUSE package must build the immutable source tag with
-`WITH_SDK=0 WITH_PQBOX=0`, preserve distribution flags and debuginfo, run a real
-`%check`, install through `DESTDIR`, and omit the renamed-era `vaptvupt` alias from
-the main package. Review the built RPM for dependencies, paths, permissions,
-RPATH/RUNPATH, hardening, debug information, licenses, and unowned files, then
-test it after installation in a disposable target environment.
+Build packages from the signed source revision with declared system dependencies,
+preserve distribution flags and debuginfo, run a real package check, and install
+through `DESTDIR`. Inspect dependencies, paths, permissions, RPATH/RUNPATH,
+hardening, debug information, licenses and unowned files. Test installation,
+round trips and removal in a disposable native target environment.
 
-New public source and Linux CLI archives use verified, unencrypted `.zupt`
-files with signed SHA-256 manifests. Fresh DEB/RPM/SRPM outputs require their
-own builds, payload/dependency checks and extracted or installed smoke tests.
-Internal RPM/OBS tarballs and CI artifacts are build/audit inputs rather than
-new public release downloads. AppImage is not promoted by the 5.2.10 policy;
-unbuilt GUI installers, bare executables and untested Windows/macOS binaries
-are excluded. Historical platform evidence is not inherited by this version.
+The five public bundles use genuine unencrypted level-9 `.zupt` containers;
+DEB/RPM/SRPM retain their native formats. Internal tar/ZIP/DMG inputs and CI
+artifacts must be bound by hashes to the final assets. A cross-build, extracted
+package check, offscreen GUI run or Wine result does not replace the required
+native platform/package gate. Unsupported Windows extended/device paths, raw
+UNC output roots and mapped/network-drive outputs remain outside the support
+boundary.
 
-No Wine result is retained as release evidence for 5.2.10. Cross-compilation
-does not establish native-Windows behavior. Extended-length/device namespace
-paths, raw UNC output roots, and mapped/network-drive output are unsupported;
-the native Windows workflow remains a publication gate for the ZIP containing
-the executable.
+See [DISTRIBUTION.md](DISTRIBUTION.md) for source exports, required notices,
+artifact types and release conditions.
 
 ## Known limitations
 

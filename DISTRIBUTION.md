@@ -8,13 +8,11 @@ executed, `BLOCKED` for missing prerequisites with a recorded reason, and
 `SKIP` for intentional optional or platform exclusions. An unexecuted or
 blocked required gate still blocks publication.
 
-Consult the [latest official release](https://github.com/cristiancmoises/zupt/releases/latest)
-for publication status, the tag, assets and checksums. Historical 5.2.9
-artifacts retain their original formats. The withdrawn 5.2.10 delivery and its
-old source/package pins must not be treated as final artifacts. New bundles
-must use genuine level-9 `.zupt`
-containers; native DEB/RPM/SRPM keep their package formats. Record the final
-signed runtime tag and actual build commit separately for every artifact.
+ZUPT 5.2.10 uses desktop archive format 1.6. The
+[release page](https://github.com/cristiancmoises/zupt/releases) identifies the
+signed tag, assets and checksums. Public bundles use genuine unencrypted
+level-9 `.zupt` containers; DEB/RPM/SRPM keep their native package formats.
+Record the signed runtime tag and actual build commit for each artifact.
 
 The canonical repository is:
 
@@ -27,45 +25,10 @@ GitHub is the canonical source and release host. Packaging must never fetch
 
 ## Historical validation (not 5.2.10 evidence)
 
-The `v5.2.2`, `v5.2.3`, `v5.2.4`, `v5.2.5`, `v5.2.6`, and `v5.2.7` tags are
-immutable non-promoted candidates.
-The v5.2.3 source-policy test assumed LF for a Windows `.bat` file that Git
-correctly checks out as CRLF. Exact-tag GitHub Actions run `33431386002` then
-recorded 12 successful v5.2.4 jobs, one openSUSE service-harness failure caused
-by its working directory, and skipped dependent Windows/macOS jobs. A local
-Tumbleweed reproduction confirmed that `refs/tags/v5.2.4` is valid and that
-entering the service directory completes the source-service chain. Corrective
-working-directory integration was carried by v5.2.5, whose exact-tag GitHub
-Actions run `33434986357` completed 13 jobs successfully but failed the native
-Windows and macOS jobs. Its v5.2.6 corrections reached exact-tag run
-`33442264243`, where 13 jobs succeeded but macOS arm64 failed on unused x86
-SHA-NI test-helper declarations under `-Werror`, and Windows aborted during safe
-UTF-8 fixture argv transcoding. Version 5.2.7 corrected those failures, but
-exact-tag run `33445470664` ended with 13 successful jobs, a macOS raw-C1
-fixture failure with `EILSEQ`, and a cancelled Windows job after the hosted job
-stalled in `make check`; a MinGW/Wine reproduction isolated a non-console
-password-prompt hang in `_getch`. Manual 5.2.8 pre-tag run `33452602634`
-subsequently passed 14 of 15 jobs, including native macOS and the complete
-Windows distribution checks, before an old MSYS `grep` non-BMP pattern failed
-in the later smoke. ZUPT's redirected listing was byte-correct; the corrected
-gate uses byte-exact, locale-independent checks and requires extraction plus a
-full tree diff. The failed run is diagnostic evidence only.
-Exact-tag run `33456209269` subsequently passed all 15 jobs at
-`ebb9ab3aa1d42c50030ca02883f6162dc4771fe1`, including the pinned local OBS
-source-service chain, native
-Windows/macOS, and every package gate. Promotion run `33457868306` published
-the exact tested 13-file set; the source archive SHA-256 is
-`378b9506211545b9594cf0d38ac8955d9b1cac34eb6b379ae0ec26b84edb65f7`.
-Corrective packages and release assets use `v5.2.8`; never move or
-overwrite an earlier tag or checksum, and never transfer prior evidence
-automatically. Version 5.2.8 corrects those native test boundaries, hardens
-three path-race boundaries, and adds the SDK regression to release/hosted Linux
-gates. The archive format, cryptography, codec, and SDK ABI remain unchanged.
-
-Version 5.2.9 updates the bundled codec to 2.65.11 and adds Brazilian
-Portuguese documentation. Distribute it only when its annotated tag, complete
-hosted/native matrix, reproducible source digest, and artifact promotion record
-exist. No 5.2.8 result transfers automatically.
+Historical releases retain their immutable tags, original formats, signatures
+and revision-specific test outcomes. See the [audit history](AUDIT.md#recorded-validation-and-historical-results)
+and [CHANGELOG.md](CHANGELOG.md). Prior successes, failures or diagnostic
+replays do not qualify a different source revision or package set.
 
 ## Source-only boundary
 
@@ -251,13 +214,10 @@ distribution; a successful GUI DEB gate does not imply an RPM gate, or vice vers
 
 ### Portable and native release artifacts
 
-The planned public Linux x86_64 `.zupt` must bundle a tested static-musl `zupt`
-CLI with complete application/codec/runtime licenses and notices. This is an
-acceptance requirement, not an artifact already approved for publication.
-The current Linux CI job builds a dynamically linked glibc CLI; that result
-does not satisfy the static-musl requirement. A pinned local Guix musl 1.2.6
-toolchain is now available with GCC 14.3.0. Final-source binary validation,
-runtime-license inventory and native package acceptance remain release gates.
+The public Linux x86_64 `.zupt` must bundle a tested static-musl `zupt` CLI
+with complete application, codec and runtime licenses and notices. Validate the
+final-source binary and its runtime inventory; a dynamically linked glibc build
+does not satisfy this static-musl profile.
 Inspect the link map and ELF dependencies: a compiler name or static ELF alone
 does not establish which libc and startup objects were used. Bundled runtime
 notices must retain the complete musl copyright file, applicable source-specific
@@ -322,8 +282,7 @@ content to be committed to Git or included in the source archive.
 ### AUR, Homebrew, Guix, and Nix
 
 Use only source and packaging pins matching the selected official release.
-The withdrawn 5.2.10 pins are not final installation instructions. Before
-distribution, derive each recipe's source URL and checksum from the final
+Before distribution, derive each recipe's source URL and checksum from the final
 signed runtime tag and record the actual recipe commit.
 
 Before the tag exists, run branch or pull-request CI with the default
@@ -347,15 +306,14 @@ the suite in the Guix builder or testing the installed CLI and GUI.
 
 ## Release-page artifacts
 
-The source-only policy applies to Git and the source bundle. The five planned
+The source-only policy applies to Git and the source bundle. The five
 5.2.10 level-9 `.zupt` bundles are source, Linux x86_64 CLI, Windows x86_64 CLI,
 macOS arm64 CLI DMG, and portable GUI frontend. CLI/GUI DEB/RPM/SRPM packages
 retain their standard formats. No new tar.gz, tar.xz or ZIP is manually uploaded
 as a public bundle. Historical 5.2.9 formats remain historical.
 
-Tests of the withdrawn 5.2.10 packages remain historical evidence. Native
-Windows/macOS, GUI and distribution-package checks must be rerun against the
-final source and assets. Local extracted DEB/RPM checks are not native
+Native Windows/macOS, GUI and distribution-package checks must cover the
+selected final source and assets. Local extracted DEB/RPM checks are not native
 Ubuntu/openSUSE installations. Platform and optional skips remain skips;
 neither old CI results nor skipped checks approve the new release.
 
@@ -387,9 +345,9 @@ Use `SHA256SUMS`, `SHA256SUMS.asc` and `release-key.asc`; verify the current
 5.2.10 fingerprint independently: `0CFA43B9AA9642EAAF2BE983C4C661C9ECFB46E8`.
 The registered legacy key `CF8BA569591B6E7F4D24B0736C95BFAE0646DCCA` remains
 applicable to earlier artifacts signed with it. Preserve their signatures and
-release-specific verification instructions. The current configured key was
-checked against the maintainer's registered GitHub public keys; confirm the
-forge's signature status separately before publication.
+release-specific verification instructions. Verify the expected key identity
+and the forge's signature status separately before publication; a valid local
+OpenPGP signature alone does not establish forge recognition.
 An absent asset or mismatched checksum is unpublished/unverified, not a reason
 to redirect to an older file. Never describe a missing signature as verified.
 
