@@ -2,10 +2,10 @@
 ;;; Copyright (c) 2026 Cristian Cezar Moisés
 ;;;
 ;;; GNU Guix package definitions for ZUPT (CLI + PySide6 GUI).
-;;; Development recipe: the origin below still pins the withdrawn 5.2.10
-;;; delivery, commit 24995eb7652a31eedc46386bab14c63cbb31e050, not the current
-;;; working source. Repin only after the official source has passed its gates;
-;;; these local phase corrections do not validate that remote archive.
+;;; Post-tag recipe pin: immutable v5.2.10 source commit
+;;; 31fb1d613fc65c8f824f628f965b95b404911df1.
+;;; The generated forge archive was compared to git archive of that commit.
+;;; This packaging-only follow-up does not change the release tag.
 ;;; New public release bundles use .zupt; no new tarball is uploaded.
 ;;; Source-only build (no vendored libraries): the CLI links only libc/libm/
 ;;; pthread from the store.
@@ -77,7 +77,7 @@
           "https://github.com/cristiancmoises/zupt"
           "/archive/refs/tags/v" %zupt-version ".tar.gz"))
     (sha256
-     (base32 "1z78q52n9l7fmlcpbzjijswyj4ml343a7izjv7714iayp8q1rs1m"))))
+     (base32 "0dr1lj7n9ly221p0g455axbfr0p2482qwgva66y755zyrhjxns0k"))))
 
 (define-public zupt
   (package

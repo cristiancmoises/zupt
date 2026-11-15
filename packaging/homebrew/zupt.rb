@@ -3,7 +3,7 @@
 # Homebrew formula for ZUPT.
 #
 # Post-tag recipe pin: immutable v5.2.10 source commit
-# 24995eb7652a31eedc46386bab14c63cbb31e050.
+# 31fb1d613fc65c8f824f628f965b95b404911df1.
 # The generated forge archive was compared to git archive of that commit.
 # This packaging-only follow-up does not change the release tag. Do not
 # upload a new public tarball; 5.2.10 release packages use .zupt.
@@ -29,7 +29,7 @@ class Zupt < Formula
   homepage "https://github.com/cristiancmoises/zupt"
   url "https://github.com/cristiancmoises/zupt/archive/refs/tags/v5.2.10.tar.gz"
   version "5.2.10"
-  sha256 "35e81c30ba5e4512ced9f2c7a30619b412e9b99651fe7519adeed06445c1e8fc"
+  sha256 "1368db25ccfe9772bc316a3f8e0522e282ec5657a590076e10c2d3648fa42137"
   license all_of: ["AGPL-3.0-or-later", "GPL-3.0-or-later", "BSD-2-Clause", "BSD-3-Clause", "CC0-1.0"]
 
   depends_on "python@3.12" => :test  # only for test-suite tamper harness
