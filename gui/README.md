@@ -4,10 +4,8 @@
 [Português do Brasil](../DOCUMENTACAO.pt-BR.md#interface-gráfica)
 
 The ZUPT GUI is a Python/Qt front end for the command-line program.
-Version 5.2.10 is in development; the official published version remains
-[5.2.9](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.9).
-The earlier 5.2.10 delivery was withdrawn. The instructions for its planned
-packages below do not identify available official downloads.
+Download matching CLI and desktop packages from the
+[5.2.10 release page](https://github.com/cristiancmoises/zupt/releases/tag/v5.2.10).
 The GUI starts the CLI as a subprocess; compression, archive parsing, and
 cryptography remain in the C program.
 
@@ -26,8 +24,7 @@ Install and test the source-only CLI first:
 
 ```sh
 make clean
-make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf 1)" \
-  WITH_SDK=0 WITH_PQBOX=0
+make -j2 WITH_SDK=0 WITH_PQBOX=0
 make WITH_SDK=0 WITH_PQBOX=0 check
 ./zupt --version
 ```
@@ -134,9 +131,7 @@ test scripts still require the source checkout.
 
 ## Packaged GUI builds
 
-The planned 5.2.10 GUI delivery is limited to the following formats.
-None is approved for publication until its fresh package and installed
-off-screen GUI/CLI integration gates pass:
+The 5.2.10 desktop packages use these formats:
 
 - `zupt-gui_5.2.10_all.deb`;
 - `zupt-gui-5.2.10-1.noarch.rpm`;
@@ -146,13 +141,10 @@ off-screen GUI/CLI integration gates pass:
 The DEB/RPM packages install the Python/Qt source and depend on the matching
 `zupt` CLI package. The portable `.zupt` contains source, launchers, icons,
 licenses, provenance, bilingual guides and linked policies; it bundles no Python, Qt, CLI, or compiled
-runtime. Its gate scans the assembled and extracted trees, enforces an exact safe-member
-allowlist, and runs the extracted launcher off-screen against the tested CLI.
-An absent artifact did not pass its gate and must not be inferred from another
-format's result.
+runtime. Install Python, Qt and the matching CLI separately.
 
 After verifying the signed inventory and checksums as described in
-[INSTALL.md](../INSTALL.md#planned-5210-bundles-and-verification), use a trusted
+[INSTALL.md](../INSTALL.md#5210-bundle-formats-and-verification), use a trusted
 desktop Zupt decoder and a new extraction directory:
 
 ```sh
