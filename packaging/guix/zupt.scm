@@ -2,17 +2,13 @@
 ;;; Copyright (c) 2026 Cristian Cezar Moisés
 ;;;
 ;;; GNU Guix package definitions for ZUPT (CLI + PySide6 GUI).
-;;; Post-tag recipe pin: immutable v5.2.10 source commit
-;;; 31fb1d613fc65c8f824f628f965b95b404911df1.
-;;; The generated forge archive was compared to git archive of that commit.
-;;; This packaging-only follow-up does not change the release tag.
-;;; New public release bundles use .zupt; no new tarball is uploaded.
+;;; Source: signed v5.2.10 at 0165fbd78faf78046d49e004622820ef79061f17.
+;;; Pin the forge-generated source archive; portable release bundles use .zupt.
 ;;; Source-only build (no vendored libraries): the CLI links only libc/libm/
 ;;; pthread from the store.
 ;;;
 ;;; Install into your profile (additive; keeps everything else):
 ;;;     guix package -f packaging/guix/zupt.scm                ; installs the GUI
-;;;     guix package -e '(@ (guix) …)'  — or, for the CLI on its own:
 ;;;     guix install -f packaging/guix/zupt.scm                ; (last expr = GUI)
 ;;; The last expression is the GUI, which carries the CLI as an input; to get
 ;;; the `zupt` command in your profile too, also run:
@@ -77,7 +73,7 @@
           "https://github.com/cristiancmoises/zupt"
           "/archive/refs/tags/v" %zupt-version ".tar.gz"))
     (sha256
-     (base32 "0dr1lj7n9ly221p0g455axbfr0p2482qwgva66y755zyrhjxns0k"))))
+     (base32 "1a4llhi8yzpafq13r3mg53qn2lh1m45hrsigywky5ngrkm2yfmgp"))))
 
 (define-public zupt
   (package
