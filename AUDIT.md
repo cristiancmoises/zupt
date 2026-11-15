@@ -17,6 +17,10 @@ source check does not establish binary reproducibility or target-platform
 acceptance. SPDX-marker checks do not establish complete provenance, patent
 clearance or redistribution rights.
 
+AppImage packages are outside the 5.2.10 release artifact matrix. Portable
+executables are distributed in bundles with their required runtime notices;
+bare Windows executables are not release assets.
+
 ## Reproducible project checks
 
 Use a clean source copy for each compiler or instrumentation profile. Check
