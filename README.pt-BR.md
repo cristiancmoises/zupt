@@ -3,62 +3,82 @@
 
 [English](README.md) | [Português do Brasil](README.pt-BR.md)
 
-O ZUPT é um arquivador de backups com compressão VaptVupt, criptografia
-autenticada, operação com múltiplas threads e interface gráfica opcional em
-Python/Qt. O aplicativo de linha de comando é escrito em C11.
+O ZUPT é um arquivador de backups em C11 com compressão VaptVupt e
+criptografia autenticada opcional. Reúne arquivos e diretórios em contêineres
+`.zupt`, oferece processamento com múltiplas threads e conta com uma interface
+de desktop em Python/Qt.
 
-Este checkout documenta o **ZUPT 5.2.10**. Para obter pacotes publicados e suas
-somas de verificação, use a [release oficial mais recente](https://github.com/cristiancmoises/zupt/releases/latest).
+[Downloads](https://github.com/cristiancmoises/zupt/releases/latest) ·
+[Instalação](INSTALL.md) · [Guia de usuário](docs/GUIA_USUARIO.pt-BR.md) ·
+[Site](https://zupt.securityops.co)
 
-| Versão | Referência | Codec VaptVupt integrado |
-| --- | --- | --- |
-| 5.2.9 | Histórico de versões | 2.65.11 |
-| 5.2.10 | Versão da fonte documentada aqui | 2.65.13 |
+## Instalação
 
-Fonte: [histórico de versões](CHANGELOG.md), conferido em 2026-11-12 UTC. A
-atualização está descrita no [guia de usuário](docs/GUIA_USUARIO.pt-BR.md) e nos
-[avisos do codec](THIRD-PARTY-NOTICES.md).
+Baixe os bundles da CLI, da interface gráfica e os pacotes nativos na
+[página de releases](https://github.com/cristiancmoises/zupt/releases/latest).
+Consulte [INSTALL.md](INSTALL.md) para requisitos de cada plataforma,
+verificação das somas de integridade e instruções de instalação.
 
-## Download e instalação
-
-Use a [página oficial de releases](https://github.com/cristiancmoises/zupt/releases/latest)
-para obter os pacotes disponíveis e suas somas de verificação. Siga o
-[guia de instalação](INSTALL.md) da sua plataforma e verifique os arquivos
-antes de executá-los. A versão indicada em uma fonte em desenvolvimento não
-identifica uma release.
-
-### openSUSE Tumbleweed
-
-O ZUPT está disponível pelo projeto comunitário OBS
-[`home:cabelo:innovators`](https://build.opensuse.org/project/show/home:cabelo:innovators).
-Selecione a distribuição e a arquitetura na
-[página do pacote openSUSE](https://software.opensuse.org/package/zupt). Confira
-o repositório correspondente e sua chave de assinatura antes de habilitá-lo.
-Após configurar esse repositório em um sistema não transacional:
-
-```sh
-sudo zypper refresh
-sudo zypper install zupt
-zupt --version
-```
-
-Para atualizar um pacote instalado, use `sudo zypper update zupt` e confira a
-transação proposta. Mantenha a verificação de assinaturas habilitada. São
-pacotes comunitários; isso não significa inclusão nos repositórios padrão da
-distribuição. Consulte as
-[instruções do Tumbleweed](docs/GUIA_USUARIO.pt-BR.md#instalação-no-opensuse-tumbleweed)
-para detalhes de repositório e atualização.
+- **openSUSE Tumbleweed:** os pacotes comunitários são mantidos no
+  [OBS `home:cabelo:innovators`](https://build.opensuse.org/project/show/home:cabelo:innovators);
+  consulte a [página do pacote](https://software.opensuse.org/package/zupt).
+- **GNU Guix:** o
+  [canal personalizado Security Ops](https://git.securityops.com.br/cristiancmoises/securityops-channel)
+  contém definições de pacotes e instruções de configuração do canal.
+- **Outras plataformas:** use os downloads ou compile a partir da fonte abaixo.
 
 Agradecemos a Alessandro de Oliveira Faria
 ([Cabelo](https://build.opensuse.org/users/cabelo)) pela ajuda na manutenção do
 pacote comunitário para openSUSE.
 
-### Compilação a partir da fonte
+## Linha de comando
 
-O build padrão precisa de compilador C11, GNU Make e bibliotecas de C,
-matemática e threads do sistema. O build não baixa dependências. A suíte de
-testes usa Bash e Python 3. O exemplo compila a branch de versão `5.2.10`;
-consulte o guia abaixo para fixar o build em uma tag publicada e assinada.
+Crie um arquivo, liste seu conteúdo, teste a integridade e restaure os dados:
+
+```sh
+zupt compress backup.zupt documentos/
+zupt list backup.zupt
+zupt test backup.zupt
+mkdir -p restaurado
+zupt extract -o restaurado backup.zupt
+```
+
+Para criptografar um backup, informe a senha de forma interativa:
+
+```sh
+zupt compress --password-prompt criptografado.zupt documentos/
+mkdir -p restaurado-criptografado
+zupt extract --password-prompt -o restaurado-criptografado criptografado.zupt
+```
+
+Arquivos sem criptografia detectam corrupção acidental, mas não oferecem
+confidencialidade nem autenticação criptográfica. Preserve os dados originais
+até conferir uma cópia restaurada. Consulte `zupt --help`, `man zupt` e o
+[guia de usuário](docs/GUIA_USUARIO.pt-BR.md) para arquivos de senha, criptografia
+pós-quântica e outras opções.
+
+## Interface de desktop
+
+Execute `zupt-gui` após instalar o pacote da interface gráfica. A GUI usa a
+CLI local e precisa de Python 3 com PySide6 ou PyQt6. Em uma cópia do código-fonte
+com essas dependências instaladas:
+
+```sh
+ZUPT_BIN="$PWD/zupt" python3 gui/src/zupt_gui.py
+```
+
+Consulte o [guia da GUI](gui/README.md) para configuração e uso no desktop.
+
+## Interface web
+
+Acesse o [ZUPT Web](https://zupt-web.securityops.co) para experimentar a
+interface no navegador. Os arquivos enviados são processados no servidor.
+Use exemplos sem dados sensíveis; para dados confidenciais, use a CLI ou
+a interface de desktop local.
+
+## Compilação a partir da fonte
+
+A CLI precisa de compilador C11 e GNU Make. Os testes também usam Bash e Python 3.
 
 ```sh
 git clone https://github.com/cristiancmoises/zupt.git
@@ -69,82 +89,32 @@ make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 check
 ```
 
 Consulte o [guia de compilação](docs/GUIA_USUARIO.pt-BR.md#compilação-a-partir-do-código-fonte)
-para instalação em staging, remoção, integrações opcionais e requisitos de
-plataformas.
+para requisitos de plataforma, instalação e integrações opcionais.
 
-## Uso básico
+## Documentação
 
-Crie, liste, verifique e extraia um arquivo:
+- [Guia de usuário em português](docs/GUIA_USUARIO.pt-BR.md) e [English user guide](docs/USER_GUIDE.md).
+- [Guia da GUI](gui/README.md) e [referência em português](DOCUMENTACAO.pt-BR.md).
+- [Política de segurança](SECURITY.md), [modelo de ameaças](THREAT_MODEL.md) e [guia de auditoria](AUDIT.md).
+- [Guia de distribuição](DISTRIBUTION.md) e [changelog](CHANGELOG.md).
 
-```sh
-zupt compress backup.zupt documentos/
-zupt list backup.zupt
-zupt test backup.zupt
-mkdir -p restaurado
-zupt extract -o restaurado backup.zupt
-```
+| Versão do ZUPT | Codec VaptVupt integrado |
+| --- | --- |
+| 5.2.9 | 2.65.11 |
+| 5.2.10 | 2.65.13 |
 
-Um arquivo sem criptografia detecta corrupção acidental; ele não oferece
-confidencialidade nem autenticação criptográfica. Para criptografar um backup,
-informe a senha de forma interativa:
+Fontes: [GitHub](https://github.com/cristiancmoises/zupt),
+[Security Ops](https://git.securityops.co/cristiancmoises/zupt),
+[Security Ops Brasil](https://git.securityops.com.br/cristiancmoises/zupt) e
+[Codeberg](https://codeberg.org/berkeley/zupt).
 
-```sh
-zupt compress --password-prompt criptografado.zupt documentos/
-zupt extract --password-prompt -o restaurado-criptografado criptografado.zupt
-```
+## Licença e contato
 
-Mantenha senhas e chaves privadas fora do histórico do shell e dos argumentos
-dos processos. O [guia de usuário](docs/GUIA_USUARIO.pt-BR.md#fluxo-da-linha-de-comando)
-explica arquivos de senha, descritores herdados, modos pós-quânticos e
-verificação da restauração. Use `zupt --help` ou `man zupt` para consultar as
-opções. Preserve os dados originais até conferir uma cópia restaurada.
+Copyright © 2025–2026 Cristian Cezar Moisés. O aplicativo e a GUI usam
+[AGPL-3.0-or-later](LICENSE-AGPL-3.0); os arquivos identificados do codec usam
+[GPL-3.0-or-later](LICENSE-GPL-3.0). As licenças e os avisos dos componentes estão
+em [LICENSE](LICENSE), [NOTICE](NOTICE) e [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
-Os bundles de software também usam `.zupt`. Verifique o bundle com `zupt test`
-antes de extraí-lo; a extração não restaura permissões de execução. Siga as
-[instruções dos bundles](docs/GUIA_USUARIO.pt-BR.md#uso-de-bundles-zupt) antes de
-executar um programa extraído.
-
-## Interfaces web e gráfica
-
-Experimente o [ZUPT Web](https://zupt-web.securityops.co) com arquivos de exemplo
-não sensíveis e credenciais descartáveis. Os dados enviados são processados no
-servidor. O serviço web tem versão, limites e fronteira de confiança próprios.
-
-A interface de desktop opcional executa a CLI local e precisa de Python 3 com
-PySide6 ou PyQt6. Consulte o [guia da GUI](gui/README.md) e os
-[fluxos documentados](docs/GUIA_USUARIO.pt-BR.md#interface-gráfica).
-
-## Documentação e testes
-
-- [Guia de usuário em pt-BR](docs/GUIA_USUARIO.pt-BR.md) e
-  [English user guide](docs/USER_GUIDE.md): instalação, comandos, compatibilidade,
-  solução de problemas e instruções completas dos testes.
-- [Guia de auditoria](AUDIT.md): checks executados, hipóteses e cobertura pendente.
-- [Guia de distribuição](DISTRIBUTION.md): conteúdo dos pacotes e gates de release.
-- [Política de segurança](SECURITY.md) e [modelo de ameaças](THREAT_MODEL.md).
-- [Changelog](CHANGELOG.md) e [documentação em português](DOCUMENTACAO.pt-BR.md).
-
-Os guias de usuário contêm os comandos dos testes, as ferramentas compatíveis
-e os limites da validação, incluindo Frama-C, Jasmin e sanitizadores.
-
-## Fonte, licença e contato
-
-Fontes: [Security Ops](https://git.securityops.co/cristiancmoises/zupt),
-[GitHub](https://github.com/cristiancmoises/zupt),
-[Codeberg](https://codeberg.org/berkeley/zupt) e
-[Security Ops Brasil](https://git.securityops.com.br/cristiancmoises/zupt).
-Site do projeto: [zupt.securityops.co](https://zupt.securityops.co).
-
-Copyright © 2025–2026 Cristian Cezar Moisés. O aplicativo e suas ferramentas
-usam **AGPL-3.0-or-later**; os arquivos identificados do codec integrado usam
-**GPL-3.0-or-later**. Preserve os avisos BSD, CC0 e de domínio público
-aplicáveis, os textos das licenças e os cabeçalhos SPDX de cada arquivo.
-Consulte [LICENSE](LICENSE), [NOTICE](NOTICE) e os
-[avisos de terceiros](THIRD-PARTY-NOTICES.md). As concessões anteriores para
-revisões publicadas específicas continuam registradas nesses materiais de
-licenciamento. O [licenciamento comercial](LICENSE-COMMERCIAL) é um aviso para
-consulta, sem substituir as licenças públicas.
-
-**Contato oficial: [sac@securityops.co](mailto:sac@securityops.co).** Este é o
-único e-mail oficial do projeto. `zupt@riseup.net` não tem relação com o ZUPT.
-Relate vulnerabilidades pela [política de segurança](SECURITY.md).
+**Contato oficial: [sac@securityops.co](mailto:sac@securityops.co).**
+Este é o único e-mail oficial do projeto. `zupt@riseup.net` não tem relação
+com o ZUPT. Relate vulnerabilidades conforme [SECURITY.md](SECURITY.md).
