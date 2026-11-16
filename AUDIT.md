@@ -90,6 +90,30 @@ pointers. It does not establish complete provenance, concurrent-tree safety or
 binary acceptance. Repeat source-only scans on clean source copies after
 runtime work; generated build output is an expected finding.
 
+## Timing measurement profile
+
+`make test-ct-timing` collects 400,000 observations per class for each
+comparator in all five rounds. Production, label-only, libc and early-exit
+comparisons use the same sample count and input preparation. The 10% crop,
+minimum control statistic of 400 and maximum target/control ratio of 0.20
+remain unchanged. All five matched control tuples must qualify; the target is
+decided from the median statistics. Weak or non-qualifying controls return 77;
+measurement or statistic errors return 2. Both outcomes fail `test-all`.
+
+This describes the maintained test update; the immutable `v5.2.10` source
+bundle retains its original 200,000-sample test. Use a checkout containing
+the expanded test when reproducing this profile. Application code and the
+archive format are unchanged.
+
+The earlier 200,000-sample Clang profile in
+[CI run 43812347201](https://github.com/cristiancmoises/zupt/actions/runs/43812347201)
+was inconclusive: one control statistic was 399.55. That failure remains in
+the CI record. The expanded profile completed once with GCC 14.3 and Clang
+22.1.8 locally; both accepted the real comparison and rejected a deliberately
+leaky target with exit 1. Those runs do not qualify different compilers,
+machines or workloads, or establish a constant-time proof. Sampling storage
+grows from 12.8 MB to 25.6 MB; repeat the measurement in the target environment.
+
 ## Formal verification
 
 The maintained profiles use Frama-C 29.0, Why3 1.7.2 and recognized Z3 4.12.2

@@ -24,7 +24,7 @@
 #include <math.h>
 
 #define TAG_LEN       32
-#define N_SAMPLES     200000
+#define N_SAMPLES     400000
 #define CROP_FRAC     0.10
 #define BATCH_SAMPLES 256
 #define MAX_LEN       2048

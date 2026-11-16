@@ -435,6 +435,13 @@ compila. Use uma cópia limpa para cada compilador ou configuração de
 sanitizadores. O scanner de fontes rejeita binários gerados: repita a análise
 em outra cópia limpa, sem tratar os resultados do build como código-fonte.
 
+O [perfil de medição de tempo](../AUDIT.md#timing-measurement-profile)
+atualizado coleta 400.000 observações por classe para todos os comparadores,
+em cinco rodadas, mantendo os critérios de aceitação. O bundle imutável
+`v5.2.10` mantém o teste original de 200.000 observações; use um checkout com
+o teste ampliado para reproduzir o novo perfil. Um resultado inconclusivo
+continua sendo falha do gate, e a medição não prova tempo constante.
+
 A validação de release também exige seis análises Frama-C mantidas e a
 verificação das cinco fontes Jasmin. Seus [modelos e requisitos](../AUDIT.md#formal-verification)
 têm escopo menor que uma prova do programa inteiro. Os alvos `check` e
