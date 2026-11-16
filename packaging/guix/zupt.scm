@@ -102,6 +102,7 @@
                   ;; time, after standard entry-shebang patching has completed.
                   (substitute*
                       '("tests/test_static_analysis_harness.sh"
+                        "tests/test_completions_manpage.sh"
                         "tests/test_crypto_test_wrappers.sh"
                         "tests/test_ct_timing_harness.sh"
                         "tests/test_kdf_transparency_harness.sh"
