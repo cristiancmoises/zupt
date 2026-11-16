@@ -190,7 +190,7 @@ linux-check/zupt-5.2.10-linux-x86_64/zupt --version
 ```
 
 A extração restaura conteúdos, não modos executáveis. Aplique `chmod u+x`
-somente a um binário já verificado. Para um bundle de fonte, inspecione a
+somente a executáveis já verificados. Para um bundle de fonte, inspecione a
 árvore antes de compilar:
 
 ```sh
@@ -198,6 +198,22 @@ zupt test zupt-5.2.10-source.zupt
 zupt extract -o source-check zupt-5.2.10-source.zupt
 find source-check -maxdepth 2 -type f -print | sort
 ```
+
+Antes de compilar e executar os testes dessa fonte extraída, entre na árvore
+verificada e restaure somente as permissões exigidas pelo checker e pelos três
+wrappers que executam a si mesmos por links simbólicos temporários:
+
+```sh
+cd source-check/zupt-5.2.10-source
+chmod u+x scripts/check-source-only.sh \
+  tests/test_frama_aes_nist_wrapper.sh \
+  tests/test_frama_ans_decode_bounds_wrapper.sh \
+  tests/test_jasmin_source_wrapper.sh
+```
+
+Depois siga as [instruções de compilação](#compilação-a-partir-do-código-fonte).
+Não torne toda a árvore extraída executável. Um checkout Git preserva os modos
+executáveis registrados.
 
 Não renomeie um tar arbitrário para `.zupt` e não trate um protótipo local como
 release oficial. Checksums e assinaturas pertencem ao artefato publicado exato.
@@ -403,11 +419,16 @@ e diagnósticos. Um `SKIP` opcional ou de plataforma indica cobertura não testa
 Verifique fontes e licenças antes de compilar; depois execute a suíte normal:
 
 ```sh
-make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 audit-licenses source-audit
+bash scripts/check-source-only.sh --tree .
+make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 audit-licenses
 make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 check
 make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-all
 make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-asan-run
 ```
+
+Em um checkout Git, execute também `make source-audit` para verificar o índice
+e o arquivo da revisão. Fontes extraídas usam o modo independente `--tree .`
+mostrado acima.
 
 `test-asan-run` executa o smoke test com sanitizadores; `test-asan` apenas o
 compila. Use uma cópia limpa para cada compilador ou configuração de

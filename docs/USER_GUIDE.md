@@ -187,7 +187,7 @@ linux-check/zupt-5.2.10-linux-x86_64/zupt --version
 ```
 
 `.zupt` extraction restores file contents, not executable modes. Apply execute
-permission only to a binary you have verified. For a source bundle, inspect
+permission only to verified executables. For a source bundle, inspect
 the extracted tree before building:
 
 ```sh
@@ -195,6 +195,11 @@ zupt test zupt-5.2.10-source.zupt
 zupt extract -o source-check zupt-5.2.10-source.zupt
 find source-check -maxdepth 2 -type f -print | sort
 ```
+
+Before building and running the audit tests from this extracted source, follow
+the [source permission setup](../INSTALL.md#build-and-test-from-source). It
+restores execute permission only on the source checker and three test wrappers;
+do not make the entire extracted tree executable.
 
 Do not rename an arbitrary tar archive to `.zupt`, and do not treat a local
 prototype as an official release. Release checksums and signatures belong to
@@ -398,11 +403,15 @@ An optional or platform-specific `SKIP` describes untested coverage.
 Run source and license checks before compilation, then the normal test suite:
 
 ```sh
-make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 audit-licenses source-audit
+bash scripts/check-source-only.sh --tree .
+make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 audit-licenses
 make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 check
 make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-all
 make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 test-asan-run
 ```
+
+In a Git checkout, also run `make source-audit` to check the index and committed
+archive. Extracted source uses the standalone `--tree .` check above.
 
 `test-asan-run` executes the sanitizer smoke test; `test-asan` alone builds it.
 Use a fresh source copy for each compiler or sanitizer configuration. The source

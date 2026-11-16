@@ -26,8 +26,14 @@ bare Windows executables are not release assets.
 Use a clean source copy for each compiler or instrumentation profile. Check
 source and licenses before creating build output:
 
+For an extracted `.zupt` source bundle, first follow the permission setup in
+[INSTALL.md](INSTALL.md#build-and-test-from-source). The three self-executing
+test wrappers need execute permission even when their initial invocation uses
+`sh`. A Git checkout already preserves these tracked modes.
+
 ```sh
-make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 audit-licenses source-audit
+bash scripts/check-source-only.sh --tree .
+make WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 audit-licenses
 bash tests/test_source_only.sh
 make clean
 make -j2 WITH_SDK=0 WITH_PQBOX=0 WITH_JASMIN=0 V=1
@@ -43,6 +49,10 @@ commands, tool versions, revision, target and exit status. `SKIP`, `NOT RUN`,
 `BLOCKED` and a failed check are distinct outcomes; none is a passing required
 gate.
 
+In a Git checkout, also run `make source-audit` to check the index and committed
+archive in addition to the working tree. This target requires Git metadata;
+the explicit `--tree .` check above works with extracted source bundles.
+
 | Review layer | Public entry point | Scope and prerequisites |
 |---|---|---|
 | Source and licenses | `audit-licenses`, `source-audit`, `tests/test_source_only.sh` | Scan clean source representations and retain failures; generated binaries are not source. |
@@ -56,9 +66,9 @@ gate.
 | Source reproducibility | Two `make dist` runs with identical committed input and epoch | Require matching digests and clean source scans; the public full-source `.zupt` has a separate raw-Git content contract. |
 | Native packages | Platform CI and `scripts/test-installed-zupt.sh` | Inspect, install, test and remove the exact packages on each claimed OS/release/architecture. |
 
-The aggregate `release-check` additionally requires the maintained formal and
-assembly gates. `check` and `test-all` remain distribution-friendly entry points
-and do not replace those release conditions. See
+The aggregate `release-check` requires a Git checkout and additionally runs the
+maintained formal and assembly gates. `check` and `test-all` remain
+distribution-friendly entry points and do not replace those release conditions. See
 [DISTRIBUTION.md](DISTRIBUTION.md#release-page-artifacts) for the complete
 publication requirements.
 

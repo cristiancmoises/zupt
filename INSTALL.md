@@ -112,12 +112,16 @@ not a statement that 5.2.10 has been accepted into each distribution repository.
 ## Build and test from source
 
 After verifying and extracting the source bundle above, enter and audit its
-tree, restoring only the selected helper's execute permission:
+tree. Restore execute permission on the source checker and the three test
+wrappers that execute themselves through temporary symlinks:
 
 ```sh
 cd source-check/zupt-5.2.10-source
-chmod u+x scripts/check-source-only.sh
-bash scripts/check-source-only.sh
+chmod u+x scripts/check-source-only.sh \
+  tests/test_frama_aes_nist_wrapper.sh \
+  tests/test_frama_ans_decode_bounds_wrapper.sh \
+  tests/test_jasmin_source_wrapper.sh
+bash scripts/check-source-only.sh --tree .
 ```
 
 A Git checkout retains tracked execute modes. For a release-pinned build,
@@ -125,7 +129,7 @@ select and verify a published signed tag as described in the
 [source-build guide](docs/USER_GUIDE.md#build-from-source). Build the source-only feature set with:
 
 ```sh
-scripts/check-source-only.sh
+scripts/check-source-only.sh --tree .
 make clean
 make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf 1)" \
   WITH_SDK=0 WITH_PQBOX=0 V=1
