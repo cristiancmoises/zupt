@@ -53,6 +53,23 @@ In a Git checkout, also run `make source-audit` to check the index and committed
 archive in addition to the working tree. This target requires Git metadata;
 the explicit `--tree .` check above works with extracted source bundles.
 
+To recheck cases skipped for missing tools in a CI image, run the relevant
+commands below from the source checkout. OpenSSL must expose ML-KEM-768. The
+completion and manual-page checks use Bash, Zsh, Fish, mandoc and GNU Make.
+The Guix phase test needs Guile with the Guix modules and GNU Make on `PATH`.
+
+```sh
+bash tests/test_mlkem_fips203.sh
+bash tests/test_completions_manpage.sh
+nix-instantiate --parse packaging/nix/flake.nix >/dev/null
+guile --no-auto-compile -q -s tests/test_guix_gui_install_plan.scm
+```
+
+**Português.** Execute esses comandos separadamente para verificar os casos
+ignorados por falta de ferramentas na CI. O teste do Guix prepara a instalação
+em diretórios temporários e verifica os arquivos, o launcher e a propagação
+de falhas do processo filho.
+
 | Review layer | Public entry point | Scope and prerequisites |
 |---|---|---|
 | Source and licenses | `audit-licenses`, `source-audit`, `tests/test_source_only.sh` | Scan clean source representations and retain failures; generated binaries are not source. |
@@ -241,6 +258,7 @@ signed source, current CI and artifact checks.
 |---|---|---|
 | 5.2.10 source `31fb1d6`, [Linux CI](https://github.com/cristiancmoises/zupt/actions/runs/43746152365) and [native package CI](https://github.com/cristiancmoises/zupt/actions/runs/43746354466) | 13 Linux jobs and the two native Windows/macOS package jobs completed successfully. | Separate diagnostic jobs/wrappers were skipped; these results predate subsequent documentation changes. |
 | 5.2.10 source `31fb1d6`, local maintained formal checks | Six Frama-C targets and the five-source Jasmin gate completed within the recorded aggregate source check. | Only the models and assumptions above; optional/platform skips and final-artifact obligations remain separate. |
+| 5.2.10 follow-up at `7c7fff7`, Linux with Guix | Three ML-KEM-768 interoperability checks passed against OpenSSL 3.5.9. All 45 completion and manual-page checks passed with zero skips. The Nix and Guix recipes parsed, and the Guix staged CLI/GUI phase test passed. The ML-KEM and completion inputs match the release tag. | The separate bounded run of the full packaging suite timed out. External SDK/PQBOX and privileged loop-device cases were outside this follow-up. |
 | Earlier bounded continuous-fuzz campaign | Failed its resource limit; individual replay inputs later completed. | A replay is not a successful continuous campaign, and later passes do not reclassify that failure. |
 | Broader exploratory ANS table WP analysis | Incomplete: timeouts and warnings remained. | Not a general decoder/table proof; unproved invariants remain open. |
 | 5.2.2–5.2.7 candidates | Not promoted after the recorded source-policy, service-directory or native fixture failures/cancellations. | Immutable historical candidates, not substitutes for current source or package evidence. |
