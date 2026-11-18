@@ -36,14 +36,28 @@ Native packages are `zupt_5.2.10_amd64.deb`, CLI binary/source RPMs
 `zupt-gui-5.2.10-1.{noarch,src}.rpm`. Do not install an SRPM as a binary package.
 AppImage, AppDir, Flatpak and platform GUI installers are not in this delivery.
 
-Verify the registered signing fingerprint through an independently trusted
-channel: `0CFA43B9AA9642EAAF2BE983C4C661C9ECFB46E8`. Import the
-confirmed `release-key.asc`, then verify the inventory before unpacking:
+In an empty directory, save your package, the [SHA-256 checksum list](https://github.com/cristiancmoises/zupt/releases/download/v5.2.10/SHA256SUMS),
+its [detached signature](https://github.com/cristiancmoises/zupt/releases/download/v5.2.10/SHA256SUMS.asc),
+and the [public signing key](https://github.com/cristiancmoises/zupt/releases/download/v5.2.10/release-key.asc).
+The [Codeberg release](https://codeberg.org/berkeley/zupt/releases/tag/v5.2.10) provides the same files.
+
+Run `gpg --show-keys --fingerprint release-key.asc`. Confirm that the file contains one
+public key and verify its full fingerprint through an independently trusted channel. The expected fingerprint is
+`0CFA43B9AA9642EAAF2BE983C4C661C9ECFB46E8`.
+Then verify the signed list and the file you downloaded. This example checks the source bundle.
 
 ```sh
-gpg --verify SHA256SUMS.asc SHA256SUMS
-sha256sum --check SHA256SUMS
-zupt test zupt-5.2.10-source.zupt
+gpg --dearmor --output release-key.gpg release-key.asc &&
+gpgv --keyring ./release-key.gpg SHA256SUMS.asc SHA256SUMS &&
+awk '$2 == "zupt-5.2.10-source.zupt"' SHA256SUMS | sha256sum --check -
+```
+
+To check another package against the verified list, repeat the last line with its exact filename inside the double quotes.
+If you downloaded all packages and the public key, `sha256sum --check SHA256SUMS` checks all 12 entries.
+Once the source bundle reports `OK`, test and extract it.
+
+```sh
+zupt test zupt-5.2.10-source.zupt &&
 zupt extract -o source-check zupt-5.2.10-source.zupt
 ```
 

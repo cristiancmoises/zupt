@@ -244,14 +244,28 @@ da GUI. O frontend contém fonte/scripts, não Python, Qt ou CLI empacotados.
 DEB/RPM/SRPM da CLI e da GUI mantêm seus formatos nativos. A lista exata está em
 [README.pt-BR.md](README.pt-BR.md); o antigo conjunto de 13 arquivos é histórico.
 
-Verifique a chave atual por um canal independente:
-`0CFA43B9AA9642EAAF2BE983C4C661C9ECFB46E8`. Depois de importar a chave pública
-confirmada, valide o inventário e extraia com um desktop Zupt confiável:
+Em um diretório vazio, salve o pacote, a [lista de hashes SHA-256](https://github.com/cristiancmoises/zupt/releases/download/v5.2.10/SHA256SUMS),
+a [assinatura da lista](https://github.com/cristiancmoises/zupt/releases/download/v5.2.10/SHA256SUMS.asc)
+e a [chave pública](https://github.com/cristiancmoises/zupt/releases/download/v5.2.10/release-key.asc).
+Os mesmos arquivos estão na [release do Codeberg](https://codeberg.org/berkeley/zupt/releases/tag/v5.2.10).
+
+Execute `gpg --show-keys --fingerprint release-key.asc`. Confira se o arquivo contém uma única
+chave pública e confirme a impressão digital completa por um canal independente de confiança. A impressão digital esperada é
+`0CFA43B9AA9642EAAF2BE983C4C661C9ECFB46E8`.
+Em seguida, verifique a assinatura da lista e o hash do pacote baixado. Este exemplo verifica o código-fonte.
 
 ```sh
-gpg --verify SHA256SUMS.asc SHA256SUMS
-sha256sum --check SHA256SUMS
-zupt test zupt-5.2.10-source.zupt
+gpg --dearmor --output release-key.gpg release-key.asc &&
+gpgv --keyring ./release-key.gpg SHA256SUMS.asc SHA256SUMS &&
+awk '$2 == "zupt-5.2.10-source.zupt"' SHA256SUMS | sha256sum --check -
+```
+
+Para conferir outro pacote com a lista já verificada, repita a última linha com o nome exato do arquivo entre aspas duplas.
+Se baixou todos os pacotes e a chave pública, `sha256sum --check SHA256SUMS` verifica as 12 entradas.
+Quando o pacote de código-fonte retornar `OK`, teste e extraia o arquivo.
+
+```sh
+zupt test zupt-5.2.10-source.zupt &&
 zupt extract -o fonte-verificada zupt-5.2.10-source.zupt
 ```
 
