@@ -128,8 +128,11 @@ zupt compress demo/backup.zupt demo/input
 zupt list demo/backup.zupt
 zupt test demo/backup.zupt
 zupt extract -o demo/restored demo/backup.zupt
-cmp demo/input/leia.txt demo/restored/leia.txt
+cmp demo/input/leia.txt demo/restored/demo/input/leia.txt
 ```
+
+A extração preserva o caminho arquivado `demo/input` dentro do diretório de destino.
+Para usar uma única thread na extração, acrescente `-t 1` a `zupt extract`. Execute `zupt test` sem essa opção.
 
 Use `zupt --help` e `man zupt` para consultar todas as opções. Mantenha
 senhas fora do histórico e da lista de processos:

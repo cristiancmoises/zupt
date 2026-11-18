@@ -127,8 +127,11 @@ zupt compress demo/backup.zupt demo/input
 zupt list demo/backup.zupt
 zupt test demo/backup.zupt
 zupt extract -o demo/restored demo/backup.zupt
-cmp demo/input/readme.txt demo/restored/readme.txt
+cmp demo/input/readme.txt demo/restored/demo/input/readme.txt
 ```
+
+Extraction preserves the archived path `demo/input` under the output directory.
+For single-threaded extraction, add `-t 1` to `zupt extract`. Run `zupt test` without a thread option.
 
 Use `zupt --help` and `man zupt` for the complete option set. Keep passwords
 out of shell history and process listings:

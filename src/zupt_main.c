@@ -646,7 +646,7 @@ static void usage(void) {
         "  --pq-box <privkey>    Post-quantum sealed-box decryption (libpqvaptvupt)\n"
         "  --allow-legacy-no-ait  Accept a trusted old archive without its integrity trailer\n"
         "  -v, --verbose         Verbose output\n"
-        "  -t, --threads <N>     Thread count for decompression\n"
+        "  -t, --threads <N>     Thread count for decompression (extract only)\n"
         "\n"
         "Keygen Options:\n"
         "  -o <file>             Output keyfile path (required)\n"

@@ -33,7 +33,7 @@ echo "Help consistency"
 # Each fprintf-passed string literal (after adjacent concatenation)
 # must be under C99's 4095-char limit. We use a python helper to
 # walk fprintf(...) calls and measure the concatenated literal.
-python3 > /tmp/usage_size_check.txt <<'PYEOF'
+RES=$(python3 <<'PYEOF'
 import re
 src = open('src/zupt_main.c').read()
 pattern = re.compile(r'fprintf\(\s*\w+\s*,\s*((?:"(?:[^"\\]|\\.)*"\s*)+)', re.S)
@@ -52,7 +52,7 @@ if worst >= 4095:
 else:
     print(f"PASS:{worst}:{worst_lineno}")
 PYEOF
-RES=$(tail -1 /tmp/usage_size_check.txt)
+)
 if [[ "$RES" == PASS:* ]]; then
     L=${RES#PASS:}; L=${L%:*}
     P "usage() string literals are under C99 4095-char limit (worst: $L chars)"
@@ -129,6 +129,13 @@ if echo "$HELP" | grep -qE "Format:\s+v1\.6"; then
     P "help reports the correct format version (v1.6)"
 else
     F "help doesn't report the correct format version"
+fi
+
+# The list and test parsers reject the thread option in this shared help section.
+if grep -Eq -- '--threads <N>.*decompression.*extract only' <<< "$HELP"; then
+    P "help scopes decompression threads to extract"
+else
+    F "help must identify decompression threads as extract only"
 fi
 
 # ─── Functional check: help command works ───
